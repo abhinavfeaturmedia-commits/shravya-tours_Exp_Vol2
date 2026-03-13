@@ -96,7 +96,7 @@ export const Packages: React.FC = () => {
         description="Explore curated tour packages for the modern traveler. Find adventures, honeymoons, family trips, and more."
       />
 
-      <div className="bg-slate-50 dark:bg-[#0B1116] min-h-screen pt-24 md:pt-28 pb-20">
+      <div className="bg-slate-50 dark:bg-[#0B1116] min-h-screen pt-24 md:pt-28 pb-32 md:pb-20">
 
         <div className="container mx-auto px-4 md:px-8 relative">
           {/* Header Section */}

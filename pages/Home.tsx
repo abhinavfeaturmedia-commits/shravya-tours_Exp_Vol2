@@ -103,8 +103,8 @@ export const Home: React.FC = () => {
           {/* Booking Widget */}
           <div className="w-full max-w-6xl mt-4 animate-in slide-in-from-bottom-10 duration-1000 delay-200">
             {/* Tabs */}
-            <div className="flex justify-center mb-8">
-              <div className="bg-black/30 backdrop-blur-md p-1.5 rounded-full inline-flex border border-white/10 shadow-xl overflow-x-auto max-w-full">
+            <div className="flex justify-center mb-8 px-4 w-full overflow-hidden">
+              <div className="bg-black/30 backdrop-blur-md p-1.5 rounded-full inline-flex flex-nowrap max-w-full overflow-x-auto [-ms-scrollbar-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden border border-white/10 shadow-xl touch-pan-x snap-x snap-mandatory">
                 {[
                   { id: 'hotel-booking', icon: 'hotel', label: 'Hotels' },
                   { id: 'tour-packages', icon: 'luggage', label: 'Tours' },

@@ -205,7 +205,7 @@ export const PackageDetail: React.FC = () => {
         image={tour.image}
       />
 
-      <div className="bg-white dark:bg-[#0B1116] min-h-screen pb-32 md:pb-20 relative pt-24 md:pt-28">
+      <div className="bg-white dark:bg-[#0B1116] min-h-screen pb-40 md:pb-20 relative pt-24 md:pt-28">
 
         {/* Lightbox Modal */}
         {isLightboxOpen && (
@@ -377,7 +377,7 @@ export const PackageDetail: React.FC = () => {
           </div>
 
           {/* Gallery Grid - Masonry Style */}
-          <div className="grid grid-cols-1 md:grid-cols-4 grid-rows-2 gap-4 h-[400px] md:h-[500px] mb-16 rounded-[2.5rem] overflow-hidden shadow-2xl shadow-slate-200/50 dark:shadow-none">
+          <div className="grid grid-cols-1 md:grid-cols-4 grid-rows-2 gap-4 h-[300px] md:h-[500px] mb-16 rounded-[2.5rem] overflow-hidden shadow-2xl shadow-slate-200/50 dark:shadow-none">
             <div className="md:col-span-2 md:row-span-2 relative group cursor-pointer overflow-hidden" onClick={() => openLightbox(0)}>
               <OptimizedImage src={tour.gallery[0]} alt="Main" className="absolute inset-0 w-full h-full transition-transform duration-700 group-hover:scale-105" />
               <div className="absolute inset-0 bg-black/10 group-hover:bg-transparent transition-colors"></div>

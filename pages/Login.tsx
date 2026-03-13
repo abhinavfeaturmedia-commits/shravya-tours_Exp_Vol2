@@ -18,15 +18,13 @@ export const Login: React.FC = () => {
         setLoading(true);
 
         try {
-            const success = await login(email, password);
+            const success = await login(email.trim(), password);
             if (success) {
                 toast.success("Welcome back!");
                 navigate(from, { replace: true });
-            } else {
-                toast.error("Invalid credentials");
             }
-        } catch (err) {
-            toast.error("Login failed");
+        } catch (err: any) {
+            toast.error(err.message || "Invalid credentials");
         } finally {
             setLoading(false);
         }

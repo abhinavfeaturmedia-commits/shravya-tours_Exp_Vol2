@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useAuth, DEFAULT_PERMISSIONS } from '../../context/AuthContext';
 import { toast } from '../../components/ui/Toast';
 import { StaffMember, StaffPermissions } from '../../types';
+import { api } from '../../src/lib/api';
 
 export const StaffManagement: React.FC = () => {
     const { staff, addStaff, updateStaff, deleteStaff, currentUser, masqueradeAs } = useAuth();
@@ -115,7 +116,8 @@ export const StaffManagement: React.FC = () => {
         e.preventDefault();
 
         // Check for duplicate email (exclude self if editing)
-        if (staff.some(s => s.email.toLowerCase() === formData.email.toLowerCase() && s.id !== editingId)) {
+        const trimmedEmail = formData.email.trim();
+        if (staff.some(s => s.email.toLowerCase() === trimmedEmail.toLowerCase() && s.id !== editingId)) {
             toast.error('A staff member with this email already exists.');
             return;
         }
@@ -177,12 +179,11 @@ export const StaffManagement: React.FC = () => {
                 await updateStaff(editingId, staffData);
                 toast.success('Staff member updated successfully');
             } else {
-                const newMember: StaffMember = {
-                    id: Date.now(),
+                const newMember = {
                     ...staffData,
                     lastActive: 'Never',
                 };
-                await addStaff(newMember, password);
+                await addStaff(newMember as any, password);
                 toast.success('New staff member added');
             }
             setIsModalOpen(false);
@@ -445,6 +446,24 @@ export const StaffManagement: React.FC = () => {
                                 <label htmlFor="sendMail" className="text-xs text-slate-500">Reset and send temporary password to mail</label>
                             </div>
                             <div className="flex gap-3">
+                                {currentUser?.userType === 'Admin' && (
+                                    <button
+                                        type="button"
+                                        onClick={async () => {
+                                            try {
+                                                const res = await api.syncStaffAuth();
+                                                toast.success(res.message || 'Sync successful');
+                                            } catch (err: any) {
+                                                toast.error(err.message || 'Sync failed');
+                                            }
+                                        }}
+                                        className="px-4 py-2 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg transition-colors flex items-center gap-2"
+                                        title="Ensure all staff have login accounts"
+                                    >
+                                        <span className="material-symbols-outlined text-[18px]">sync</span>
+                                        Sync Accounts
+                                    </button>
+                                )}
                                 <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-slate-500 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">Cancel</button>
                                 <button type="submit" form="staffForm" className="px-6 py-2 bg-primary text-white font-bold rounded-lg shadow-lg shadow-primary/20 hover:bg-primary-dark transition-colors">{isEditing ? 'Save' : 'Save'}</button>
                             </div>

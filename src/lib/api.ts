@@ -1,6 +1,46 @@
-import { supabase } from './supabase';
 import imageCompression from 'browser-image-compression';
 import { Package, Booking, Lead, BookingStatus, StaffMember, Customer, MasterRoomType, MasterMealPlan, MasterActivity, MasterTransport, MasterPlan, MasterLeadSource, MasterTermsTemplate, CMSBanner, CMSTestimonial, CMSGalleryImage, CMSPost, FollowUp, Proposal, DailyTarget, TimeSession, AssignmentRule, UserActivity, Campaign, MasterHotel, Task, AuditLog } from '../../types';
+
+// ─── BASE API URL ───
+const API_BASE = import.meta.env.PROD ? '' : (import.meta.env.VITE_API_URL || `http://${window.location.hostname}:5000`);
+
+// ─── Fetch Helper ───
+async function fetchApi(path: string, options: RequestInit = {}): Promise<any> {
+    const token = localStorage.getItem('shravya_jwt');
+    const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        ...(options.headers as Record<string, string> || {}),
+    };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+
+    if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.error || errBody.message || `API Error: ${res.status}`);
+    }
+    return res.json();
+}
+
+// CRUD helpers
+const crud = {
+    getAll: (table: string, opts?: { order?: string; asc?: boolean; limit?: number; filters?: Record<string, string> }) => {
+        const params = new URLSearchParams();
+        if (opts?.order) params.set('order', opts.order);
+        if (opts?.asc !== undefined) params.set('asc', String(opts.asc));
+        if (opts?.limit) params.set('limit', String(opts.limit));
+        if (opts?.filters) {
+            Object.entries(opts.filters).forEach(([k, v]) => params.set(`eq_${k}`, v));
+        }
+        const qs = params.toString();
+        return fetchApi(`/api/crud/${table}${qs ? `?${qs}` : ''}`);
+    },
+    getOne: (table: string, id: string | number) => fetchApi(`/api/crud/${table}/${id}`),
+    create: (table: string, body: any) => fetchApi(`/api/crud/${table}`, { method: 'POST', body: JSON.stringify(body) }),
+    update: (table: string, id: string | number, body: any) => fetchApi(`/api/crud/${table}/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+    remove: (table: string, id: string | number) => fetchApi(`/api/crud/${table}/${id}`, { method: 'DELETE' }),
+    upsert: (table: string, body: any) => fetchApi(`/api/crud/${table}/upsert`, { method: 'POST', body: JSON.stringify(body) }),
+};
 
 // --- IMAGE COMPRESSION UTILITY ---
 const MAX_FILE_SIZE_KB = 800;
@@ -8,31 +48,25 @@ const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_KB * 1024;
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
 async function compressImageFile(file: File): Promise<File> {
-    // Skip non-image files
     if (!IMAGE_TYPES.includes(file.type)) return file;
-
-    // Skip if already under target size
     if (file.size <= MAX_FILE_SIZE_BYTES) {
         console.log(`[Compress] Skipped: ${file.name} is already ${(file.size / 1024).toFixed(0)}KB`);
         return file;
     }
-
     console.log(`[Compress] Compressing ${file.name}: ${(file.size / 1024).toFixed(0)}KB → target <${MAX_FILE_SIZE_KB}KB`);
-
     const options = {
-        maxSizeMB: MAX_FILE_SIZE_KB / 1024, // 0.8 MB
+        maxSizeMB: MAX_FILE_SIZE_KB / 1024,
         maxWidthOrHeight: 1920,
         useWebWorker: true,
-        fileType: file.type === 'image/png' ? 'image/webp' as const : undefined, // Convert PNG to WebP for better compression
+        fileType: file.type === 'image/png' ? 'image/webp' as const : undefined,
     };
-
     try {
         const compressed = await imageCompression(file, options);
         console.log(`[Compress] Done: ${(file.size / 1024).toFixed(0)}KB → ${(compressed.size / 1024).toFixed(0)}KB (${((1 - compressed.size / file.size) * 100).toFixed(0)}% smaller)`);
         return compressed;
     } catch (err) {
         console.warn('[Compress] Compression failed, uploading original:', err);
-        return file; // Fallback to original if compression fails
+        return file;
     }
 }
 
@@ -46,8 +80,8 @@ const mapPackage = (row: any): Package => ({
     price: row.price,
     image: row.image || '',
     remainingSeats: row.remaining_seats,
-    highlights: (row.features || []).map((f: string) => ({ icon: 'star', label: f })), // Legacy array of strings
-    itinerary: [], // Requires separate fetch or JSON column parsing if implemented
+    highlights: (row.features || []).map((f: string) => ({ icon: 'star', label: f })),
+    itinerary: [],
     gallery: [],
     theme: row.theme || 'Tour',
     overview: row.overview || row.description || '',
@@ -61,20 +95,11 @@ const mapPackage = (row: any): Package => ({
 export const api = {
     // --- PACKAGES ---
     getPackages: async (): Promise<Package[]> => {
-        const { data, error } = await supabase
-            .from('packages')
-            .select('*')
-            .order('created_at', { ascending: false });
-
-        if (error) {
-            console.error('API Error (getPackages):', error);
-            throw new Error(error.message || 'Failed to fetch packages');
-        }
+        const { data } = await crud.getAll('packages', { order: 'created_at', asc: false });
         return (data || []).map(mapPackage);
     },
 
     createPackage: async (pkg: Partial<Package>) => {
-        // Map App type to DB columns
         const dbPkg = {
             title: pkg.title,
             description: pkg.description,
@@ -93,12 +118,7 @@ export const api = {
             not_included: pkg.notIncluded || [],
             builder_data: pkg.builderData
         };
-
-        const { data, error } = await supabase.from('packages').insert(dbPkg).select().single();
-        if (error) {
-            console.error('API Error (createPackage):', error);
-            throw new Error(error.message || 'Failed to create package');
-        }
+        const { data } = await crud.create('packages', dbPkg);
         return mapPackage(data);
     },
 
@@ -120,56 +140,49 @@ export const api = {
         if (pkg.included !== undefined) dbPkg.included = pkg.included;
         if (pkg.notIncluded !== undefined) dbPkg.not_included = pkg.notIncluded;
         if (pkg.builderData !== undefined) dbPkg.builder_data = pkg.builderData;
-
-        const { error } = await supabase.from('packages').update(dbPkg).eq('id', id);
-        if (error) {
-            console.error(`API Error (updatePackage ${id}):`, error);
-            throw new Error(error.message || 'Failed to update package');
-        }
+        await crud.update('packages', id, dbPkg);
     },
 
     deletePackage: async (id: string) => {
-        const { error } = await supabase.from('packages').delete().eq('id', id);
-        if (error) {
-            console.error(`API Error (deletePackage ${id}):`, error);
-            throw new Error(error.message || 'Failed to delete package');
-        }
+        await crud.remove('packages', id);
     },
 
     // --- TRANSACTIONS & SYSTEM ---
     generateInvoiceNumber: async (type: string): Promise<string> => {
-        const { data, error } = await supabase.rpc('generate_invoice_number', { param_type: type });
-        if (error) {
-            console.error('API Error (generateInvoiceNumber):', error);
-            throw new Error(error.message || 'Failed to generate invoice number');
-        }
-        return (data || []) as string;
+        // Simple client-side implementation since we don't have Supabase RPC
+        const prefix = type === 'booking' ? 'INV' : 'TXN';
+        const timestamp = Date.now().toString(36).toUpperCase();
+        return `${prefix}-${timestamp}`;
     },
 
     bookInventorySlot: async (dateStr: string, paxCount: number): Promise<void> => {
-        const { data, error } = await supabase.rpc('book_inventory_slot', { p_date: dateStr, p_pax_count: paxCount });
-        if (error) {
-            console.error('API Error (bookInventorySlot RPC):', error);
-            throw new Error(error.message || 'Failed to lock inventory');
-        }
-        if (data && !data.success) {
-            throw new Error(data.error || 'Inventory locking failed');
+        // Fetch current inventory, update booked count
+        try {
+            const { data } = await crud.getAll('daily_inventory', { filters: { date: dateStr } });
+            if (data && data.length > 0) {
+                const slot = data[0];
+                if (slot.booked + paxCount > slot.capacity) throw new Error('Not enough capacity');
+                await crud.update('daily_inventory', slot.id, { booked: slot.booked + paxCount });
+            }
+        } catch (err: any) {
+            throw new Error(err.message || 'Failed to lock inventory');
         }
     },
 
     unlockInventorySlot: async (dateStr: string, paxCount: number): Promise<void> => {
-        const { data, error } = await supabase.rpc('unlock_inventory_slot', { p_date: dateStr, p_pax_count: paxCount });
-        if (error) {
-            console.error('API Error (unlockInventorySlot RPC):', error);
-            throw new Error(error.message || 'Failed to unlock inventory');
-        }
-        if (data && !data.success) {
-            throw new Error(data.error || 'Inventory unlocking failed');
+        try {
+            const { data } = await crud.getAll('daily_inventory', { filters: { date: dateStr } });
+            if (data && data.length > 0) {
+                const slot = data[0];
+                await crud.update('daily_inventory', slot.id, { booked: Math.max(0, slot.booked - paxCount) });
+            }
+        } catch (err: any) {
+            throw new Error(err.message || 'Failed to unlock inventory');
         }
     },
 
     createBookingTransaction: async (bookingId: string, tx: any) => {
-        const { error } = await supabase.from('booking_transactions').insert({
+        await crud.create('booking_transactions', {
             booking_id: bookingId,
             date: tx.date,
             amount: tx.amount,
@@ -178,14 +191,10 @@ export const api = {
             reference: tx.reference,
             notes: tx.notes
         });
-        if (error) {
-            console.error('API Error (createBookingTransaction):', error);
-            throw new Error(error.message || 'Failed to save booking transaction');
-        }
     },
 
     createAccountTransaction: async (accountId: string, tx: any) => {
-        const { error } = await supabase.from('account_transactions').insert({
+        await crud.create('account_transactions', {
             account_id: accountId,
             date: tx.date,
             amount: tx.amount,
@@ -194,110 +203,68 @@ export const api = {
             description: tx.description,
             reference: tx.reference
         });
-        if (error) {
-            console.error('API Error (createAccountTransaction):', error);
-            throw new Error(error.message || 'Failed to save account transaction');
-        }
     },
 
     updateAccountTransactionStatus: async (txId: string, status: string) => {
-        const { error } = await supabase.from('account_transactions').update({ status }).eq('id', txId);
-        if (error) {
-            console.error('API Error (updateAccountTransactionStatus):', error);
-            throw new Error(error.message || 'Failed to update transaction status');
-        }
+        await crud.update('account_transactions', txId, { status });
     },
 
     // --- BOOKINGS ---
     getBookings: async (limit: number = 100): Promise<Booking[]> => {
-        const { data, error } = await supabase
-            .from('bookings')
-            .select('*, packages(title)')
-            .order('created_at', { ascending: false })
-            .limit(limit);
-
-        if (error) {
-            console.error('API Error (getBookings):', error);
-            throw new Error(error.message || 'Failed to fetch bookings');
-        }
-
+        const { data } = await fetchApi(`/api/bookings-with-package`);
         return (data || []).map((row: any) => ({
             id: row.id,
-            type: 'Tour', // Default
+            type: 'Tour',
             customer: row.customer_name,
             email: row.email,
             phone: row.phone,
-            title: row.packages?.title || 'Unknown Package',
+            title: row.package_title || 'Unknown Package',
             date: row.date,
             amount: row.amount,
             status: row.status as BookingStatus,
             payment: row.payment_status === 'Paid' ? 'Paid' : 'Unpaid',
-
             packageId: row.package_id,
-            invoiceNo: row.invoice_no // Map from DB
+            invoiceNo: row.invoice_no
         }));
     },
 
     createBooking: async (booking: Partial<Booking>) => {
-        const { data, error } = await supabase.from('bookings').insert({
+        const { data } = await crud.create('bookings', {
             customer_name: booking.customer,
             email: booking.email,
             phone: booking.phone,
-            date: booking.date, // Ensure YYYY-MM-DD
+            date: booking.date,
             amount: booking.amount,
             package_id: booking.packageId,
             status: 'Pending',
             payment_status: 'Unpaid',
-            invoice_no: booking.invoiceNo // Attempt to save invoice number
-        }).select().single();
-
-        if (error) {
-            console.error('API Error (createBooking):', error);
-            throw new Error(error.message || 'Failed to create booking');
-        }
+            invoice_no: booking.invoiceNo
+        });
         return data;
     },
 
     updateBookingStatus: async (id: string, status: string) => {
-        const { error } = await supabase.from('bookings').update({ status }).eq('id', id);
-        if (error) {
-            console.error(`API Error (updateBookingStatus ${id}):`, error);
-            throw new Error(error.message || 'Failed to update booking status');
-        }
+        await crud.update('bookings', id, { status });
     },
 
     updateBooking: async (id: string, updates: Partial<Booking>) => {
-        const { error } = await supabase.from('bookings').update({
+        await crud.update('bookings', id, {
             customer_name: updates.customer,
             email: updates.email,
             phone: updates.phone,
             date: updates.date,
             amount: updates.amount,
             package_id: updates.packageId
-        }).eq('id', id);
-
-        if (error) {
-            console.error(`API Error (updateBooking ${id}):`, error);
-            throw new Error(error.message || 'Failed to update booking');
-        }
+        });
     },
 
     deleteBooking: async (id: string) => {
-        const { error } = await supabase.from('bookings').delete().eq('id', id);
-        if (error) {
-            console.error(`API Error (deleteBooking ${id}):`, error);
-            throw new Error(error.message || 'Failed to delete booking');
-        }
+        await crud.remove('bookings', id);
     },
 
     // --- LEADS ---
     getLeads: async (limit: number = 100): Promise<Lead[]> => {
-        const { data, error } = await supabase.from('leads').select('*, lead_logs(*)').order('created_at', { ascending: false }).limit(limit);
-        if (error) {
-            console.error('API Error (getLeads):', error);
-            throw new Error(error.message || 'Failed to fetch leads');
-        }
-
+        const { data } = await fetchApi('/api/leads-with-logs');
         return (data || []).map((row: any) => ({
             id: row.id,
             name: row.name,
@@ -336,7 +303,7 @@ export const api = {
     },
 
     createLead: async (lead: Partial<Lead>) => {
-        const { error } = await supabase.from('leads').insert({
+        await crud.create('leads', {
             name: lead.name,
             email: lead.email,
             phone: lead.phone,
@@ -361,10 +328,6 @@ export const api = {
             pax_child: lead.paxChild,
             pax_infant: lead.paxInfant
         });
-        if (error) {
-            console.error('API Error (createLead):', error);
-            throw new Error(error.message || 'Failed to create lead');
-        }
     },
 
     updateLead: async (id: string, updates: Partial<Lead>) => {
@@ -391,28 +354,15 @@ export const api = {
         if (updates.paxAdult !== undefined) dbUpdates.pax_adult = updates.paxAdult;
         if (updates.paxChild !== undefined) dbUpdates.pax_child = updates.paxChild;
         if (updates.paxInfant !== undefined) dbUpdates.pax_infant = updates.paxInfant;
-
-        const { error } = await supabase.from('leads').update(dbUpdates).eq('id', id);
-        if (error) {
-            console.error(`API Error (updateLead ${id}):`, error);
-            throw new Error(error.message || 'Failed to update lead');
-        }
+        await crud.update('leads', id, dbUpdates);
     },
 
     deleteLead: async (id: string) => {
-        const { error } = await supabase.from('leads').delete().eq('id', id);
-        if (error) {
-            console.error(`API Error (deleteLead ${id}):`, error);
-            throw new Error(error.message || 'Failed to delete lead');
-        }
+        await crud.remove('leads', id);
     },
 
     getLeadLogs: async (leadId: string) => {
-        const { data, error } = await supabase.from('lead_logs').select('*').eq('lead_id', leadId).order('timestamp', { ascending: false });
-        if (error) {
-            console.error(`API Error (getLeadLogs ${leadId}):`, error);
-            throw new Error(error.message || 'Failed to fetch lead logs');
-        }
+        const { data } = await crud.getAll('lead_logs', { order: 'timestamp', asc: false, filters: { lead_id: leadId } });
         return (data || []).map((row: any) => ({
             id: row.id,
             type: row.type,
@@ -422,30 +372,20 @@ export const api = {
     },
 
     createLeadLog: async (leadId: string, log: any) => {
-        const { error } = await supabase.from('lead_logs').insert({
+        await crud.create('lead_logs', {
             lead_id: leadId,
             type: log.type,
             content: log.content,
             timestamp: log.timestamp || new Date().toISOString()
         });
-        if (error) {
-            console.error('API Error (createLeadLog):', error);
-            throw new Error(error.message || 'Failed to create lead log');
-        }
     },
 
     // --- INVENTORY ---
     getInventory: async (): Promise<Record<number, any>> => {
-        // Fetch for current month/future. For MVP fetch all to map
-        const { data, error } = await supabase.from('daily_inventory').select('*');
-        if (error) {
-            console.error('API Error (getInventory):', error);
-            throw new Error(error.message || 'Failed to fetch inventory');
-        }
-
+        const { data } = await crud.getAll('daily_inventory');
         const inventoryMap: Record<number, any> = {};
-        data?.forEach((slot: any) => {
-            const day = new Date(slot.date).getDate(); // Simplified mapping
+        (data || []).forEach((slot: any) => {
+            const day = new Date(slot.date).getDate();
             inventoryMap[day] = {
                 date: day,
                 capacity: slot.capacity,
@@ -458,24 +398,12 @@ export const api = {
     },
 
     updateInventory: async (dateStr: string, updates: any) => {
-        // dateStr should be 'YYYY-MM-DD'
-        const { error } = await supabase.from('daily_inventory').upsert({
-            date: dateStr,
-            ...updates
-        });
-        if (error) {
-            console.error(`API Error (updateInventory ${dateStr}):`, error);
-            throw new Error(error.message || 'Failed to update inventory');
-        }
+        await crud.upsert('daily_inventory', { date: dateStr, ...updates });
     },
 
     // --- VENDORS ---
     getVendors: async () => {
-        const { data, error } = await supabase.from('vendors').select('*').order('created_at', { ascending: false });
-        if (error) {
-            console.error('API Error (getVendors):', error);
-            throw new Error(error.message || 'Failed to fetch vendors');
-        }
+        const { data } = await crud.getAll('vendors', { order: 'created_at', asc: false });
         return (data || []).map((v: any) => ({
             id: v.id,
             name: v.name,
@@ -491,28 +419,20 @@ export const api = {
     },
 
     createVendor: async (vendor: any) => {
-        const { data, error } = await supabase.from('vendors').insert({
+        const { data } = await crud.create('vendors', {
             name: vendor.name,
             category: vendor.category,
             location: vendor.location,
             contact_name: vendor.contactName,
             contact_phone: vendor.contactPhone,
             rating: vendor.rating
-        }).select().single();
-        if (error) {
-            console.error('API Error (createVendor):', error);
-            throw new Error(error.message || 'Failed to create vendor');
-        }
+        });
         return data;
     },
 
     // --- ACCOUNTS ---
     getAccounts: async () => {
-        const { data, error } = await supabase.from('accounts').select('*, account_transactions(*)').order('created_at', { ascending: false });
-        if (error) {
-            console.error('API Error (getAccounts):', error);
-            throw new Error(error.message || 'Failed to fetch accounts');
-        }
+        const { data } = await fetchApi('/api/accounts-with-transactions');
         return (data || []).map((a: any) => ({
             id: a.id,
             name: a.name,
@@ -540,33 +460,23 @@ export const api = {
         const dbUpdates: any = {};
         if (updates.status !== undefined) dbUpdates.status = updates.status;
         if (updates.currentBalance !== undefined) dbUpdates.current_balance = updates.currentBalance;
-
-        const { error } = await supabase.from('accounts').update(dbUpdates).eq('id', id);
-        if (error) throw new Error(error.message || 'Failed to update account');
+        await crud.update('accounts', id, dbUpdates);
     },
 
     createAccount: async (acc: any) => {
-        const { data, error } = await supabase.from('accounts').insert({
+        const { data } = await crud.create('accounts', {
             name: acc.name,
             company_name: acc.companyName,
             type: acc.type,
             email: acc.email,
             phone: acc.phone
-        }).select().single();
-        if (error) {
-            console.error('API Error (createAccount):', error);
-            throw new Error(error.message || 'Failed to create account');
-        }
+        });
         return data;
     },
 
     // --- STAFF ---
     getStaff: async (): Promise<StaffMember[]> => {
-        const { data, error } = await supabase.from('staff_members').select('*').order('created_at', { ascending: false });
-        if (error) {
-            console.error('API Error (getStaff):', error);
-            throw new Error(error.message || 'Failed to fetch staff');
-        }
+        const { data } = await crud.getAll('staff_members', { order: 'created_at', asc: false });
         return (data || []).map((s: any) => ({
             id: s.id,
             name: s.name,
@@ -577,64 +487,81 @@ export const api = {
             status: s.status,
             initials: s.initials,
             color: s.color,
-            permissions: s.permissions,
+            permissions: typeof s.permissions === 'string' ? JSON.parse(s.permissions) : s.permissions,
             queryScope: s.query_scope,
             whatsappScope: s.whatsapp_scope,
-            lastActive: s.last_active
+            lastActive: s.last_active,
+            phone: s.phone
         }));
     },
 
     getStaffByEmail: async (email: string): Promise<StaffMember | null> => {
-        const { data, error } = await supabase.from('staff_members').select('*').eq('email', email).single();
-        if (error) {
-            if (error.code === 'PGRST116') return null; // Not found
-            throw error;
-        }
+        const { data } = await crud.getAll('staff_members', { filters: { email } });
+        if (!data || data.length === 0) return null;
+        const s = data[0];
         return {
-            id: data.id,
-            name: data.name,
-            email: data.email,
-            role: data.role,
-            userType: data.user_type,
-            department: data.department,
-            status: data.status,
-            initials: data.initials,
-            color: data.color,
-            permissions: data.permissions,
-            queryScope: data.query_scope,
-            whatsappScope: data.whatsapp_scope,
-            lastActive: data.last_active
+            id: s.id,
+            name: s.name,
+            email: s.email,
+            role: s.role,
+            userType: s.user_type,
+            department: s.department,
+            status: s.status,
+            initials: s.initials,
+            color: s.color,
+            permissions: typeof s.permissions === 'string' ? JSON.parse(s.permissions) : s.permissions,
+            queryScope: s.query_scope,
+            whatsappScope: s.whatsapp_scope,
+            lastActive: s.last_active,
+            phone: s.phone
         };
     },
 
     createStaff: async (staff: Partial<StaffMember>, password?: string) => {
-        // 1. If password provided, create Auth User via Edge Function
-        if (password) {
-            try {
-                const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-user`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
-                    },
-                    body: JSON.stringify({ email: staff.email, password, role: staff.role })
-                });
+        const trimmedEmail = staff.email?.trim();
 
-                if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}));
-                    console.error('API Error (create-user HTTP):', response.status, errorData);
-                    throw new Error(errorData.error || `Failed to create auth user (Status: ${response.status})`);
-                }
-            } catch (err: any) {
-                console.error('API Error (create-user edge function fetch):', err);
-                throw new Error(err.message || 'Failed to connect to auth service');
-            }
+        // Use atomic endpoint when password is provided (new staff creation with login)
+        if (password) {
+            const payload = {
+                email: trimmedEmail,
+                password,
+                name: staff.name,
+                role: staff.role,
+                user_type: staff.userType,
+                department: staff.department,
+                status: staff.status,
+                initials: staff.initials,
+                color: staff.color,
+                permissions: staff.permissions,
+                query_scope: staff.queryScope,
+                whatsapp_scope: staff.whatsappScope,
+                phone: (staff as any).phone
+            };
+            const { data } = await fetchApi('/api/staff/create', {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            });
+            return {
+                id: data.id,
+                name: data.name,
+                email: data.email,
+                role: data.role,
+                userType: data.user_type,
+                department: data.department,
+                status: data.status,
+                initials: data.initials,
+                color: data.color,
+                permissions: typeof data.permissions === 'string' ? JSON.parse(data.permissions) : data.permissions,
+                queryScope: data.query_scope,
+                whatsappScope: data.whatsapp_scope,
+                lastActive: data.last_active
+            };
         }
 
-        // 2. Create Staff Profile
-        const { data, error } = await supabase.from('staff_members').insert({
+        // No password: just create staff record (auto-create scenario)
+        const staffPayload = {
             name: staff.name,
-            email: staff.email,
+            email: trimmedEmail,
             role: staff.role,
             user_type: staff.userType,
             department: staff.department,
@@ -644,14 +571,10 @@ export const api = {
             permissions: staff.permissions,
             query_scope: staff.queryScope,
             whatsapp_scope: staff.whatsappScope
-        }).select().single();
+        };
 
-        if (error) {
-            console.error('API Error (createStaff record):', error);
-            throw new Error(error.message || 'Failed to create staff record');
-        }
+        const { data } = await crud.create('staff_members', staffPayload);
 
-        // Map response to StaffMember type
         return {
             id: data.id,
             name: data.name,
@@ -662,11 +585,16 @@ export const api = {
             status: data.status,
             initials: data.initials,
             color: data.color,
-            permissions: data.permissions,
+            permissions: typeof data.permissions === 'string' ? JSON.parse(data.permissions) : data.permissions,
             queryScope: data.query_scope,
             whatsappScope: data.whatsapp_scope,
             lastActive: data.last_active
         };
+    },
+
+
+    syncStaffAuth: async () => {
+        return fetchApi('/api/admin/sync-staff-auth', { method: 'POST' });
     },
 
     updateStaff: async (id: number, updates: Partial<StaffMember>) => {
@@ -674,30 +602,16 @@ export const api = {
         if (updates.name) dbUpdates.name = updates.name;
         if (updates.role) dbUpdates.role = updates.role;
         if (updates.permissions) dbUpdates.permissions = updates.permissions;
-        // ... map other fields
-
-        const { error } = await supabase.from('staff_members').update(dbUpdates).eq('id', id);
-        if (error) {
-            console.error(`API Error (updateStaff ${id}):`, error);
-            throw new Error(error.message || 'Failed to update staff member');
-        }
+        await crud.update('staff_members', id, dbUpdates);
     },
 
     deleteStaff: async (id: number) => {
-        const { error } = await supabase.from('staff_members').delete().eq('id', id);
-        if (error) {
-            console.error(`API Error (deleteStaff ${id}):`, error);
-            throw new Error(error.message || 'Failed to delete staff member');
-        }
+        await crud.remove('staff_members', id);
     },
 
     // --- CUSTOMERS ---
     getCustomers: async (): Promise<Customer[]> => {
-        const { data, error } = await supabase.from('customers').select('*').order('created_at', { ascending: false });
-        if (error) {
-            console.error('API Error (getCustomers):', error);
-            throw new Error(error.message || 'Failed to fetch customers');
-        }
+        const { data } = await crud.getAll('customers', { order: 'created_at', asc: false });
         return (data || []).map((c: any) => ({
             id: c.id,
             name: c.name,
@@ -713,7 +627,7 @@ export const api = {
     },
 
     createCustomer: async (customer: Partial<Customer>) => {
-        const { data, error } = await supabase.from('customers').insert({
+        const { data } = await crud.create('customers', {
             name: customer.name,
             email: customer.email,
             phone: customer.phone,
@@ -722,11 +636,7 @@ export const api = {
             status: customer.status || 'Active',
             total_spent: customer.totalSpent || 0,
             bookings_count: customer.bookingsCount || 0
-        }).select().single();
-        if (error) {
-            console.error('API Error (createCustomer):', error);
-            throw new Error(error.message || 'Failed to create customer');
-        }
+        });
         return data;
     },
 
@@ -740,106 +650,64 @@ export const api = {
         if (updates.status !== undefined) dbUpdates.status = updates.status;
         if (updates.totalSpent !== undefined) dbUpdates.total_spent = updates.totalSpent;
         if (updates.bookingsCount !== undefined) dbUpdates.bookings_count = updates.bookingsCount;
-
-        const { error } = await supabase.from('customers').update(dbUpdates).eq('id', id);
-        if (error) {
-            console.error(`API Error (updateCustomer ${id}):`, error);
-            throw new Error(error.message || 'Failed to update customer');
-        }
+        await crud.update('customers', id, dbUpdates);
     },
 
     deleteCustomer: async (id: string) => {
-        const { error } = await supabase.from('customers').delete().eq('id', id);
-        if (error) {
-            console.error(`API Error (deleteCustomer ${id}):`, error);
-            throw new Error(error.message || 'Failed to delete customer');
-        }
+        await crud.remove('customers', id);
     },
 
     // --- CAMPAIGNS ---
     getCampaigns: async (): Promise<Campaign[]> => {
-        const { data, error } = await supabase.from('campaigns').select('*').order('created_at', { ascending: false });
-        if (error) {
-            console.error('API Error (getCampaigns):', error);
-            throw new Error(error.message || 'Failed to fetch campaigns');
-        }
+        const { data } = await crud.getAll('campaigns', { order: 'created_at', asc: false });
         return (data || []).map((c: any) => ({
             id: c.id,
             name: c.name,
             type: c.type,
             audience: c.audience,
             status: c.status,
-            metrics: c.metrics || { sent: 0, opened: 0, clicked: 0 }
+            metrics: typeof c.metrics === 'string' ? JSON.parse(c.metrics) : (c.metrics || { sent: 0, opened: 0, clicked: 0 })
         }));
     },
     createCampaign: async (campaign: Partial<Campaign>) => {
-        const { error } = await supabase.from('campaigns').insert({
+        await crud.create('campaigns', {
             name: campaign.name,
             type: campaign.type,
             audience: campaign.audience,
             status: campaign.status || 'Draft',
             metrics: campaign.metrics || { sent: 0, opened: 0, clicked: 0 }
         });
-        if (error) {
-            console.error('API Error (createCampaign):', error);
-            throw new Error(error.message || 'Failed to create campaign');
-        }
     },
 
     // --- MASTERS ---
     getLocations: async () => {
-        const { data, error } = await supabase.from('master_locations').select('*').order('name', { ascending: true });
-        if (error) {
-            console.error('API Error (getLocations):', error);
-            throw new Error(error.message || 'Failed to fetch locations');
-        }
-        return data;
+        const { data } = await crud.getAll('master_locations', { order: 'name', asc: true });
+        return data || [];
     },
-    createMasterLocation: async (location: any) => {
-        const { error } = await supabase.from('master_locations').insert([location]);
-        if (error) throw new Error(error.message);
-    },
-    updateMasterLocation: async (id: string, updates: any) => {
-        const { error } = await supabase.from('master_locations').update(updates).eq('id', id);
-        if (error) throw new Error(error.message);
-    },
-    deleteMasterLocation: async (id: string) => {
-        const { error } = await supabase.from('master_locations').delete().eq('id', id);
-        if (error) throw new Error(error.message);
-    },
+    createMasterLocation: async (location: any) => { await crud.create('master_locations', location); },
+    updateMasterLocation: async (id: string, updates: any) => { await crud.update('master_locations', id, updates); },
+    deleteMasterLocation: async (id: string) => { await crud.remove('master_locations', id); },
 
     // Hotels
     getMasterHotels: async (): Promise<MasterHotel[]> => {
-        const { data, error } = await supabase.from('master_hotels').select('*').order('created_at', { ascending: false });
-        if (error) {
-            console.error('API Error (getMasterHotels):', error);
-            throw new Error(error.message || 'Failed to fetch custom hotels');
-        }
+        const { data } = await crud.getAll('master_hotels', { order: 'created_at', asc: false });
         return (data || []).map((h: any) => ({
             id: h.id,
             name: h.name,
             locationId: h.location_id,
             rating: h.rating,
-            amenities: h.amenities || [],
+            amenities: typeof h.amenities === 'string' ? JSON.parse(h.amenities) : (h.amenities || []),
             pricePerNight: h.price_per_night,
             image: h.image,
             status: h.status
         }));
     },
     createMasterHotel: async (hotel: Partial<MasterHotel>) => {
-        const { error } = await supabase.from('master_hotels').insert({
-            name: hotel.name,
-            location_id: hotel.locationId,
-            rating: hotel.rating,
-            amenities: hotel.amenities,
-            price_per_night: hotel.pricePerNight,
-            image: hotel.image,
-            status: hotel.status || 'Active'
+        await crud.create('master_hotels', {
+            name: hotel.name, location_id: hotel.locationId, rating: hotel.rating,
+            amenities: hotel.amenities, price_per_night: hotel.pricePerNight,
+            image: hotel.image, status: hotel.status || 'Active'
         });
-        if (error) {
-            console.error('API Error (createMasterHotel):', error);
-            throw new Error(error.message || 'Failed to create hotel');
-        }
     },
     updateMasterHotel: async (id: string, hotel: Partial<MasterHotel>) => {
         const dbHotel: any = {};
@@ -850,59 +718,29 @@ export const api = {
         if (hotel.pricePerNight !== undefined) dbHotel.price_per_night = hotel.pricePerNight;
         if (hotel.image !== undefined) dbHotel.image = hotel.image;
         if (hotel.status !== undefined) dbHotel.status = hotel.status;
-        const { error } = await supabase.from('master_hotels').update(dbHotel).eq('id', id);
-        if (error) {
-            console.error(`API Error (updateMasterHotel ${id}):`, error);
-            throw new Error(error.message || 'Failed to update hotel');
-        }
+        await crud.update('master_hotels', id, dbHotel);
     },
-    deleteMasterHotel: async (id: string) => {
-        const { error } = await supabase.from('master_hotels').delete().eq('id', id);
-        if (error) {
-            console.error(`API Error (deleteMasterHotel ${id}):`, error);
-            throw new Error(error.message || 'Failed to delete hotel');
-        }
-    },
+    deleteMasterHotel: async (id: string) => { await crud.remove('master_hotels', id); },
 
     // --- TASKS ---
     getTasks: async (): Promise<Task[]> => {
-        const { data, error } = await supabase.from('tasks').select('*').order('due_date', { ascending: true });
-        if (error) {
-            console.error('API Error (getTasks):', error);
-            throw new Error(error.message || 'Failed to fetch tasks');
-        }
+        const { data } = await crud.getAll('tasks', { order: 'due_date', asc: true });
         return (data || []).map((t: any) => ({
-            id: t.id,
-            title: t.title,
-            description: t.description,
-            assignedTo: t.assigned_to,
-            assignedBy: t.assigned_by,
-            status: t.status,
-            priority: t.priority,
-            dueDate: t.due_date,
-            createdAt: t.created_at,
-            completedAt: t.completed_at,
-            relatedLeadId: t.related_lead_id,
-            relatedBookingId: t.related_booking_id
+            id: t.id, title: t.title, description: t.description,
+            assignedTo: t.assigned_to, assignedBy: t.assigned_by,
+            status: t.status, priority: t.priority, dueDate: t.due_date,
+            createdAt: t.created_at, completedAt: t.completed_at,
+            relatedLeadId: t.related_lead_id, relatedBookingId: t.related_booking_id
         }));
     },
     createTask: async (task: Partial<Task>) => {
-        const { error } = await supabase.from('tasks').insert({
-            title: task.title,
-            description: task.description,
-            assigned_to: task.assignedTo,
-            assigned_by: task.assignedBy,
-            status: task.status || 'Pending',
-            priority: task.priority || 'Medium',
-            due_date: task.dueDate,
-            completed_at: task.completedAt,
-            related_lead_id: task.relatedLeadId,
-            related_booking_id: task.relatedBookingId
+        await crud.create('tasks', {
+            title: task.title, description: task.description,
+            assigned_to: task.assignedTo, assigned_by: task.assignedBy,
+            status: task.status || 'Pending', priority: task.priority || 'Medium',
+            due_date: task.dueDate, completed_at: task.completedAt,
+            related_lead_id: task.relatedLeadId, related_booking_id: task.relatedBookingId
         });
-        if (error) {
-            console.error('API Error (createTask):', error);
-            throw new Error(error.message || 'Failed to create task');
-        }
     },
     updateTask: async (id: string, updates: Partial<Task>) => {
         const dbUpdates: any = {};
@@ -916,247 +754,153 @@ export const api = {
         if (updates.completedAt !== undefined) dbUpdates.completed_at = updates.completedAt;
         if (updates.relatedLeadId !== undefined) dbUpdates.related_lead_id = updates.relatedLeadId;
         if (updates.relatedBookingId !== undefined) dbUpdates.related_booking_id = updates.relatedBookingId;
-        const { error } = await supabase.from('tasks').update(dbUpdates).eq('id', id);
-        if (error) {
-            console.error(`API Error (updateTask ${id}):`, error);
-            throw new Error(error.message || 'Failed to update task');
-        }
+        await crud.update('tasks', id, dbUpdates);
     },
-    deleteTask: async (id: string) => {
-        const { error } = await supabase.from('tasks').delete().eq('id', id);
-        if (error) {
-            console.error(`API Error (deleteTask ${id}):`, error);
-            throw new Error(error.message || 'Failed to delete task');
-        }
-    },
+    deleteTask: async (id: string) => { await crud.remove('tasks', id); },
 
-    // --- PHASE 3: MASTER DATA ---
+    // --- PHASE 3: MASTER DATA (generic pattern) ---
     getMasterRoomTypes: async (): Promise<MasterRoomType[]> => {
-        const { data, error } = await supabase.from('master_room_types').select('*').order('created_at', { ascending: false });
-        if (error) { console.error('API Error:', error); return []; }
+        const { data } = await crud.getAll('master_room_types', { order: 'created_at', asc: false });
         return (data || []) as MasterRoomType[];
     },
-    createMasterRoomType: async (item: Partial<MasterRoomType>) => {
-        const { error } = await supabase.from('master_room_types').insert([item]);
-        if (error) throw new Error(error.message || 'Failed to create room type');
-    },
-    updateMasterRoomType: async (id: string, updates: Partial<MasterRoomType>) => {
-        const { error } = await supabase.from('master_room_types').update(updates).eq('id', id);
-        if (error) throw new Error(error.message || 'Failed to update room type');
-    },
-    deleteMasterRoomType: async (id: string) => {
-        const { error } = await supabase.from('master_room_types').delete().eq('id', id);
-        if (error) throw new Error(error.message || 'Failed to delete room type');
-    },
+    createMasterRoomType: async (item: Partial<MasterRoomType>) => { await crud.create('master_room_types', item); },
+    updateMasterRoomType: async (id: string, updates: Partial<MasterRoomType>) => { await crud.update('master_room_types', id, updates); },
+    deleteMasterRoomType: async (id: string) => { await crud.remove('master_room_types', id); },
 
     getMasterMealPlans: async (): Promise<MasterMealPlan[]> => {
-        const { data, error } = await supabase.from('master_meal_plans').select('*').order('created_at', { ascending: false });
-        if (error) { console.error('API Error:', error); return []; }
+        const { data } = await crud.getAll('master_meal_plans', { order: 'created_at', asc: false });
         return (data || []) as MasterMealPlan[];
     },
-    createMasterMealPlan: async (item: Partial<MasterMealPlan>) => {
-        const { error } = await supabase.from('master_meal_plans').insert([item]);
-        if (error) throw new Error(error.message || 'Failed to create meal plan');
-    },
-    updateMasterMealPlan: async (id: string, updates: Partial<MasterMealPlan>) => {
-        const { error } = await supabase.from('master_meal_plans').update(updates).eq('id', id);
-        if (error) throw new Error(error.message || 'Failed to update meal plan');
-    },
-    deleteMasterMealPlan: async (id: string) => {
-        const { error } = await supabase.from('master_meal_plans').delete().eq('id', id);
-        if (error) throw new Error(error.message || 'Failed to delete meal plan');
-    },
+    createMasterMealPlan: async (item: Partial<MasterMealPlan>) => { await crud.create('master_meal_plans', item); },
+    updateMasterMealPlan: async (id: string, updates: Partial<MasterMealPlan>) => { await crud.update('master_meal_plans', id, updates); },
+    deleteMasterMealPlan: async (id: string) => { await crud.remove('master_meal_plans', id); },
 
     getMasterActivities: async (): Promise<MasterActivity[]> => {
-        const { data, error } = await supabase.from('master_activities').select('*').order('created_at', { ascending: false });
-        if (error) { console.error('API Error:', error); return []; }
+        const { data } = await crud.getAll('master_activities', { order: 'created_at', asc: false });
         return (data || []) as MasterActivity[];
     },
-    createMasterActivity: async (item: Partial<MasterActivity>) => {
-        const { error } = await supabase.from('master_activities').insert([item]);
-        if (error) throw new Error(error.message || 'Failed to create activity');
-    },
-    updateMasterActivity: async (id: string, updates: Partial<MasterActivity>) => {
-        const { error } = await supabase.from('master_activities').update(updates).eq('id', id);
-        if (error) throw new Error(error.message || 'Failed to update activity');
-    },
-    deleteMasterActivity: async (id: string) => {
-        const { error } = await supabase.from('master_activities').delete().eq('id', id);
-        if (error) throw new Error(error.message || 'Failed to delete activity');
-    },
+    createMasterActivity: async (item: Partial<MasterActivity>) => { await crud.create('master_activities', item); },
+    updateMasterActivity: async (id: string, updates: Partial<MasterActivity>) => { await crud.update('master_activities', id, updates); },
+    deleteMasterActivity: async (id: string) => { await crud.remove('master_activities', id); },
 
     getMasterTransports: async (): Promise<MasterTransport[]> => {
-        const { data, error } = await supabase.from('master_transports').select('*').order('created_at', { ascending: false });
-        if (error) { console.error('API Error:', error); return []; }
+        const { data } = await crud.getAll('master_transports', { order: 'created_at', asc: false });
         return (data || []) as MasterTransport[];
     },
-    createMasterTransport: async (item: Partial<MasterTransport>) => {
-        const { error } = await supabase.from('master_transports').insert([item]);
-        if (error) throw new Error(error.message || 'Failed to create transport');
-    },
-    updateMasterTransport: async (id: string, updates: Partial<MasterTransport>) => {
-        const { error } = await supabase.from('master_transports').update(updates).eq('id', id);
-        if (error) throw new Error(error.message || 'Failed to update transport');
-    },
-    deleteMasterTransport: async (id: string) => {
-        const { error } = await supabase.from('master_transports').delete().eq('id', id);
-        if (error) throw new Error(error.message || 'Failed to delete transport');
-    },
+    createMasterTransport: async (item: Partial<MasterTransport>) => { await crud.create('master_transports', item); },
+    updateMasterTransport: async (id: string, updates: Partial<MasterTransport>) => { await crud.update('master_transports', id, updates); },
+    deleteMasterTransport: async (id: string) => { await crud.remove('master_transports', id); },
 
     getMasterPlans: async (): Promise<MasterPlan[]> => {
-        const { data, error } = await supabase.from('master_plans').select('*').order('created_at', { ascending: false });
-        if (error) { console.error('API Error:', error); return []; }
+        const { data } = await crud.getAll('master_plans', { order: 'created_at', asc: false });
         return (data || []) as MasterPlan[];
     },
-    createMasterPlan: async (item: Partial<MasterPlan>) => {
-        const { error } = await supabase.from('master_plans').insert([item]);
-        if (error) throw new Error(error.message || 'Failed to create plan');
-    },
-    updateMasterPlan: async (id: string, updates: Partial<MasterPlan>) => {
-        const { error } = await supabase.from('master_plans').update(updates).eq('id', id);
-        if (error) throw new Error(error.message || 'Failed to update plan');
-    },
-    deleteMasterPlan: async (id: string) => {
-        const { error } = await supabase.from('master_plans').delete().eq('id', id);
-        if (error) throw new Error(error.message || 'Failed to delete plan');
-    },
+    createMasterPlan: async (item: Partial<MasterPlan>) => { await crud.create('master_plans', item); },
+    updateMasterPlan: async (id: string, updates: Partial<MasterPlan>) => { await crud.update('master_plans', id, updates); },
+    deleteMasterPlan: async (id: string) => { await crud.remove('master_plans', id); },
 
     getMasterLeadSources: async (): Promise<MasterLeadSource[]> => {
-        const { data, error } = await supabase.from('master_lead_sources').select('*').order('created_at', { ascending: false });
-        if (error) { console.error('API Error:', error); return []; }
+        const { data } = await crud.getAll('master_lead_sources', { order: 'created_at', asc: false });
         return (data || []) as MasterLeadSource[];
     },
-    createMasterLeadSource: async (item: Partial<MasterLeadSource>) => {
-        const { error } = await supabase.from('master_lead_sources').insert([item]);
-        if (error) throw new Error(error.message || 'Failed to create lead source');
-    },
-    updateMasterLeadSource: async (id: string, updates: Partial<MasterLeadSource>) => {
-        const { error } = await supabase.from('master_lead_sources').update(updates).eq('id', id);
-        if (error) throw new Error(error.message || 'Failed to update lead source');
-    },
-    deleteMasterLeadSource: async (id: string) => {
-        const { error } = await supabase.from('master_lead_sources').delete().eq('id', id);
-        if (error) throw new Error(error.message || 'Failed to delete lead source');
-    },
+    createMasterLeadSource: async (item: Partial<MasterLeadSource>) => { await crud.create('master_lead_sources', item); },
+    updateMasterLeadSource: async (id: string, updates: Partial<MasterLeadSource>) => { await crud.update('master_lead_sources', id, updates); },
+    deleteMasterLeadSource: async (id: string) => { await crud.remove('master_lead_sources', id); },
 
     getMasterTermsTemplates: async (): Promise<MasterTermsTemplate[]> => {
-        const { data, error } = await supabase.from('master_terms_templates').select('*').order('created_at', { ascending: false });
-        if (error) { console.error('API Error:', error); return []; }
+        const { data } = await crud.getAll('master_terms_templates', { order: 'created_at', asc: false });
         return (data || []) as MasterTermsTemplate[];
     },
-    createMasterTermsTemplate: async (item: Partial<MasterTermsTemplate>) => {
-        const { error } = await supabase.from('master_terms_templates').insert([item]);
-        if (error) throw new Error(error.message || 'Failed to create terms template');
-    },
-    updateMasterTermsTemplate: async (id: string, updates: Partial<MasterTermsTemplate>) => {
-        const { error } = await supabase.from('master_terms_templates').update(updates).eq('id', id);
-        if (error) throw new Error(error.message || 'Failed to update terms template');
-    },
-    deleteMasterTermsTemplate: async (id: string) => {
-        const { error } = await supabase.from('master_terms_templates').delete().eq('id', id);
-        if (error) throw new Error(error.message || 'Failed to delete terms template');
-    },
+    createMasterTermsTemplate: async (item: Partial<MasterTermsTemplate>) => { await crud.create('master_terms_templates', item); },
+    updateMasterTermsTemplate: async (id: string, updates: Partial<MasterTermsTemplate>) => { await crud.update('master_terms_templates', id, updates); },
+    deleteMasterTermsTemplate: async (id: string) => { await crud.remove('master_terms_templates', id); },
 
     // --- PHASE 3: CMS ---
     getCMSBanners: async (): Promise<CMSBanner[]> => {
-        const { data, error } = await supabase.from('cms_banners').select('*').order('created_at', { ascending: false });
-        if (error) { console.error('API Error:', error); return []; }
-        return (data || []).map(r => ({ ...r, imageUrl: r.image_url, ctaText: r.cta_text, ctaLink: r.cta_link, isActive: r.is_active }));
+        const { data } = await crud.getAll('cms_banners', { order: 'created_at', asc: false });
+        return (data || []).map((r: any) => ({ ...r, imageUrl: r.image_url, ctaText: r.cta_text, ctaLink: r.cta_link, isActive: r.is_active }));
     },
     createCMSBanner: async (item: Partial<CMSBanner>) => {
-        const dbItem = { ...item, image_url: item.imageUrl, cta_text: item.ctaText, cta_link: item.ctaLink, is_active: item.isActive };
-        delete (dbItem as any).imageUrl; delete (dbItem as any).ctaText; delete (dbItem as any).ctaLink; delete (dbItem as any).isActive;
-        const { error } = await supabase.from('cms_banners').insert([dbItem]);
-        if (error) throw new Error(error.message);
+        await crud.create('cms_banners', {
+            title: item.title, subtitle: item.subtitle, image_url: item.imageUrl,
+            cta_text: item.ctaText, cta_link: item.ctaLink, is_active: item.isActive
+        });
     },
     updateCMSBanner: async (id: string, updates: Partial<CMSBanner>) => {
-        const dbItem = { ...updates, image_url: updates.imageUrl, cta_text: updates.ctaText, cta_link: updates.ctaLink, is_active: updates.isActive };
-        if (dbItem.imageUrl === undefined) delete dbItem.image_url;
-        if (dbItem.ctaText === undefined) delete dbItem.cta_text;
-        if (dbItem.ctaLink === undefined) delete dbItem.cta_link;
-        if (dbItem.isActive === undefined) delete dbItem.is_active;
-        delete (dbItem as any).imageUrl; delete (dbItem as any).ctaText; delete (dbItem as any).ctaLink; delete (dbItem as any).isActive;
-        const { error } = await supabase.from('cms_banners').update(dbItem).eq('id', id);
-        if (error) throw new Error(error.message);
+        const dbItem: any = {};
+        if (updates.title !== undefined) dbItem.title = updates.title;
+        if (updates.subtitle !== undefined) dbItem.subtitle = updates.subtitle;
+        if (updates.imageUrl !== undefined) dbItem.image_url = updates.imageUrl;
+        if (updates.ctaText !== undefined) dbItem.cta_text = updates.ctaText;
+        if (updates.ctaLink !== undefined) dbItem.cta_link = updates.ctaLink;
+        if (updates.isActive !== undefined) dbItem.is_active = updates.isActive;
+        await crud.update('cms_banners', id, dbItem);
     },
-    deleteCMSBanner: async (id: string) => {
-        const { error } = await supabase.from('cms_banners').delete().eq('id', id);
-        if (error) throw new Error(error.message);
-    },
+    deleteCMSBanner: async (id: string) => { await crud.remove('cms_banners', id); },
 
     getCMSTestimonials: async (): Promise<CMSTestimonial[]> => {
-        const { data, error } = await supabase.from('cms_testimonials').select('*').order('created_at', { ascending: false });
-        if (error) { console.error('API Error:', error); return []; }
-        return (data || []).map(r => ({ ...r, customerName: r.customer_name, avatarUrl: r.avatar_url, isActive: r.is_active }));
+        const { data } = await crud.getAll('cms_testimonials', { order: 'created_at', asc: false });
+        return (data || []).map((r: any) => ({ ...r, customerName: r.customer_name, avatarUrl: r.avatar_url, isActive: r.is_active }));
     },
     createCMSTestimonial: async (item: Partial<CMSTestimonial>) => {
-        const dbItem = { ...item, customer_name: item.customerName, avatar_url: item.avatarUrl, is_active: item.isActive };
-        delete (dbItem as any).customerName; delete (dbItem as any).avatarUrl; delete (dbItem as any).isActive;
-        const { error } = await supabase.from('cms_testimonials').insert([dbItem]);
-        if (error) throw new Error(error.message);
+        await crud.create('cms_testimonials', {
+            customer_name: item.customerName, content: item.text, rating: item.rating,
+            avatar_url: item.avatarUrl, location: item.location, is_active: item.isActive
+        });
     },
     updateCMSTestimonial: async (id: string, updates: Partial<CMSTestimonial>) => {
-        const dbItem = { ...updates, customer_name: updates.customerName, avatar_url: updates.avatarUrl, is_active: updates.isActive };
-        if (dbItem.customerName === undefined) delete dbItem.customer_name;
-        if (dbItem.avatarUrl === undefined) delete dbItem.avatar_url;
-        if (dbItem.isActive === undefined) delete dbItem.is_active;
-        delete (dbItem as any).customerName; delete (dbItem as any).avatarUrl; delete (dbItem as any).isActive;
-        const { error } = await supabase.from('cms_testimonials').update(dbItem).eq('id', id);
-        if (error) throw new Error(error.message);
+        const dbItem: any = {};
+        if (updates.customerName !== undefined) dbItem.customer_name = updates.customerName;
+        if (updates.text !== undefined) dbItem.content = updates.text;
+        if (updates.rating !== undefined) dbItem.rating = updates.rating;
+        if (updates.avatarUrl !== undefined) dbItem.avatar_url = updates.avatarUrl;
+        if (updates.location !== undefined) dbItem.location = updates.location;
+        if (updates.isActive !== undefined) dbItem.is_active = updates.isActive;
+        await crud.update('cms_testimonials', id, dbItem);
     },
-    deleteCMSTestimonial: async (id: string) => {
-        const { error } = await supabase.from('cms_testimonials').delete().eq('id', id);
-        if (error) throw new Error(error.message);
-    },
+    deleteCMSTestimonial: async (id: string) => { await crud.remove('cms_testimonials', id); },
 
     getCMSGalleryImages: async (): Promise<CMSGalleryImage[]> => {
-        const { data, error } = await supabase.from('cms_gallery_images').select('*').order('created_at', { ascending: false });
-        if (error) { console.error('API Error:', error); return []; }
-        return (data || []).map(r => ({ ...r, imageUrl: r.image_url }));
+        const { data } = await crud.getAll('cms_gallery_images', { order: 'created_at', asc: false });
+        return (data || []).map((r: any) => ({ ...r, imageUrl: r.image_url }));
     },
     createCMSGalleryImage: async (item: Partial<CMSGalleryImage>) => {
-        const dbItem = { ...item, image_url: item.imageUrl };
-        delete (dbItem as any).imageUrl;
-        const { error } = await supabase.from('cms_gallery_images').insert([dbItem]);
-        if (error) throw new Error(error.message);
+        await crud.create('cms_gallery_images', { title: item.title, image_url: item.imageUrl, category: item.category });
     },
-    deleteCMSGalleryImage: async (id: string) => {
-        const { error } = await supabase.from('cms_gallery_images').delete().eq('id', id);
-        if (error) throw new Error(error.message);
-    },
+    deleteCMSGalleryImage: async (id: string) => { await crud.remove('cms_gallery_images', id); },
 
     getCMSPosts: async (): Promise<CMSPost[]> => {
-        const { data, error } = await supabase.from('cms_posts').select('*').order('created_at', { ascending: false });
-        if (error) { console.error('API Error:', error); return []; }
-        return (data || []).map(r => ({ ...r, coverImage: r.cover_image, publishedDate: r.published_date }));
+        const { data } = await crud.getAll('cms_posts', { order: 'created_at', asc: false });
+        return (data || []).map((r: any) => ({ ...r, coverImage: r.cover_image, publishedDate: r.published_date }));
     },
     createCMSPost: async (item: Partial<CMSPost>) => {
-        const dbItem = { ...item, cover_image: item.coverImage, published_date: item.publishedDate };
-        delete (dbItem as any).coverImage; delete (dbItem as any).publishedDate;
-        const { error } = await supabase.from('cms_posts').insert([dbItem]);
-        if (error) throw new Error(error.message);
+        await crud.create('cms_posts', {
+            title: item.title, content: item.content, excerpt: item.excerpt,
+            cover_image: item.coverImage, author: item.author, status: item.status,
+            tags: item.tags, published_date: item.publishedDate
+        });
     },
     updateCMSPost: async (id: string, updates: Partial<CMSPost>) => {
-        const dbItem = { ...updates, cover_image: updates.coverImage, published_date: updates.publishedDate };
-        if (dbItem.coverImage === undefined) delete dbItem.cover_image;
-        if (dbItem.publishedDate === undefined) delete dbItem.published_date;
-        delete (dbItem as any).coverImage; delete (dbItem as any).publishedDate;
-        const { error } = await supabase.from('cms_posts').update(dbItem).eq('id', id);
-        if (error) throw new Error(error.message);
+        const dbItem: any = {};
+        if (updates.title !== undefined) dbItem.title = updates.title;
+        if (updates.content !== undefined) dbItem.content = updates.content;
+        if (updates.excerpt !== undefined) dbItem.excerpt = updates.excerpt;
+        if (updates.coverImage !== undefined) dbItem.cover_image = updates.coverImage;
+        if (updates.author !== undefined) dbItem.author = updates.author;
+        if (updates.status !== undefined) dbItem.status = updates.status;
+        if (updates.tags !== undefined) dbItem.tags = updates.tags;
+        if (updates.publishedDate !== undefined) dbItem.published_date = updates.publishedDate;
+        await crud.update('cms_posts', id, dbItem);
     },
-    deleteCMSPost: async (id: string) => {
-        const { error } = await supabase.from('cms_posts').delete().eq('id', id);
-        if (error) throw new Error(error.message);
-    },
+    deleteCMSPost: async (id: string) => { await crud.remove('cms_posts', id); },
 
     // --- PHASE 3: PRODUCTIVITY & EXTRAS ---
     getFollowUps: async (): Promise<FollowUp[]> => {
-        const { data, error } = await supabase.from('follow_ups').select('*, leads(name)').order('scheduled_at', { ascending: true });
-        if (error) { console.error('API Error:', error); return []; }
+        const { data } = await fetchApi('/api/follow-ups-with-lead');
         return (data || []).map((r: any) => ({
             ...r,
             leadId: r.lead_id,
-            leadName: r.leads?.name || 'Unknown',
+            leadName: r.lead_name || 'Unknown',
             scheduledAt: r.scheduled_at,
             reminderEnabled: r.reminder_enabled,
             assignedTo: r.assigned_to,
@@ -1165,174 +909,154 @@ export const api = {
         }));
     },
     createFollowUp: async (item: Partial<FollowUp>) => {
-        const dbItem = { ...item, lead_id: item.leadId, scheduled_at: item.scheduledAt, reminder_enabled: item.reminderEnabled, assigned_to: item.assignedTo, completed_at: item.completedAt };
-        delete (dbItem as any).id; delete (dbItem as any).leadId; delete (dbItem as any).leadName; delete (dbItem as any).scheduledAt; delete (dbItem as any).reminderEnabled; delete (dbItem as any).assignedTo; delete (dbItem as any).completedAt; delete (dbItem as any).createdAt;
-        const { error } = await supabase.from('follow_ups').insert([dbItem]);
-        if (error) throw new Error(error.message);
+        await crud.create('follow_ups', {
+            lead_id: item.leadId, type: item.type, notes: item.notes, status: item.status,
+            scheduled_at: item.scheduledAt, reminder_enabled: item.reminderEnabled,
+            assigned_to: item.assignedTo, completed_at: item.completedAt
+        });
     },
     updateFollowUp: async (id: string, updates: Partial<FollowUp>) => {
-        const dbItem = { ...updates, lead_id: updates.leadId, scheduled_at: updates.scheduledAt, reminder_enabled: updates.reminderEnabled, assigned_to: updates.assignedTo, completed_at: updates.completedAt };
-        if (dbItem.leadId === undefined) delete dbItem.lead_id;
-        if (dbItem.scheduledAt === undefined) delete dbItem.scheduled_at;
-        if (dbItem.reminderEnabled === undefined) delete dbItem.reminder_enabled;
-        if (dbItem.assignedTo === undefined) delete dbItem.assigned_to;
-        if (dbItem.completedAt === undefined) delete dbItem.completed_at;
-        delete (dbItem as any).id; delete (dbItem as any).leadId; delete (dbItem as any).leadName; delete (dbItem as any).scheduledAt; delete (dbItem as any).reminderEnabled; delete (dbItem as any).assignedTo; delete (dbItem as any).completedAt; delete (dbItem as any).createdAt;
-        const { error } = await supabase.from('follow_ups').update(dbItem).eq('id', id);
-        if (error) throw new Error(error.message);
+        const dbItem: any = {};
+        if (updates.leadId !== undefined) dbItem.lead_id = updates.leadId;
+        if (updates.type !== undefined) dbItem.type = updates.type;
+        if (updates.notes !== undefined) dbItem.notes = updates.notes;
+        if (updates.status !== undefined) dbItem.status = updates.status;
+        if (updates.scheduledAt !== undefined) dbItem.scheduled_at = updates.scheduledAt;
+        if (updates.reminderEnabled !== undefined) dbItem.reminder_enabled = updates.reminderEnabled;
+        if (updates.assignedTo !== undefined) dbItem.assigned_to = updates.assignedTo;
+        if (updates.completedAt !== undefined) dbItem.completed_at = updates.completedAt;
+        await crud.update('follow_ups', id, dbItem);
     },
-    deleteFollowUp: async (id: string) => {
-        const { error } = await supabase.from('follow_ups').delete().eq('id', id);
-        if (error) throw new Error(error.message);
-    },
+    deleteFollowUp: async (id: string) => { await crud.remove('follow_ups', id); },
 
     getProposals: async (): Promise<Proposal[]> => {
-        const { data, error } = await supabase.from('proposals').select('*').order('created_at', { ascending: false });
-        if (error) { console.error('API Error:', error); return []; }
-        return (data || []).map(r => ({ ...r, leadId: r.lead_id, validUntil: r.valid_until, createdAt: r.created_at }));
+        const { data } = await crud.getAll('proposals', { order: 'created_at', asc: false });
+        return (data || []).map((r: any) => ({ ...r, leadId: r.lead_id, validUntil: r.valid_until, createdAt: r.created_at }));
     },
     createProposal: async (item: Partial<Proposal>) => {
-        const dbItem = { ...item, lead_id: item.leadId, valid_until: item.validUntil };
-        delete (dbItem as any).leadId; delete (dbItem as any).validUntil; delete (dbItem as any).createdAt;
-        const { error } = await supabase.from('proposals').insert([dbItem]);
-        if (error) throw new Error(error.message);
+        await crud.create('proposals', {
+            lead_id: item.leadId, title: item.title,
+            status: item.status, valid_until: item.validUntil
+        });
     },
     updateProposal: async (id: string, updates: Partial<Proposal>) => {
-        const dbItem = { ...updates, lead_id: updates.leadId, valid_until: updates.validUntil };
-        if (dbItem.leadId === undefined) delete dbItem.lead_id;
-        if (dbItem.validUntil === undefined) delete dbItem.valid_until;
-        delete (dbItem as any).leadId; delete (dbItem as any).validUntil; delete (dbItem as any).createdAt;
-        const { error } = await supabase.from('proposals').update(dbItem).eq('id', id);
-        if (error) throw new Error(error.message);
+        const dbItem: any = {};
+        if (updates.leadId !== undefined) dbItem.lead_id = updates.leadId;
+        if (updates.title !== undefined) dbItem.title = updates.title;
+        if (updates.status !== undefined) dbItem.status = updates.status;
+        if (updates.validUntil !== undefined) dbItem.valid_until = updates.validUntil;
+        await crud.update('proposals', id, dbItem);
     },
-    deleteProposal: async (id: string) => {
-        const { error } = await supabase.from('proposals').delete().eq('id', id);
-        if (error) throw new Error(error.message);
-    },
+    deleteProposal: async (id: string) => { await crud.remove('proposals', id); },
 
     getDailyTargets: async (): Promise<DailyTarget[]> => {
-        const { data, error } = await supabase.from('daily_targets').select('*').order('date', { ascending: false });
-        if (error) { console.error('API Error:', error); return []; }
-        return (data || []).map(r => ({ ...r, staffId: r.staff_id, targetLeads: r.target_leads, targetCalls: r.target_calls, targetConversions: r.target_conversions, targetBookings: r.target_bookings, actualLeads: r.actual_leads, actualCalls: r.actual_calls, actualConversions: r.actual_conversions, actualBookings: r.actual_bookings }));
+        const { data } = await crud.getAll('daily_targets', { order: 'date', asc: false });
+        return (data || []).map((r: any) => ({ ...r, staffId: r.staff_id, targetLeads: r.target_leads, targetCalls: r.target_calls, targetConversions: r.target_conversions, targetBookings: r.target_bookings, actualLeads: r.actual_leads, actualCalls: r.actual_calls, actualConversions: r.actual_conversions, actualBookings: r.actual_bookings }));
     },
     createDailyTarget: async (item: Partial<DailyTarget>) => {
-        const dbItem = { ...item, staff_id: item.staffId, target_leads: item.targetLeads, target_calls: item.targetCalls, target_conversions: item.targetConversions, target_bookings: item.targetBookings, actual_leads: item.actualLeads, actual_calls: item.actualCalls, actual_conversions: item.actualConversions, actual_bookings: item.actualBookings };
-        delete (dbItem as any).staffId; delete (dbItem as any).targetLeads; delete (dbItem as any).targetCalls; delete (dbItem as any).targetConversions; delete (dbItem as any).targetBookings; delete (dbItem as any).actualLeads; delete (dbItem as any).actualCalls; delete (dbItem as any).actualConversions; delete (dbItem as any).actualBookings;
-        const { error } = await supabase.from('daily_targets').insert([dbItem]);
-        if (error) throw new Error(error.message);
+        await crud.create('daily_targets', {
+            staff_id: item.staffId, date: item.date,
+            target_leads: item.targetLeads, target_calls: item.targetCalls,
+            target_conversions: item.targetConversions, target_bookings: item.targetBookings,
+            actual_leads: item.actualLeads, actual_calls: item.actualCalls,
+            actual_conversions: item.actualConversions, actual_bookings: item.actualBookings
+        });
     },
     updateDailyTarget: async (id: string, updates: Partial<DailyTarget>) => {
-        const dbItem = { ...updates, staff_id: updates.staffId, target_leads: updates.targetLeads, target_calls: updates.targetCalls, target_conversions: updates.targetConversions, target_bookings: updates.targetBookings, actual_leads: updates.actualLeads, actual_calls: updates.actualCalls, actual_conversions: updates.actualConversions, actual_bookings: updates.actualBookings };
-        if (dbItem.staffId === undefined) delete dbItem.staff_id;
-        if (dbItem.targetLeads === undefined) delete dbItem.target_leads;
-        if (dbItem.targetCalls === undefined) delete dbItem.target_calls;
-        if (dbItem.targetConversions === undefined) delete dbItem.target_conversions;
-        if (dbItem.targetBookings === undefined) delete dbItem.target_bookings;
-        if (dbItem.actualLeads === undefined) delete dbItem.actual_leads;
-        if (dbItem.actualCalls === undefined) delete dbItem.actual_calls;
-        if (dbItem.actualConversions === undefined) delete dbItem.actual_conversions;
-        if (dbItem.actualBookings === undefined) delete dbItem.actual_bookings;
-        delete (dbItem as any).staffId; delete (dbItem as any).targetLeads; delete (dbItem as any).targetCalls; delete (dbItem as any).targetConversions; delete (dbItem as any).targetBookings; delete (dbItem as any).actualLeads; delete (dbItem as any).actualCalls; delete (dbItem as any).actualConversions; delete (dbItem as any).actualBookings;
-        const { error } = await supabase.from('daily_targets').update(dbItem).eq('id', id);
-        if (error) throw new Error(error.message);
+        const dbItem: any = {};
+        if (updates.staffId !== undefined) dbItem.staff_id = updates.staffId;
+        if (updates.date !== undefined) dbItem.date = updates.date;
+        if (updates.targetLeads !== undefined) dbItem.target_leads = updates.targetLeads;
+        if (updates.targetCalls !== undefined) dbItem.target_calls = updates.targetCalls;
+        if (updates.targetConversions !== undefined) dbItem.target_conversions = updates.targetConversions;
+        if (updates.targetBookings !== undefined) dbItem.target_bookings = updates.targetBookings;
+        if (updates.actualLeads !== undefined) dbItem.actual_leads = updates.actualLeads;
+        if (updates.actualCalls !== undefined) dbItem.actual_calls = updates.actualCalls;
+        if (updates.actualConversions !== undefined) dbItem.actual_conversions = updates.actualConversions;
+        if (updates.actualBookings !== undefined) dbItem.actual_bookings = updates.actualBookings;
+        await crud.update('daily_targets', id, dbItem);
     },
 
     getTimeSessions: async (): Promise<TimeSession[]> => {
-        const { data, error } = await supabase.from('time_sessions').select('*').order('start_time', { ascending: false });
-        if (error) { console.error('API Error:', error); return []; }
-        return (data || []).map(r => ({ ...r, staffId: r.staff_id, taskId: r.task_id, startTime: r.start_time, endTime: r.end_time, idleTime: r.idle_time }));
+        const { data } = await crud.getAll('time_sessions', { order: 'start_time', asc: false });
+        return (data || []).map((r: any) => ({ ...r, staffId: r.staff_id, taskId: r.task_id, startTime: r.start_time, endTime: r.end_time, idleTime: r.idle_time }));
     },
     createTimeSession: async (item: Partial<TimeSession>) => {
-        const dbItem = { ...item, staff_id: item.staffId, task_id: item.taskId, start_time: item.startTime, end_time: item.endTime, idle_time: item.idleTime };
-        delete (dbItem as any).staffId; delete (dbItem as any).taskId; delete (dbItem as any).startTime; delete (dbItem as any).endTime; delete (dbItem as any).idleTime;
-        const { error } = await supabase.from('time_sessions').insert([dbItem]);
-        if (error) throw new Error(error.message);
+        await crud.create('time_sessions', {
+            staff_id: item.staffId, task_id: item.taskId,
+            start_time: item.startTime, end_time: item.endTime, idle_time: item.idleTime, notes: item.notes
+        });
     },
     updateTimeSession: async (id: string, updates: Partial<TimeSession>) => {
-        const dbItem = { ...updates, staff_id: updates.staffId, task_id: updates.taskId, start_time: updates.startTime, end_time: updates.endTime, idle_time: updates.idleTime };
-        if (dbItem.staffId === undefined) delete dbItem.staff_id;
-        if (dbItem.taskId === undefined) delete dbItem.task_id;
-        if (dbItem.startTime === undefined) delete dbItem.start_time;
-        if (dbItem.endTime === undefined) delete dbItem.end_time;
-        if (dbItem.idleTime === undefined) delete dbItem.idle_time;
-        delete (dbItem as any).staffId; delete (dbItem as any).taskId; delete (dbItem as any).startTime; delete (dbItem as any).endTime; delete (dbItem as any).idleTime;
-        const { error } = await supabase.from('time_sessions').update(dbItem).eq('id', id);
-        if (error) throw new Error(error.message);
+        const dbItem: any = {};
+        if (updates.staffId !== undefined) dbItem.staff_id = updates.staffId;
+        if (updates.taskId !== undefined) dbItem.task_id = updates.taskId;
+        if (updates.startTime !== undefined) dbItem.start_time = updates.startTime;
+        if (updates.endTime !== undefined) dbItem.end_time = updates.endTime;
+        if (updates.idleTime !== undefined) dbItem.idle_time = updates.idleTime;
+        if (updates.notes !== undefined) dbItem.notes = updates.notes;
+        await crud.update('time_sessions', id, dbItem);
     },
 
     getAssignmentRules: async (): Promise<AssignmentRule[]> => {
-        const { data, error } = await supabase.from('assignment_rules').select('*').order('priority', { ascending: true });
-        if (error) { console.error('API Error:', error); return []; }
-        return (data || []).map(r => ({ ...r, isActive: r.is_active, triggerOn: r.trigger_on, eligibleStaffIds: r.eligible_staff_ids, updatedAt: r.updated_at, createdAt: r.created_at }));
+        const { data } = await crud.getAll('assignment_rules', { order: 'priority', asc: true });
+        return (data || []).map((r: any) => ({ ...r, isActive: r.is_active, triggerOn: r.trigger_on, eligibleStaffIds: typeof r.eligible_staff_ids === 'string' ? JSON.parse(r.eligible_staff_ids) : r.eligible_staff_ids, updatedAt: r.updated_at, createdAt: r.created_at }));
     },
     createAssignmentRule: async (item: Partial<AssignmentRule>) => {
-        const dbItem = { ...item, is_active: item.isActive, trigger_on: item.triggerOn, eligible_staff_ids: item.eligibleStaffIds };
-        delete (dbItem as any).isActive; delete (dbItem as any).triggerOn; delete (dbItem as any).eligibleStaffIds; delete (dbItem as any).createdAt; delete (dbItem as any).updatedAt;
-        const { error } = await supabase.from('assignment_rules').insert([dbItem]);
-        if (error) throw new Error(error.message);
+        await crud.create('assignment_rules', {
+            name: item.name, is_active: item.isActive,
+            trigger_on: item.triggerOn, conditions: item.conditions, strategy: item.strategy,
+            priority: item.priority, eligible_staff_ids: item.eligibleStaffIds
+        });
     },
     updateAssignmentRule: async (id: string, updates: Partial<AssignmentRule>) => {
-        const dbItem = { ...updates, is_active: updates.isActive, trigger_on: updates.triggerOn, eligible_staff_ids: updates.eligibleStaffIds, updated_at: new Date().toISOString() };
-        if (dbItem.isActive === undefined) delete dbItem.is_active;
-        if (dbItem.triggerOn === undefined) delete dbItem.trigger_on;
-        if (dbItem.eligibleStaffIds === undefined) delete dbItem.eligible_staff_ids;
-        delete (dbItem as any).isActive; delete (dbItem as any).triggerOn; delete (dbItem as any).eligibleStaffIds; delete (dbItem as any).createdAt; delete (dbItem as any).updatedAt;
-        const { error } = await supabase.from('assignment_rules').update(dbItem).eq('id', id);
-        if (error) throw new Error(error.message);
+        const dbItem: any = { updated_at: new Date().toISOString() };
+        if (updates.name !== undefined) dbItem.name = updates.name;
+        if (updates.isActive !== undefined) dbItem.is_active = updates.isActive;
+        if (updates.triggerOn !== undefined) dbItem.trigger_on = updates.triggerOn;
+        if (updates.conditions !== undefined) dbItem.conditions = updates.conditions;
+        if (updates.strategy !== undefined) dbItem.strategy = updates.strategy;
+        if (updates.priority !== undefined) dbItem.priority = updates.priority;
+        if (updates.eligibleStaffIds !== undefined) dbItem.eligible_staff_ids = updates.eligibleStaffIds;
+        await crud.update('assignment_rules', id, dbItem);
     },
-    deleteAssignmentRule: async (id: string) => {
-        const { error } = await supabase.from('assignment_rules').delete().eq('id', id);
-        if (error) throw new Error(error.message);
-    },
+    deleteAssignmentRule: async (id: string) => { await crud.remove('assignment_rules', id); },
 
     getUserActivities: async (): Promise<UserActivity[]> => {
-        const { data, error } = await supabase.from('user_activities').select('*').order('timestamp', { ascending: false }).limit(500);
-        if (error) { console.error('API Error:', error); return []; }
-        return (data || []).map(r => ({ ...r, staffId: r.staff_id, staffName: r.staff_name }));
+        const { data } = await crud.getAll('user_activities', { order: 'timestamp', asc: false, limit: 500 });
+        return (data || []).map((r: any) => ({ ...r, staffId: r.staff_id, staffName: r.staff_name }));
     },
     createUserActivity: async (item: Partial<UserActivity>) => {
-        const dbItem = { ...item, staff_id: item.staffId, staff_name: item.staffName };
-        delete (dbItem as any).staffId; delete (dbItem as any).staffName;
-        const { error } = await supabase.from('user_activities').insert([dbItem]);
-        if (error) throw new Error(error.message);
+        await crud.create('user_activities', {
+            staff_id: item.staffId, staff_name: item.staffName,
+            action: item.action, module: item.module, details: item.details
+        });
     },
 
     // --- AUDIT LOGS ---
     getAuditLogs: async (): Promise<AuditLog[]> => {
-        const { data, error } = await supabase.from('audit_logs').select('*').order('timestamp', { ascending: false }).limit(500);
-        if (error) { console.error('API Error:', error); return []; }
-        return (data || []).map(r => ({ ...r, performedBy: r.performed_by }));
+        const { data } = await crud.getAll('audit_logs', { order: 'timestamp', asc: false, limit: 500 });
+        return (data || []).map((r: any) => ({ ...r, performedBy: r.performed_by }));
     },
     createAuditLog: async (log: Omit<AuditLog, 'id'>) => {
-        const dbLog = { ...log, performed_by: log.performedBy };
-        delete (dbLog as any).performedBy;
-        const { error } = await supabase.from('audit_logs').insert([dbLog]);
-        if (error) throw new Error(error.message);
+        await crud.create('audit_logs', {
+            action: log.action, module: log.module, details: log.details,
+            severity: log.severity, performed_by: log.performedBy, timestamp: log.timestamp
+        });
     },
 
-    // --- STORAGE ---
+    // --- STORAGE (File Upload) ---
     uploadFile: async (file: File, bucketPath: string = 'documents'): Promise<string> => {
-        // Auto-compress images before upload
+        // For now, we'll use a simple base64 approach or external image hosting
+        // TODO: Implement file upload endpoint on the backend
         const processedFile = await compressImageFile(file);
 
-        // Determine correct extension (may change if PNG was converted to WebP)
-        let fileExt = processedFile.name.split('.').pop();
-        if (processedFile.type === 'image/webp' && fileExt !== 'webp') {
-            fileExt = 'webp';
-        }
-        const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
-        const filePath = `${fileName}`;
-
-        const { error: uploadError } = await supabase.storage
-            .from(bucketPath)
-            .upload(filePath, processedFile);
-
-        if (uploadError) {
-            console.error('API Error (uploadFile):', uploadError);
-            throw new Error(uploadError.message || 'Failed to upload file to storage');
-        }
-
-        const { data } = supabase.storage.from(bucketPath).getPublicUrl(filePath);
-        return data.publicUrl;
+        // Convert to base64 data URL as a temporary solution
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(processedFile);
+        });
     }
 };

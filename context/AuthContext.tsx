@@ -1,10 +1,10 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { StaffMember, StaffPermissions } from '../types';
-import { supabase } from '../src/lib/supabase';
-import { api } from '../src/lib/api'; // Import api helper
+import { api } from '../src/lib/api';
 
 // Helper for localStorage
 const STORAGE_KEY = 'shravya_auth_data';
+const JWT_KEY = 'shravya_jwt';
 
 const loadFromStorage = <T,>(key: string, fallback: T): T => {
     try {
@@ -102,8 +102,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         permissions: ADMIN_PERMISSIONS,
     };
 
-
-
     // Unified User Loading Logic
     const loadUserProfile = useCallback(async (email: string) => {
         try {
@@ -149,29 +147,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 setStaff([created, ...allStaff]);
             }
         } catch (e) {
-            console.error("Error loading user profile", e);
+            console.error("Error loading user profile:", e);
+            throw e;
         }
     }, []);
 
     // Consolidated Initialization
     const initializeAuth = useCallback(async () => {
         try {
-            // 1. Check for Mock Session first (Fastest)
-            const isMockSession = localStorage.getItem(STORAGE_KEY_MOCK) === 'true';
+            // 1. Check for JWT Token
+            const token = localStorage.getItem(JWT_KEY);
+            if (token) {
+                try {
+                    // Decode JWT payload (without verification — server will verify on API calls)
+                    const payload = JSON.parse(atob(token.split('.')[1]));
 
-            if (isMockSession) {
-                setCurrentUser(MOCK_ADMIN_USER);
-                setStaff([MOCK_ADMIN_USER]);
-                setLoading(false);
-                return;
-            }
+                    // Check if token is expired
+                    if (payload.exp && payload.exp * 1000 < Date.now()) {
+                        localStorage.removeItem(JWT_KEY);
+                        setCurrentUser(null);
+                        setLoading(false);
+                        return;
+                    }
 
-            // 2. Check Supabase Session
-            const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-            if (sessionError) throw sessionError;
-
-            if (session?.user?.email) {
-                await loadUserProfile(session.user.email);
+                    if (payload.email) {
+                        await loadUserProfile(payload.email);
+                    }
+                } catch (e) {
+                    console.error('JWT decode failed:', e);
+                    localStorage.removeItem(JWT_KEY);
+                    setCurrentUser(null);
+                }
             } else {
                 setCurrentUser(null);
             }
@@ -194,29 +200,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     useEffect(() => {
         initializeAuth();
-
-        // Listen for changes
-        const {
-            data: { subscription },
-        } = supabase.auth.onAuthStateChange(async (event, session) => {
-            // Only react to specific events to avoid infinite loops or double-fetching
-            if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-                if (session?.user?.email) {
-                    // Check if we already have this user loaded?
-                    // Optimistic check:
-                    if (currentUser?.email === session.user.email) return;
-                    await loadUserProfile(session.user.email);
-                }
-            } else if (event === 'SIGNED_OUT') {
-                setCurrentUser(null);
-                setLoading(false);
-                // Clear any mock data
-                localStorage.removeItem(STORAGE_KEY_MOCK);
-            }
-        });
-
-        return () => subscription.unsubscribe();
-    }, [initializeAuth, currentUser, loadUserProfile]);
+    }, [initializeAuth]);
 
     const logAuthAction = useCallback(async (action: string, module: string, details: string, performedBy?: string) => {
         try {
@@ -228,41 +212,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }, [currentUser]);
 
     const login = useCallback(async (email: string, password: string): Promise<boolean> => {
-        // Dev/Demo Bypass
-        if (email === 'admin@shravyatours.com' && password === 'admin') {
-            localStorage.setItem(STORAGE_KEY_MOCK, 'true');
-            // Ensure it's in the staff list
-            setStaff(prev => {
-                if (!prev.find(s => s.id === 999)) return [MOCK_ADMIN_USER, ...prev];
-                return prev;
-            });
-            setCurrentUser(MOCK_ADMIN_USER);
-            logAuthAction('Login', 'Authentication', `User ${email} logged in (Demo Mode)`, MOCK_ADMIN_USER.name).catch(console.error);
-            return true;
-        }
-
         try {
-            const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-            if (error) {
-                console.error('Login failed:', error.message);
-                return false;
+            const API_BASE = import.meta.env.PROD ? '' : (import.meta.env.VITE_API_URL || `http://${window.location.hostname}:5000`);
+            const response = await fetch(`${API_BASE}/api/auth/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password })
+            });
+
+            if (!response.ok) {
+                const errData = await response.json().catch(() => ({}));
+                throw new Error(errData.error || 'Login failed on server');
             }
 
-            if (data.session?.user?.email) {
-                await loadUserProfile(data.session.user.email);
-                logAuthAction('Login', 'Authentication', `User ${data.session.user.email} logged in`, data.session.user.email).catch(console.error);
-            }
+            const data = await response.json();
+
+            // Store the JWT token
+            localStorage.setItem(JWT_KEY, data.token);
+
+            // Load user profile
+            await loadUserProfile(email);
+            logAuthAction('Login', 'Authentication', `User ${email} logged in`, email).catch(console.error);
             return true;
-        } catch (e) {
+        } catch (e: any) {
             console.error("Login exception:", e);
-            return false;
+            throw new Error(e.message || "Network error or server unreachable");
         }
     }, [loadUserProfile, logAuthAction]);
 
     const logout = useCallback(async () => {
         const userEmail = currentUser?.email || 'Unknown User';
         localStorage.removeItem(STORAGE_KEY_MOCK);
-        await supabase.auth.signOut();
+        localStorage.removeItem(JWT_KEY);
         setCurrentUser(null);
         logAuthAction('Logout', 'Authentication', `User ${userEmail} logged out`, userEmail).catch(console.error);
     }, [currentUser, logAuthAction]);

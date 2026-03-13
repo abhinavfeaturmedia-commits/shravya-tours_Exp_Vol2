@@ -152,6 +152,15 @@ export const PillNav: React.FC<PillNavProps> = ({
                 </li>
               );
             })}
+            <li className="mt-1 pt-1 border-t border-slate-100/50 dark:border-slate-800/50">
+              <Link
+                to="/contact"
+                className="w-full flex items-center justify-center px-6 py-3.5 rounded-xl bg-primary text-white font-bold transition-all active:scale-95 shadow-lg shadow-primary/20"
+                onClick={() => setIsMobileMenuOpen(false)}
+              >
+                Get Quote
+              </Link>
+            </li>
           </ul>
         </div>
       </div>
