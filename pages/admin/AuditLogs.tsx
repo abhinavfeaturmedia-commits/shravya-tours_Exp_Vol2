@@ -91,7 +91,7 @@ export const AuditLogs: React.FC = () => {
                     onClick={handleExport}
                     className="flex items-center gap-2 bg-white dark:bg-[#1A2633] text-slate-700 dark:text-slate-200 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-sm btn-glow"
                 >
-                    <Download size={18} /> Export CSV
+                    <Download size={18} /> Export Excel
                 </button>
             </div>
 

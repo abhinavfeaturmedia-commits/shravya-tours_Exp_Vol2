@@ -16,6 +16,8 @@ export const StaffManagement: React.FC = () => {
     const [editingId, setEditingId] = useState<number | null>(null);
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
+    const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
     const [formData, setFormData] = useState<{
         name: string;
@@ -65,6 +67,8 @@ export const StaffManagement: React.FC = () => {
         });
         setPassword('');
         setConfirmPassword('');
+        setShowPassword(false);
+        setShowConfirmPassword(false);
         setIsModalOpen(true);
     };
 
@@ -296,11 +300,25 @@ export const StaffManagement: React.FC = () => {
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
                                             <label className="text-xs font-bold uppercase text-slate-500 mb-1.5 block">Password</label>
-                                            <input required value={password} onChange={e => setPassword(e.target.value)} type="password" className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" placeholder="******" />
+                                            <div className="relative">
+                                                <input required value={password} onChange={e => setPassword(e.target.value)} type={showPassword ? "text" : "password"} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg pl-3 pr-10 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" placeholder="******" />
+                                                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 focus:outline-none flex items-center justify-center transition-colors">
+                                                    <span className="material-symbols-outlined text-[18px]">
+                                                        {showPassword ? 'visibility_off' : 'visibility'}
+                                                    </span>
+                                                </button>
+                                            </div>
                                         </div>
                                         <div>
                                             <label className="text-xs font-bold uppercase text-slate-500 mb-1.5 block">Confirm Password</label>
-                                            <input required value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} type="password" className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" placeholder="******" />
+                                            <div className="relative">
+                                                <input required value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} type={showConfirmPassword ? "text" : "password"} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg pl-3 pr-10 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" placeholder="******" />
+                                                <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 focus:outline-none flex items-center justify-center transition-colors">
+                                                    <span className="material-symbols-outlined text-[18px]">
+                                                        {showConfirmPassword ? 'visibility_off' : 'visibility'}
+                                                    </span>
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
                                 )}

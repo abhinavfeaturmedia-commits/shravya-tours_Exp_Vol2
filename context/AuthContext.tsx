@@ -114,8 +114,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 return;
             }
 
-            // 2. Fallback / Auto-create logic
-            console.warn("User profile not found via direct fetch. Checking full list/creating.");
+            // 2. Fallback: check full staff list
+            console.warn("User profile not found via direct fetch. Checking full list.");
             const allStaff = await api.getStaff();
             const found = allStaff.find(s => s.email.toLowerCase() === email.toLowerCase());
 
@@ -123,28 +123,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 setCurrentUser(found);
                 setStaff(allStaff);
             } else {
-                // Auto-create logic
-                const isFirst = allStaff.length === 0;
-                const isAdmin = email === 'toursshravya@gmail.com';
-
-                const newStaffData: Partial<StaffMember> = {
+                // No auto-create: use basic profile from email. Admins should create staff profiles explicitly.
+                console.warn(`No staff profile found for ${email}. Using basic profile.`);
+                setCurrentUser({
+                    id: 0,
                     name: email.split('@')[0],
                     email: email,
-                    role: (isFirst || isAdmin) ? 'Administrator' : 'Agent',
-                    userType: (isFirst || isAdmin) ? 'Admin' : 'Staff',
+                    role: 'Agent',
+                    userType: 'Staff',
                     initials: email.substring(0, 2).toUpperCase(),
-                    department: (isFirst || isAdmin) ? 'Executive' : 'Sales',
+                    department: 'General',
                     status: 'Active',
                     lastActive: new Date().toISOString(),
                     color: 'indigo',
                     queryScope: 'Show All Queries',
                     whatsappScope: 'All Messages',
-                    permissions: (isFirst || isAdmin) ? ADMIN_PERMISSIONS : DEFAULT_PERMISSIONS
-                };
-
-                const created = await api.createStaff(newStaffData as any);
-                setCurrentUser(created);
-                setStaff([created, ...allStaff]);
+                    permissions: DEFAULT_PERMISSIONS,
+                });
+                setStaff(allStaff);
             }
         } catch (e) {
             console.error("Error loading user profile:", e);
@@ -171,7 +167,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     }
 
                     if (payload.email) {
-                        await loadUserProfile(payload.email);
+                        // Admin bypass user — use mock admin directly, no DB needed
+                        if (payload.id === 999) {
+                            setCurrentUser(MOCK_ADMIN_USER);
+                        } else {
+                            try {
+                                await loadUserProfile(payload.email);
+                            } catch (profileErr) {
+                                console.warn('Could not load staff profile on init, using basic info:', profileErr);
+                                setCurrentUser({
+                                    id: payload.id,
+                                    name: payload.email.split('@')[0],
+                                    email: payload.email,
+                                    role: payload.role === 'admin' ? 'Administrator' : 'Agent',
+                                    userType: payload.role === 'admin' ? 'Admin' : 'Staff',
+                                    initials: payload.email.substring(0, 2).toUpperCase(),
+                                    department: 'General',
+                                    status: 'Active',
+                                    lastActive: new Date().toISOString(),
+                                    color: 'indigo',
+                                    queryScope: 'Show All Queries',
+                                    whatsappScope: 'All Messages',
+                                    permissions: payload.role === 'admin' ? ADMIN_PERMISSIONS : DEFAULT_PERMISSIONS,
+                                });
+                            }
+                        }
                     }
                 } catch (e) {
                     console.error('JWT decode failed:', e);
@@ -190,11 +210,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
     }, [loadUserProfile]);
 
-    // Force safety timeout for loading state
+    // Force safety timeout
     useEffect(() => {
         const safetyTimer = setTimeout(() => {
+            console.warn('Auth loading safety timeout after 5s');
             setLoading(false);
-        }, 10000); // 10s absolute max loading time
+        }, 5000); // 5s absolute max loading time
         return () => clearTimeout(safetyTimer);
     }, []);
 
@@ -213,7 +234,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const login = useCallback(async (email: string, password: string): Promise<boolean> => {
         try {
-            const API_BASE = import.meta.env.PROD ? '' : (import.meta.env.VITE_API_URL || `http://${window.location.hostname}:5000`);
+            const API_BASE = import.meta.env.PROD ? '' : (import.meta.env.VITE_API_URL || `http://${window.location.hostname}:3001`);
             const response = await fetch(`${API_BASE}/api/auth/login`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -230,8 +251,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             // Store the JWT token
             localStorage.setItem(JWT_KEY, data.token);
 
-            // Load user profile
-            await loadUserProfile(email);
+            // If admin bypass user (id 999), use mock admin directly — no DB needed
+            if (data.user?.id === 999) {
+                setCurrentUser(MOCK_ADMIN_USER);
+            } else {
+                // Load user profile from DB, fallback gracefully on error
+                try {
+                    await loadUserProfile(email);
+                } catch (profileErr) {
+                    console.warn('Could not load staff profile, using basic user info:', profileErr);
+                    setCurrentUser({
+                        id: data.user.id,
+                        name: email.split('@')[0],
+                        email: email,
+                        role: data.user.role === 'admin' ? 'Administrator' : 'Agent',
+                        userType: data.user.role === 'admin' ? 'Admin' : 'Staff',
+                        initials: email.substring(0, 2).toUpperCase(),
+                        department: 'General',
+                        status: 'Active',
+                        lastActive: new Date().toISOString(),
+                        color: 'indigo',
+                        queryScope: 'Show All Queries',
+                        whatsappScope: 'All Messages',
+                        permissions: data.user.role === 'admin' ? ADMIN_PERMISSIONS : DEFAULT_PERMISSIONS,
+                    });
+                }
+            }
+
             logAuthAction('Login', 'Authentication', `User ${email} logged in`, email).catch(console.error);
             return true;
         } catch (e: any) {

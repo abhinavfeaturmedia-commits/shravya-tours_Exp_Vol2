@@ -15,13 +15,15 @@ export const ProposalBuilder: React.FC = () => {
     const navigate = useNavigate();
     const {
         proposals, addProposal, updateProposal, leads,
-        masterHotels, masterActivities, addBooking
+        masterHotels, masterActivities, addBooking,
+        customers, addCustomer
     } = useData();
 
     // Form State
     const [title, setTitle] = useState('');
     const [leadId, setLeadId] = useState('');
     const [status, setStatus] = useState<'Draft' | 'Sent' | 'Accepted' | 'Rejected'>('Draft');
+    const [validUntil, setValidUntil] = useState(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
     const [options, setOptions] = useState<ProposalOption[]>([
         { id: 'opt-1', name: 'Standard', price: 0, items: [], hotels: [], activities: [], inclusions: [], exclusions: [] }
     ]);
@@ -35,6 +37,7 @@ export const ProposalBuilder: React.FC = () => {
                 setTitle(existing.title);
                 setLeadId(existing.leadId);
                 setStatus(existing.status);
+                setValidUntil(existing.validUntil ? new Date(existing.validUntil).toISOString().split('T')[0] : validUntil);
                 setOptions(existing.options);
                 setActiveOptionId(existing.options[0]?.id || 'opt-1');
             }
@@ -56,7 +59,7 @@ export const ProposalBuilder: React.FC = () => {
             status,
             options,
             createdAt: id === 'new' ? new Date().toISOString() : proposals.find(p => p.id === id)?.createdAt || new Date().toISOString(),
-            validUntil: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() // 7 days validity
+            validUntil: new Date(validUntil).toISOString()
         };
 
         if (id === 'new') {
@@ -138,10 +141,37 @@ export const ProposalBuilder: React.FC = () => {
         if (!lead) { toast.error("Lead not found"); return; }
 
         if (confirm(`Convert "${activeOption.name}" to a confirmed booking? This will create a new Booking entry.`)) {
+            // Check for existing customer by email/phone (mirrors Leads conversion logic)
+            let targetCustomerId: string | undefined;
+            const existingCustomer = customers?.find((c: any) =>
+                (c.email?.toLowerCase() === lead.email?.toLowerCase()) ||
+                (c.phone === lead.phone)
+            );
+
+            if (existingCustomer) {
+                targetCustomerId = existingCustomer.id;
+            } else {
+                const newCustomerId = `CU-${Date.now()}`;
+                const newCustomer = {
+                    id: newCustomerId,
+                    name: lead.name,
+                    email: lead.email,
+                    phone: lead.phone || '',
+                    type: 'New',
+                    status: 'Active',
+                    joinedDate: new Date().toISOString(),
+                    bookingsCount: 0,
+                    totalSpent: 0
+                };
+                addCustomer?.(newCustomer);
+                targetCustomerId = newCustomerId;
+            }
+
             const newBooking: any = {
-                id: `BK-${Date.now()}`,
+                id: `BK-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
                 type: 'Tour',
                 customer: lead.name,
+                customerId: targetCustomerId,
                 email: lead.email,
                 phone: lead.phone,
                 title: `${title} - ${activeOption.name}`,
@@ -150,7 +180,7 @@ export const ProposalBuilder: React.FC = () => {
                 guests: lead.travelers,
                 status: 'Confirmed',
                 payment: 'Unpaid',
-                details: `Converted from Proposal: ${id}. Option: ${activeOption.name}. Hotels: ${activeOption.hotels.join(', ')}`,
+                details: `Converted from Proposal: ${id}. Option: ${activeOption.name}. Customer: ${existingCustomer ? 'linked' : 'created'}.`,
                 transactions: [],
                 supplierBookings: []
             };
@@ -162,7 +192,7 @@ export const ProposalBuilder: React.FC = () => {
                 setStatus('Accepted');
             }
 
-            toast.success("Booking created & Proposal Accepted!");
+            toast.success('Booking created & Proposal Accepted!');
             setTimeout(() => navigate('/admin/bookings'), 1000);
         }
     };
@@ -261,6 +291,30 @@ export const ProposalBuilder: React.FC = () => {
                                     <option key={lead.id} value={lead.id}>{lead.name} ({lead.destination})</option>
                                 ))}
                             </select>
+                        </div>
+                    </div>
+                    <div className="bg-white dark:bg-[#1A2633] rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Status</label>
+                            <select
+                                value={status}
+                                onChange={(e) => setStatus(e.target.value as any)}
+                                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-purple-500"
+                            >
+                                <option value="Draft">Draft</option>
+                                <option value="Sent">Sent</option>
+                                <option value="Accepted">Accepted</option>
+                                <option value="Rejected">Rejected</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Valid Until</label>
+                            <input
+                                type="date"
+                                value={validUntil}
+                                onChange={(e) => setValidUntil(e.target.value)}
+                                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-purple-500"
+                            />
                         </div>
                     </div>
 

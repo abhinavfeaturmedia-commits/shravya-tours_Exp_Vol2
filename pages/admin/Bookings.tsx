@@ -185,8 +185,8 @@ export const Bookings: React.FC = () => {
         e.preventDefault();
 
         // Validation
-        if (Number(formData.amount) < 0) {
-            toast.error("Amount cannot be negative");
+        if (Number(formData.amount) <= 0) {
+            toast.error("Amount must be greater than zero");
             return;
         }
 
@@ -215,7 +215,7 @@ export const Bookings: React.FC = () => {
             updateBooking(formData.id, bookingData);
         } else {
             const newBooking: Booking = {
-                id: `#BK-${Math.floor(1000 + Math.random() * 9000)}`,
+                id: `BK-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
                 assignedTo: currentUser?.id,
                 ...bookingData as any // safely cast for new object
             };
@@ -268,7 +268,8 @@ export const Bookings: React.FC = () => {
 
     const handleGenerateInvoice = (booking: Booking) => {
         const isPaid = booking.payment === 'Paid';
-        const amountPaid = isPaid ? booking.amount : (booking.payment === 'Deposit' ? booking.amount * 0.3 : 0);
+        // Use actual deposit amount if tracked, otherwise estimate at 30%
+        const amountPaid = isPaid ? booking.amount : (booking.payment === 'Deposit' ? ((booking as any).depositAmount || booking.amount * 0.3) : 0);
         const balanceDue = booking.amount - amountPaid;
         const invoiceDate = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
         const dueDate = new Date(booking.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -343,7 +344,7 @@ export const Bookings: React.FC = () => {
             startY: 110,
             head: [['Item Description', 'Duration', 'Service Dates', 'Rate', 'Amount']],
             body: [
-                [`${booking.title}\n(${booking.type} Package)`, '2 Days', dueDate, `Rs. ${booking.amount.toLocaleString()}.00`, `Rs. ${booking.amount.toLocaleString()}.00`]
+                [`${booking.title}\n(${booking.type} Package)`, 'As per itinerary', dueDate, `Rs. ${booking.amount.toLocaleString()}.00`, `Rs. ${booking.amount.toLocaleString()}.00`]
             ],
             theme: 'grid',
             headStyles: { fillColor: [229, 231, 235], textColor: [17, 24, 39] },
@@ -542,7 +543,7 @@ export const Bookings: React.FC = () => {
                                     </div>
                                     <div className="space-y-1">
                                         <label className="text-xs font-bold text-slate-500">Travel Date</label>
-                                        <input type="date" value={formData.date} onChange={e => setFormData({ ...formData, date: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                                        <input type="date" min={today} value={formData.date} onChange={e => setFormData({ ...formData, date: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
                                     </div>
                                     <div className="space-y-1">
                                         <label className="text-xs font-bold text-slate-500">Total Amount (₹)</label>

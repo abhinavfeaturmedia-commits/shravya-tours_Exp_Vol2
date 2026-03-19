@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 export const Login: React.FC = () => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
     const { login } = useAuth();
     const navigate = useNavigate();
@@ -128,15 +129,26 @@ export const Login: React.FC = () => {
                             <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-widest">
                                 Password
                             </label>
-                            <input
-                                id="login-password"
-                                type="password"
-                                required
-                                value={password}
-                                onChange={e => setPassword(e.target.value)}
-                                className="w-full h-12 px-4 rounded-xl bg-white dark:bg-white/5 border border-[#EDE8DF] dark:border-white/10 text-slate-900 dark:text-white placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all shadow-sm font-light"
-                                placeholder="••••••••"
-                            />
+                            <div className="relative">
+                                <input
+                                    id="login-password"
+                                    type={showPassword ? "text" : "password"}
+                                    required
+                                    value={password}
+                                    onChange={e => setPassword(e.target.value)}
+                                    className="w-full h-12 pl-4 pr-12 rounded-xl bg-white dark:bg-white/5 border border-[#EDE8DF] dark:border-white/10 text-slate-900 dark:text-white placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all shadow-sm font-light"
+                                    placeholder="••••••••"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowPassword(!showPassword)}
+                                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 focus:outline-none flex items-center justify-center transition-colors"
+                                >
+                                    <span className="material-symbols-outlined text-[20px]">
+                                        {showPassword ? 'visibility_off' : 'visibility'}
+                                    </span>
+                                </button>
+                            </div>
                         </div>
 
                         {/* Submit */}

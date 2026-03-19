@@ -20,7 +20,8 @@ const pool = mysql.createPool({
     database: process.env.DB_NAME,
     waitForConnections: true,
     connectionLimit: 10,
-    queueLimit: 0
+    queueLimit: 0,
+    connectTimeout: 30000 // 30 seconds for remote Hostinger DB
 });
 
 const JWT_SECRET = process.env.JWT_SECRET || 'change-me';
@@ -90,6 +91,34 @@ function validateTable(req, res, next) {
     next();
 }
 
+// ─── Validate Column Name (prevent SQL injection via select/order params) ───
+const VALID_COL_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+function isValidColumn(name) {
+    return VALID_COL_RE.test(name);
+}
+
+// ─── Write Guard: restrict writes to sensitive tables to admins only ───
+const ADMIN_ONLY_TABLES = new Set(['users', 'staff_members', 'audit_logs', 'settings']);
+function writeGuard(req, res, next) {
+    const table = req.params.table;
+    if (ADMIN_ONLY_TABLES.has(table) && req.user?.role !== 'admin') {
+        return res.status(403).json({ error: 'Admin access required for this table' });
+    }
+    next();
+}
+
+// ─── Server-Side Audit Logger ───
+async function auditLog(action, table, details, performedBy) {
+    try {
+        await pool.query(
+            'INSERT INTO `audit_logs` (id, action, module, details, severity, performed_by, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [crypto.randomUUID(), action, table, details, 'Info', performedBy || 'System', new Date().toISOString()]
+        );
+    } catch (e) {
+        console.error('Audit log write failed:', e.message);
+    }
+}
+
 // ─── Health Check ───
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', message: 'Backend is running' });
@@ -110,7 +139,12 @@ app.get('/api/db-test', async (req, res) => {
 // ═══════════════════════════════════════════
 
 app.post('/api/auth/login', async (req, res) => {
-    const { email, password } = req.body;
+    const { email, password } = req.body || {};
+
+    // Validate required fields
+    if (!email || !password) {
+        return res.status(400).json({ error: 'Email and password are required' });
+    }
 
     // Dev/Demo bypass
     if (email === 'admin@shravyatours.com' && password === 'admin') {
@@ -192,12 +226,20 @@ app.post('/api/auth/create-user', authMiddleware, async (req, res) => {
 // Supports: ?order=column&asc=true&limit=100&select=col1,col2
 // Supports: ?eq_field=value for equality filters
 // Supports: ?join=related_table for left joins
-app.get('/api/crud/:table', validateTable, async (req, res) => {
+app.get('/api/crud/:table', authMiddleware, validateTable, async (req, res) => {
     const { table } = req.params;
     const { order, asc, limit, select } = req.query;
 
     try {
-        let columns = select || '*';
+        // Validate select columns
+        let columns = '*';
+        if (select) {
+            const cols = select.split(',').map(c => c.trim());
+            if (!cols.every(isValidColumn)) {
+                return res.status(400).json({ error: 'Invalid column name in select parameter' });
+            }
+            columns = cols.map(c => `\`${c}\``).join(', ');
+        }
         let query = `SELECT ${columns} FROM \`${table}\``;
         const params = [];
 
@@ -206,19 +248,25 @@ app.get('/api/crud/:table', validateTable, async (req, res) => {
         if (eqFilters.length > 0) {
             const whereClauses = eqFilters.map(([key, val]) => {
                 const col = key.replace('eq_', '');
+                if (!isValidColumn(col)) return null;
                 params.push(val);
                 return `\`${col}\` = ?`;
-            });
-            query += ' WHERE ' + whereClauses.join(' AND ');
+            }).filter(Boolean);
+            if (whereClauses.length > 0) {
+                query += ' WHERE ' + whereClauses.join(' AND ');
+            }
         }
 
         if (order) {
+            if (!isValidColumn(order)) {
+                return res.status(400).json({ error: 'Invalid column name in order parameter' });
+            }
             const dir = asc === 'true' ? 'ASC' : 'DESC';
             query += ` ORDER BY \`${order}\` ${dir}`;
         }
 
         if (limit) {
-            query += ` LIMIT ${parseInt(limit)}`;
+            query += ` LIMIT ${parseInt(limit) || 100}`;
         }
 
         const [rows] = await pool.query(query, params);
@@ -230,7 +278,7 @@ app.get('/api/crud/:table', validateTable, async (req, res) => {
 });
 
 // GET single row by ID
-app.get('/api/crud/:table/:id', validateTable, async (req, res) => {
+app.get('/api/crud/:table/:id', authMiddleware, validateTable, async (req, res) => {
     const { table, id } = req.params;
     try {
         const [rows] = await pool.query(`SELECT * FROM \`${table}\` WHERE id = ?`, [id]);
@@ -243,7 +291,7 @@ app.get('/api/crud/:table/:id', validateTable, async (req, res) => {
 });
 
 // POST - Insert new row
-app.post('/api/crud/:table', validateTable, async (req, res) => {
+app.post('/api/crud/:table', authMiddleware, validateTable, writeGuard, async (req, res) => {
     const { table } = req.params;
     const body = req.body;
     try {
@@ -268,6 +316,10 @@ app.post('/api/crud/:table', validateTable, async (req, res) => {
         // Fetch the inserted row using the provided id or the auto-increment insertId
         const fetchedId = body.id || result.insertId;
         const [inserted] = await pool.query(`SELECT * FROM \`${table}\` WHERE id = ?`, [fetchedId]);
+
+        // Server-side audit log
+        auditLog('Create', table, `Created record ${fetchedId}`, req.user?.email);
+
         res.status(201).json({ data: inserted[0] || { id: fetchedId } });
     } catch (error) {
         console.error(`POST /${table} error:`, error);
@@ -276,7 +328,7 @@ app.post('/api/crud/:table', validateTable, async (req, res) => {
 });
 
 // PUT - Update row by ID
-app.put('/api/crud/:table/:id', validateTable, async (req, res) => {
+app.put('/api/crud/:table/:id', authMiddleware, validateTable, writeGuard, async (req, res) => {
     const { table, id } = req.params;
     const body = req.body;
     try {
@@ -287,6 +339,10 @@ app.put('/api/crud/:table/:id', validateTable, async (req, res) => {
         values.push(id);
 
         await pool.query(`UPDATE \`${table}\` SET ${setClauses} WHERE id = ?`, values);
+
+        // Server-side audit log
+        auditLog('Update', table, `Updated record ${id}: ${Object.keys(req.body).join(', ')}`, req.user?.email);
+
         res.json({ status: 'success' });
     } catch (error) {
         console.error(`PUT /${table}/${id} error:`, error);
@@ -295,10 +351,14 @@ app.put('/api/crud/:table/:id', validateTable, async (req, res) => {
 });
 
 // DELETE - Delete row by ID
-app.delete('/api/crud/:table/:id', validateTable, async (req, res) => {
+app.delete('/api/crud/:table/:id', authMiddleware, validateTable, writeGuard, async (req, res) => {
     const { table, id } = req.params;
     try {
         await pool.query(`DELETE FROM \`${table}\` WHERE id = ?`, [id]);
+
+        // Server-side audit log
+        auditLog('Delete', table, `Deleted record ${id}`, req.user?.email);
+
         res.json({ status: 'success' });
     } catch (error) {
         console.error(`DELETE /${table}/${id} error:`, error);
@@ -307,7 +367,7 @@ app.delete('/api/crud/:table/:id', validateTable, async (req, res) => {
 });
 
 // UPSERT - Insert or update (for daily_inventory etc.)
-app.post('/api/crud/:table/upsert', validateTable, async (req, res) => {
+app.post('/api/crud/:table/upsert', authMiddleware, validateTable, writeGuard, async (req, res) => {
     const { table } = req.params;
     const body = req.body;
     try {
@@ -339,14 +399,13 @@ app.post('/api/crud/:table/upsert', validateTable, async (req, res) => {
 // SPECIAL QUERY ROUTES (Joins, RPC-like)
 // ═══════════════════════════════════════════
 
-// Bookings with package title
-app.get('/api/bookings-with-package', async (req, res) => {
+// Bookings with package title (package_title is native to bookings table in this schema)
+app.get('/api/bookings-with-package', authMiddleware, async (req, res) => {
     try {
         const [rows] = await pool.query(`
-            SELECT b.*, p.title as package_title 
-            FROM bookings b 
-            LEFT JOIN packages p ON b.package_id = p.id 
-            ORDER BY b.created_at DESC
+            SELECT * 
+            FROM bookings 
+            ORDER BY created_at DESC
         `);
         res.json({ data: rows });
     } catch (error) {
@@ -356,7 +415,7 @@ app.get('/api/bookings-with-package', async (req, res) => {
 });
 
 // Leads with logs
-app.get('/api/leads-with-logs', async (req, res) => {
+app.get('/api/leads-with-logs', authMiddleware, async (req, res) => {
     try {
         const [leads] = await pool.query('SELECT * FROM leads ORDER BY created_at DESC');
         const [logs] = await pool.query('SELECT * FROM lead_logs ORDER BY timestamp DESC');
@@ -381,7 +440,7 @@ app.get('/api/leads-with-logs', async (req, res) => {
 });
 
 // Accounts with transactions
-app.get('/api/accounts-with-transactions', async (req, res) => {
+app.get('/api/accounts-with-transactions', authMiddleware, async (req, res) => {
     try {
         const [accounts] = await pool.query('SELECT * FROM accounts ORDER BY created_at DESC');
         const [transactions] = await pool.query('SELECT * FROM account_transactions ORDER BY created_at DESC');
@@ -405,7 +464,7 @@ app.get('/api/accounts-with-transactions', async (req, res) => {
 });
 
 // Follow-ups with lead name
-app.get('/api/follow-ups-with-lead', async (req, res) => {
+app.get('/api/follow-ups-with-lead', authMiddleware, async (req, res) => {
     try {
         const [rows] = await pool.query(`
             SELECT f.*, l.name as lead_name 

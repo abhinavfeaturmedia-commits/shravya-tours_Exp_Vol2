@@ -353,7 +353,7 @@ export const AdminDashboard: React.FC = () => {
                             System Online
                         </div>
                         <h1 className="text-4xl md:text-5xl font-black tracking-tight leading-tight">
-                            {greeting}, Admin.
+                            {greeting}, {currentUser?.name || 'there'}.
                         </h1>
                         <p className="text-lg text-indigo-100 font-medium leading-relaxed opacity-90">
                             Here's what's happening in your travel business today. You have <span className="text-white font-bold underline decoration-indigo-400 decoration-2 underline-offset-4">{pendingBookings} pending bookings</span> requiring action.

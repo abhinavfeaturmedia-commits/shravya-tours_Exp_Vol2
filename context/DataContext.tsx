@@ -603,8 +603,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Booking
   const addBooking = useCallback(async (booking: Booking) => {
     try {
-      // 1. Lock Inventory (Assuming 1 pax slot per booking for this demo if not specified otherwise)
-      await api.bookInventorySlot(booking.date, 1);
+      // 1. Lock Inventory (non-blocking — don't fail booking if inventory table is empty)
+      try {
+        await api.bookInventorySlot(booking.date, 1);
+      } catch (invErr) {
+        console.warn("Inventory slot lock skipped (table may not exist or no matching date):", invErr);
+      }
 
       // 2. Generate Invoice Number if missing
       let newInvoiceNo = booking.invoiceNo;
@@ -614,17 +618,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // 3. Create Booking
       const bookingToCreate = { ...booking, invoiceNo: newInvoiceNo };
-      try {
-        await api.createBooking(bookingToCreate);
-      } catch (err) {
-        // Rollback inventory lock
-        try {
-          await api.unlockInventorySlot(booking.date, 1);
-        } catch (unlockErr) {
-          console.error("Failed to unlock inventory after booking failure", unlockErr);
-        }
-        throw err;
-      }
+      await api.createBooking(bookingToCreate);
 
       // 4. Update UI State
       setBookings(b => [bookingToCreate, ...b]);

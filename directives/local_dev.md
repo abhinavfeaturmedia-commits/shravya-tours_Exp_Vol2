@@ -17,8 +17,8 @@ This runs `concurrently` to start:
 - **Backend:** Express server via `cd backend && npm run dev`
 
 ### 2. Accessing the app
-- Frontend: `http://localhost:5173`
-- Backend API: `http://localhost:3001` (check backend config for exact port)
+- Frontend: `http://localhost:3000`
+- Backend API: `http://localhost:3001`
 
 ## Environment
 - Frontend env: `.env.local` (Supabase keys, Gemini API key, etc.)

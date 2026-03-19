@@ -2,7 +2,7 @@ import imageCompression from 'browser-image-compression';
 import { Package, Booking, Lead, BookingStatus, StaffMember, Customer, MasterRoomType, MasterMealPlan, MasterActivity, MasterTransport, MasterPlan, MasterLeadSource, MasterTermsTemplate, CMSBanner, CMSTestimonial, CMSGalleryImage, CMSPost, FollowUp, Proposal, DailyTarget, TimeSession, AssignmentRule, UserActivity, Campaign, MasterHotel, Task, AuditLog } from '../../types';
 
 // ─── BASE API URL ───
-const API_BASE = import.meta.env.PROD ? '' : (import.meta.env.VITE_API_URL || `http://${window.location.hostname}:5000`);
+const API_BASE = import.meta.env.PROD ? '' : (import.meta.env.VITE_API_URL || `http://${window.location.hostname}:3001`);
 
 // ─── Fetch Helper ───
 async function fetchApi(path: string, options: RequestInit = {}): Promise<any> {
@@ -216,46 +216,51 @@ export const api = {
             id: row.id,
             type: 'Tour',
             customer: row.customer_name,
-            email: row.email,
-            phone: row.phone,
+            email: row.customer_email || row.email,
+            phone: row.customer_phone || row.phone,
             title: row.package_title || 'Unknown Package',
-            date: row.date,
-            amount: row.amount,
-            status: row.status as BookingStatus,
-            payment: row.payment_status === 'Paid' ? 'Paid' : 'Unpaid',
+            date: row.booking_date || row.date,
+            amount: Number(row.total_price) || Number(row.amount) || 0,
+            status: (row.status ? row.status.charAt(0).toUpperCase() + row.status.slice(1) : 'Pending') as BookingStatus,
+            payment: row.payment_status === 'paid' ? 'Paid' : 'Unpaid',
             packageId: row.package_id,
-            invoiceNo: row.invoice_no
+            invoiceNo: row.invoice_no || `INV-${row.id}`
         }));
     },
 
     createBooking: async (booking: Partial<Booking>) => {
-        const { data } = await crud.create('bookings', {
+        // Map to Hostinger DB schema
+        const dbBooking: any = {
             customer_name: booking.customer,
-            email: booking.email,
-            phone: booking.phone,
-            date: booking.date,
-            amount: booking.amount,
-            package_id: booking.packageId,
-            status: 'Pending',
-            payment_status: 'Unpaid',
-            invoice_no: booking.invoiceNo
-        });
+            customer_email: booking.email || '',
+            customer_phone: booking.phone || '',
+            booking_date: booking.date || new Date().toISOString().split('T')[0],
+            total_price: booking.amount || 0,
+            number_of_people: booking.guests ? parseInt(booking.guests.split(' ')[0]) || 1 : 1, // Extract count from "2 Adults" etc.
+            status: booking.status === 'Confirmed' ? 'confirmed' : 'pending',
+            payment_status: booking.payment === 'Paid' ? 'paid' : 'pending' // Enums: pending, paid, failed, refunded
+        };
+
+        if (booking.packageId) dbBooking.package_id = booking.packageId;
+
+        const { data } = await crud.create('bookings', dbBooking);
         return data;
     },
 
     updateBookingStatus: async (id: string, status: string) => {
-        await crud.update('bookings', id, { status });
+        await crud.update('bookings', id, { status: status.toLowerCase() });
     },
 
     updateBooking: async (id: string, updates: Partial<Booking>) => {
-        await crud.update('bookings', id, {
-            customer_name: updates.customer,
-            email: updates.email,
-            phone: updates.phone,
-            date: updates.date,
-            amount: updates.amount,
-            package_id: updates.packageId
-        });
+        const dbUpdates: any = {};
+        if (updates.customer !== undefined) dbUpdates.customer_name = updates.customer;
+        if (updates.email !== undefined) dbUpdates.customer_email = updates.email;
+        if (updates.phone !== undefined) dbUpdates.customer_phone = updates.phone;
+        if (updates.date !== undefined) dbUpdates.booking_date = updates.date;
+        if (updates.amount !== undefined) dbUpdates.total_price = updates.amount;
+        if (updates.packageId !== undefined) dbUpdates.package_id = updates.packageId;
+        
+        await crud.update('bookings', id, dbUpdates);
     },
 
     deleteBooking: async (id: string) => {

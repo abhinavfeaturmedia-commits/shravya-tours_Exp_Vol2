@@ -266,7 +266,7 @@ export const AdminLayout: React.FC = () => {
 
         {/* Navigation Items */}
         <nav className="flex-1 overflow-y-auto py-6 px-4 space-y-6 scrollbar-thin">
-          {navGroups.map((group, idx) => (
+          {visibleNavGroups.map((group, idx) => (
             <div key={idx} className="space-y-1">
               <p className="px-4 text-[10px] font-black uppercase tracking-[0.15em] text-slate-400 dark:text-slate-500 mb-2">
                 {group.title}

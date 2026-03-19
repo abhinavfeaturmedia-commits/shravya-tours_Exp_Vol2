@@ -11,6 +11,7 @@ import {
     ChevronRight, Sparkles, Edit2, Trash2, ArrowRight, MessageCircle,
     FileText, Bell, CheckCircle2, MoreHorizontal, Filter, Save, CalendarDays
 } from 'lucide-react';
+import { TravelerSelector } from '../../components/ui/TravelerSelector';
 // import { analyzeLead } from '../../src/lib/gemini'; // Commented out unused
 // import { BulkImportLeadsModal } from '../../components/admin/BulkImportLeadsModal'; // Commented out unused
 
@@ -180,18 +181,32 @@ export const Leads: React.FC = () => {
 
     const handleConvertToBooking = () => {
         if (!selectedLead) return;
-        if (confirm(`Convert ${selectedLead.name} to a confirmed booking?`)) {
-            // 1. Deep Logic: Check for existing Customer
-            let targetCustomerId: string | undefined;
-            const existingCustomer = customers?.find((c: Customer) =>
-                (c.email?.toLowerCase() === selectedLead.email?.toLowerCase()) ||
-                (c.phone === selectedLead.phone)
-            );
 
-            if (existingCustomer) {
-                targetCustomerId = existingCustomer.id;
-            } else {
-                // Create new customer
+        // Validation: require budget and start date
+        if (!selectedLead.potentialValue || selectedLead.potentialValue <= 0) {
+            toast.error('Please set a budget before converting this lead to a booking.');
+            return;
+        }
+        if (!selectedLead.startDate) {
+            toast.error('Please set a start date before converting this lead.');
+            return;
+        }
+        if (new Date(selectedLead.startDate) < new Date(new Date().toDateString())) {
+            toast.error('Start date is in the past. Please update it before converting.');
+            return;
+        }
+
+        // 1. Deep Logic: Check for existing Customer
+        let targetCustomerId: string | undefined;
+        const existingCustomer = customers?.find((c: Customer) =>
+            (c.email?.toLowerCase() === selectedLead.email?.toLowerCase()) ||
+            (c.phone === selectedLead.phone)
+        );
+
+        if (existingCustomer) {
+            targetCustomerId = existingCustomer.id;
+        } else {
+            // Create new customer
                 const newCustomerId = `CU-${Date.now()}`;
                 const newCustomer: Customer = {
                     id: newCustomerId,
@@ -231,7 +246,6 @@ export const Leads: React.FC = () => {
                 timestamp: new Date().toISOString()
             });
             toast.success('Lead converted to Booking!');
-        }
     };
 
     const openAddModal = () => {
@@ -257,7 +271,7 @@ export const Leads: React.FC = () => {
                 <div className="px-8 py-6 max-w-[1600px] mx-auto w-full">
                     <h1 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight mb-1"><span className="font-display text-4xl">Lead Tracking</span></h1>
                     <p className="text-slate-500 mb-8">
-                        Good Morning! You have <span className="text-primary font-bold">3 high-priority</span> follow-ups today.
+                        You have <span className="text-primary font-bold">{stats.tasks}</span> follow-up(s) due today.
                     </p>
 
                     {/* Stats Cards */}
@@ -266,21 +280,18 @@ export const Leads: React.FC = () => {
                             <p className="text-xs font-bold text-slate-400 uppercase mb-1">Pending Leads</p>
                             <div className="flex items-center gap-3">
                                 <span className="text-4xl kpi-number text-slate-900 dark:text-white">{stats.pending}</span>
-                                <span className="text-xs font-bold bg-green-100 text-green-700 px-2 py-0.5 rounded-full">+2%</span>
                             </div>
                         </div>
                         <div className="bg-white dark:bg-[#1A2633] p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
                             <p className="text-xs font-bold text-slate-400 uppercase mb-1">Pipeline Value</p>
                             <div className="flex items-center gap-3">
                                 <span className="text-4xl kpi-number text-slate-900 dark:text-white">₹{(stats.value / 1000).toFixed(0)}k</span>
-                                <span className="text-xs font-bold bg-green-100 text-green-700 px-2 py-0.5 rounded-full">+12%</span>
                             </div>
                         </div>
                         <div className="bg-white dark:bg-[#1A2633] p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
                             <p className="text-xs font-bold text-slate-400 uppercase mb-1">Tasks Due Today</p>
                             <div className="flex items-center gap-3">
                                 <span className="text-4xl kpi-number text-slate-900 dark:text-white">{stats.tasks}</span>
-                                <span className="text-xs font-bold bg-red-100 text-red-700 px-2 py-0.5 rounded-full">-1</span>
                             </div>
                         </div>
                     </div>
@@ -361,7 +372,7 @@ export const Leads: React.FC = () => {
 
                         {/* Pagination Footer */}
                         <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-500 font-medium">
-                            Showing 1 to {filteredLeads.length} of {leads.length} results
+                            Showing {filteredLeads.length} of {leads.length} results
                         </div>
                     </div>
                 </div>
@@ -641,7 +652,7 @@ export const Leads: React.FC = () => {
                                 </div>
                                 <div>
                                     <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Email</label>
-                                    <input placeholder="Email Address" value={leadForm.email || ''} onChange={e => setLeadForm({ ...leadForm, email: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary" />
+                                    <input required type="email" placeholder="Email Address" value={leadForm.email || ''} onChange={e => setLeadForm({ ...leadForm, email: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary" />
                                 </div>
                             </div>
                             <div className="grid grid-cols-2 gap-3">
@@ -654,17 +665,18 @@ export const Leads: React.FC = () => {
                                     <input type="number" placeholder="0" value={leadForm.budget || ''} onChange={e => setLeadForm({ ...leadForm, budget: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary" />
                                 </div>
                             </div>
-                            <div className="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Status</label>
-                                    <select value={leadForm.status} onChange={e => setLeadForm({ ...leadForm, status: e.target.value as any })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary">
-                                        {['New', 'Warm', 'Hot', 'Cold', 'Offer Sent', 'Converted'].map(s => <option key={s} value={s}>{s}</option>)}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Travelers</label>
-                                    <input placeholder="e.g. 2 Adults, 1 Child" value={leadForm.travelers || ''} onChange={e => setLeadForm({ ...leadForm, travelers: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary" />
-                                </div>
+                            <div>
+                                <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Status</label>
+                                <select value={leadForm.status} onChange={e => setLeadForm({ ...leadForm, status: e.target.value as any })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary">
+                                    {['New', 'Warm', 'Hot', 'Cold', 'Offer Sent', 'Converted'].map(s => <option key={s} value={s}>{s}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Travelers</label>
+                                <TravelerSelector
+                                    value={leadForm.travelers || '2 Adults'}
+                                    onChange={(val) => setLeadForm({ ...leadForm, travelers: val })}
+                                />
                             </div>
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
