@@ -1,0 +1,136 @@
+﻿[dotenv@17.3.1] injecting env (6) from backend\.env -- tip: ΓÜí∩╕Å secrets for agents: https://dotenvx.com/as2
+Checking follow_ups table schema...
+[
+  {
+    "Field": "id",
+    "Type": "varchar(64)",
+    "Null": "NO",
+    "Key": "PRI",
+    "Default": null,
+    "Extra": ""
+  },
+  {
+    "Field": "lead_id",
+    "Type": "varchar(64)",
+    "Null": "YES",
+    "Key": "",
+    "Default": null,
+    "Extra": ""
+  },
+  {
+    "Field": "type",
+    "Type": "varchar(50)",
+    "Null": "YES",
+    "Key": "",
+    "Default": null,
+    "Extra": ""
+  },
+  {
+    "Field": "notes",
+    "Type": "text",
+    "Null": "YES",
+    "Key": "",
+    "Default": null,
+    "Extra": ""
+  },
+  {
+    "Field": "status",
+    "Type": "varchar(50)",
+    "Null": "YES",
+    "Key": "",
+    "Default": "Pending",
+    "Extra": ""
+  },
+  {
+    "Field": "scheduled_at",
+    "Type": "datetime",
+    "Null": "YES",
+    "Key": "",
+    "Default": null,
+    "Extra": ""
+  },
+  {
+    "Field": "reminder_enabled",
+    "Type": "tinyint(1)",
+    "Null": "YES",
+    "Key": "",
+    "Default": "0",
+    "Extra": ""
+  },
+  {
+    "Field": "assigned_to",
+    "Type": "varchar(255)",
+    "Null": "YES",
+    "Key": "",
+    "Default": null,
+    "Extra": ""
+  },
+  {
+    "Field": "completed_at",
+    "Type": "datetime",
+    "Null": "YES",
+    "Key": "",
+    "Default": null,
+    "Extra": ""
+  },
+  {
+    "Field": "created_at",
+    "Type": "timestamp",
+    "Null": "YES",
+    "Key": "",
+    "Default": "current_timestamp()",
+    "Extra": ""
+  }
+]
+
+Checking some data in follow_ups...
+[
+  {
+    "id": "1",
+    "lead_id": "1",
+    "type": "Call",
+    "notes": null,
+    "status": "Pending",
+    "scheduled_at": "2026-03-08T03:30:00.000Z",
+    "reminder_enabled": 1,
+    "assigned_to": null,
+    "completed_at": null,
+    "created_at": "2026-03-07T12:58:30.000Z"
+  },
+  {
+    "id": "2",
+    "lead_id": "1",
+    "type": "Email",
+    "notes": null,
+    "status": "Pending",
+    "scheduled_at": "2026-03-20T12:36:00.000Z",
+    "reminder_enabled": 1,
+    "assigned_to": null,
+    "completed_at": null,
+    "created_at": "2026-03-20T07:05:49.000Z"
+  },
+  {
+    "id": "2bcdf023-f89a-4e16-acad-2671cc8e453f",
+    "lead_id": "1",
+    "type": "Call",
+    "notes": null,
+    "status": "Pending",
+    "scheduled_at": "2026-03-20T17:47:00.000Z",
+    "reminder_enabled": 1,
+    "assigned_to": null,
+    "completed_at": null,
+    "created_at": "2026-03-20T12:16:49.000Z"
+  },
+  {
+    "id": "9647b30d-edd0-4c51-a795-bb76feb92a58",
+    "lead_id": "1",
+    "type": "Call",
+    "notes": null,
+    "status": "Pending",
+    "scheduled_at": "2026-03-20T17:47:00.000Z",
+    "reminder_enabled": 1,
+    "assigned_to": null,
+    "completed_at": null,
+    "created_at": "2026-03-20T12:15:58.000Z"
+  }
+]

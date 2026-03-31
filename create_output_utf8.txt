@@ -1,0 +1,15 @@
+﻿[dotenv@17.3.1] injecting env (6) from backend\.env -- tip: ≡ƒ¢í∩╕Å auth for agents: https://vestauth.com
+Full CREATE TABLE follow_ups:
+CREATE TABLE `follow_ups` (
+  `id` varchar(64) NOT NULL,
+  `lead_id` varchar(64) DEFAULT NULL,
+  `type` varchar(50) DEFAULT NULL,
+  `notes` text DEFAULT NULL,
+  `status` varchar(50) DEFAULT 'Pending',
+  `scheduled_at` datetime DEFAULT NULL,
+  `reminder_enabled` tinyint(1) DEFAULT 0,
+  `assigned_to` varchar(255) DEFAULT NULL,
+  `completed_at` datetime DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
