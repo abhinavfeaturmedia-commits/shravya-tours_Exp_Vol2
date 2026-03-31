@@ -6,6 +6,8 @@ import { Pagination, usePagination } from '../../components/ui/Pagination';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
+import { exportToExcel, ExportColumn } from '../../src/lib/exportUtils';
+import { DataImportModal, ColumnMapping } from '../../src/components/admin/DataImportModal';
 
 // --- Sort & Filter Types ---
 type SortField = 'name' | 'totalSpent' | 'bookingsCount' | 'joinedDate' | 'lastActive';
@@ -62,23 +64,28 @@ export const Customers: React.FC = () => {
         }
     };
 
-    // Export CSV
+    // Export Excel
     const handleExport = () => {
-        const headers = ['ID', 'Name', 'Email', 'Phone', 'Location', 'Type', 'Status', 'Total Spent', 'Bookings', 'Joined Date', 'Tags'];
-        const rows = processedCustomers.map(c => [
-            c.id, c.name, c.email, c.phone, c.location || '', c.type, c.status, c.totalSpent, c.bookingsCount, c.joinedDate, c.tags?.join('; ') || ''
-        ]);
+        const columns: ExportColumn<Customer>[] = [
+            { header: 'ID', key: 'id', width: 25 },
+            { header: 'Name', key: 'name', width: 30 },
+            { header: 'Email', key: 'email', width: 35 },
+            { header: 'Phone', key: 'phone', width: 20 },
+            { header: 'Location', key: 'location', width: 20 },
+            { header: 'Type', key: 'type', width: 15 },
+            { header: 'Status', key: 'status', width: 15 },
+            { header: 'Total Spent (INR)', key: 'totalSpent', width: 20 },
+            { header: 'Bookings', key: 'bookingsCount', width: 15 },
+            { header: 'Joined Date', key: 'joinedDate', width: 15 },
+            { header: 'Tags', key: c => c.tags?.join('; ') || '', width: 30 }
+        ];
 
-        const csvContent = "data:text/csv;charset=utf-8,"
-            + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-
-        const encodedUri = encodeURI(csvContent);
-        const link = document.createElement("a");
-        link.setAttribute("href", encodedUri);
-        link.setAttribute("download", `customers_export_${new Date().toISOString().split('T')[0]}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        exportToExcel(processedCustomers, columns, {
+            filename: `Customers_Export_${new Date().toISOString().split('T')[0]}`,
+            sheetName: 'Customers',
+            title: 'Shravya Tours - Customers Report',
+            subtitle: `Generated on: ${new Date().toLocaleDateString('en-IN')}`
+        });
         toast.success('Customers exported successfully!');
     };
 
@@ -254,11 +261,33 @@ export const Customers: React.FC = () => {
                 />
 
                 {/* Import Modal */}
-                <ImportCustomersModal
+                <DataImportModal<Partial<Customer>>
                     isOpen={isImportModalOpen}
                     onClose={() => setIsImportModalOpen(false)}
+                    entityName="Customers"
+                    columns={[
+                        { header: 'Name', key: 'name', required: true },
+                        { header: 'Email', key: 'email', required: true },
+                        { header: 'Phone', key: 'phone', required: true },
+                        { header: 'Location', key: 'location', required: false }
+                    ]}
                     onImport={(data) => {
-                        importCustomers(data);
+                        const fullCustomers: Customer[] = data.map((d, index) => ({
+                            id: `IMP-CUST-${Date.now()}-${index}`,
+                            name: d.name || 'Unknown',
+                            email: d.email || '',
+                            phone: d.phone || '',
+                            location: d.location || '',
+                            type: 'New',
+                            status: 'Active',
+                            bookingsCount: 0,
+                            totalSpent: 0,
+                            joinedDate: new Date().toISOString().split('T')[0],
+                            tags: [],
+                            preferences: { dietary: [], flight: [], accommodation: [] },
+                            notes: []
+                        }));
+                        importCustomers(fullCustomers);
                         setIsImportModalOpen(false);
                         toast.success(`${data.length} customers imported!`);
                     }}
@@ -487,77 +516,5 @@ const AddEditCustomerModal: React.FC<{
     );
 };
 
-// --- Import Modal ---
-const ImportCustomersModal: React.FC<{
-    isOpen: boolean;
-    onClose: () => void;
-    onImport: (data: Customer[]) => void;
-}> = ({ isOpen, onClose, onImport }) => {
-    const [csvText, setCsvText] = useState('');
-    const [preview, setPreview] = useState<Customer[]>([]);
-
-    useEffect(() => {
-        if (!csvText) { setPreview([]); return; }
-        const lines = csvText.split('\n');
-        const parsed: Customer[] = [];
-        const startIndex = lines[0].toLowerCase().includes('email') ? 1 : 0;
-        for (let i = startIndex; i < lines.length; i++) {
-            const line = lines[i].trim();
-            if (!line) continue;
-            const parts = line.split(',').map(p => p.trim());
-            if (parts.length >= 2) {
-                parsed.push({
-                    id: `IMP-${Date.now()}-${i}`,
-                    name: parts[0] || 'Unknown',
-                    email: parts[1] || '',
-                    phone: parts[2] || '',
-                    location: parts[3] || '',
-                    type: 'New',
-                    status: 'Active',
-                    bookingsCount: 0,
-                    totalSpent: 0,
-                    joinedDate: new Date().toISOString().split('T')[0],
-                    tags: [],
-                    preferences: { dietary: [], flight: [], accommodation: [] },
-                    notes: []
-                });
-            }
-        }
-        setPreview(parsed);
-    }, [csvText]);
-
-    if (!isOpen) return null;
-
-    return (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in">
-            <div className="bg-white dark:bg-[#1A2633] w-full max-w-2xl rounded-[2rem] p-8 shadow-2xl animate-in zoom-in-95 flex flex-col max-h-[90vh]">
-                <div className="flex justify-between items-center mb-6">
-                    <h2 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">Bulk Import</h2>
-                    <button onClick={onClose} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors"><span className="material-symbols-outlined text-slate-400">close</span></button>
-                </div>
-                <div className="bg-slate-50 dark:bg-slate-900/50 p-4 rounded-xl mb-4 border border-slate-100 dark:border-slate-800">
-                    <p className="text-xs font-bold text-slate-500 uppercase mb-2">Instructions</p>
-                    <p className="text-sm text-slate-600 dark:text-slate-400">Paste your CSV data below. Format: <span className="font-mono bg-white dark:bg-slate-800 px-1 rounded border border-slate-200 dark:border-slate-700">Name, Email, Phone, Location</span></p>
-                </div>
-                <textarea
-                    className="w-full flex-1 min-h-[200px] p-4 bg-slate-50 dark:bg-slate-800 rounded-xl border-none font-mono text-xs outline-none focus:ring-2 focus:ring-primary mb-4 resize-none"
-                    placeholder={`John Doe, john@example.com, 9876543210, Mumbai\nJane Smith, jane@example.com, 9876543211, Delhi`}
-                    value={csvText}
-                    onChange={e => setCsvText(e.target.value)}
-                />
-                <div className="flex gap-4 items-center">
-                    <div className="text-sm font-bold text-slate-500">
-                        {preview.length > 0 ? <span className="text-green-500">{preview.length} valid records found</span> : 'No data parsed'}
-                    </div>
-                    <button
-                        onClick={() => onImport(preview)}
-                        disabled={preview.length === 0}
-                        className="ml-auto px-8 py-3 bg-primary text-white font-bold rounded-xl shadow-lg shadow-primary/20 hover:bg-primary-dark transition-all disabled:opacity-50"
-                    >
-                        Import Customers
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-};
+// --- Import Modal Removed ---
+// (Replaced by generic DataImportModal)

@@ -68,7 +68,7 @@ const MasterModal: React.FC<{
         if (activeTab !== 'plans' && activeTab !== 'room-types' && activeTab !== 'meal-plans' && activeTab !== 'lead-sources' && activeTab !== 'terms' && !form.name) {
             return toast.error('Name is required');
         }
-        if (activeTab === 'plans' && !form.title) {
+        if (activeTab === 'plans' && !form.name) {
             return toast.error('Title is required');
         }
         if (activeTab === 'room-types' && !form.name) {
@@ -80,7 +80,7 @@ const MasterModal: React.FC<{
         if (activeTab === 'lead-sources' && !form.name) {
             return toast.error('Name is required');
         }
-        if (activeTab === 'terms' && !form.title) {
+        if (activeTab === 'terms' && !form.name) {
             return toast.error('Title is required');
         }
 
@@ -96,6 +96,14 @@ const MasterModal: React.FC<{
         );
 
         const data = { ...form, id };
+
+        // Apply defaults for fields that might not have triggered onChange
+        if (activeTab === 'locations' && !data.type) data.type = 'City';
+        if (activeTab === 'activities' && !data.category) data.category = 'Leisure';
+        if (activeTab === 'transports' && !data.type) data.type = 'Sedan';
+        if (activeTab === 'meal-plans' && !data.code) data.code = 'CP';
+        if (activeTab === 'lead-sources' && !data.category) data.category = 'Organic';
+        if (activeTab === 'terms' && !data.category) data.category = 'Other';
 
         // Sanitize numeric inputs
         if (data.pricePerNight) data.pricePerNight = Number(data.pricePerNight);
@@ -274,8 +282,8 @@ const MasterModal: React.FC<{
                     <div>
                         <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Plan Title *</label>
                         <input
-                            value={form.title || ''}
-                            onChange={e => setForm({ ...form, title: e.target.value })}
+                            value={form.name || ''}
+                            onChange={e => setForm({ ...form, name: e.target.value })}
                             className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none"
                             placeholder="e.g., Summer Escape"
                             autoFocus
@@ -400,8 +408,8 @@ const MasterModal: React.FC<{
                     <div>
                         <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Title *</label>
                         <input
-                            value={form.title || ''}
-                            onChange={e => setForm({ ...form, title: e.target.value })}
+                            value={form.name || ''}
+                            onChange={e => setForm({ ...form, name: e.target.value })}
                             className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none"
                             placeholder="e.g. Standard Cancellation Policy"
                             autoFocus
@@ -965,7 +973,7 @@ export const Masters: React.FC = () => {
             case 'activities':
                 icon = <span className="material-symbols-outlined">attractions</span>;
                 subtitle = getLocationNameById(item.locationId);
-                detail = item.duration;
+                detail = `${item.category || 'Leisure'} • ${item.duration || ''}`;
                 price = `₹${item.cost?.toLocaleString()}`;
                 break;
             case 'transports':
@@ -1101,7 +1109,8 @@ export const Masters: React.FC = () => {
 
     const renderListView = () => (
         <div className="bg-white dark:bg-[#151d29] rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm animate-in fade-in">
-            <table className="w-full text-left text-sm">
+            <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm min-w-[640px]">
                 <thead className="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
                     <tr>
                         <th className="px-6 py-4 w-12">
@@ -1112,12 +1121,12 @@ export const Masters: React.FC = () => {
                                 className="size-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                             />
                         </th>
-                        <th className="px-6 py-4 font-bold text-slate-500 uppercase tracking-wider text-xs w-20">Image</th>
-                        <th className="px-6 py-4 font-bold text-slate-500 uppercase tracking-wider text-xs">Name/Title</th>
-                        <th className="px-6 py-4 font-bold text-slate-500 uppercase tracking-wider text-xs">Details</th>
-                        <th className="px-6 py-4 font-bold text-slate-500 uppercase tracking-wider text-xs">Relations</th>
-                        <th className="px-6 py-4 font-bold text-slate-500 uppercase tracking-wider text-xs">Status</th>
-                        <th className="px-6 py-4 font-bold text-slate-500 uppercase tracking-wider text-xs text-right">Actions</th>
+                        <th className="px-4 sm:px-6 py-4 font-bold text-slate-500 uppercase tracking-wider text-xs w-20">Image</th>
+                        <th className="px-4 sm:px-6 py-4 font-bold text-slate-500 uppercase tracking-wider text-xs">Name/Title</th>
+                        <th className="px-4 sm:px-6 py-4 font-bold text-slate-500 uppercase tracking-wider text-xs">Details</th>
+                        <th className="hidden sm:table-cell px-4 sm:px-6 py-4 font-bold text-slate-500 uppercase tracking-wider text-xs">Relations</th>
+                        <th className="px-4 sm:px-6 py-4 font-bold text-slate-500 uppercase tracking-wider text-xs">Status</th>
+                        <th className="hidden sm:table-cell px-4 sm:px-6 py-4 font-bold text-slate-500 uppercase tracking-wider text-xs text-right">Actions</th>
                     </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -1146,7 +1155,7 @@ export const Masters: React.FC = () => {
                             case 'activities':
                                 detailsContent = (
                                     <div className="flex flex-col">
-                                        <span>{item.category}</span>
+                                        <span>{item.category || 'Leisure'}</span>
                                         <span className="text-xs text-slate-400">{getLocationNameById(item.locationId)}</span>
                                     </div>
                                 );
@@ -1203,7 +1212,7 @@ export const Masters: React.FC = () => {
                                         className="size-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                                     />
                                 </td>
-                                <td className="px-6 py-4">
+                                <td className="px-4 sm:px-6 py-4">
                                     <div className="size-10 rounded-lg bg-slate-100 dark:bg-slate-800 overflow-hidden border border-slate-200 dark:border-slate-700">
                                         {item.image ? (
                                             <img src={item.image} alt="" className="w-full h-full object-cover" />
@@ -1214,13 +1223,13 @@ export const Masters: React.FC = () => {
                                         )}
                                     </div>
                                 </td>
-                                <td className="px-6 py-4">
+                                <td className="px-4 sm:px-6 py-4">
                                     <p className="font-bold text-slate-900 dark:text-white">{item.name || item.title}</p>
                                 </td>
-                                <td className="px-6 py-4 text-slate-600 dark:text-slate-300">
+                                <td className="px-4 sm:px-6 py-4 text-slate-600 dark:text-slate-300">
                                     {detailsContent}
                                 </td>
-                                <td className="px-6 py-4 text-slate-500">
+                                <td className="hidden sm:table-cell px-4 sm:px-6 py-4 text-slate-500">
                                     {usage.total > 0 ? (
                                         <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-slate-100 dark:bg-slate-800 text-xs font-medium">
                                             <span className="material-symbols-outlined text-[14px]">link</span> {usage.total} linked
@@ -1229,12 +1238,12 @@ export const Masters: React.FC = () => {
                                         <span className="text-xs text-slate-400">-</span>
                                     )}
                                 </td>
-                                <td className="px-6 py-4">
+                                <td className="px-4 sm:px-6 py-4">
                                     <span className={`px-2 py-0.5 rounded-full text-xs font-bold uppercase ${item.status === 'Active' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 text-slate-400'}`}>
                                         {item.status}
                                     </span>
                                 </td>
-                                <td className="px-6 py-4 text-right">
+                                <td className="hidden sm:table-cell px-4 sm:px-6 py-4 text-right">
                                     <div className="flex items-center justify-end gap-2">
                                         <button onClick={() => handleDuplicate(item)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors" title="Duplicate">
                                             <span className="material-symbols-outlined text-[18px]">content_copy</span>
@@ -1279,6 +1288,7 @@ export const Masters: React.FC = () => {
                     )}
                 </tbody>
             </table>
+            </div>
         </div>
     );
 

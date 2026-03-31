@@ -31,6 +31,10 @@ export const PackageDetail: React.FC = () => {
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
+  // Carousel State
+  const [carouselIndex, setCarouselIndex] = useState(0);
+  const [carouselAnimating, setCarouselAnimating] = useState(false);
+
   // Urgency State
   const [viewers, setViewers] = useState(12);
   const [timeLeft, setTimeLeft] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 });
@@ -48,6 +52,38 @@ export const PackageDetail: React.FC = () => {
     }, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  // Auto-advance carousel
+  useEffect(() => {
+    if (!tour || tour.gallery.length <= 1) return;
+    const autoPlay = setInterval(() => {
+      goCarousel('right');
+    }, 4500);
+    return () => clearInterval(autoPlay);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tour, carouselIndex]);
+
+  const goCarousel = (dir: 'left' | 'right') => {
+    if (carouselAnimating || !tour) return;
+    setCarouselAnimating(true);
+    setTimeout(() => {
+      setCarouselIndex(prev =>
+        dir === 'right'
+          ? (prev + 1) % tour.gallery.length
+          : (prev - 1 + tour.gallery.length) % tour.gallery.length
+      );
+      setCarouselAnimating(false);
+    }, 350);
+  };
+
+  const goCarouselTo = (idx: number) => {
+    if (carouselAnimating || !tour || idx === carouselIndex) return;
+    setCarouselAnimating(true);
+    setTimeout(() => {
+      setCarouselIndex(idx);
+      setCarouselAnimating(false);
+    }, 350);
+  };
 
   useEffect(() => {
     if (!tour?.offerEndTime) return;
@@ -376,27 +412,155 @@ export const PackageDetail: React.FC = () => {
             </div>
           </div>
 
-          {/* Gallery Grid - Masonry Style */}
-          <div className="grid grid-cols-1 md:grid-cols-4 grid-rows-2 gap-4 h-[300px] md:h-[500px] mb-16 rounded-[2.5rem] overflow-hidden shadow-2xl shadow-slate-200/50 dark:shadow-none">
-            <div className="md:col-span-2 md:row-span-2 relative group cursor-pointer overflow-hidden" onClick={() => openLightbox(0)}>
-              <OptimizedImage src={tour.gallery[0]} alt="Main" className="absolute inset-0 w-full h-full transition-transform duration-700 group-hover:scale-105" />
-              <div className="absolute inset-0 bg-black/10 group-hover:bg-transparent transition-colors"></div>
-            </div>
-            <div className="hidden md:block relative group cursor-pointer overflow-hidden" onClick={() => openLightbox(1)}>
-              <OptimizedImage src={tour.gallery[1] || tour.gallery[0]} alt="2" className="absolute inset-0 w-full h-full transition-transform duration-700 group-hover:scale-105" />
-            </div>
-            <div className="hidden md:block relative group cursor-pointer overflow-hidden" onClick={() => openLightbox(2)}>
-              <OptimizedImage src={tour.gallery[2] || tour.gallery[0]} alt="3" className="absolute inset-0 w-full h-full transition-transform duration-700 group-hover:scale-105" />
-            </div>
-            <div className="hidden md:block relative group cursor-pointer overflow-hidden" onClick={() => openLightbox(3)}>
-              <OptimizedImage src={tour.gallery[3] || tour.gallery[0]} alt="4" className="absolute inset-0 w-full h-full transition-transform duration-700 group-hover:scale-105" />
-            </div>
-            <div className="hidden md:block relative group cursor-pointer overflow-hidden" onClick={() => openLightbox(0)}>
-              <OptimizedImage src={tour.gallery[0]} alt="More" className="absolute inset-0 w-full h-full transition-transform duration-700 group-hover:scale-105 blur-[2px]" />
-              <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                <span className="text-white font-black text-lg tracking-widest uppercase border border-white/30 px-6 py-3 rounded-full backdrop-blur-md">View Gallery</span>
+          {/* === PREMIUM IMAGE GALLERY === */}
+          <div className="mb-16">
+            {tour.gallery.length === 0 ? (
+              /* Empty state */
+              <div className="w-full rounded-[2rem] bg-slate-100 dark:bg-slate-800/50 flex flex-col items-center justify-center gap-3 border-2 border-dashed border-slate-200 dark:border-slate-700" style={{ height: '480px' }}>
+                <span className="material-symbols-outlined text-5xl text-slate-300 dark:text-slate-600">image_not_supported</span>
+                <p className="text-sm font-semibold text-slate-400 dark:text-slate-500">No photos available yet</p>
               </div>
-            </div>
+            ) : tour.gallery.length === 1 ? (
+              /* Single image — full hero */
+              <div
+                className="relative w-full rounded-[2rem] overflow-hidden shadow-2xl shadow-slate-300/40 dark:shadow-black/50 cursor-pointer group"
+                style={{ height: '520px' }}
+                onClick={() => openLightbox(0)}
+              >
+                <OptimizedImage src={tour.gallery[0]} alt={tour.title} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent pointer-events-none" />
+                <div className="absolute bottom-5 right-5 px-4 py-2 bg-black/50 backdrop-blur-md rounded-full text-white text-xs font-bold flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <span className="material-symbols-outlined text-[14px]">open_in_full</span> View Full Screen
+                </div>
+              </div>
+            ) : (
+              /* Multi-image: Hero + Grid layout */
+              <div className="flex flex-col md:flex-row gap-2 md:gap-3" style={{ height: 'auto', minHeight: '460px' }}>
+
+                {/* Main hero image — left, 60% width */}
+                <div
+                  className="relative flex-[3] rounded-[1.5rem] md:rounded-[2rem] overflow-hidden shadow-xl bg-slate-100 dark:bg-slate-900 cursor-pointer group"
+                  style={{ minHeight: '300px', maxHeight: '520px' }}
+                  onClick={() => openLightbox(carouselIndex)}
+                >
+                  <div
+                    className="absolute inset-0 transition-opacity duration-350"
+                    style={{ opacity: carouselAnimating ? 0 : 1, transition: 'opacity 0.4s ease' }}
+                  >
+                    <OptimizedImage
+                      src={tour.gallery[carouselIndex]}
+                      alt={`${tour.title} — ${carouselIndex + 1}`}
+                      className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-[1.03]"
+                    />
+                  </div>
+
+                  {/* Gradient overlays */}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/5 to-transparent pointer-events-none" />
+
+                  {/* Image counter pill */}
+                  <div className="absolute top-4 left-4 px-3 py-1.5 bg-black/45 backdrop-blur-md rounded-full text-white text-xs font-bold flex items-center gap-1.5 shadow-lg">
+                    <span className="material-symbols-outlined text-[14px]">photo_library</span>
+                    {carouselIndex + 1} / {tour.gallery.length}
+                  </div>
+
+                  {/* Expand button */}
+                  <div className="absolute top-4 right-4 px-3 py-1.5 bg-black/45 backdrop-blur-md rounded-full text-white text-xs font-bold flex items-center gap-1.5 shadow-lg opacity-0 group-hover:opacity-100 transition-all duration-300 translate-y-1 group-hover:translate-y-0">
+                    <span className="material-symbols-outlined text-[14px]">open_in_full</span>
+                    View Full
+                  </div>
+
+                  {/* Prev / Next arrows */}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); goCarousel('left'); }}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center bg-white/15 hover:bg-white/35 backdrop-blur-md rounded-full text-white border border-white/20 opacity-0 group-hover:opacity-100 transition-all duration-200 hover:scale-110 active:scale-95 shadow-lg"
+                    aria-label="Previous"
+                  >
+                    <span className="material-symbols-outlined text-lg">arrow_back_ios_new</span>
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); goCarousel('right'); }}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center bg-white/15 hover:bg-white/35 backdrop-blur-md rounded-full text-white border border-white/20 opacity-0 group-hover:opacity-100 transition-all duration-200 hover:scale-110 active:scale-95 shadow-lg"
+                    aria-label="Next"
+                  >
+                    <span className="material-symbols-outlined text-lg">arrow_forward_ios</span>
+                  </button>
+
+                  {/* Dot indicators */}
+                  <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1.5 bg-black/30 backdrop-blur-md rounded-full">
+                    {tour.gallery.slice(0, 8).map((_, idx) => (
+                      <button
+                        key={idx}
+                        onClick={(e) => { e.stopPropagation(); goCarouselTo(idx); }}
+                        className={`rounded-full transition-all duration-300 ${
+                          idx === carouselIndex ? 'bg-white w-5 h-1.5' : 'bg-white/45 hover:bg-white/75 w-1.5 h-1.5'
+                        }`}
+                        aria-label={`Go to image ${idx + 1}`}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                {/* Right: 2×2 thumbnail grid — 40% width, desktop only */}
+                <div className="hidden md:flex flex-[2] flex-col gap-3">
+                  {[0, 1, 2, 3].map((gridPos) => {
+                    // Show the 4 images that are NOT the current main image
+                    const skipIdx = carouselIndex;
+                    const otherImages = tour.gallery.filter((_, i) => i !== skipIdx);
+                    const imgSrc = otherImages[gridPos];
+                    const realIdx = imgSrc ? tour.gallery.indexOf(imgSrc) : -1;
+                    const isLast = gridPos === 3 && tour.gallery.length > 5;
+
+                    if (!imgSrc) return null;
+
+                    return (
+                      <div
+                        key={gridPos}
+                        className="relative flex-1 rounded-[1.2rem] overflow-hidden bg-slate-100 dark:bg-slate-900 cursor-pointer group/thumb shadow-md"
+                        style={{ minHeight: '100px' }}
+                        onClick={() => isLast ? openLightbox(realIdx) : goCarouselTo(realIdx)}
+                      >
+                        <OptimizedImage
+                          src={imgSrc}
+                          alt={`Gallery ${gridPos + 1}`}
+                          className="w-full h-full object-cover transition-transform duration-500 group-hover/thumb:scale-[1.06]"
+                        />
+                        <div className="absolute inset-0 bg-black/0 group-hover/thumb:bg-black/25 transition-all duration-300 rounded-[1.2rem]" />
+
+                        {/* "See All Photos" overlay on last cell */}
+                        {isLast && (
+                          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/55 backdrop-blur-[2px] rounded-[1.2rem]">
+                            <span className="material-symbols-outlined text-white text-3xl mb-1">photo_library</span>
+                            <span className="text-white font-black text-sm">+{tour.gallery.length - 5} Photos</span>
+                            <span className="text-white/70 text-[10px] font-semibold mt-0.5">See All</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Thumbnail strip — only on mobile, when more than 1 image */}
+            {tour.gallery.length > 1 && (
+              <div className="mt-3 flex md:hidden gap-2.5 overflow-x-auto pb-1 scroll-smooth" style={{ scrollbarWidth: 'none' }}>
+                {tour.gallery.map((img, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => goCarouselTo(idx)}
+                    className={`flex-shrink-0 relative rounded-xl overflow-hidden transition-all duration-300 ${
+                      idx === carouselIndex
+                        ? 'ring-2 ring-primary ring-offset-2 dark:ring-offset-[#0B1116] opacity-100 scale-105 shadow-lg'
+                        : 'opacity-55 hover:opacity-90'
+                    }`}
+                    style={{ width: '72px', height: '52px' }}
+                    aria-label={`View image ${idx + 1}`}
+                  >
+                    <OptimizedImage src={img} alt={`Thumb ${idx + 1}`} className="w-full h-full object-cover" />
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-12 lg:gap-20">

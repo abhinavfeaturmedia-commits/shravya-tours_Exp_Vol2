@@ -1,5 +1,5 @@
 import imageCompression from 'browser-image-compression';
-import { Package, Booking, Lead, BookingStatus, StaffMember, Customer, MasterRoomType, MasterMealPlan, MasterActivity, MasterTransport, MasterPlan, MasterLeadSource, MasterTermsTemplate, CMSBanner, CMSTestimonial, CMSGalleryImage, CMSPost, FollowUp, Proposal, DailyTarget, TimeSession, AssignmentRule, UserActivity, Campaign, MasterHotel, Task, AuditLog } from '../../types';
+import { Package, Booking, Lead, BookingStatus, StaffMember, Customer, MasterRoomType, MasterMealPlan, MasterActivity, MasterTransport, MasterPlan, MasterLeadSource, MasterTermsTemplate, CMSBanner, CMSTestimonial, CMSGalleryImage, CMSPost, FollowUp, Proposal, DailyTarget, TimeSession, AssignmentRule, UserActivity, Campaign, MasterHotel, Task, AuditLog, Expense } from '../../types';
 
 // ─── BASE API URL ───
 const API_BASE = import.meta.env.PROD ? '' : (import.meta.env.VITE_API_URL || `http://${window.location.hostname}:3001`);
@@ -70,6 +70,13 @@ async function compressImageFile(file: File): Promise<File> {
     }
 }
 
+const parseJsonFieldSafe = (field: any, defaultValue: any) => {
+    if (typeof field === 'string') {
+        try { return JSON.parse(field); } catch { return defaultValue; }
+    }
+    return field || defaultValue;
+};
+
 const mapPackage = (row: any): Package => ({
     id: row.id,
     title: row.title,
@@ -80,16 +87,17 @@ const mapPackage = (row: any): Package => ({
     price: row.price,
     image: row.image || '',
     remainingSeats: row.remaining_seats,
-    highlights: (row.features || []).map((f: string) => ({ icon: 'star', label: f })),
+    highlights: parseJsonFieldSafe(row.features, []).map((f: string) => ({ icon: 'star', label: f })),
     itinerary: [],
     gallery: [],
     theme: row.theme || 'Tour',
     overview: row.overview || row.description || '',
     status: row.status as any || 'Active',
     offerEndTime: row.offer_end_time,
-    included: row.included || [],
-    notIncluded: row.not_included || [],
-    builderData: row.builder_data
+    included: parseJsonFieldSafe(row.included, []),
+    notIncluded: parseJsonFieldSafe(row.not_included, []),
+    gallery: parseJsonFieldSafe(row.gallery, []),
+    builderData: parseJsonFieldSafe(row.builder_data, null)
 });
 
 export const api = {
@@ -101,22 +109,24 @@ export const api = {
 
     createPackage: async (pkg: Partial<Package>) => {
         const dbPkg = {
+            id: pkg.id,
             title: pkg.title,
             description: pkg.description,
             price: pkg.price,
             location: pkg.location,
             days: pkg.days,
             image: pkg.image,
-            features: pkg.highlights?.map(h => h.label) || [],
+            features: JSON.stringify(pkg.highlights?.map(h => h.label) || []),
             remaining_seats: pkg.remainingSeats ?? 10,
             group_size: pkg.groupSize || 'Family',
             theme: pkg.theme || 'Tour',
             overview: pkg.overview || pkg.description || '',
             status: pkg.status || 'Active',
             offer_end_time: pkg.offerEndTime,
-            included: pkg.included || [],
-            not_included: pkg.notIncluded || [],
-            builder_data: pkg.builderData
+            included: JSON.stringify(pkg.included || []),
+            not_included: JSON.stringify(pkg.notIncluded || []),
+            gallery: pkg.gallery ? JSON.stringify(pkg.gallery) : '[]',
+            builder_data: pkg.builderData ? JSON.stringify(pkg.builderData) : null
         };
         const { data } = await crud.create('packages', dbPkg);
         return mapPackage(data);
@@ -130,16 +140,17 @@ export const api = {
         if (pkg.location !== undefined) dbPkg.location = pkg.location;
         if (pkg.days !== undefined) dbPkg.days = pkg.days;
         if (pkg.image !== undefined) dbPkg.image = pkg.image;
-        if (pkg.highlights !== undefined) dbPkg.features = pkg.highlights.map(h => h.label);
+        if (pkg.highlights !== undefined) dbPkg.features = JSON.stringify(pkg.highlights.map(h => h.label));
         if (pkg.remainingSeats !== undefined) dbPkg.remaining_seats = pkg.remainingSeats;
         if (pkg.groupSize !== undefined) dbPkg.group_size = pkg.groupSize;
         if (pkg.theme !== undefined) dbPkg.theme = pkg.theme;
         if (pkg.overview !== undefined) dbPkg.overview = pkg.overview;
         if (pkg.status !== undefined) dbPkg.status = pkg.status;
         if (pkg.offerEndTime !== undefined) dbPkg.offer_end_time = pkg.offerEndTime;
-        if (pkg.included !== undefined) dbPkg.included = pkg.included;
-        if (pkg.notIncluded !== undefined) dbPkg.not_included = pkg.notIncluded;
-        if (pkg.builderData !== undefined) dbPkg.builder_data = pkg.builderData;
+        if (pkg.included !== undefined) dbPkg.included = JSON.stringify(pkg.included);
+        if (pkg.notIncluded !== undefined) dbPkg.not_included = JSON.stringify(pkg.notIncluded);
+        if (pkg.gallery !== undefined) dbPkg.gallery = JSON.stringify(pkg.gallery);
+        if (pkg.builderData !== undefined) dbPkg.builder_data = JSON.stringify(pkg.builderData);
         await crud.update('packages', id, dbPkg);
     },
 
@@ -189,8 +200,41 @@ export const api = {
             type: tx.type,
             method: tx.method,
             reference: tx.reference,
-            notes: tx.notes
+            notes: tx.notes,
+            status: tx.status || 'Pending',
+            receipt_url: tx.receiptUrl
         });
+    },
+
+    getFinanceTransactions: async () => {
+        const { data } = await fetchApi('/api/finance/booking-transactions');
+        return (data || []).map((t: any) => ({
+            id: String(t.id),
+            bookingId: t.bookingId,
+            date: t.date,
+            amount: Number(t.amount),
+            type: t.type,
+            method: t.method,
+            reference: t.reference,
+            notes: t.notes,
+            status: t.status || 'Pending',
+            receiptUrl: t.receipt_url,
+            // Joined fields
+            customer: t.customer,
+            email: t.email,
+            phone: t.phone,
+            packageId: t.packageId,
+            source: t.source // 'booking_payment' | 'expense'
+        }));
+    },
+
+    updateFinanceTransactionStatus: async (id: string, status: 'Pending' | 'Verified' | 'Rejected') => {
+        // Expense IDs start with 'EXP-', otherwise it's a booking_transaction
+        if (String(id).startsWith('EXP-')) {
+            await crud.update('expenses', id, { status });
+        } else {
+            await crud.update('booking_transactions', id, { status });
+        }
     },
 
     createAccountTransaction: async (accountId: string, tx: any) => {
@@ -212,20 +256,99 @@ export const api = {
     // --- BOOKINGS ---
     getBookings: async (limit: number = 100): Promise<Booking[]> => {
         const { data } = await fetchApi(`/api/bookings-with-package`);
-        return (data || []).map((row: any) => ({
-            id: row.id,
-            type: 'Tour',
-            customer: row.customer_name,
-            email: row.customer_email || row.email,
-            phone: row.customer_phone || row.phone,
-            title: row.package_title || 'Unknown Package',
-            date: row.booking_date || row.date,
-            amount: Number(row.total_price) || Number(row.amount) || 0,
-            status: (row.status ? row.status.charAt(0).toUpperCase() + row.status.slice(1) : 'Pending') as BookingStatus,
-            payment: row.payment_status === 'paid' ? 'Paid' : 'Unpaid',
-            packageId: row.package_id,
-            invoiceNo: row.invoice_no || `INV-${row.id}`
-        }));
+        return (data || []).map((row: any) => {
+            const txs = (row.booking_transactions || []).map((t: any) => ({
+                id: t.id,
+                date: t.date,
+                amount: Number(t.amount),
+                type: t.type,
+                method: t.method,
+                reference: t.reference,
+                notes: t.notes,
+                status: t.status || 'Verified',
+                receiptUrl: t.receipt_url
+            }));
+
+            const totalAmount = Number(row.total_price) || Number(row.amount) || 0;
+            // Only consider 'Verified' transactions towards the netPaid amount
+            const netPaid = txs.reduce((sum: number, t: any) => {
+                if (t.status !== 'Rejected' && t.status !== 'Pending') {
+                   return sum + (t.type === 'Payment' ? t.amount : t.type === 'Refund' ? -t.amount : 0);
+                }
+                return sum;
+            }, 0);
+
+            let dynamicPayment: BookingStatus | 'Paid' | 'Unpaid' | 'Deposit' | 'Refunded' = 'Unpaid';
+            if (netPaid >= totalAmount && totalAmount > 0) dynamicPayment = 'Paid';
+            else if (netPaid > 0) dynamicPayment = 'Deposit';
+            else if (netPaid < 0) dynamicPayment = 'Refunded';
+            else if (row.payment_status === 'paid') dynamicPayment = 'Paid';
+
+            const sbs = (row.supplier_bookings || []).map((sb: any) => ({
+                id: sb.id,
+                bookingId: sb.booking_id,
+                vendorId: sb.vendor_id,
+                serviceType: sb.service_type,
+                confirmationNumber: sb.confirmation_number,
+                cost: Number(sb.cost) || 0,
+                paidAmount: Number(sb.paid_amount) || 0,
+                paymentStatus: sb.payment_status,
+                bookingStatus: sb.booking_status,
+                paymentDueDate: sb.payment_due_date,
+                notes: sb.notes
+            }));
+
+            return {
+                id: row.id,
+                type: 'Tour',
+                customer: row.customer_name,
+                email: row.customer_email || row.email,
+                phone: row.customer_phone || row.phone,
+                title: row.package_title || 'Unknown Package',
+                date: row.booking_date || row.date,
+                amount: totalAmount,
+                status: (row.status ? row.status.charAt(0).toUpperCase() + row.status.slice(1) : 'Pending') as BookingStatus,
+                payment: dynamicPayment as any,
+                packageId: row.package_id,
+                invoiceNo: row.invoice_no || `INV-${row.id}`,
+                transactions: txs,
+                supplierBookings: sbs
+            };
+        });
+    },
+
+    createSupplierBooking: async (sb: any) => {
+        await crud.create('supplier_bookings', {
+            id: sb.id,
+            booking_id: sb.bookingId,
+            vendor_id: sb.vendorId,
+            service_type: sb.serviceType,
+            confirmation_number: sb.confirmationNumber || null,
+            cost: sb.cost,
+            paid_amount: sb.paidAmount,
+            payment_status: sb.paymentStatus,
+            booking_status: sb.bookingStatus,
+            payment_due_date: sb.paymentDueDate ? sb.paymentDueDate : null,
+            notes: sb.notes || null
+        });
+    },
+
+    updateSupplierBooking: async (id: string, sb: any) => {
+        const dbSb: any = {};
+        if (sb.vendorId !== undefined) dbSb.vendor_id = sb.vendorId;
+        if (sb.serviceType !== undefined) dbSb.service_type = sb.serviceType;
+        if (sb.confirmationNumber !== undefined) dbSb.confirmation_number = sb.confirmationNumber || null;
+        if (sb.cost !== undefined) dbSb.cost = sb.cost;
+        if (sb.paidAmount !== undefined) dbSb.paid_amount = sb.paidAmount;
+        if (sb.paymentStatus !== undefined) dbSb.payment_status = sb.paymentStatus;
+        if (sb.bookingStatus !== undefined) dbSb.booking_status = sb.bookingStatus;
+        if (sb.paymentDueDate !== undefined) dbSb.payment_due_date = sb.paymentDueDate ? sb.paymentDueDate : null;
+        if (sb.notes !== undefined) dbSb.notes = sb.notes || null;
+        await crud.update('supplier_bookings', id, dbSb);
+    },
+
+    deleteSupplierBooking: async (id: string) => {
+        await crud.remove('supplier_bookings', id);
     },
 
     createBooking: async (booking: Partial<Booking>) => {
@@ -259,6 +382,10 @@ export const api = {
         if (updates.date !== undefined) dbUpdates.booking_date = updates.date;
         if (updates.amount !== undefined) dbUpdates.total_price = updates.amount;
         if (updates.packageId !== undefined) dbUpdates.package_id = updates.packageId;
+        if (updates.payment !== undefined) {
+            const tempMap: any = { 'Paid': 'paid', 'Unpaid': 'pending', 'Deposit': 'deposit', 'Refunded': 'refunded' };
+            dbUpdates.payment_status = tempMap[updates.payment] || 'pending';
+        }
         
         await crud.update('bookings', id, dbUpdates);
     },
@@ -295,7 +422,7 @@ export const api = {
                 timestamp: l.timestamp
             })),
             avatarColor: row.avatar_color,
-            assignedTo: row.assigned_to,
+            assignedTo: row.assigned_to ? Number(row.assigned_to) : undefined,
             whatsapp: row.whatsapp,
             isWhatsappSame: row.is_whatsapp_same,
             aiScore: row.ai_score,
@@ -309,6 +436,7 @@ export const api = {
 
     createLead: async (lead: Partial<Lead>) => {
         await crud.create('leads', {
+            id: lead.id,
             name: lead.name,
             email: lead.email,
             phone: lead.phone,
@@ -408,31 +536,96 @@ export const api = {
 
     // --- VENDORS ---
     getVendors: async () => {
-        const { data } = await crud.getAll('vendors', { order: 'created_at', asc: false });
+        const { data } = await fetchApi('/api/vendors-with-stats');
+        // Add robust fallback for JSON parsing
+        const parseJsonField = (field: any, defaultValue: any) => {
+            if (typeof field === 'string') {
+                try { return JSON.parse(field); } catch { return defaultValue; }
+            }
+            return field || defaultValue;
+        };
+
         return (data || []).map((v: any) => ({
             id: v.id,
             name: v.name,
             category: v.category,
+            subCategory: v.sub_category,
             location: v.location,
             contactName: v.contact_name,
             contactPhone: v.contact_phone,
+            contactEmail: v.contact_email,
             rating: v.rating,
-            balanceDue: v.balance_due,
+            balanceDue: Number(v.balance_due) || 0,
             status: 'Active',
-            services: [], documents: [], transactions: [], notes: []
+            contractStatus: v.contract_status || 'Active',
+            logo: v.logo,
+            totalSales: v.total_sales ? Number(v.total_sales) : 0,
+            totalCommission: v.total_commission ? Number(v.total_commission) : 0,
+            bankDetails: parseJsonField(v.bank_details, {}),
+            notes: parseJsonField(v.notes, []),
+            // Use ledger_entries built from real supplier_bookings data (backend join)
+            // Fall back to the stale JSON blob only if no supplier bookings exist
+            transactions: Array.isArray(v.ledger_entries) && v.ledger_entries.length > 0
+                ? v.ledger_entries.map((le: any) => ({
+                    id: le.id,
+                    date: le.date ? new Date(le.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+                    description: le.description,
+                    amount: Number(le.amount) || 0,
+                    type: le.type,
+                    reference: le.reference
+                }))
+                : parseJsonField(v.transactions, []),
+            services: [], documents: []
         }));
     },
 
     createVendor: async (vendor: any) => {
-        const { data } = await crud.create('vendors', {
+        const payload = {
+            id: vendor.id,
             name: vendor.name,
             category: vendor.category,
+            sub_category: vendor.subCategory,
             location: vendor.location,
             contact_name: vendor.contactName,
             contact_phone: vendor.contactPhone,
-            rating: vendor.rating
-        });
+            contact_email: vendor.contactEmail,
+            rating: vendor.rating,
+            contract_status: vendor.contractStatus,
+            logo: vendor.logo,
+            total_sales: vendor.totalSales,
+            total_commission: vendor.totalCommission,
+            bank_details: vendor.bankDetails ? JSON.stringify(vendor.bankDetails) : null,
+            notes: vendor.notes ? JSON.stringify(vendor.notes) : '[]',
+            transactions: vendor.transactions ? JSON.stringify(vendor.transactions) : '[]'
+        };
+        const { data } = await crud.create('vendors', payload);
         return data;
+    },
+
+    updateVendor: async (id: string, updates: any) => {
+        const dbUpdates: any = {};
+        if (updates.name !== undefined) dbUpdates.name = updates.name;
+        if (updates.category !== undefined) dbUpdates.category = updates.category;
+        if (updates.subCategory !== undefined) dbUpdates.sub_category = updates.subCategory;
+        if (updates.location !== undefined) dbUpdates.location = updates.location;
+        if (updates.contactName !== undefined) dbUpdates.contact_name = updates.contactName;
+        if (updates.contactPhone !== undefined) dbUpdates.contact_phone = updates.contactPhone;
+        if (updates.contactEmail !== undefined) dbUpdates.contact_email = updates.contactEmail;
+        if (updates.rating !== undefined) dbUpdates.rating = updates.rating;
+        if (updates.balanceDue !== undefined) dbUpdates.balance_due = updates.balanceDue;
+        if (updates.contractStatus !== undefined) dbUpdates.contract_status = updates.contractStatus;
+        if (updates.logo !== undefined) dbUpdates.logo = updates.logo;
+        if (updates.totalSales !== undefined) dbUpdates.total_sales = updates.totalSales;
+        if (updates.totalCommission !== undefined) dbUpdates.total_commission = updates.totalCommission;
+        if (updates.bankDetails !== undefined) dbUpdates.bank_details = JSON.stringify(updates.bankDetails);
+        if (updates.notes !== undefined) dbUpdates.notes = JSON.stringify(updates.notes);
+        if (updates.transactions !== undefined) dbUpdates.transactions = JSON.stringify(updates.transactions);
+        
+        await crud.update('vendors', id, dbUpdates);
+    },
+
+    deleteVendor: async (id: string) => {
+        await crud.remove('vendors', id);
     },
 
     // --- ACCOUNTS ---
@@ -470,6 +663,7 @@ export const api = {
 
     createAccount: async (acc: any) => {
         const { data } = await crud.create('accounts', {
+            id: acc.id,
             name: acc.name,
             company_name: acc.companyName,
             type: acc.type,
@@ -484,19 +678,19 @@ export const api = {
         const { data } = await crud.getAll('staff_members', { order: 'created_at', asc: false });
         return (data || []).map((s: any) => ({
             id: s.id,
-            name: s.name,
-            email: s.email,
-            role: s.role,
-            userType: s.user_type,
-            department: s.department,
-            status: s.status,
-            initials: s.initials,
-            color: s.color,
-            permissions: typeof s.permissions === 'string' ? JSON.parse(s.permissions) : s.permissions,
-            queryScope: s.query_scope,
-            whatsappScope: s.whatsapp_scope,
-            lastActive: s.last_active,
-            phone: s.phone
+            name: s.name || 'Unknown',
+            email: s.email || '',
+            role: s.role || 'Agent',
+            userType: s.user_type || 'Staff',
+            department: s.department || 'General',
+            status: s.status || 'Active',
+            initials: s.initials || (s.name ? s.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().substring(0, 2) : 'XX'),
+            color: s.color || 'slate',
+            permissions: typeof s.permissions === 'string' ? JSON.parse(s.permissions) : (s.permissions || {}),
+            queryScope: s.query_scope || 'Show Assigned Query Only',
+            whatsappScope: s.whatsapp_scope || 'Assigned Queries Messages',
+            lastActive: s.last_active || 'Never',
+            phone: s.phone || ''
         }));
     },
 
@@ -633,6 +827,7 @@ export const api = {
 
     createCustomer: async (customer: Partial<Customer>) => {
         const { data } = await crud.create('customers', {
+            id: customer.id,
             name: customer.name,
             email: customer.email,
             phone: customer.phone,
@@ -727,6 +922,48 @@ export const api = {
     },
     deleteMasterHotel: async (id: string) => { await crud.remove('master_hotels', id); },
 
+    // --- Finance / Expenses ---
+    getExpenses: async (): Promise<Expense[]> => {
+        const { data } = await crud.getAll('expenses', { order: 'date', asc: false });
+        return (data || []).map((e: any) => ({
+            id: e.id,
+            title: e.title,
+            amount: e.amount,
+            category: e.category,
+            date: e.date,
+            paymentMethod: e.paymentMethod || e.payment_method, // Fallback for either naming covention in DB if changed
+            status: e.status,
+            notes: e.notes,
+            receiptUrl: e.receiptUrl || e.receipt_url
+        }));
+    },
+    createExpense: async (expense: Partial<Expense>) => {
+        await crud.create('expenses', {
+            id: expense.id,
+            title: expense.title,
+            amount: expense.amount,
+            category: expense.category,
+            date: expense.date,
+            paymentMethod: expense.paymentMethod,
+            status: expense.status,
+            notes: expense.notes,
+            receiptUrl: expense.receiptUrl
+        });
+    },
+    updateExpense: async (id: string, updates: Partial<Expense>) => {
+        const dbUpdates: any = {};
+        if (updates.title !== undefined) dbUpdates.title = updates.title;
+        if (updates.amount !== undefined) dbUpdates.amount = updates.amount;
+        if (updates.category !== undefined) dbUpdates.category = updates.category;
+        if (updates.date !== undefined) dbUpdates.date = updates.date;
+        if (updates.paymentMethod !== undefined) dbUpdates.paymentMethod = updates.paymentMethod;
+        if (updates.status !== undefined) dbUpdates.status = updates.status;
+        if (updates.notes !== undefined) dbUpdates.notes = updates.notes;
+        if (updates.receiptUrl !== undefined) dbUpdates.receiptUrl = updates.receiptUrl;
+        await crud.update('expenses', id, dbUpdates);
+    },
+    deleteExpense: async (id: string) => { await crud.remove('expenses', id); },
+
     // --- TASKS ---
     getTasks: async (): Promise<Task[]> => {
         const { data } = await crud.getAll('tasks', { order: 'due_date', asc: true });
@@ -768,56 +1005,172 @@ export const api = {
         const { data } = await crud.getAll('master_room_types', { order: 'created_at', asc: false });
         return (data || []) as MasterRoomType[];
     },
-    createMasterRoomType: async (item: Partial<MasterRoomType>) => { await crud.create('master_room_types', item); },
-    updateMasterRoomType: async (id: string, updates: Partial<MasterRoomType>) => { await crud.update('master_room_types', id, updates); },
+    createMasterRoomType: async (item: Partial<MasterRoomType>) => { 
+        await crud.create('master_room_types', {
+            id: item.id,
+            name: item.name, description: item.description, 
+            image: item.image, status: item.status || 'Active'
+        }); 
+    },
+    updateMasterRoomType: async (id: string, updates: Partial<MasterRoomType>) => { 
+        const dbItem: any = {};
+        if (updates.name !== undefined) dbItem.name = updates.name;
+        if (updates.description !== undefined) dbItem.description = updates.description;
+        if (updates.image !== undefined) dbItem.image = updates.image;
+        if (updates.status !== undefined) dbItem.status = updates.status;
+        await crud.update('master_room_types', id, dbItem); 
+    },
     deleteMasterRoomType: async (id: string) => { await crud.remove('master_room_types', id); },
 
     getMasterMealPlans: async (): Promise<MasterMealPlan[]> => {
         const { data } = await crud.getAll('master_meal_plans', { order: 'created_at', asc: false });
         return (data || []) as MasterMealPlan[];
     },
-    createMasterMealPlan: async (item: Partial<MasterMealPlan>) => { await crud.create('master_meal_plans', item); },
-    updateMasterMealPlan: async (id: string, updates: Partial<MasterMealPlan>) => { await crud.update('master_meal_plans', id, updates); },
+    createMasterMealPlan: async (item: Partial<MasterMealPlan>) => { 
+        await crud.create('master_meal_plans', {
+            id: item.id,
+            code: item.code, name: item.name, description: item.description,
+            image: item.image, status: item.status || 'Active'
+        }); 
+    },
+    updateMasterMealPlan: async (id: string, updates: Partial<MasterMealPlan>) => { 
+        const dbItem: any = {};
+        if (updates.code !== undefined) dbItem.code = updates.code;
+        if (updates.name !== undefined) dbItem.name = updates.name;
+        if (updates.description !== undefined) dbItem.description = updates.description;
+        if (updates.image !== undefined) dbItem.image = updates.image;
+        if (updates.status !== undefined) dbItem.status = updates.status;
+        await crud.update('master_meal_plans', id, dbItem); 
+    },
     deleteMasterMealPlan: async (id: string) => { await crud.remove('master_meal_plans', id); },
 
     getMasterActivities: async (): Promise<MasterActivity[]> => {
         const { data } = await crud.getAll('master_activities', { order: 'created_at', asc: false });
-        return (data || []) as MasterActivity[];
+        return (data || []).map((r: any) => ({
+            ...r, locationId: r.location_id, cost: Number(r.cost) || 0
+        })) as MasterActivity[];
     },
-    createMasterActivity: async (item: Partial<MasterActivity>) => { await crud.create('master_activities', item); },
-    updateMasterActivity: async (id: string, updates: Partial<MasterActivity>) => { await crud.update('master_activities', id, updates); },
+    createMasterActivity: async (item: Partial<MasterActivity>) => { 
+        await crud.create('master_activities', {
+            id: item.id,
+            name: item.name, location_id: item.locationId, duration: item.duration,
+            cost: item.cost, category: item.category, image: item.image,
+            status: item.status || 'Active'
+        }); 
+    },
+    updateMasterActivity: async (id: string, updates: Partial<MasterActivity>) => { 
+        const dbItem: any = {};
+        if (updates.name !== undefined) dbItem.name = updates.name;
+        if (updates.locationId !== undefined) dbItem.location_id = updates.locationId;
+        if (updates.duration !== undefined) dbItem.duration = updates.duration;
+        if (updates.cost !== undefined) dbItem.cost = updates.cost;
+        if (updates.category !== undefined) dbItem.category = updates.category;
+        if (updates.image !== undefined) dbItem.image = updates.image;
+        if (updates.status !== undefined) dbItem.status = updates.status;
+        await crud.update('master_activities', id, dbItem); 
+    },
     deleteMasterActivity: async (id: string) => { await crud.remove('master_activities', id); },
 
     getMasterTransports: async (): Promise<MasterTransport[]> => {
         const { data } = await crud.getAll('master_transports', { order: 'created_at', asc: false });
-        return (data || []) as MasterTransport[];
+        return (data || []).map((r: any) => ({
+            ...r, baseRate: Number(r.base_rate) || 0
+        })) as MasterTransport[];
     },
-    createMasterTransport: async (item: Partial<MasterTransport>) => { await crud.create('master_transports', item); },
-    updateMasterTransport: async (id: string, updates: Partial<MasterTransport>) => { await crud.update('master_transports', id, updates); },
+    createMasterTransport: async (item: Partial<MasterTransport>) => { 
+        await crud.create('master_transports', {
+            id: item.id,
+            name: item.name, type: item.type, capacity: item.capacity,
+            base_rate: item.baseRate, image: item.image, status: item.status || 'Active'
+        }); 
+    },
+    updateMasterTransport: async (id: string, updates: Partial<MasterTransport>) => { 
+        const dbItem: any = {};
+        if (updates.name !== undefined) dbItem.name = updates.name;
+        if (updates.type !== undefined) dbItem.type = updates.type;
+        if (updates.capacity !== undefined) dbItem.capacity = updates.capacity;
+        if (updates.baseRate !== undefined) dbItem.base_rate = updates.baseRate;
+        if (updates.image !== undefined) dbItem.image = updates.image;
+        if (updates.status !== undefined) dbItem.status = updates.status;
+        await crud.update('master_transports', id, dbItem); 
+    },
     deleteMasterTransport: async (id: string) => { await crud.remove('master_transports', id); },
 
     getMasterPlans: async (): Promise<MasterPlan[]> => {
         const { data } = await crud.getAll('master_plans', { order: 'created_at', asc: false });
-        return (data || []) as MasterPlan[];
+        return (data || []).map((r: any) => ({
+            id: r.id, title: r.title, duration: r.duration, 
+            locationId: r.location_id, estimatedCost: Number(r.estimated_cost) || 0,
+            status: r.status, days: typeof r.plan_days === 'string' ? JSON.parse(r.plan_days) : (r.plan_days || [])
+        })) as MasterPlan[];
     },
-    createMasterPlan: async (item: Partial<MasterPlan>) => { await crud.create('master_plans', item); },
-    updateMasterPlan: async (id: string, updates: Partial<MasterPlan>) => { await crud.update('master_plans', id, updates); },
+    createMasterPlan: async (item: Partial<MasterPlan>) => { 
+        await crud.create('master_plans', {
+            id: item.id,
+            title: item.title, duration: item.duration, location_id: item.locationId,
+            estimated_cost: item.estimatedCost, status: item.status || 'Active',
+            plan_days: item.days
+        }); 
+    },
+    updateMasterPlan: async (id: string, updates: Partial<MasterPlan>) => { 
+        const dbItem: any = {};
+        if (updates.title !== undefined) dbItem.title = updates.title;
+        if (updates.duration !== undefined) dbItem.duration = updates.duration;
+        if (updates.locationId !== undefined) dbItem.location_id = updates.locationId;
+        if (updates.estimatedCost !== undefined) dbItem.estimated_cost = updates.estimatedCost;
+        if (updates.status !== undefined) dbItem.status = updates.status;
+        if (updates.days !== undefined) dbItem.plan_days = updates.days;
+        await crud.update('master_plans', id, dbItem); 
+    },
     deleteMasterPlan: async (id: string) => { await crud.remove('master_plans', id); },
 
     getMasterLeadSources: async (): Promise<MasterLeadSource[]> => {
         const { data } = await crud.getAll('master_lead_sources', { order: 'created_at', asc: false });
-        return (data || []) as MasterLeadSource[];
+        return (data || []).map((r: any) => ({
+            ...r, category: r.category
+        })) as MasterLeadSource[];
     },
-    createMasterLeadSource: async (item: Partial<MasterLeadSource>) => { await crud.create('master_lead_sources', item); },
-    updateMasterLeadSource: async (id: string, updates: Partial<MasterLeadSource>) => { await crud.update('master_lead_sources', id, updates); },
+    createMasterLeadSource: async (item: Partial<MasterLeadSource>) => { 
+        await crud.create('master_lead_sources', {
+            id: item.id,
+            name: item.name, category: item.category, image: item.image,
+            status: item.status || 'Active'
+        }); 
+    },
+    updateMasterLeadSource: async (id: string, updates: Partial<MasterLeadSource>) => { 
+        const dbItem: any = {};
+        if (updates.name !== undefined) dbItem.name = updates.name;
+        if (updates.category !== undefined) dbItem.category = updates.category;
+        if (updates.image !== undefined) dbItem.image = updates.image;
+        if (updates.status !== undefined) dbItem.status = updates.status;
+        await crud.update('master_lead_sources', id, dbItem); 
+    },
     deleteMasterLeadSource: async (id: string) => { await crud.remove('master_lead_sources', id); },
 
     getMasterTermsTemplates: async (): Promise<MasterTermsTemplate[]> => {
         const { data } = await crud.getAll('master_terms_templates', { order: 'created_at', asc: false });
-        return (data || []) as MasterTermsTemplate[];
+        return (data || []).map((r: any) => ({
+            ...r, isDefault: Boolean(r.is_default)
+        })) as MasterTermsTemplate[];
     },
-    createMasterTermsTemplate: async (item: Partial<MasterTermsTemplate>) => { await crud.create('master_terms_templates', item); },
-    updateMasterTermsTemplate: async (id: string, updates: Partial<MasterTermsTemplate>) => { await crud.update('master_terms_templates', id, updates); },
+    createMasterTermsTemplate: async (item: Partial<MasterTermsTemplate>) => { 
+        await crud.create('master_terms_templates', {
+            id: item.id,
+            title: item.title, category: item.category, content: item.content,
+            is_default: item.isDefault, status: item.status || 'Active',
+            image: item.image
+        }); 
+    },
+    updateMasterTermsTemplate: async (id: string, updates: Partial<MasterTermsTemplate>) => { 
+        const dbItem: any = {};
+        if (updates.title !== undefined) dbItem.title = updates.title;
+        if (updates.category !== undefined) dbItem.category = updates.category;
+        if (updates.content !== undefined) dbItem.content = updates.content;
+        if (updates.isDefault !== undefined) dbItem.is_default = updates.isDefault;
+        if (updates.status !== undefined) dbItem.status = updates.status;
+        if (updates.image !== undefined) dbItem.image = updates.image;
+        await crud.update('master_terms_templates', id, dbItem); 
+    },
     deleteMasterTermsTemplate: async (id: string) => { await crud.remove('master_terms_templates', id); },
 
     // --- PHASE 3: CMS ---
@@ -924,7 +1277,10 @@ export const api = {
         const dbItem: any = {};
         if (updates.leadId !== undefined) dbItem.lead_id = updates.leadId;
         if (updates.type !== undefined) dbItem.type = updates.type;
-        if (updates.notes !== undefined) dbItem.notes = updates.notes;
+        // Map description (frontend) to notes (database)
+        if (updates.description !== undefined) dbItem.notes = updates.description;
+        else if (updates.notes !== undefined) dbItem.notes = updates.notes;
+        
         if (updates.status !== undefined) dbItem.status = updates.status;
         if (updates.scheduledAt !== undefined) dbItem.scheduled_at = updates.scheduledAt;
         if (updates.reminderEnabled !== undefined) dbItem.reminder_enabled = updates.reminderEnabled;
@@ -1051,17 +1407,31 @@ export const api = {
     },
 
     // --- STORAGE (File Upload) ---
-    uploadFile: async (file: File, bucketPath: string = 'documents'): Promise<string> => {
-        // For now, we'll use a simple base64 approach or external image hosting
-        // TODO: Implement file upload endpoint on the backend
+    uploadFile: async (file: File, _bucketPath: string = 'documents'): Promise<string> => {
+        // Compress the image first
         const processedFile = await compressImageFile(file);
 
-        // Convert to base64 data URL as a temporary solution
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result as string);
-            reader.onerror = reject;
-            reader.readAsDataURL(processedFile);
+        // Upload to the backend /api/upload endpoint (multer saves to disk)
+        const token = localStorage.getItem('shravya_jwt');
+        const formData = new FormData();
+        formData.append('file', processedFile);
+
+        const res = await fetch(`${API_BASE}/api/upload`, {
+            method: 'POST',
+            headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+            body: formData,
         });
+
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || `Upload failed: ${res.status}`);
+        }
+
+        const { url } = await res.json();
+        // For local dev, prefix with the backend origin. In production the URL is relative.
+        if (url.startsWith('/')) {
+            return `${API_BASE}${url}`;
+        }
+        return url;
     }
 };

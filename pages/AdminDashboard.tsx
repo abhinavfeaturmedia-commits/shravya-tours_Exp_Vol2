@@ -13,6 +13,7 @@ export const AdminDashboard: React.FC = () => {
     const [greeting, setGreeting] = useState('');
     const [selectedYear, setSelectedYear] = useState('This Year');
     const [salesTimeFilter, setSalesTimeFilter] = useState<'7' | '14' | '30'>('7');
+    const today = new Date().toISOString().split('T')[0];
 
     // --- RBAC Scoping ---
     const isRestricted = currentUser?.queryScope === 'Show Assigned Query Only';
@@ -47,6 +48,7 @@ export const AdminDashboard: React.FC = () => {
 
     // Pending Actions
     const pendingBookings = bookings.filter(b => b.status === 'Pending').length;
+    const ongoingBookings = bookings.filter(b => b.status === 'Confirmed' && today >= b.date && today <= (b.endDate || b.date)).length;
     const unpaidBookings = bookings.filter(b => b.payment === 'Unpaid').length;
 
     // Recent Week Analysis (simulated comparison)
@@ -356,7 +358,7 @@ export const AdminDashboard: React.FC = () => {
                             {greeting}, {currentUser?.name || 'there'}.
                         </h1>
                         <p className="text-lg text-indigo-100 font-medium leading-relaxed opacity-90">
-                            Here's what's happening in your travel business today. You have <span className="text-white font-bold underline decoration-indigo-400 decoration-2 underline-offset-4">{pendingBookings} pending bookings</span> requiring action.
+                            Here's what's happening today. You have <span className="text-white font-bold underline decoration-indigo-400 decoration-2 underline-offset-4">{pendingBookings} pending bookings</span> and <span className="text-white font-bold underline decoration-green-400 decoration-2 underline-offset-4">{ongoingBookings} ongoing tours</span>.
                         </p>
                     </div>
 

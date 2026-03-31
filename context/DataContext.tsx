@@ -22,6 +22,20 @@ const loadFromStorage = <T,>(key: string, fallback: T): T => {
   }
 };
 
+// Like loadFromStorage but falls back to default if stored value is an empty array
+// This prevents stale [] from DB overrides wiping out default seed data
+const loadFromStorageNonEmpty = <T,>(key: string, fallback: T): T => {
+  try {
+    const saved = localStorage.getItem(key);
+    if (!saved) return fallback;
+    const parsed = JSON.parse(saved);
+    if (Array.isArray(parsed) && parsed.length === 0) return fallback;
+    return parsed;
+  } catch {
+    return fallback;
+  }
+};
+
 const saveToStorage = <T,>(key: string, data: T) => {
   try {
     localStorage.setItem(key, JSON.stringify(data));
@@ -150,8 +164,8 @@ const INITIAL_CMS_GALLERY: CMSGalleryImage[] = [
   { id: 'GAL-002', title: 'Adrenaline Adventures', category: 'Activity', imageUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuATmrejY5wv4HJwrrT-XOL_k-4PmnUHmnh4tjjQVt_Jw-Yo2zwDrK0qkbFaSFg2oZ4QPuHofCwI5g76BzH8C2PVia4SwkhV7mSizKnFAVWvJ3o-g1OEwmLpMGLVQxjM3imAoioqwI2CrsaGtpVfFii-U7u-sNV--nk7myLX0TMF7KyKkBsLBWBkFkLJdw0Iuddd42GzNf0skyKiejwy7EFQmDIf8GfhitO7eqMnXD1t5P3BqowcJBiS0Flc1nMXXumi-gqaajd5JSWt' },
   { id: 'GAL-003', title: 'Family Bonding', category: 'Other', imageUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuDPD4VWIRjjm4gr_QRgaRIZ8pQo93GDnfYzDlR9kIXr-4_ovKaMUunDA0hG-FrMzvOD0VPKw7XAJwEUOtDdivx3uWITXO0jqZC_mNA0eKHNJM4D3eHvE34SBmVAet7T_hOJXWXFr_jk15uFbQz7c3rv866ihvaVcCYv7fwsG-96EC2P8qq1OqRTB3RXe_9r1dL0e0aou7sEuPrYf5Va4s6UnXZvlC7HePL_M8zzsQr4IW2s4MRfbquq0greYrr53I3w8OCAB9RTLFbf' },
   { id: 'GAL-004', title: 'Cultural Deep Dives', category: 'Other', imageUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuARvjLJnqBIV09joV5MO4NCFRzmlZ-bbKPc1eoo9A-7TudM37NfT7pwyGWL8SKJsQz3haG3HdOgcYWr0HVXVNhbu-XiaBbvV4rMCx3NcCaiO_eQ9LFJTA69YLnPbsJXp1whEaBMmP7FgfhDhOwfAv7ROqrGj1TfqED1pPb7-eTzxh__HuN-lLTZS3TO3mcaIG5lzHVZPM1aXZvTKyaczGqk0y5JxmYFFC_g3Cd0BZqrPEKe1q-DM-6kkxWzTfUU1rbC62qVacapPJrT' },
-  { id: 'GAL-005', title: 'Pilgrim Yatra', category: 'Other', imageUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuB_g5Jg7yR2b7d5m0W4x8q9n5j4t6k7l5p3o9r2s5v8u9x4y7z1a3b6c9d2e5f8g1h4j7k0m3n6o9p2q5r8s1t4u7v-w9x2y5z8a1b4c7d0e3f6g9h2i5j8k1l4m7n0o3p6q9r2s5t8u1v4w7x0y3z6a9b2c5d8e1f4g7h0i3j6k9l2m5n8o1p4q7r0s3t6u9v2w5x8y1z4a7b0c3d6e9f2g5h8i1j4k7m0n3p6q9r2s5t8u1v4w7x0y3z6-' }, // AI Generated placeholder - replace in prod
-  { id: 'GAL-006', title: 'Wildlife Safari', category: 'Landscape', imageUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuC1h4Jg7yR2b7d5m0W4x8q9n5j4t6k7l5p3o9r2s5v8u9x4y7z1a3b6c9d2e5f8g1h4j7k0m3n6o9p2q5r8s1t4u7v-w9x2y5z8a1b4c7d0e3f6g9h2i5j8k1l4m7n0o3p6q9r2s5t8u1v4w7x0y3z6a9b2c5d8e1f4g7h0i3j6k9l2m5n8o1p4q7r0s3t6u9v2w5x8y1z4a7b0c3d6e9f2g5h8i1j4k7m0n3p6q9r2s5t8u1v4w7x0y3z6-' }, // AI Generated placeholder - replace in prod
+  { id: 'GAL-005', title: 'Pilgrim Yatra', category: 'Other', imageUrl: 'https://images.unsplash.com/photo-1596788062829-01c0cde6f2eb?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80' },
+  { id: 'GAL-006', title: 'Wildlife Safari', category: 'Landscape', imageUrl: 'https://images.unsplash.com/photo-1516426122078-c23e76319801?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80' },
 ];
 
 const INITIAL_CMS_POSTS: CMSPost[] = [];
@@ -388,10 +402,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
 
   // Master Data State (Keep local except Locations and Hotels)
-  const [masterHotels, setMasterHotels] = useState<MasterHotel[]>([]);
-  const [masterActivities, setMasterActivities] = useState<MasterActivity[]>(() => loadFromStorage(`${STORAGE_KEY}_m_activities`, INITIAL_MASTER_ACTIVITIES));
-  const [masterTransports, setMasterTransports] = useState<MasterTransport[]>(() => loadFromStorage(`${STORAGE_KEY}_m_transports`, INITIAL_MASTER_TRANSPORT));
-  const [masterPlans, setMasterPlans] = useState<MasterPlan[]>(() => loadFromStorage(`${STORAGE_KEY}_m_plans`, INITIAL_MASTER_PLANS));
+  const [masterHotels, setMasterHotels] = useState<MasterHotel[]>(() => loadFromStorageNonEmpty(`${STORAGE_KEY}_m_hotels`, INITIAL_MASTER_HOTELS));
+  const [masterActivities, setMasterActivities] = useState<MasterActivity[]>(() => loadFromStorageNonEmpty(`${STORAGE_KEY}_m_activities`, INITIAL_MASTER_ACTIVITIES));
+  const [masterTransports, setMasterTransports] = useState<MasterTransport[]>(() => loadFromStorageNonEmpty(`${STORAGE_KEY}_m_transports`, INITIAL_MASTER_TRANSPORT));
+  const [masterPlans, setMasterPlans] = useState<MasterPlan[]>(() => loadFromStorageNonEmpty(`${STORAGE_KEY}_m_plans`, INITIAL_MASTER_PLANS));
 
   // New Master Data States
   const [masterRoomTypes, setMasterRoomTypes] = useState<MasterRoomType[]>(() => loadFromStorage(`${STORAGE_KEY}_m_roomtypes`, INITIAL_ROOM_TYPES));
@@ -461,7 +475,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setCustomers(c);
         setMasterLocations(locs as MasterLocation[]);
         setCampaigns(cam);
-        setMasterHotels(htl);
+        if (htl.length > 0) setMasterHotels(htl);
         setTasks(tsk);
       } catch (e) {
         console.warn("Auth required or network error for some data");
@@ -526,6 +540,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   // Persistence Effects (Only for non-migrated data)
+  useEffect(() => { saveToStorage(`${STORAGE_KEY}_m_hotels`, masterHotels); }, [masterHotels]);
   useEffect(() => { saveToStorage(`${STORAGE_KEY}_m_activities`, masterActivities); }, [masterActivities]);
   useEffect(() => { saveToStorage(`${STORAGE_KEY}_m_transports`, masterTransports); }, [masterTransports]);
   useEffect(() => { saveToStorage(`${STORAGE_KEY}_m_plans`, masterPlans); }, [masterPlans]);
@@ -568,10 +583,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       logAction('Create', 'Packages', `Created Package: ${pkg.title}`);
       toast.success("Package created successfully");
     } catch (e: any) {
-      setPackages(p => p.filter(x => x.id !== pkg.id));
-      toast.error(e.message || "Failed to create package");
+      // Keep the package in local state even if DB save fails (offline-first)
+      // so the user can still see and use it. Show a warning instead.
+      toast.warning(e.message?.includes('fetch') || e.message?.includes('network')
+        ? "Package saved locally (offline). Will sync when backend is available."
+        : "Package saved locally but failed to persist to database."
+      );
     }
-  }, []);
+  }, [logAction]);
 
   const updatePackage = useCallback(async (id: string, pkg: Partial<Package>) => {
     const previousState = packages;
@@ -729,9 +748,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const netPaid = totalPaid - totalRefunded;
 
           let newStatus: 'Paid' | 'Unpaid' | 'Deposit' | 'Refunded' = 'Unpaid';
-          if (netPaid >= b.amount) newStatus = 'Paid';
+          if (netPaid >= b.amount && b.amount > 0) newStatus = 'Paid';
           else if (netPaid > 0) newStatus = 'Deposit';
           else if (netPaid < 0) newStatus = 'Refunded';
+
+          api.updateBooking(bookingId, { payment: newStatus }).catch(console.error);
 
           return { ...b, transactions: newTransactions, payment: newStatus };
         }
@@ -777,38 +798,68 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   // Supplier Booking Handlers
-  const addSupplierBooking = useCallback((bookingId: string, sb: SupplierBooking) => {
-    setBookings(prev => prev.map(b => {
-      if (b.id === bookingId) {
-        return { ...b, supplierBookings: [...(b.supplierBookings || []), sb] };
-      }
-      return b;
-    }));
-  }, []);
+  const addSupplierBooking = useCallback(async (bookingId: string, sb: SupplierBooking) => {
+    try {
+      await api.createSupplierBooking({ ...sb, bookingId });
+      setBookings(prev => prev.map(b => {
+        if (b.id === bookingId) {
+          return { ...b, supplierBookings: [...(b.supplierBookings || []), sb] };
+        }
+        return b;
+      }));
+      // Keep vendor financials in sync
+      api.getVendors().then(setVendors).catch(console.error);
+      
+      logAction('Create', 'Vendors', `Added supplier booking ${sb.id} for Booking ${bookingId}`);
+      toast.success("Supplier added successfully");
+    } catch (e: any) {
+      toast.error(e.message || "Failed to add supplier");
+    }
+  }, [logAction]);
 
-  const updateSupplierBooking = useCallback((bookingId: string, sbId: string, sb: Partial<SupplierBooking>) => {
-    setBookings(prev => prev.map(b => {
-      if (b.id === bookingId) {
-        return {
-          ...b,
-          supplierBookings: (b.supplierBookings || []).map(item => item.id === sbId ? { ...item, ...sb } : item)
-        };
-      }
-      return b;
-    }));
-  }, []);
+  const updateSupplierBooking = useCallback(async (bookingId: string, sbId: string, sb: Partial<SupplierBooking>) => {
+    try {
+      await api.updateSupplierBooking(sbId, sb);
+      setBookings(prev => prev.map(b => {
+        if (b.id === bookingId) {
+          return {
+            ...b,
+            supplierBookings: (b.supplierBookings || []).map(item => item.id === sbId ? { ...item, ...sb } : item)
+          };
+        }
+        return b;
+      }));
+      // Keep vendor financials in sync
+      api.getVendors().then(setVendors).catch(console.error);
 
-  const deleteSupplierBooking = useCallback((bookingId: string, sbId: string) => {
-    setBookings(prev => prev.map(b => {
-      if (b.id === bookingId) {
-        return {
-          ...b,
-          supplierBookings: (b.supplierBookings || []).filter(item => item.id !== sbId)
-        };
-      }
-      return b;
-    }));
-  }, []);
+      logAction('Update', 'Vendors', `Updated supplier booking ${sbId} for Booking ${bookingId}`);
+      toast.success("Supplier updated successfully");
+    } catch (e: any) {
+      toast.error(e.message || "Failed to update supplier");
+    }
+  }, [logAction]);
+
+  const deleteSupplierBooking = useCallback(async (bookingId: string, sbId: string) => {
+    try {
+      await api.deleteSupplierBooking(sbId);
+      setBookings(prev => prev.map(b => {
+        if (b.id === bookingId) {
+          return {
+            ...b,
+            supplierBookings: (b.supplierBookings || []).filter(item => item.id !== sbId)
+          };
+        }
+        return b;
+      }));
+      // Keep vendor financials in sync
+      api.getVendors().then(setVendors).catch(console.error);
+
+      logAction('Delete', 'Vendors', `Deleted supplier booking ${sbId} for Booking ${bookingId}`);
+      toast.success("Supplier removed");
+    } catch (e: any) {
+      toast.error(e.message || "Failed to remove supplier");
+    }
+  }, [logAction]);
 
   // Lead
   const addLead = useCallback(async (lead: Lead) => {
@@ -896,9 +947,19 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       toast.error(e.message || "Failed to create vendor");
     }
   }, []);
-  const updateVendor = useCallback((id: string, u: Partial<Vendor>) => setVendors(p => p.map(x => x.id === id ? { ...x, ...u } : x)), []);
+  const updateVendor = useCallback(async (id: string, u: Partial<Vendor>) => {
+    // Optimistic update
+    setVendors(p => p.map(x => x.id === id ? { ...x, ...u } : x));
+    try {
+      await api.updateVendor(id, u);
+      logAction('Update', 'Vendors', `Updated Vendor: ${u.name || id}`);
+    } catch (e: any) {
+      toast.error(e.message || "Failed to update vendor in database");
+      // Optional: rollback state
+    }
+  }, []);
 
-  const deleteVendor = useCallback((id: string) => {
+  const deleteVendor = useCallback(async (id: string) => {
     // Protection Check: Active Supplier Bookings
     const hasActiveBookings = bookings.some(b =>
       b.supplierBookings?.some(sb => sb.vendorId === id && sb.bookingStatus !== 'Cancelled')
@@ -909,8 +970,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
 
+    const previousState = vendors;
     setVendors(p => p.filter(x => x.id !== id));
-  }, [bookings]);
+    try {
+      await api.deleteVendor(id);
+      logAction('Delete', 'Vendors', `Deleted Vendor: ${id}`);
+    } catch (e: any) {
+      setVendors(previousState);
+      toast.error(e.message || "Failed to delete vendor");
+    }
+  }, [bookings, vendors]);
 
   // Account
   const addAccount = useCallback(async (a: Account) => {
@@ -940,11 +1009,65 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  // Only partial implementations for secondary helpers to keep it short
-  const processVendorPayment = useCallback(() => { }, []);
+  const processVendorPayment = useCallback(async (vendorId: string, amount: number, reference?: string) => {
+    const transaction: import('../types').VendorTransaction = {
+      id: `VT-${Date.now()}`,
+      date: new Date().toISOString(),
+      description: 'Payout',
+      amount: amount,
+      type: 'Debit',
+      reference: reference,
+    };
+    
+    setVendors(prev => prev.map(v => {
+      if (v.id === vendorId) {
+        return {
+          ...v,
+          balanceDue: v.balanceDue - amount,
+          transactions: [transaction, ...(v.transactions || [])]
+        };
+      }
+      return v;
+    }));
+
+    try {
+      const vendor = vendors.find(v => v.id === vendorId);
+      if (vendor) {
+        await api.updateVendor(vendorId, {
+          balanceDue: vendor.balanceDue - amount,
+          transactions: [transaction, ...(vendor.transactions || [])]
+        });
+        logAction('Update', 'Vendors', `Processed payment for Vendor: ${vendor.name}`);
+        toast.success("Payment recorded");
+      }
+    } catch (e: any) {
+      toast.error(e.message || "Failed to record vendor payment");
+    }
+  }, [vendors, logAction]);
+
   const addVendorDocument = useCallback(() => { }, []);
   const deleteVendorDocument = useCallback(() => { }, []);
-  const addVendorNote = useCallback(() => { }, []);
+  
+  const addVendorNote = useCallback(async (vendorId: string, note: import('../types').VendorNote) => {
+    setVendors(prev => prev.map(v => {
+      if (v.id === vendorId) {
+        return { ...v, notes: [note, ...(v.notes || [])] };
+      }
+      return v;
+    }));
+
+    try {
+      const vendor = vendors.find(v => v.id === vendorId);
+      if (vendor) {
+        await api.updateVendor(vendorId, {
+          notes: [note, ...(vendor.notes || [])]
+        });
+        toast.success("Note added");
+      }
+    } catch (e: any) {
+      toast.error(e.message || "Failed to add vendor note");
+    }
+  }, [vendors]);
 
   const addAccountTransaction = useCallback(async (accountId: string, tx: AccountTransaction) => {
     // 1. Optimistic UI update
@@ -1129,8 +1252,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const updateFollowUp = useCallback(async (id: string, data: Partial<FollowUp>) => {
     setFollowUps(p => p.map(x => x.id === id ? { ...x, ...data } : x));
-    try { await api.updateFollowUp(id, data); toast.success("Follow-up updated"); }
-    catch (e) { toast.error("Failed to update follow-up"); }
+    try { 
+      await api.updateFollowUp(id, data); 
+      toast.success("Follow-up updated"); 
+    }
+    catch (e) { 
+      console.error("Failed to update follow-up:", e);
+      toast.error("Failed to update follow-up"); 
+    }
   }, []);
 
   const deleteFollowUp = useCallback(async (id: string) => {

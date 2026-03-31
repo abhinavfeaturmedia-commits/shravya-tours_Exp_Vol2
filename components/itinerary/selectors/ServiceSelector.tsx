@@ -17,15 +17,15 @@ export const ServiceSelector: React.FC<ServiceSelectorProps> = ({ day, onClose }
     const [searchTerm, setSearchTerm] = useState('');
 
     const filteredHotels = useMemo(() =>
-        masterHotels.filter(h => h.status === 'Active' && h.name.toLowerCase().includes(searchTerm.toLowerCase())),
+        (masterHotels ?? []).filter(h => h.status === 'Active' && h.name.toLowerCase().includes(searchTerm.toLowerCase())),
         [masterHotels, searchTerm]);
 
     const filteredActivities = useMemo(() =>
-        masterActivities.filter(a => a.status === 'Active' && a.name.toLowerCase().includes(searchTerm.toLowerCase())),
+        (masterActivities ?? []).filter(a => a.status === 'Active' && a.name.toLowerCase().includes(searchTerm.toLowerCase())),
         [masterActivities, searchTerm]);
 
     const filteredTransports = useMemo(() =>
-        masterTransports.filter(t => t.status === 'Active' && t.name.toLowerCase().includes(searchTerm.toLowerCase())),
+        (masterTransports ?? []).filter(t => t.status === 'Active' && t.name.toLowerCase().includes(searchTerm.toLowerCase())),
         [masterTransports, searchTerm]);
 
     const handleAdd = (item: Omit<ItineraryItem, 'sellPrice'>) => {

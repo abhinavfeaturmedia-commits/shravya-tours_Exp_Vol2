@@ -5,12 +5,40 @@ import mysql from 'mysql2/promise';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
+import multer from 'multer';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import fs from 'fs';
 
 dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
+
+// ─── File Upload Setup (Multer) ───
+const uploadsDir = path.join(__dirname, 'public', 'uploads');
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+
+const storage = multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, uploadsDir),
+    filename: (_req, file, cb) => {
+        const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
+        cb(null, `${Date.now()}-${crypto.randomBytes(6).toString('hex')}${ext}`);
+    }
+});
+
+const upload = multer({
+    storage,
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+    fileFilter: (_req, file, cb) => {
+        const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+        cb(null, allowed.includes(file.mimetype));
+    }
+});
 
 // ─── Database Pool ───
 const pool = mysql.createPool({
@@ -54,10 +82,10 @@ ensureUsersTable();
 
 // Allowed tables (whitelist to prevent SQL injection)
 const ALLOWED_TABLES = new Set([
-    'packages', 'bookings', 'booking_transactions',
+    'packages', 'bookings', 'booking_transactions', 'supplier_bookings',
     'leads', 'lead_logs', 'daily_inventory',
     'vendors', 'accounts', 'account_transactions',
-    'staff_members', 'customers', 'campaigns',
+    'staff_members', 'customers', 'campaigns', 'expenses',
     'master_locations', 'master_hotels', 'tasks',
     'master_room_types', 'master_meal_plans', 'master_activities',
     'master_transports', 'master_plans', 'master_lead_sources',
@@ -222,11 +250,24 @@ app.post('/api/auth/create-user', authMiddleware, async (req, res) => {
 // UNIVERSAL CRUD ROUTES
 // ═══════════════════════════════════════════
 
+const PUBLIC_READ_TABLES = new Set([
+    'packages', 'cms_banners', 'cms_testimonials', 'cms_gallery_images', 
+    'cms_posts', 'master_locations', 'master_hotels', 'master_activities'
+]);
+
+function optionalAuthMiddleware(req, res, next) {
+    const table = req.params.table;
+    if (req.method === 'GET' && PUBLIC_READ_TABLES.has(table)) {
+        return next(); // Bypass full auth check for public GET
+    }
+    return authMiddleware(req, res, next);
+}
+
 // GET all rows from a table
 // Supports: ?order=column&asc=true&limit=100&select=col1,col2
 // Supports: ?eq_field=value for equality filters
 // Supports: ?join=related_table for left joins
-app.get('/api/crud/:table', authMiddleware, validateTable, async (req, res) => {
+app.get('/api/crud/:table', optionalAuthMiddleware, validateTable, async (req, res) => {
     const { table } = req.params;
     const { order, asc, limit, select } = req.query;
 
@@ -278,7 +319,7 @@ app.get('/api/crud/:table', authMiddleware, validateTable, async (req, res) => {
 });
 
 // GET single row by ID
-app.get('/api/crud/:table/:id', authMiddleware, validateTable, async (req, res) => {
+app.get('/api/crud/:table/:id', optionalAuthMiddleware, validateTable, async (req, res) => {
     const { table, id } = req.params;
     try {
         const [rows] = await pool.query(`SELECT * FROM \`${table}\` WHERE id = ?`, [id]);
@@ -296,7 +337,8 @@ app.post('/api/crud/:table', authMiddleware, validateTable, writeGuard, async (r
     const body = req.body;
     try {
         // Auto-generate UUID if missing for non-auto-increment tables
-        if (!body.id && table !== 'users' && table !== 'staff_members') {
+        const autoIncrementTables = ['users', 'staff_members', 'audit_logs', 'lead_logs'];
+        if (!body.id && !autoIncrementTables.includes(table)) {
             body.id = crypto.randomUUID();
         }
 
@@ -372,7 +414,8 @@ app.post('/api/crud/:table/upsert', authMiddleware, validateTable, writeGuard, a
     const body = req.body;
     try {
         // Auto-generate UUID if missing for non-auto-increment tables
-        if (!body.id && table !== 'users' && table !== 'staff_members') {
+        const autoIncrementTables = ['users', 'staff_members', 'audit_logs', 'bookings', 'tours', 'packages'];
+        if (!body.id && !autoIncrementTables.includes(table)) {
             body.id = crypto.randomUUID();
         }
 
@@ -399,15 +442,37 @@ app.post('/api/crud/:table/upsert', authMiddleware, validateTable, writeGuard, a
 // SPECIAL QUERY ROUTES (Joins, RPC-like)
 // ═══════════════════════════════════════════
 
-// Bookings with package title (package_title is native to bookings table in this schema)
+// Bookings with package title AND transactions AND supplier bookings
 app.get('/api/bookings-with-package', authMiddleware, async (req, res) => {
     try {
-        const [rows] = await pool.query(`
+        const [bookings] = await pool.query(`
             SELECT * 
             FROM bookings 
             ORDER BY created_at DESC
         `);
-        res.json({ data: rows });
+        const [transactions] = await pool.query('SELECT * FROM booking_transactions ORDER BY date DESC, created_at DESC');
+        const [supplierBookings] = await pool.query('SELECT * FROM supplier_bookings ORDER BY created_at DESC');
+
+        // Group transactions by booking_id
+        const txByBooking = {};
+        transactions.forEach(tx => {
+            if (!txByBooking[tx.booking_id]) txByBooking[tx.booking_id] = [];
+            txByBooking[tx.booking_id].push(tx);
+        });
+
+        const sbByBooking = {};
+        supplierBookings.forEach(sb => {
+            if (!sbByBooking[sb.booking_id]) sbByBooking[sb.booking_id] = [];
+            sbByBooking[sb.booking_id].push(sb);
+        });
+
+        const result = bookings.map(b => ({
+            ...b,
+            booking_transactions: txByBooking[b.id] || [],
+            supplier_bookings: sbByBooking[b.id] || []
+        }));
+
+        res.json({ data: result });
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: 'Failed to fetch bookings' });
@@ -439,6 +504,77 @@ app.get('/api/leads-with-logs', authMiddleware, async (req, res) => {
     }
 });
 
+// Vendors with stats calculated from supplier_bookings
+app.get('/api/vendors-with-stats', authMiddleware, async (req, res) => {
+    try {
+        const [vendors] = await pool.query('SELECT * FROM vendors ORDER BY created_at DESC');
+        const [supplierBookings] = await pool.query(`
+            SELECT sb.*, b.customer_name, b.booking_date
+            FROM supplier_bookings sb
+            LEFT JOIN bookings b ON sb.booking_id = b.id
+            ORDER BY sb.created_at DESC
+        `);
+        
+        const statsByVendor = {};
+        const ledgerByVendor = {};
+
+        supplierBookings.forEach(sb => {
+            if (!statsByVendor[sb.vendor_id]) {
+                statsByVendor[sb.vendor_id] = { totalCost: 0, totalPaid: 0 };
+            }
+            statsByVendor[sb.vendor_id].totalCost += Number(sb.cost) || 0;
+            statsByVendor[sb.vendor_id].totalPaid += Number(sb.paid_amount) || 0;
+
+            if (!ledgerByVendor[sb.vendor_id]) {
+                ledgerByVendor[sb.vendor_id] = [];
+            }
+
+            const cost = Number(sb.cost) || 0;
+            const paidAmount = Number(sb.paid_amount) || 0;
+            const customerLabel = sb.customer_name || sb.booking_id || 'Booking';
+            const serviceLabel = sb.service_type || 'Service';
+
+            // Credit: we owe them this cost
+            if (cost > 0) {
+                ledgerByVendor[sb.vendor_id].push({
+                    id: `${sb.id}-cost`,
+                    date: sb.booking_date || sb.created_at,
+                    description: `${serviceLabel} for ${customerLabel}`,
+                    amount: cost,
+                    type: 'Credit',
+                    reference: sb.booking_id
+                });
+            }
+            // Debit: we paid them this amount
+            if (paidAmount > 0) {
+                ledgerByVendor[sb.vendor_id].push({
+                    id: `${sb.id}-paid`,
+                    date: sb.created_at,
+                    description: `Payment for ${serviceLabel} (${customerLabel})`,
+                    amount: paidAmount,
+                    type: 'Debit',
+                    reference: sb.booking_id
+                });
+            }
+        });
+
+        const result = vendors.map(v => {
+            const stats = statsByVendor[v.id] || { totalCost: 0, totalPaid: 0 };
+            return {
+                ...v,
+                total_sales: stats.totalCost,
+                balance_due: stats.totalCost - stats.totalPaid,
+                ledger_entries: ledgerByVendor[v.id] || []
+            };
+        });
+
+        res.json({ data: result });
+    } catch (error) {
+        console.error('vendors-with-stats error:', error);
+        res.status(500).json({ error: 'Failed to fetch vendors with stats: ' + error.message });
+    }
+});
+
 // Accounts with transactions
 app.get('/api/accounts-with-transactions', authMiddleware, async (req, res) => {
     try {
@@ -462,6 +598,40 @@ app.get('/api/accounts-with-transactions', authMiddleware, async (req, res) => {
         res.status(500).json({ error: 'Failed to fetch accounts' });
     }
 });
+
+// Finance: Booking transactions + Expenses with booking context
+app.get('/api/finance/booking-transactions', authMiddleware, async (req, res) => {
+    try {
+        // Query 1: Client payments (booking transactions)
+        const [txRows] = await pool.query(`
+            SELECT 
+                t.id, t.date, t.amount, t.type, t.method, t.reference, t.notes, t.status, t.receipt_url,
+                t.booking_id as bookingId, t.created_at,
+                b.customer_name as customer, b.customer_email as email, b.customer_phone as phone, b.tour_id as packageId,
+                'booking_payment' as source
+            FROM booking_transactions t
+            LEFT JOIN bookings b ON t.booking_id = b.id
+        `);
+
+        // Query 2: Operational expenses
+        const [expRows] = await pool.query(`
+            SELECT 
+                id, date, amount, 'Expense' as type, paymentMethod as method, notes as reference, notes, status, receiptUrl as receipt_url,
+                NULL as bookingId, created_at,
+                title as customer, NULL as email, NULL as phone, category as packageId,
+                'expense' as source
+            FROM expenses
+        `);
+
+        // Combine and sort by created_at descending
+        const combined = [...txRows, ...expRows].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        res.json({ data: combined });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Failed to fetch finance transactions', details: error.message });
+    }
+});
+
 
 // Follow-ups with lead name
 app.get('/api/follow-ups-with-lead', authMiddleware, async (req, res) => {
@@ -557,14 +727,21 @@ app.post('/api/admin/sync-staff-auth', authMiddleware, async (req, res) => {
 // ═══════════════════════════════════════════
 // SERVE REACT FRONTEND (Production)
 // ═══════════════════════════════════════════
-import path from 'path';
-import { fileURLToPath } from 'url';
+// ─── File Upload Route ───
+// Accepts multipart image uploads, saves to public/uploads, returns public URL
+app.post('/api/upload', authMiddleware, upload.single('file'), (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded or file type not allowed.' });
+    }
+    // Return the public-accessible URL for this file
+    const fileUrl = `/uploads/${req.file.filename}`;
+    res.json({ url: fileUrl });
+});
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Serve static files from the React build
+// Serve static files from the React build (includes /uploads/)
 app.use(express.static(path.join(__dirname, 'public')));
+// Explicitly serve uploads directory too
+app.use('/uploads', express.static(uploadsDir));
 
 // Catch-all: send React's index.html for any non-API route (SPA routing)
 app.get('*', (req, res) => {

@@ -1,13 +1,29 @@
 import React from 'react';
-import { useItinerary, ItineraryItem } from '../ItineraryContext';
+import { useItinerary } from '../ItineraryContext';
 import { useData } from '../../../context/DataContext';
 import { useNavigate } from 'react-router-dom';
 import { Package } from '../../../types';
-import { Check, DollarSign, Save, ArrowLeft, MapPin, Calendar, Users, FileText, Share2, Printer } from 'lucide-react';
+import { DollarSign, Save, ArrowLeft, MapPin, Calendar, Users, Printer, Share2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 export const StepReview: React.FC = () => {
-    const { tripDetails, items, subtotal, grandTotal, setStep, packageMarkupPercent, packageMarkupFlat, packageMarkupAmount, setPackageMarkup, formatCurrency, editPackageId, currency, taxConfig } = useItinerary();
+    const { 
+        tripDetails, 
+        items, 
+        grandTotal, 
+        setStep, 
+        packageMarkupPercent, 
+        packageMarkupFlat, 
+        packageMarkupAmount, 
+        setPackageMarkup, 
+        formatCurrency, 
+        editPackageId, 
+        currency, 
+        taxConfig,
+        dayMeta,
+        subtotal
+    } = useItinerary();
+    
     const { addPackage, updatePackage } = useData();
     const navigate = useNavigate();
 
@@ -19,7 +35,7 @@ export const StepReview: React.FC = () => {
 
     // Helper to format itinerary for the Package object
     const generatePackageItinerary = () => {
-        const days = Array.from({ length: tripDetails.duration }, (_, i) => i + 1);
+        const days = Array.from({ length: tripDetails.days }, (_, i) => i + 1);
 
         return days.map(day => {
             const dayItems = items.filter(i => i.day === day);
@@ -42,29 +58,34 @@ export const StepReview: React.FC = () => {
 
     const handleSave = () => {
         if (!tripDetails.title) {
-            alert("Title is missing!");
+            toast.error("Title is missing!");
             return;
         }
 
+        // 1. Collect all images for the gallery
+        const dayImages = Object.values(dayMeta || {}).map((m: any) => m.image).filter(Boolean);
+        const fullGallery = [tripDetails.coverImage, ...dayImages].filter((url, index, self) => url && self.indexOf(url) === index);
+
         const packageData: Partial<Package> = {
             title: tripDetails.title,
-            days: tripDetails.duration,
+            days: tripDetails.days,
             groupSize: String(guestCount),
             location: tripDetails.destination || 'Custom',
             description: `Custom itinerary created for ${guestCount || 'Valued Guests'}.`,
             price: finalPrice,
             image: tripDetails.coverImage,
             theme: 'Custom',
-            overview: `A ${tripDetails.duration}-day journey to ${tripDetails.destination || 'Paradise'}.`,
+            overview: `A ${tripDetails.nights} Nights / ${tripDetails.days} Days journey to ${tripDetails.destination || 'Paradise'}.`,
             highlights: items.slice(0, 4).map(i => ({ icon: 'star', label: i.title })),
             itinerary: generatePackageItinerary(),
-            gallery: [tripDetails.coverImage],
+            gallery: fullGallery,
             status: 'Active',
             included: tripDetails.included || [],
             notIncluded: tripDetails.notIncluded || [],
             builderData: {
                 tripDetails,
                 items,
+                dayMeta,
                 currency,
                 taxConfig,
                 packageMarkupPercent,
@@ -113,6 +134,7 @@ export const StepReview: React.FC = () => {
                                 <span className="flex items-center gap-1"><MapPin size={12} /> {tripDetails.destination}</span>
                                 <span className="flex items-center gap-1"><Calendar size={12} /> {tripDetails.startDate}</span>
                                 <span className="flex items-center gap-1"><Users size={12} /> {guestCount} Guests</span>
+                                <span className="flex items-center gap-1">🌙 {tripDetails.nights}N / ☀️ {tripDetails.days}D</span>
                             </div>
                         </div>
                         <div className="text-left md:text-right">
@@ -235,7 +257,7 @@ export const StepReview: React.FC = () => {
                     </div>
                     <div className="flex gap-2">
                         <button onClick={() => {
-                            const text = `🏝️ *Trip to ${tripDetails.destination || 'Paradise'}*\n📅 ${tripDetails.duration} Days | ${guestCount} Guests\n💰 ₹${finalPrice.toLocaleString()}\n\n*Itinerary:*\n${items.map((item, i) => `Day ${i + 1}: ${item.title}`).join('\n')}\n\nBook now with Shravya Tours! 🚀`;
+                            const text = `🏝️ *Trip to ${tripDetails.destination || 'Paradise'}*\n📅 ${tripDetails.nights}N/${tripDetails.days}D | ${guestCount} Guests\n💰 ₹${finalPrice.toLocaleString()}\n\n*Itinerary:*\n${items.map((item, i) => `Day ${i + 1}: ${item.title}`).join('\n')}\n\nBook now with Shravya Tours! 🚀`;
                             navigator.clipboard.writeText(text);
                             toast.success("Itinerary copied to clipboard!");
                         }} className="w-full py-3 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold rounded-xl shadow-lg hover:opacity-90 transition-all flex items-center justify-center gap-2">

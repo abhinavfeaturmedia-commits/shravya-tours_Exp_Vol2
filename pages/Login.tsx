@@ -50,10 +50,9 @@ export const Login: React.FC = () => {
 
                 {/* Brand mark */}
                 <div className="relative z-10 flex items-center gap-3">
-                    <div className="size-10 rounded-xl bg-primary/90 flex items-center justify-center shadow-lg">
-                        <span className="material-symbols-outlined text-white text-xl">travel_explore</span>
+                    <div className="h-12 w-auto bg-white/90 p-1.5 rounded-xl shadow-lg backdrop-blur-sm">
+                        <img src="/logo.png" alt="Shravya Tours Logo" className="h-full object-contain" />
                     </div>
-                    <span className="text-white font-semibold text-lg tracking-wide">Shravya Tours</span>
                 </div>
 
                 {/* Editorial quote + caption */}
@@ -89,11 +88,10 @@ export const Login: React.FC = () => {
                 <div className="lg:hidden absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-primary via-primary-light to-accent" />
 
                 {/* Mobile brand mark */}
-                <div className="lg:hidden flex items-center gap-3 mb-10 pt-8">
-                    <div className="size-9 rounded-lg bg-primary flex items-center justify-center shadow-md">
-                        <span className="material-symbols-outlined text-white text-lg">travel_explore</span>
+                <div className="lg:hidden flex justify-center mb-10 pt-8">
+                    <div className="h-14 w-auto drop-shadow-md">
+                        <img src="/logo.png" alt="Shravya Tours Logo" className="h-full object-contain" />
                     </div>
-                    <span className="font-semibold text-slate-900 dark:text-white text-lg">Shravya Tours</span>
                 </div>
 
                 <div className="max-w-md w-full mx-auto reveal">

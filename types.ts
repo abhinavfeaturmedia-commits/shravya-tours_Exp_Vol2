@@ -57,6 +57,7 @@ export interface Booking {
   phone?: string;
   title: string;
   date: string;
+  endDate?: string;
   amount: number;
   guests?: string;
   status: BookingStatus;
@@ -78,6 +79,8 @@ export interface BookingTransaction {
   reference?: string;
   notes?: string;
   recordedBy?: string;
+  status?: 'Pending' | 'Verified' | 'Rejected';
+  receiptUrl?: string;
 }
 
 export type SupplierBookingStatus = 'Pending' | 'Confirmed' | 'Cancelled' | 'Partially Paid' | 'Paid';

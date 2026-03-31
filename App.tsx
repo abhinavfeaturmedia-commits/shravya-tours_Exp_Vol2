@@ -29,6 +29,7 @@ const Analytics = lazy(() => import('./pages/admin/Analytics').then(module => ({
 const Operations = lazy(() => import('./pages/admin/Operations').then(module => ({ default: module.Operations })));
 const ItineraryBuilder = lazy(() => import('./pages/admin/ItineraryBuilder').then(module => ({ default: module.ItineraryBuilder })));
 const StaffManagement = lazy(() => import('./pages/admin/StaffManagement').then(module => ({ default: module.StaffManagement })));
+const TeamPerformance = lazy(() => import('./pages/admin/TeamPerformance').then(module => ({ default: module.TeamPerformance })));
 const Bookings = lazy(() => import('./pages/admin/Bookings').then(module => ({ default: module.Bookings })));
 const AdminLeads = lazy(() => import('./pages/admin/Leads').then(module => ({ default: module.Leads })));
 const AdminCustomers = lazy(() => import('./pages/admin/Customers').then(module => ({ default: module.Customers })));
@@ -38,10 +39,10 @@ const AdminAccounts = lazy(() => import('./pages/admin/Accounts').then(module =>
 const AdminExpenses = lazy(() => import('./pages/admin/Expenses').then(module => ({ default: module.Expenses })));
 const AdminProposals = lazy(() => import('./pages/admin/Proposals').then(module => ({ default: module.Proposals })));
 const ProposalBuilder = lazy(() => import('./pages/admin/ProposalBuilder').then(module => ({ default: module.ProposalBuilder })));
-
 const Masters = lazy(() => import('./pages/admin/Masters').then(module => ({ default: module.Masters })));
 const AuditLogs = lazy(() => import('./pages/admin/AuditLogs').then(module => ({ default: module.AuditLogs })));
 const Productivity = lazy(() => import('./pages/admin/Productivity').then(module => ({ default: module.Productivity })));
+const FinanceVerification = lazy(() => import('./pages/admin/FinanceVerification').then(module => ({ default: module.FinanceVerification })));
 
 
 // Loading Fallback
@@ -82,6 +83,7 @@ const App: React.FC = () => {
                 {/* Admin Routes using AdminLayout (Sidebar/Topbar) */}
                 <Route path="/admin" element={<AdminLayout />}>
                   <Route index element={<AdminDashboard />} />
+                  <Route path="dashboard" element={<Navigate to="/admin" replace />} />
                   <Route path="analytics" element={<Analytics />} />
                   <Route path="operations" element={<Operations />} />
                   <Route path="bookings" element={<Bookings />} />
@@ -90,6 +92,7 @@ const App: React.FC = () => {
                   <Route path="itinerary-builder" element={<ItineraryBuilder />} />
                   <Route path="accounts" element={<AdminAccounts />} />
                   <Route path="expenses" element={<AdminExpenses />} />
+                  <Route path="finance-verification" element={<FinanceVerification />} />
                   <Route path="proposals" element={<AdminProposals />} />
                   <Route path="proposals/:id" element={<ProposalBuilder />} />
 
@@ -98,6 +101,7 @@ const App: React.FC = () => {
                   <Route path="audit" element={<AuditLogs />} />
                   <Route path="productivity" element={<Productivity />} />
                   <Route path="staff" element={<StaffManagement />} />
+                  <Route path="team-performance" element={<TeamPerformance />} />
                   <Route path="packages" element={<AdminPackages />} />
                   <Route path="masters" element={<Masters />} />
                   <Route path="*" element={<div className="p-10">Page Under Construction</div>} />

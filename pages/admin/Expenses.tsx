@@ -1,20 +1,15 @@
 import React, { useState, useMemo } from 'react';
 import { useData } from '../../context/DataContext';
+import { useExpenses } from '../../src/hooks/useExpenses';
 import { toast } from 'sonner';
 import {
     Wallet, TrendingDown, Calendar, Plus, Filter,
-    FileText, CheckCircle, AlertCircle, Trash2, Pencil
+    FileText, CheckCircle, AlertCircle, Trash2, Pencil, Loader2
 } from 'lucide-react';
 import { Expense } from '../../types';
 
 export const Expenses: React.FC = () => {
-    // For now, local state. In real app, move to DataContext.
-    const [expenses, setExpenses] = useState<Expense[]>([
-        { id: '1', title: 'Office Rent - Jan', amount: 25000, category: 'Rent', date: '2026-01-01', paymentMethod: 'Bank Transfer', status: 'Paid' },
-        { id: '2', title: 'Zoho CRM Subscription', amount: 2400, category: 'Software', date: '2026-01-05', paymentMethod: 'Credit Card', status: 'Paid' },
-        { id: '3', title: 'Facebook Ads Credit', amount: 5000, category: 'Marketing', date: '2026-01-10', paymentMethod: 'Credit Card', status: 'Paid' },
-        { id: '4', title: 'Office Cleaning', amount: 1500, category: 'Office Supplies', date: '2026-01-15', paymentMethod: 'Cash', status: 'Pending' }
-    ]);
+    const { expenses, isLoading, addExpense, updateExpense, deleteExpense } = useExpenses();
 
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [filterCategory, setFilterCategory] = useState<string>('All');
@@ -30,9 +25,9 @@ export const Expenses: React.FC = () => {
     }, [expenses, filterCategory]);
 
     const stats = useMemo(() => {
-        const total = filteredExpenses.reduce((sum, e) => sum + e.amount, 0);
-        const paid = filteredExpenses.filter(e => e.status === 'Paid').reduce((sum, e) => sum + e.amount, 0);
-        const pending = filteredExpenses.filter(e => e.status === 'Pending').reduce((sum, e) => sum + e.amount, 0);
+        const total = filteredExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
+        const paid = filteredExpenses.filter(e => e.status === 'Paid').reduce((sum, e) => sum + Number(e.amount || 0), 0);
+        const pending = filteredExpenses.filter(e => e.status === 'Pending').reduce((sum, e) => sum + Number(e.amount || 0), 0);
         return { total, paid, pending };
     }, [filteredExpenses]);
 
@@ -47,13 +42,12 @@ export const Expenses: React.FC = () => {
         setIsModalOpen(true);
     };
 
-    const handleSaveExpense = (e: React.FormEvent) => {
+    const handleSaveExpense = async (e: React.FormEvent) => {
         e.preventDefault();
 
         if (editingExpense) {
             // Update existing
-            setExpenses(prev => prev.map(exp => exp.id === editingExpense.id ? { ...exp, ...newExpense } as Expense : exp));
-            toast.success("Expense updated successfully");
+            await updateExpense(editingExpense.id, newExpense);
         } else {
             // Create new
             const expense: Expense = {
@@ -66,16 +60,14 @@ export const Expenses: React.FC = () => {
                 status: newExpense.status as any,
                 notes: newExpense.notes
             };
-            setExpenses([expense, ...expenses]);
-            toast.success("Expense recorded successfully");
+            await addExpense(expense);
         }
         setIsModalOpen(false);
     };
 
-    const handleDelete = (id: string) => {
+    const handleDelete = async (id: string) => {
         if (confirm("Delete this expense record?")) {
-            setExpenses(prev => prev.filter(e => e.id !== id));
-            toast.success("Expense deleted");
+            await deleteExpense(id);
         }
     };
 
@@ -170,7 +162,15 @@ export const Expenses: React.FC = () => {
                                         <tr key={expense.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                                             <td className="px-6 py-4">
                                                 <div className="font-bold text-slate-900 dark:text-white">{expense.title}</div>
-                                                <div className="text-xs text-slate-400">{expense.paymentMethod}</div>
+                                                <div className="text-xs text-slate-400 flex items-center gap-1">
+                                                    <span>{expense.paymentMethod}</span>
+                                                    {expense.notes && (
+                                                        <>
+                                                            <span>•</span>
+                                                            <span className="truncate max-w-[150px]" title={expense.notes}>{expense.notes}</span>
+                                                        </>
+                                                    )}
+                                                </div>
                                             </td>
                                             <td className="px-6 py-4 text-slate-600 dark:text-slate-400 font-medium">
                                                 {new Date(expense.date).toLocaleDateString()}
@@ -280,6 +280,15 @@ export const Expenses: React.FC = () => {
                                     <option value="Credit Card">Credit Card</option>
                                     <option value="Cash">Cash</option>
                                 </select>
+                            </div>
+                            
+                            <div>
+                                <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Payment Confirmation Note</label>
+                                <input className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-3 rounded-xl w-full font-bold outline-none focus:ring-2 focus:ring-red-500 text-slate-900 dark:text-white"
+                                    placeholder="e.g. Transaction ID, Check #, or brief note"
+                                    value={newExpense.notes || ''}
+                                    onChange={e => setNewExpense({ ...newExpense, notes: e.target.value })}
+                                />
                             </div>
 
                             <button type="submit" className="w-full py-4 bg-red-600 text-white font-bold rounded-xl shadow-lg shadow-red-600/20 hover:bg-red-700 transition-all mt-4">

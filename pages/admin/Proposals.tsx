@@ -12,8 +12,8 @@ export const Proposals: React.FC = () => {
     const navigate = useNavigate();
     const [searchTerm, setSearchTerm] = useState('');
 
-    const filteredProposals = proposals.filter(p =>
-        p.title.toLowerCase().includes(searchTerm.toLowerCase())
+    const filteredProposals = (proposals || []).filter(p =>
+        (p?.title || '').toLowerCase().includes(searchTerm.toLowerCase())
     );
 
     const handleDelete = (id: string) => {
@@ -102,7 +102,7 @@ export const Proposals: React.FC = () => {
                                     </div>
                                     <div className="flex justify-between text-xs font-medium text-slate-500 bg-slate-50 dark:bg-slate-900/50 p-2 rounded-lg">
                                         <span>Options</span>
-                                        <span className="text-slate-900 dark:text-white">{proposal.options.length} Variants</span>
+                                        <span className="text-slate-900 dark:text-white">{proposal.options?.length || 0} Variants</span>
                                     </div>
                                 </div>
 

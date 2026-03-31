@@ -12,7 +12,8 @@ import {
     FileText, Bell, CheckCircle2, MoreHorizontal, Filter, Save, CalendarDays
 } from 'lucide-react';
 import { TravelerSelector } from '../../components/ui/TravelerSelector';
-// import { analyzeLead } from '../../src/lib/gemini'; // Commented out unused
+import { exportToExcel, ExportColumn } from '../../src/lib/exportUtils';
+import { DataImportModal, ColumnMapping } from '../../src/components/admin/DataImportModal';
 // import { BulkImportLeadsModal } from '../../components/admin/BulkImportLeadsModal'; // Commented out unused
 
 // Status Badge Component
@@ -35,7 +36,7 @@ const StatusBadge = ({ status }: { status: string }) => {
 export const Leads: React.FC = () => {
     const { addLeadLog, addFollowUp, addBooking, followUps, customers, addCustomer } = useData();
     const { leads, addLead, updateLead, deleteLead, isLoading } = useLeads();
-    const { currentUser } = useAuth();
+    const { currentUser, staff } = useAuth();
     const navigate = useNavigate();
 
     // UI State
@@ -44,7 +45,7 @@ export const Leads: React.FC = () => {
     const [modalMode, setModalMode] = useState<'add' | 'edit'>('add');
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [activeTab, setActiveTab] = useState<'All' | 'New' | 'Warm' | 'Hot' | 'Offer Sent' | 'Converted' | 'Cold'>('All');
-    // const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+    const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
     // Forms
     const [noteContent, setNoteContent] = useState('');
@@ -254,6 +255,30 @@ export const Leads: React.FC = () => {
         setIsModalOpen(true);
     };
 
+    const handleExport = () => {
+        const columns: ExportColumn<Lead>[] = [
+            { header: 'ID', key: 'id', width: 25 },
+            { header: 'Name', key: 'name', width: 30 },
+            { header: 'Email', key: 'email', width: 35 },
+            { header: 'Phone', key: 'phone', width: 20 },
+            { header: 'Destination', key: 'destination', width: 25 },
+            { header: 'Travelers', key: 'travelers', width: 15 },
+            { header: 'Type', key: 'type', width: 20 },
+            { header: 'Budget (INR)', key: 'potentialValue', width: 20 },
+            { header: 'Status', key: 'status', width: 15 },
+            { header: 'Source', key: 'source', width: 20 },
+            { header: 'Added On', key: l => new Date(l.addedOn).toLocaleDateString(), width: 15 }
+        ];
+
+        exportToExcel(filteredLeads, columns, {
+            filename: `Leads_Export_${new Date().toISOString().split('T')[0]}`,
+            sheetName: 'Leads',
+            title: 'Shravya Tours - Leads Report',
+            subtitle: `Generated on: ${new Date().toLocaleDateString('en-IN')}`
+        });
+        toast.success('Leads exported successfully!');
+    };
+
     const openEditModal = () => {
         if (!selectedLead) return;
         setModalMode('edit');
@@ -321,6 +346,12 @@ export const Leads: React.FC = () => {
                                 className="w-full pl-12 pr-4 py-3 bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-primary shadow-sm"
                             />
                         </div>
+                        <button onClick={() => setIsImportModalOpen(true)} className="px-6 py-3 bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold shadow-sm flex items-center gap-2 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800">
+                            <span className="material-symbols-outlined text-[20px]">upload_file</span> Import
+                        </button>
+                        <button onClick={handleExport} className="px-6 py-3 bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold shadow-sm flex items-center gap-2 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800">
+                            <span className="material-symbols-outlined text-[20px]">download</span> Export
+                        </button>
                         <button onClick={openAddModal} className="bg-primary hover:bg-primary-dark text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-primary/20 flex items-center gap-2 transition-transform active:scale-95 whitespace-nowrap btn-glow">
                             <Plus size={20} /> Add Lead
                         </button>
@@ -329,11 +360,18 @@ export const Leads: React.FC = () => {
                     {/* Leads List */}
                     <div className="bg-white dark:bg-[#1A2633] border border-slate-100 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
                         {/* Table Header */}
-                        <div className="grid grid-cols-12 px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 text-xs font-bold text-slate-400 uppercase tracking-wider">
-                            <div className="col-span-4">Lead Name</div>
-                            <div className="col-span-4">Destination</div>
+                        <div className="hidden sm:grid grid-cols-12 gap-4 px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 text-xs font-bold text-slate-400 uppercase tracking-wider">
+                            <div className="col-span-3">Lead Name</div>
+                            <div className="col-span-3">Destination</div>
                             <div className="col-span-2">Value</div>
+                            <div className="col-span-2">Assigned To</div>
                             <div className="col-span-2 text-right">Status</div>
+                        </div>
+                        {/* Mobile Header */}
+                        <div className="flex sm:hidden items-center gap-4 px-4 py-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 text-xs font-bold text-slate-400 uppercase tracking-wider">
+                            <div className="flex-1">Lead Name</div>
+                            <div className="w-20 text-right">Value</div>
+                            <div className="w-20 text-right">Status</div>
                         </div>
 
                         {/* List Items */}
@@ -342,29 +380,51 @@ export const Leads: React.FC = () => {
                                 <div
                                     key={lead.id}
                                     onClick={() => setSelectedLeadId(lead.id)}
-                                    className={`grid grid-cols-12 px-6 py-4 items-center cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors ${selectedLeadId === lead.id ? 'bg-primary/5' : ''}`}
+                                    className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors ${selectedLeadId === lead.id ? 'bg-primary/5' : ''}`}
                                 >
-                                    <div className="col-span-4 flex items-center gap-4 overflow-hidden pr-4">
-                                        <div className={`h-10 w-10 shrink-0 rounded-full flex items-center justify-center font-bold text-sm ${lead.avatarColor || 'bg-slate-100 text-slate-600'}`}>
+                                    {/* Desktop Row */}
+                                    <div className="hidden sm:grid grid-cols-12 gap-4 px-6 py-4 items-center">
+                                        <div className="col-span-3 flex items-center gap-4 overflow-hidden pr-4">
+                                            <div className={`h-10 w-10 shrink-0 rounded-full flex items-center justify-center font-bold text-sm ${lead.avatarColor || 'bg-slate-100 text-slate-600'}`}>
+                                                {lead.name.charAt(0)}
+                                            </div>
+                                            <div className="min-w-0">
+                                                <h3 className="font-bold text-slate-900 dark:text-white truncate">{lead.name}</h3>
+                                                <p className="text-xs text-slate-500 truncate">Added {new Date(lead.addedOn).toLocaleDateString()}</p>
+                                            </div>
+                                        </div>
+                                        <div className="col-span-3 overflow-hidden pr-4">
+                                            <div className="flex items-center gap-2 text-slate-900 dark:text-white font-medium text-sm truncate">
+                                                <MapPin size={14} className="text-slate-400 shrink-0" />
+                                                <span className="truncate">{lead.destination}</span>
+                                            </div>
+                                            <p className="text-xs text-slate-500 ml-6 truncate">{lead.type}</p>
+                                        </div>
+                                        <div className="col-span-2 font-bold text-slate-900 dark:text-white truncate">
+                                            ₹{(lead.potentialValue || 0).toLocaleString()}
+                                        </div>
+                                        <div className="col-span-2 text-xs font-medium text-slate-600 dark:text-slate-400 truncate">
+                                            {lead.assignedTo ? staff.find(s => s.id === lead.assignedTo)?.name || 'Unknown' : 'Unassigned'}
+                                        </div>
+                                        <div className="col-span-2 text-right">
+                                            <StatusBadge status={lead.status} />
+                                        </div>
+                                    </div>
+                                    {/* Mobile Row */}
+                                    <div className="flex sm:hidden items-center gap-3 px-4 py-3">
+                                        <div className={`h-9 w-9 shrink-0 rounded-full flex items-center justify-center font-bold text-sm ${lead.avatarColor || 'bg-slate-100 text-slate-600'}`}>
                                             {lead.name.charAt(0)}
                                         </div>
-                                        <div className="min-w-0">
-                                            <h3 className="font-bold text-slate-900 dark:text-white truncate">{lead.name}</h3>
-                                            <p className="text-xs text-slate-500 truncate">Added {new Date(lead.addedOn).toLocaleDateString()}</p>
+                                        <div className="min-w-0 flex-1">
+                                            <h3 className="font-bold text-slate-900 dark:text-white text-sm truncate">{lead.name}</h3>
+                                            <p className="text-xs text-slate-500 truncate">{lead.destination}</p>
                                         </div>
-                                    </div>
-                                    <div className="col-span-4 overflow-hidden pr-4">
-                                        <div className="flex items-center gap-2 text-slate-900 dark:text-white font-medium text-sm truncate">
-                                            <MapPin size={14} className="text-slate-400 shrink-0" />
-                                            <span className="truncate">{lead.destination}</span>
+                                        <div className="text-right shrink-0">
+                                            <p className="text-xs font-bold text-slate-900 dark:text-white">₹{((lead.potentialValue || 0) / 1000).toFixed(0)}k</p>
+                                            <div className="mt-1">
+                                                <StatusBadge status={lead.status} />
+                                            </div>
                                         </div>
-                                        <p className="text-xs text-slate-500 ml-6 truncate">{lead.type}</p>
-                                    </div>
-                                    <div className="col-span-2 font-bold text-slate-900 dark:text-white truncate">
-                                        ₹{(lead.potentialValue || 0).toLocaleString()}
-                                    </div>
-                                    <div className="col-span-2 text-right">
-                                        <StatusBadge status={lead.status} />
                                     </div>
                                 </div>
                             ))}
@@ -446,6 +506,12 @@ export const Leads: React.FC = () => {
                                 <div>
                                     <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Source</p>
                                     <p className="text-sm font-bold text-slate-900 dark:text-white">{selectedLead.source}</p>
+                                </div>
+                                <div>
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Assigned To</p>
+                                    <p className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                                        {selectedLead.assignedTo ? staff.find(s => s.id === selectedLead.assignedTo)?.name || 'Unknown' : 'Unassigned'}
+                                    </p>
                                 </div>
                             </div>
                         </div>
@@ -665,11 +731,22 @@ export const Leads: React.FC = () => {
                                     <input type="number" placeholder="0" value={leadForm.budget || ''} onChange={e => setLeadForm({ ...leadForm, budget: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary" />
                                 </div>
                             </div>
-                            <div>
-                                <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Status</label>
-                                <select value={leadForm.status} onChange={e => setLeadForm({ ...leadForm, status: e.target.value as any })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary">
-                                    {['New', 'Warm', 'Hot', 'Cold', 'Offer Sent', 'Converted'].map(s => <option key={s} value={s}>{s}</option>)}
-                                </select>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Status</label>
+                                    <select value={leadForm.status} onChange={e => setLeadForm({ ...leadForm, status: e.target.value as any })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary">
+                                        {['New', 'Warm', 'Hot', 'Cold', 'Offer Sent', 'Converted'].map(s => <option key={s} value={s}>{s}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Assigned To</label>
+                                    <select value={leadForm.assignedTo || ''} onChange={e => setLeadForm({ ...leadForm, assignedTo: e.target.value ? Number(e.target.value) : undefined })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary">
+                                        <option value="">Unassigned</option>
+                                        {staff.map(s => (
+                                            <option key={s.id} value={s.id}>{s.name} ({s.role})</option>
+                                        ))}
+                                    </select>
+                                </div>
                             </div>
                             <div>
                                 <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Travelers</label>
@@ -695,6 +772,43 @@ export const Leads: React.FC = () => {
                     </div>
                 </div>
             )}
+
+            {/* Import Modal */}
+            <DataImportModal<Partial<Lead>>
+                isOpen={isImportModalOpen}
+                onClose={() => setIsImportModalOpen(false)}
+                entityName="Leads"
+                columns={[
+                    { header: 'Full Name', key: 'name', required: true },
+                    { header: 'Email', key: 'email', required: false },
+                    { header: 'Phone', key: 'phone', required: false },
+                    { header: 'Destination', key: 'destination', required: true },
+                    { header: 'Budget', key: 'budget', required: false },
+                ]}
+                onImport={(data) => {
+                    data.forEach((d, index) => {
+                        addLead({
+                            id: `IMP-LD-${Date.now()}-${index}`,
+                            name: d.name || 'Unknown',
+                            email: d.email || '',
+                            phone: d.phone || '',
+                            destination: d.destination || 'Unknown',
+                            budget: String(d.budget || ''),
+                            potentialValue: Number(d.budget) || 0,
+                            status: 'New',
+                            type: 'Custom Package',
+                            travelers: '2 Adults',
+                            source: 'Bulk Import',
+                            addedOn: new Date().toISOString(),
+                            priority: 'Medium',
+                            logs: [],
+                            avatarColor: 'bg-slate-100 text-slate-600'
+                        });
+                    });
+                    setIsImportModalOpen(false);
+                    toast.success(`${data.length} leads imported successfully!`);
+                }}
+            />
         </div>
     );
 };

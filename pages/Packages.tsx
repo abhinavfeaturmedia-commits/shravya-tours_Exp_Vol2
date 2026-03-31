@@ -259,65 +259,73 @@ export const Packages: React.FC = () => {
                 {sortedPackages.length > 0 ? (
                   sortedPackages.map((pkg, pkgIdx) => (
                     <div key={pkg.id}>
-                      <Link to={`/packages/${pkg.id}`} className={`group flex flex-col bg-white dark:bg-card-dark rounded-[2rem] overflow-hidden hover:shadow-2xl hover:shadow-slate-200/50 dark:hover:shadow-black/50 transition-all duration-300 transform hover:-translate-y-1 relative`}>
+                      <Link to={`/packages/${pkg.id}`} className="group relative flex flex-col bg-white dark:bg-[#151d29] rounded-[2.2rem] overflow-hidden hover:shadow-[0_25px_50px_-12px_rgba(0,0,0,0.15)] dark:hover:shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5)] transition-all duration-500 transform hover:-translate-y-2">
+                        
                         {/* Image Container */}
-                        <div className="relative h-72 w-full overflow-hidden">
-                          {pkg.tag && (
-                            <div className={`absolute top-4 left-4 z-20 ${pkg.tagColor || 'bg-white/90 text-slate-900'} backdrop-blur-md text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg shadow-lg`}>
-                              {pkg.tag}
-                            </div>
-                          )}
+                        <div className="relative h-80 w-full overflow-hidden">
+                          {/* Top Badges */}
+                          <div className="absolute top-4 left-4 z-20 flex flex-col gap-2">
+                            {pkg.tag && (
+                              <div className={`${pkg.tagColor || 'bg-white/95 text-slate-900'} backdrop-blur-md text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg shadow-lg`}>
+                                {pkg.tag}
+                              </div>
+                            )}
+                            {pkg.remainingSeats && pkg.remainingSeats < 10 && (
+                              <div className="bg-red-600/90 backdrop-blur text-white text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg shadow-lg flex items-center gap-1">
+                                <span className="material-symbols-outlined text-[14px]">local_fire_department</span>
+                                {pkg.remainingSeats} Left
+                              </div>
+                            )}
+                          </div>
 
-                          {/* Wishlist Button */}
-                          <button className="absolute top-4 right-4 z-20 size-10 rounded-full bg-white/10 backdrop-blur-md flex items-center justify-center text-white hover:bg-white hover:text-red-500 transition-all shadow-sm">
-                            <span className="material-symbols-outlined text-[20px]">favorite</span>
-                          </button>
-
-                          {/* Urgency Badge (Seats) */}
-                          {pkg.remainingSeats && pkg.remainingSeats < 10 && (
-                            <div className="absolute top-4 left-4 z-20 bg-red-600/90 backdrop-blur text-white text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg shadow-lg animate-pulse flex items-center gap-1">
-                              <span className="material-symbols-outlined text-[14px]">local_fire_department</span>
-                              Only {pkg.remainingSeats} Left
+                          {/* Top Right Badges */}
+                          <div className="absolute top-4 right-4 z-20">
+                            <div className="bg-black/30 backdrop-blur-md text-white text-[10px] font-black px-3 py-1.5 rounded-full flex items-center gap-1.5 border border-white/10">
+                              <span className="material-symbols-outlined text-[14px]">schedule</span>
+                              {pkg.days}D / {pkg.days - 1}N
                             </div>
-                          )}
-
-                          {/* Special Offer Badge */}
-                          {pkg.offerEndTime && (
-                            <div className={`absolute ${pkg.remainingSeats && pkg.remainingSeats < 10 ? 'top-14' : 'top-4'} left-4 z-20 bg-primary/90 backdrop-blur text-white text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg shadow-lg flex items-center gap-1`}>
-                              <span className="material-symbols-outlined text-[14px]">timer</span>
-                              Offer Ends Soon
-                            </div>
-                          )}
+                          </div>
 
                           <OptimizedImage
                             src={pkg.image}
                             alt={pkg.title}
-                            className="h-full w-full group-hover:scale-110 transition-transform duration-500 ease-out"
+                            className="h-full w-full object-cover group-hover:scale-110 transition-transform duration-700 ease-out"
                           />
-                          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-80 transition-opacity"></div>
 
-                          <div className="absolute bottom-0 left-0 right-0 p-6 text-white translate-y-2 group-hover:translate-y-0 transition-transform duration-500">
-                            <div className="flex items-center gap-2 mb-2 opacity-0 group-hover:opacity-100 transition-opacity duration-500 delay-100">
-                              <span className="flex items-center gap-1 text-xs font-bold bg-white/20 backdrop-blur-md px-2 py-1 rounded-md"><span className="material-symbols-outlined text-[14px]">schedule</span> {pkg.days} Days</span>
+                          {/* Multi-layered gradient for text readability */}
+                          <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/80 via-black/40 to-transparent transition-opacity group-hover:from-black/90"></div>
+                          
+                          {/* Floating Info Overlay (Glassmorphism) */}
+                          <div className="absolute inset-x-4 bottom-4 p-5 bg-white/10 dark:bg-black/20 backdrop-blur-xl border border-white/20 rounded-[1.5rem] transform translate-y-1 group-hover:translate-y-0 transition-transform duration-500">
+                            <h3 className="font-black text-xl text-white leading-tight mb-1 group-hover:text-primary-light transition-colors">{pkg.title}</h3>
+                            <div className="flex items-center justify-between">
+                              <p className="text-white/80 text-xs font-bold flex items-center gap-1">
+                                <span className="material-symbols-outlined text-[16px] text-primary">location_on</span> 
+                                {getLocationName(pkg.location, masterLocations)}
+                              </p>
+                              <div className="flex items-center gap-1 text-white font-black text-sm">
+                                <span className="text-[10px] text-white/60 font-medium mr-1 italic">from</span>
+                                ₹{(pkg.price / 1000).toFixed(0)}k
+                              </div>
                             </div>
-                            <h3 className="font-black text-2xl leading-tight shadow-black drop-shadow-md mb-1">{pkg.title}</h3>
-                            <p className="text-white/80 text-sm font-medium flex items-center gap-1"><span className="material-symbols-outlined text-[16px]">location_on</span> {getLocationName(pkg.location, masterLocations)}</p>
                           </div>
                         </div>
 
-                        {/* Content Body */}
-                        <div className="flex flex-col p-6 pt-4 flex-1">
-                          <p className="text-sm text-slate-500 dark:text-slate-400 line-clamp-2 mb-6 leading-relaxed font-medium">{pkg.description}</p>
-
-                          <div className="mt-auto flex items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-4">
-                            <div className="flex flex-col">
-                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Starting from</span>
-                              <span className="text-xl font-black text-slate-900 dark:text-white">₹{pkg.price.toLocaleString()}</span>
-                              <span className="text-[9px] text-green-600 dark:text-green-400 font-bold">all taxes included</span>
-                            </div>
-                            <div className="size-10 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white flex items-center justify-center group-hover:bg-primary group-hover:text-white transition-colors shadow-sm">
-                              <span className="material-symbols-outlined text-[20px]">arrow_forward</span>
-                            </div>
+                        {/* Card Content Footer (Clean stats/Action) */}
+                        <div className="px-6 py-5 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/30">
+                          <div className="flex -space-x-2">
+                             {[1, 2, 3].map(i => (
+                               <div key={i} className="size-6 rounded-full border-2 border-white dark:border-[#151d29] bg-slate-200 dark:bg-slate-700 overflow-hidden">
+                                 <img src={`https://i.pravatar.cc/100?u=${pkg.id+i}`} alt="user" className="w-full h-full object-cover grayscale" />
+                               </div>
+                             ))}
+                             <div className="size-6 rounded-full border-2 border-white dark:border-[#151d29] bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-[8px] font-black text-slate-500">
+                               +12
+                             </div>
+                          </div>
+                          <div className="flex items-center gap-2 text-primary font-bold text-xs group/btn">
+                            View Details 
+                            <span className="material-symbols-outlined text-[16px] group-hover/btn:translate-x-1 transition-transform">arrow_forward</span>
                           </div>
                         </div>
                       </Link>

@@ -92,7 +92,7 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({ value, onChange, label
                             {isUploading ? 'Uploading...' : (value ? 'Change Image' : 'Select Image')}
                         </button>
                         <p className="text-[10px] text-slate-400">
-                            Supported formats: JPG, PNG, WEBP. Max size: 5MB. Will be uploaded securely to Supabase Storage.
+                            Supported formats: JPG, PNG, WEBP. Max size: 10MB. Auto-compressed & stored on server.
                         </p>
                     </div>
                 </div>

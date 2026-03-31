@@ -36,7 +36,7 @@ export const PublicLayout: React.FC = () => {
       <div className="fixed top-6 inset-x-0 z-50 flex justify-center px-4 pointer-events-none">
         <div className="pointer-events-auto w-full flex justify-center">
           <PillNav
-            logo={<span className="material-symbols-outlined text-[20px] text-primary">travel_explore</span>}
+            logo={<img src="/logo.png" alt="Shravya Tours Logo" className="h-[24px] w-auto object-contain" />}
             logoAlt="Shravya Tours"
             items={navItems}
             activeHref={location.pathname}
@@ -68,7 +68,7 @@ export const PublicLayout: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-12 mb-16">
             <div className="col-span-1 md:col-span-1">
               <Link to="/" className="flex items-center gap-2 mb-6 group">
-                <span className="material-symbols-outlined text-primary text-4xl transition-transform duration-500 group-hover:rotate-12">travel_explore</span>
+                <img src="/logo.png" alt="Shravya Tours Logo" className="h-10 w-auto object-contain transition-transform duration-500 group-hover:scale-105" />
                 <span className="text-2xl font-black text-slate-900 dark:text-white tracking-tighter">Shravya</span>
               </Link>
               <p className="text-slate-500 dark:text-slate-400 leading-relaxed mb-8 text-sm">

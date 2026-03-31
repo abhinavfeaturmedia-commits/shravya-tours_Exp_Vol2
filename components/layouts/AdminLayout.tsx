@@ -31,6 +31,7 @@ const NAV_GROUPS = [
       { name: 'Customers', path: '/admin/customers', icon: 'face', module: 'customers' },
       { name: 'Accounts', path: '/admin/accounts', icon: 'account_balance', module: 'finance' },
       { name: 'Expenses', path: '/admin/expenses', icon: 'receipt_long', module: 'finance' },
+      { name: 'Payment Approvals', path: '/admin/finance-verification', icon: 'fact_check', module: 'finance' },
       { name: 'Proposals', path: '/admin/proposals', icon: 'description', module: 'leads' },
     ]
   },
@@ -38,7 +39,7 @@ const NAV_GROUPS = [
     title: 'People & Content',
     items: [
       { name: 'Staff', path: '/admin/staff', icon: 'badge', module: 'staff' },
-
+      { name: 'Team Performance', path: '/admin/team-performance', icon: 'monitoring', module: 'staff' },
       { name: 'Packages', path: '/admin/packages', icon: 'inventory_2', module: 'inventory' },
     ]
   },
@@ -53,7 +54,7 @@ const NAV_GROUPS = [
 
 export const AdminLayout: React.FC = () => {
   const { currentUser, logout, isAuthenticated, isLoading, isMasquerading, stopMasquerading, realUser, hasPermission } = useAuth();
-  const { bookings, leads, followUps } = useData(); // Connect to real data
+  const { bookings, leads, followUps, updateFollowUp } = useData(); // Connect to real data
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
@@ -61,11 +62,13 @@ export const AdminLayout: React.FC = () => {
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [commandSearch, setCommandSearch] = useState('');
   const [notifiedIds, setNotifiedIds] = useState<Set<string>>(new Set());
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Global Notification Check for Follow-ups
+  // Global Notification Check for Follow-ups — guarded by isAuthenticated
   useEffect(() => {
+    if (!isAuthenticated) return; // Do NOT fire toasts before login
     const checkFollowUps = () => {
       const now = new Date();
       const pendingFollowUps = followUps.filter(f =>
@@ -83,22 +86,16 @@ export const AdminLayout: React.FC = () => {
             label: 'View',
             onClick: () => navigate('/admin/leads')
           },
-          duration: 10000, // Show for 10 seconds
+          duration: 10000,
         });
-
-        // Play a subtle sound if possible (optional, but good for "notification")
-        // const audio = new Audio('/notification.mp3'); audio.play().catch(() => {});
-
         setNotifiedIds(prev => new Set(prev).add(f.id));
       });
     };
 
-    // Check immediately and then every 30 seconds
     const timer = setInterval(checkFollowUps, 30000);
-    checkFollowUps(); // Initial check
-
+    checkFollowUps();
     return () => clearInterval(timer);
-  }, [followUps, notifiedIds, navigate]);
+  }, [isAuthenticated, followUps, notifiedIds, navigate]);
 
   // Route Protection: Redirect if not logged in (wait for auth to finish loading first)
   useEffect(() => {
@@ -111,6 +108,7 @@ export const AdminLayout: React.FC = () => {
   const closeSidebar = () => setIsSidebarOpen(false);
 
   const handleLogout = () => {
+    toast.dismiss(); // Clear any active toasts before leaving admin
     logout();
     navigate('/', { replace: true });
   };
@@ -251,8 +249,8 @@ export const AdminLayout: React.FC = () => {
         {/* Logo Area */}
         <div className="h-20 flex items-center justify-between px-6 shrink-0">
           <Link to="/" className="flex items-center gap-3 group">
-            <div className="size-11 rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center text-white shadow-lg shadow-indigo-500/30 transition-all duration-300 group-hover:shadow-indigo-500/50 group-hover:scale-105">
-              <span className="material-symbols-outlined text-[24px]">travel_explore</span>
+            <div className="h-12 w-auto flex items-center justify-center transition-transform hover:scale-105">
+              <img src="/logo.png" alt="Shravya Tours Logo" className="h-full object-contain drop-shadow-sm" />
             </div>
             <div className="flex flex-col">
               <span className="font-black text-xl tracking-tight leading-none text-slate-900 dark:text-white">Shravya</span>
@@ -365,7 +363,7 @@ export const AdminLayout: React.FC = () => {
             <div className="relative">
               <button onClick={handleNotifications} className="relative p-2.5 rounded-full text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors border border-transparent hover:border-slate-200 dark:hover:border-slate-700">
                 <span className="material-symbols-outlined text-[22px]">notifications</span>
-                {followUps.filter(f => f.status === 'Pending' && f.reminderEnabled && f.scheduledAt && new Date(f.scheduledAt) <= new Date()).length > 0 && (
+                {followUps.filter(f => f.status === 'Pending' && f.reminderEnabled && f.scheduledAt && new Date(f.scheduledAt) <= new Date() && !dismissedIds.has(f.id)).length > 0 && (
                   <span className="absolute top-2.5 right-2.5 size-2.5 bg-red-500 rounded-full border-2 border-white dark:border-[#151d29] animate-pulse"></span>
                 )}
               </button>
@@ -374,16 +372,34 @@ export const AdminLayout: React.FC = () => {
               {isNotificationsOpen && (
                 <>
                   <div className="fixed inset-0 z-[140]" onClick={() => setIsNotificationsOpen(false)} />
-                  <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 overflow-hidden z-[150] animate-in slide-in-from-top-2">
-                    <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-800/50">
-                      <h3 className="font-bold text-slate-900 dark:text-white">Notifications</h3>
-                      <span className="text-xs font-semibold px-2 py-1 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-lg">
-                        {followUps.filter(f => f.status === 'Pending' && f.reminderEnabled && f.scheduledAt && new Date(f.scheduledAt) <= new Date()).length} New
-                      </span>
+                  <div className="absolute right-0 mt-2 w-96 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden z-[150] animate-in slide-in-from-top-2">
+                    {/* Header */}
+                    <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20">
+                      <div className="flex items-center gap-2">
+                        <span className="material-symbols-outlined text-[18px] text-indigo-500">notifications_active</span>
+                        <h3 className="font-bold text-slate-900 dark:text-white text-sm">Notifications</h3>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {(() => {
+                          const count = followUps.filter(f => f.status === 'Pending' && f.reminderEnabled && f.scheduledAt && new Date(f.scheduledAt) <= new Date() && !dismissedIds.has(f.id)).length;
+                          return count > 0 ? (
+                            <span className="text-xs font-bold px-2 py-0.5 bg-red-500 text-white rounded-full">{count} overdue</span>
+                          ) : null;
+                        })()}
+                      </div>
                     </div>
-                    <div className="max-h-[70vh] overflow-y-auto overscroll-contain">
+
+                    {/* Notification List */}
+                    <div className="max-h-[60vh] overflow-y-auto overscroll-contain divide-y divide-slate-50 dark:divide-slate-800/50">
                       {(() => {
-                        const pendingFollowUps = followUps.filter(f => f.status === 'Pending' && f.reminderEnabled && f.scheduledAt && new Date(f.scheduledAt) <= new Date())
+                        const pendingFollowUps = followUps
+                          .filter(f =>
+                            f.status === 'Pending' &&
+                            f.reminderEnabled &&
+                            f.scheduledAt &&
+                            new Date(f.scheduledAt) <= new Date() &&
+                            !dismissedIds.has(f.id)
+                          )
                           .sort((a, b) => {
                             const priorityVal: Record<string, number> = { 'High': 3, 'Medium': 2, 'Low': 1 };
                             const pDiff = (priorityVal[b.priority || 'Medium'] as number) - (priorityVal[a.priority || 'Medium'] as number);
@@ -391,12 +407,25 @@ export const AdminLayout: React.FC = () => {
                             return new Date(a.scheduledAt!).getTime() - new Date(b.scheduledAt!).getTime();
                           });
 
+                        const getRelativeTime = (dateStr: string) => {
+                          const diff = Date.now() - new Date(dateStr).getTime();
+                          const mins = Math.floor(diff / 60000);
+                          const hrs = Math.floor(mins / 60);
+                          const days = Math.floor(hrs / 24);
+                          if (days > 0) return `${days}d overdue`;
+                          if (hrs > 0) return `${hrs}h overdue`;
+                          if (mins > 0) return `${mins}m overdue`;
+                          return 'Just now';
+                        };
+
                         if (pendingFollowUps.length === 0) {
                           return (
-                            <div className="p-8 text-center flex flex-col items-center justify-center">
-                              <span className="material-symbols-outlined text-4xl text-slate-200 dark:text-slate-700 mb-3">notifications_paused</span>
-                              <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">All caught up!</p>
-                              <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">No pending notifications</p>
+                            <div className="py-10 text-center flex flex-col items-center justify-center gap-2">
+                              <div className="size-14 rounded-2xl bg-gradient-to-br from-emerald-100 to-teal-100 dark:from-emerald-900/20 dark:to-teal-900/20 flex items-center justify-center">
+                                <span className="material-symbols-outlined text-3xl text-emerald-500">check_circle</span>
+                              </div>
+                              <p className="text-sm font-bold text-slate-700 dark:text-slate-200 mt-1">All caught up!</p>
+                              <p className="text-xs text-slate-400 dark:text-slate-500">No pending follow-ups</p>
                             </div>
                           );
                         }
@@ -404,31 +433,75 @@ export const AdminLayout: React.FC = () => {
                         return pendingFollowUps.map((f, idx) => (
                           <div
                             key={f.id}
-                            className={`p-4 border-b border-slate-50 dark:border-slate-800/50 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer ${idx === 0 ? 'bg-indigo-50/30 dark:bg-indigo-900/10' : ''}`}
-                            onClick={() => {
-                              navigate('/admin/leads');
-                              setIsNotificationsOpen(false);
-                            }}
+                            className={`p-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group ${
+                              idx === 0 ? 'bg-indigo-50/40 dark:bg-indigo-900/10' : ''
+                            }`}
                           >
                             <div className="flex gap-3">
-                              <div className="size-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shrink-0 shadow-sm">
-                                <span className="material-symbols-outlined text-[18px]">event_available</span>
+                              {/* Icon */}
+                              <div className={`size-9 rounded-xl flex items-center justify-center text-white shrink-0 shadow-sm ${
+                                f.priority === 'High'
+                                  ? 'bg-gradient-to-br from-red-500 to-rose-600'
+                                  : f.priority === 'Low'
+                                  ? 'bg-gradient-to-br from-emerald-400 to-teal-500'
+                                  : 'bg-gradient-to-br from-indigo-500 to-purple-600'
+                              }`}>
+                                <span className="material-symbols-outlined text-[16px]">alarm</span>
                               </div>
+
+                              {/* Content */}
                               <div className="flex-1 min-w-0">
-                                <p className="text-sm font-bold text-slate-900 dark:text-white truncate">
-                                  Follow-up Due: {f.leadName || 'Unknown Lead'}
-                                </p>
+                                <div className="flex items-start justify-between gap-1">
+                                  <p className="text-sm font-bold text-slate-900 dark:text-white leading-tight">
+                                    {f.leadName || 'Unknown Lead'}
+                                  </p>
+                                  {/* Dismiss X */}
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setDismissedIds(prev => new Set(prev).add(f.id));
+                                    }}
+                                    className="shrink-0 size-5 rounded-full text-slate-300 hover:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-center transition-colors opacity-0 group-hover:opacity-100"
+                                    title="Dismiss"
+                                  >
+                                    <span className="material-symbols-outlined text-[14px]">close</span>
+                                  </button>
+                                </div>
+
                                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2 leading-relaxed">
                                   {f.description || f.notes || 'No description provided.'}
                                 </p>
-                                <div className="flex items-center gap-2 mt-2">
-                                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${f.priority === 'High' ? 'bg-red-100 text-red-600' : f.priority === 'Low' ? 'bg-green-100 text-green-600' : 'bg-amber-100 text-amber-600'}`}>
-                                    {f.priority || 'Medium'}
-                                  </span>
-                                  <p className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-1 uppercase tracking-wider">
-                                    <span className="material-symbols-outlined text-[12px]">schedule</span>
-                                    {new Date(f.scheduledAt!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                  </p>
+
+                                <div className="flex items-center justify-between mt-2">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${
+                                      f.priority === 'High' ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400'
+                                      : f.priority === 'Low' ? 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400'
+                                      : 'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400'
+                                    }`}>
+                                      {f.priority || 'Med'}
+                                    </span>
+                                    <span className="text-[10px] font-semibold text-slate-400 flex items-center gap-0.5">
+                                      <span className="material-symbols-outlined text-[11px]">schedule</span>
+                                      {getRelativeTime(f.scheduledAt!)}
+                                    </span>
+                                  </div>
+
+                                  {/* Mark Done button */}
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      updateFollowUp(f.id, { 
+                                        status: 'Done', 
+                                        completedAt: new Date().toISOString() 
+                                      });
+                                    }}
+                                    className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 bg-emerald-50 dark:bg-emerald-900/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 px-2 py-1 rounded-lg transition-colors flex items-center gap-1"
+                                    title="Mark as Done"
+                                  >
+                                    <span className="material-symbols-outlined text-[12px]">check</span>
+                                    Done
+                                  </button>
                                 </div>
                               </div>
                             </div>
@@ -436,15 +509,31 @@ export const AdminLayout: React.FC = () => {
                         ));
                       })()}
                     </div>
-                    <div className="p-2 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
+
+                    {/* Footer */}
+                    <div className="p-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 flex items-center gap-2">
+                      <button
+                        onClick={() => {
+                          // Mark all visible (non-dismissed, pending) as Completed
+                          followUps
+                            .filter(f => f.status === 'Pending' && f.reminderEnabled && f.scheduledAt && new Date(f.scheduledAt) <= new Date() && !dismissedIds.has(f.id))
+                            .forEach(f => updateFollowUp(f.id, { 
+                              status: 'Done', 
+                              completedAt: new Date().toISOString() 
+                            }));
+                        }}
+                        className="flex-1 py-2 text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-xl transition-all border border-emerald-200 dark:border-emerald-800/50"
+                      >
+                        ✓ Mark All Done
+                      </button>
                       <button
                         onClick={() => {
                           navigate('/admin/leads');
                           setIsNotificationsOpen(false);
                         }}
-                        className="w-full py-2.5 text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all"
+                        className="flex-1 py-2 text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all border border-slate-200 dark:border-slate-700"
                       >
-                        View All in Leads
+                        View Leads →
                       </button>
                     </div>
                   </div>

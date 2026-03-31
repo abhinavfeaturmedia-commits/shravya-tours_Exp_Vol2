@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import { SEO } from '../components/ui/SEO';
@@ -18,6 +18,29 @@ export const Home: React.FC = () => {
   const { packages, cmsBanners, cmsTestimonials, cmsGallery } = useData();
   const [activeTab, setActiveTab] = useState('tour-packages');
   const navigate = useNavigate();
+
+  const carouselRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (carouselRef.current) {
+        const { scrollLeft, scrollWidth, clientWidth } = carouselRef.current;
+        const maxScroll = scrollWidth - clientWidth;
+        
+        // If we've reached the end
+        if (scrollLeft >= maxScroll - 10) {
+          carouselRef.current.scrollTo({ left: 0, behavior: 'smooth' });
+        } else {
+          // Find the width of a single card + gap
+          const cardWidth = carouselRef.current.children[0]?.clientWidth || 350;
+          const gap = 24; // 6 * 4px = 24px (gap-6)
+          carouselRef.current.scrollBy({ left: cardWidth + gap, behavior: 'smooth' });
+        }
+      }
+    }, 3500); // Wait 3.5 seconds before scrolling to the next
+    
+    return () => clearInterval(interval);
+  }, []);
 
   const heroBanner = cmsBanners[0]; // Active Banner
   const collections = cmsGallery; // Use CMS Gallery for collections
@@ -61,6 +84,81 @@ export const Home: React.FC = () => {
     { id: 'manali-escape', title: 'Majestic Manali', price: '₹28,000', days: '6 Days', loc: 'Himachal, India', img: 'https://lh3.googleusercontent.com/aida-public/AB6AXuCw3nTyyZIHE-X4IDz1WIxoLShlt4crH7NAqMA0V0L2ehFuGP9AGiAolK-y2VtcGXQNnGxdEkuHTXyJ44x9J5RiIg5apuiNJV-7xi5I2UV2r-KSd-dgzrATQDbBkFz4UKlFbdF5SgirAYanpbXenNDr-_uktTK_A2FTmUBwhVLQfYFh1gqRN8EoLj-9g8qrA6B21OH52wai00ETSdEUNm2LJQX1poTztcNfmmE2IMrm1oTdfTQ3Sg0DwMSXi2UM_QPDWQt27m2xr8-D' },
     { id: 'golden-triangle', title: 'Golden Triangle Tour', price: '₹45,000', days: '6 Days', loc: 'North India', img: 'https://lh3.googleusercontent.com/aida-public/AB6AXuDe8BDAUta_Sad0sbfFPp3eGFuTDne-kjCHaSbEmPIsw2A35eYa_4cmO0qQIrrAUnyuBkmJYYx5BswvQ8xoNvi-V48GV78qtY2osp3mRT5dAgVv31-tcAdYZIYq5VwnghdHN-xLMZHlH8DhevC9MvU-RUVOzTxENfRuR9CornjT44jfRzEHiuwDi6on6RQISv-Sa7xPzXf6U61FblGpi9Ou2aXfsR5_PoyNJhX-aCt1zuv1ogRgtmIOXqYjfcAQ79z48VNTNX3nLemm' },
     { id: 'ladakh-adventure', title: 'Leh Ladakh Adventure', price: '₹65,000', days: '8 Days', loc: 'Ladakh, India', img: 'https://lh3.googleusercontent.com/aida-public/AB6AXuDpQiwfKH0yIRycIB8I2oEBy84i-Io3CIha3W5YAJfjpY1Jghiz6KZm9ugQVQh2w1iYR3smMg-3cpUXS07wl7wtOG7tMr-mD3U-5wbABd_2KyTx6jhq4cZAZVjMPjbUU1yxD4LrltucSAO-ZFLoA_ccgWlKW0wsSVrrkrWiCVwGsI8quL38dPZQOPDjQJbUiojqsqXyVKEnZ2jpVDbJw0GE7jrTbRPihr9RoDuW21hmKXYHaB52a6heuHbI7htXFMkWjCPab-3djC20' },
+  ];
+
+  const actualReviews = [
+    {
+      id: "r1",
+      customerName: "Omkar Bhalerao",
+      platform: "Justdial",
+      date: "20 Sep 2024",
+      text: "I had an excellent experience with Shravya Tours & Travels. They offered good deals and their prices were reasonable. The reservations were efficient and timely, and their service was quick. Overall, it was an excellent interaction with them.",
+      rating: 5,
+    },
+    {
+      id: "r2",
+      customerName: "User",
+      platform: "Justdial",
+      date: "24 Sep 2024",
+      text: "Awesome and great experience with Shravya Tours and Travels. Well-experienced drivers with polite attitude.",
+      rating: 5,
+    },
+    {
+      id: "r3",
+      customerName: "Payal Shinde",
+      platform: "Justdial",
+      date: "21 Sep 2024",
+      text: "Shravya Tours & Travels is an excellent transportation booking service. Their clean vehicles, reasonable pricing, and adherence to standard procedures make them a top choice. With fast response times and quick service, they are a reliable option for all your travel needs.",
+      rating: 5,
+    },
+    {
+      id: "r4",
+      customerName: "Tejas",
+      platform: "Justdial",
+      date: "21 Sep 2024",
+      text: "I recently travelled with Shravya Tours and Travels and had a fantastic experience. The service was excellent, trip was very comfortable, and the rates were very reasonable. Highly recommend!!",
+      rating: 5,
+    },
+    {
+      id: "r5",
+      customerName: "Dnyaneshwar Lohar",
+      platform: "Justdial",
+      date: "28 Sep 2024",
+      text: "I had an excellent experience with Shravya Tours & Travels! The SUV provided was safe, clean, and properly sanitised. Booking was easy and the service was quick. I would highly recommend them for any travel needs.",
+      rating: 5,
+    },
+    {
+      id: "r6",
+      customerName: "CMA Dinesh Naik",
+      platform: "Google",
+      date: "",
+      text: "Professional service at value for money rate. I really recommend this tour service.",
+      rating: 5,
+    },
+    {
+      id: "r7",
+      customerName: "Sandesh Sankpal",
+      platform: "Google",
+      date: "",
+      text: "I recently travelled through Shravya Tours Sedan car to Southern region of India... The services are unbelievable, like free water bottles, tissue papers, basic medicines etc. are available in clean car. Wish you all the best for your future journey... Thanks...",
+      rating: 5,
+    },
+    {
+      id: "r8",
+      customerName: "Pratik Patil",
+      platform: "Google",
+      date: "",
+      text: "We booked an office friends' trip to Prayagraj with Shravya Tours and Travels, and it was an unforgettable experience! The team took care of every detail, from transportation to sightseeing, and ensured that we had a wonderful time. What sets them apart is their personalized attention to detail.",
+      rating: 5,
+    },
+    {
+      id: "r9",
+      customerName: "Dinesh Patil",
+      platform: "Google",
+      date: "",
+      text: "We were thinking to visit Prayagraj Kumbh Mela... The trip was really memorable. They provided Mineral water bottle from start to end of trip as a complementary with basic medicine. We never get such a comfortable journey. The car was new and clean. Highly recommended for such type of trips.",
+      rating: 4.5,
+    }
   ];
 
   return (
@@ -165,33 +263,60 @@ export const Home: React.FC = () => {
       </section>
 
       {/* Testimonials Section (New) */}
-      {cmsTestimonials.length > 0 && (
-        <section className="py-20 bg-[#F4EFE6] dark:bg-[#0D1710] grain relative">
-          <div className="container mx-auto px-4 md:px-10 relative z-10">
-            <h2 className="font-display text-4xl md:text-5xl font-bold text-center mb-12 text-slate-900 dark:text-white reveal italic">Stories from Happy Travelers</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {cmsTestimonials.map((t, idx) => (
-                <div key={t.id} className={`reveal reveal-delay-${Math.min(idx + 1, 6)} bg-white/80 dark:bg-white/5 backdrop-blur-sm p-8 rounded-[2rem] shadow-lg border border-white dark:border-white/10 relative`}>
-                  <div className="text-5xl text-primary/20 dark:text-primary/30 absolute top-5 left-6 font-display leading-none select-none">"
+      <section className="py-20 bg-[#F4EFE6] dark:bg-[#0D1710] grain relative overflow-hidden">
+        <div className="container mx-auto px-4 md:px-10 relative z-10">
+          <h2 className="font-display text-4xl md:text-5xl font-bold text-center mb-4 text-slate-900 dark:text-white reveal italic">Stories from Happy Travelers</h2>
+          <p className="text-center text-slate-500 max-w-2xl mx-auto mb-12">Don't just take our word for it—read verified reviews from our travelers on Google and Justdial.</p>
+          
+          {/* Carousel Container */}
+          <div ref={carouselRef} className="flex overflow-x-auto pb-8 gap-6 snap-x snap-mandatory [-ms-scrollbar-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden reveal">
+            {actualReviews.map((t, idx) => (
+              <div 
+                key={t.id} 
+                className="snap-center shrink-0 w-[85vw] sm:w-[350px] md:w-[400px] bg-white/90 dark:bg-white/5 backdrop-blur-sm p-8 rounded-[2rem] shadow-lg border border-white dark:border-white/10 relative flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex text-amber-500">
+                      {[...Array(Math.floor(t.rating))].map((_, i) => (
+                        <span key={i} className="material-symbols-outlined text-lg fill">star</span>
+                      ))}
+                      {t.rating % 1 !== 0 && (
+                        <span className="material-symbols-outlined text-lg fill">star_half</span>
+                      )}
+                    </div>
+                    <div className="text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-md">
+                      {t.platform}
+                    </div>
                   </div>
-                  <p className="text-slate-600 dark:text-slate-300 relative z-10 italic mb-6 leading-relaxed font-light">
-                    {t.text}
+                  <div className="text-5xl text-primary/10 dark:text-primary/20 absolute top-5 left-6 font-display leading-none select-none">"
+                  </div>
+                  <p className="text-slate-700 dark:text-slate-300 relative z-10 italic mb-6 leading-relaxed font-light line-clamp-6 text-sm md:text-base">
+                    "{t.text}"
                   </p>
-                  <div className="flex items-center gap-4">
-                    <div className="size-10 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white font-bold">
-                      {t.customerName[0]}
-                    </div>
-                    <div>
-                      <h4 className="font-semibold text-slate-900 dark:text-white leading-none">{t.customerName}</h4>
-                      <p className="text-xs text-slate-500 mt-1">{t.location}</p>
-                    </div>
+                </div>
+                <div className="flex items-center gap-4 mt-auto">
+                  <div className="size-12 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white font-bold text-lg shadow-inner">
+                    {t.customerName[0]}
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-slate-900 dark:text-white leading-none text-base">{t.customerName}</h4>
+                    {t.date && <p className="text-xs text-slate-500 mt-1">{t.date}</p>}
                   </div>
                 </div>
-              ))}
+              </div>
+            ))}
+          </div>
+          
+          {/* Carousel instruction for mobile */}
+          <div className="flex justify-center mt-4 md:hidden">
+            <div className="flex items-center gap-2 text-slate-400 text-sm animate-pulse">
+              <span className="material-symbols-outlined text-[18px]">swipe</span>
+              <span>Swipe to read more</span>
             </div>
           </div>
-        </section>
-      )}
+        </div>
+      </section>
 
       {/* Collections Section */}
       <section className="py-12 bg-background-light dark:bg-background-dark">

@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { useItinerary } from '../ItineraryContext';
 import { useData } from '../../../context/DataContext';
 import { gsap } from 'gsap';
-import { MapPin, Calendar, Users, Clock, Image as ImageIcon, ArrowRight, Globe, Plus, X } from 'lucide-react';
+import { MapPin, Calendar, Users, Image as ImageIcon, ArrowRight, Globe, Plus, X } from 'lucide-react';
 import { ImageUpload } from '../../ui/ImageUpload';
 
 export const StepTripDetails: React.FC = () => {
@@ -56,19 +56,19 @@ export const StepTripDetails: React.FC = () => {
                         </div>
 
                         {/* Destination & Date */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5 animate-item">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5 animate-item relative z-30">
                             <div className="space-y-1.5">
                                 <label className="text-[10px] md:text-xs font-bold uppercase text-slate-400 tracking-wider flex items-center gap-1.5">
                                     <MapPin size={12} /> Destination
                                 </label>
                                 <div className="relative">
                                     <select
-                                        value={tripDetails.destination}
+                                        value={tripDetails.destination || ""}
                                         onChange={(e) => updateTripDetails({ destination: e.target.value })}
-                                        className="w-full appearance-none bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 md:px-4 md:py-3 font-bold focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-xs md:text-sm"
+                                        className="w-full appearance-none bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg px-3 py-2.5 md:px-4 md:py-3 font-bold focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-xs md:text-sm"
                                     >
                                         <option value="">Select Location</option>
-                                        {masterLocations.map(loc => (
+                                        {masterLocations?.map(loc => (
                                             <option key={loc.id} value={loc.id}>{loc.name}</option>
                                         ))}
                                     </select>
@@ -83,27 +83,36 @@ export const StepTripDetails: React.FC = () => {
                                 </label>
                                 <input
                                     type="date"
-                                    value={tripDetails.startDate}
+                                    value={tripDetails.startDate || ""}
                                     onChange={(e) => updateTripDetails({ startDate: e.target.value })}
-                                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 md:px-4 md:py-3 font-bold focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-xs md:text-sm"
+                                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg px-3 py-2.5 md:px-4 md:py-3 font-bold focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-xs md:text-sm"
                                 />
                             </div>
                         </div>
 
                         <div className="grid grid-cols-2 gap-4 md:gap-5 animate-item z-20 relative">
                             <Counter
-                                label="Duration"
-                                icon={<Clock size={12} />}
-                                value={tripDetails.duration}
-                                onChange={(v) => updateTripDetails({ duration: v })}
+                                label="Nights"
+                                icon={<span style={{fontSize:12}}>🌙</span>}
+                                value={tripDetails.nights}
+                                onChange={(v) => updateTripDetails({ nights: v, days: v + 1 })}
+                                min={0}
+                            />
+                            <Counter
+                                label="Days"
+                                icon={<span style={{fontSize:12}}>☀️</span>}
+                                value={tripDetails.days}
+                                onChange={(v) => updateTripDetails({ days: Math.max(1, v), nights: Math.max(0, v - 1) })}
                                 min={1}
                             />
                             {/* Guest Selector */}
+                            <div className="col-span-2">
                             <GuestSelector
                                 adults={tripDetails.adults || 2}
                                 childrenCount={tripDetails.children || 0}
                                 onChange={(a, c) => updateTripDetails({ adults: a, children: c })}
                             />
+                            </div>
                         </div>
 
                         {/* Image URL */}
@@ -165,7 +174,7 @@ export const StepTripDetails: React.FC = () => {
                                 </h1>
                                 <p className="text-white/80 font-medium flex items-center gap-2 text-sm">
                                     <MapPin size={14} /> {tripDetails.destination
-                                        ? masterLocations.find(l => l.id === tripDetails.destination)?.name
+                                        ? masterLocations?.find(l => l.id === tripDetails.destination)?.name
                                         : "Select Destination"}
                                 </p>
                             </div>

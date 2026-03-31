@@ -95,8 +95,9 @@ export const Vendors: React.FC = () => {
                 v.contactName.toLowerCase().includes(search.toLowerCase());
 
             let matchesCategory = true;
-            if (categoryFilter === 'All') matchesCategory = true;
-            else if (['Hotel', 'Transport', 'Guide', 'Activity'].includes(categoryFilter)) matchesCategory = v.category === categoryFilter;
+            if (categoryFilter !== 'All') {
+                matchesCategory = v.category === categoryFilter;
+            }
 
             return matchesSearch && matchesCategory;
         }).sort((a, b) => {
@@ -1230,11 +1231,11 @@ export const Vendors: React.FC = () => {
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-1">
                                         <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">Vendor Name</label>
-                                        <input required placeholder="Vendor Name" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-primary" value={vendorForm.name} onChange={e => setVendorForm({ ...vendorForm, name: e.target.value })} />
+                                        <input required placeholder="Vendor Name" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-primary" value={vendorForm.name} onChange={e => setVendorForm({ ...vendorForm, name: e.target.value })} />
                                     </div>
                                     <div className="space-y-1">
                                         <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">Category</label>
-                                        <select className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-primary" value={vendorForm.category} onChange={e => setVendorForm({ ...vendorForm, category: e.target.value as any, subCategory: undefined })}>
+                                        <select className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-primary" value={vendorForm.category} onChange={e => setVendorForm({ ...vendorForm, category: e.target.value as any, subCategory: undefined })}>
                                             <option>Hotel</option><option>Transport</option><option>DMC</option><option>Guide</option><option>Activity</option>
                                         </select>
                                     </div>
@@ -1242,7 +1243,7 @@ export const Vendors: React.FC = () => {
                                 {vendorForm.category === 'Transport' && (
                                     <div className="space-y-1 animate-in fade-in slide-in-from-top-2">
                                         <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">Transport Type</label>
-                                        <select className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-primary" value={vendorForm.subCategory || ''} onChange={e => setVendorForm({ ...vendorForm, subCategory: e.target.value as any })}>
+                                        <select className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-primary" value={vendorForm.subCategory || ''} onChange={e => setVendorForm({ ...vendorForm, subCategory: e.target.value as any })}>
                                             <option value="" disabled>Select Type</option>
                                             <option>Flight</option><option>Bus</option><option>Taxi/Cab</option><option>Other</option>
                                         </select>
@@ -1250,21 +1251,21 @@ export const Vendors: React.FC = () => {
                                 )}
                                 <div className="space-y-1">
                                     <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">Location</label>
-                                    <input required placeholder="Location" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-primary" value={vendorForm.location} onChange={e => setVendorForm({ ...vendorForm, location: e.target.value })} />
+                                    <input required placeholder="Location" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-primary" value={vendorForm.location} onChange={e => setVendorForm({ ...vendorForm, location: e.target.value })} />
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-1">
                                         <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">Contact Person</label>
-                                        <input required placeholder="Contact Person" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-primary" value={vendorForm.contactName} onChange={e => setVendorForm({ ...vendorForm, contactName: e.target.value })} />
+                                        <input required placeholder="Contact Person" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-primary" value={vendorForm.contactName} onChange={e => setVendorForm({ ...vendorForm, contactName: e.target.value })} />
                                     </div>
                                     <div className="space-y-1">
                                         <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">Phone</label>
-                                        <input required placeholder="Phone" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-primary" value={vendorForm.contactPhone} onChange={e => setVendorForm({ ...vendorForm, contactPhone: e.target.value })} />
+                                        <input required placeholder="Phone" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-primary" value={vendorForm.contactPhone} onChange={e => setVendorForm({ ...vendorForm, contactPhone: e.target.value })} />
                                     </div>
                                 </div>
                                 <div className="space-y-1">
                                     <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">Work Email</label>
-                                    <input required placeholder="Email" type="email" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-primary" value={vendorForm.contactEmail} onChange={e => setVendorForm({ ...vendorForm, contactEmail: e.target.value })} />
+                                    <input required placeholder="Email" type="email" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-primary" value={vendorForm.contactEmail} onChange={e => setVendorForm({ ...vendorForm, contactEmail: e.target.value })} />
                                 </div>
                             </div>
 
@@ -1274,21 +1275,21 @@ export const Vendors: React.FC = () => {
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-1">
                                         <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">Account Holder Name</label>
-                                        <input required placeholder="e.g. Acme Hospitality Pvt Ltd" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-primary" value={vendorForm.bankDetails?.accountName} onChange={e => updateBankDetails('accountName', e.target.value)} />
+                                        <input required placeholder="e.g. Acme Hospitality Pvt Ltd" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-primary" value={vendorForm.bankDetails?.accountName} onChange={e => updateBankDetails('accountName', e.target.value)} />
                                     </div>
                                     <div className="space-y-1">
                                         <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">Account Number</label>
-                                        <input required placeholder="Enter A/C Number" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-primary font-mono" value={vendorForm.bankDetails?.accountNumber} onChange={e => updateBankDetails('accountNumber', e.target.value)} />
+                                        <input required placeholder="Enter A/C Number" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-primary font-mono" value={vendorForm.bankDetails?.accountNumber} onChange={e => updateBankDetails('accountNumber', e.target.value)} />
                                     </div>
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-1">
                                         <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">Bank Name</label>
-                                        <input required placeholder="e.g. HDFC Bank" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-primary" value={vendorForm.bankDetails?.bankName} onChange={e => updateBankDetails('bankName', e.target.value)} />
+                                        <input required placeholder="e.g. HDFC Bank" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-primary" value={vendorForm.bankDetails?.bankName} onChange={e => updateBankDetails('bankName', e.target.value)} />
                                     </div>
                                     <div className="space-y-1">
                                         <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">IFSC Code</label>
-                                        <input required placeholder="HDFC0001234" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-primary font-mono uppercase" value={vendorForm.bankDetails?.ifsc} onChange={e => updateBankDetails('ifsc', e.target.value)} />
+                                        <input required placeholder="HDFC0001234" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-primary font-mono uppercase" value={vendorForm.bankDetails?.ifsc} onChange={e => updateBankDetails('ifsc', e.target.value)} />
                                     </div>
                                 </div>
                             </div>

@@ -4,12 +4,10 @@ import { useData } from '../../../context/DataContext';
 import { ServiceSelector } from '../selectors/ServiceSelector';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { Plus, Hotel, Bike, Car, Plane, StickyNote, Trash2, Clock, IndianRupee, MapPin, MoreVertical, Sparkles, ChevronUp, ChevronDown, Image as ImageIcon } from 'lucide-react';
+import { Plus, Hotel, Bike, Car, Plane, StickyNote, Trash2, Clock, IndianRupee, MapPin, Sparkles, ChevronUp, ChevronDown, Image as ImageIcon } from 'lucide-react';
 import { generateItinerary } from '../../../src/lib/gemini';
 import { toast } from 'sonner';
 import { ImageUpload } from '../../../components/ui/ImageUpload';
-
-gsap.registerPlugin(ScrollTrigger);
 
 export const StepDayPlanner: React.FC = () => {
     const { tripDetails, getItemsForDay, setStep, removeItem, updateItem, replaceAllItems, getDayMeta, updateDayMeta } = useItinerary();
@@ -17,7 +15,10 @@ export const StepDayPlanner: React.FC = () => {
     const [isGenerating, setIsGenerating] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
 
-    const days = Array.from({ length: tripDetails.duration }, (_, i) => i + 1);
+    // Register GSAP plugin safely at runtime (not module scope, to avoid build crashes)
+    useEffect(() => { gsap.registerPlugin(ScrollTrigger); }, []);
+
+    const days = Array.from({ length: tripDetails.days }, (_, i) => i + 1);
 
     const handleNext = () => {
         setStep(3);
@@ -38,7 +39,7 @@ export const StepDayPlanner: React.FC = () => {
 
             const result = await generateItinerary(
                 tripDetails.destination,
-                tripDetails.duration,
+                tripDetails.days,
                 guestStr,
                 tripDetails.startDate
             );
@@ -90,7 +91,7 @@ export const StepDayPlanner: React.FC = () => {
             <div className="bg-white dark:bg-[#1A2633] px-4 py-3 md:px-6 md:py-3 border-b border-slate-200 dark:border-slate-800 shrink-0 flex items-center justify-between z-10 shadow-sm gap-2">
                 <div className="min-w-0">
                     <h2 className="text-sm md:text-base font-black text-slate-900 dark:text-white truncate">{tripDetails.title}</h2>
-                    <p className="text-[10px] md:text-xs font-medium text-slate-500 truncate">{tripDetails.duration} Days • {tripDetails.adults} Adults, {tripDetails.children} Kids</p>
+                    <p className="text-[10px] md:text-xs font-medium text-slate-500 truncate">{tripDetails.nights}N/{tripDetails.days}D • {tripDetails.adults} Adults, {tripDetails.children} Kids</p>
                 </div>
                 <div className="flex items-center gap-2">
                     <button

@@ -7,7 +7,7 @@ import { api } from '../../src/lib/api';
 export const StaffManagement: React.FC = () => {
     const { staff, addStaff, updateStaff, deleteStaff, currentUser, masqueradeAs } = useAuth();
     const [search, setSearch] = useState('');
-    const [selectedStaffId, setSelectedStaffId] = useState<number | null>(null);
+    const [selectedStaffId, setSelectedStaffId] = useState<number | string | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [activeTab, setActiveTab] = useState('All');
 
@@ -43,7 +43,7 @@ export const StaffManagement: React.FC = () => {
         permissions: JSON.parse(JSON.stringify(DEFAULT_PERMISSIONS))
     });
 
-    const selectedMember = staff.find(s => s.id === selectedStaffId);
+    const selectedMember = staff.find(s => String(s.id) === String(selectedStaffId));
 
     // Stats
     const activeStaff = staff.filter(s => s.status === 'Active').length;
@@ -215,7 +215,7 @@ export const StaffManagement: React.FC = () => {
 
         if (confirm('Are you sure you want to remove this staff member? This will revoke their access immediately.')) {
             deleteStaff(id);
-            if (selectedStaffId === id) setSelectedStaffId(null);
+            if (String(selectedStaffId) === String(id)) setSelectedStaffId(null);
             toast.success('Staff member removed');
         }
     };
@@ -238,7 +238,7 @@ export const StaffManagement: React.FC = () => {
     };
 
     const filteredStaff = staff.filter(s => {
-        const matchesSearch = s.name.toLowerCase().includes(search.toLowerCase()) || s.email.toLowerCase().includes(search.toLowerCase());
+        const matchesSearch = (s.name || '').toLowerCase().includes(search.toLowerCase()) || (s.email || '').toLowerCase().includes(search.toLowerCase());
         const matchesTab = activeTab === 'All' || s.department === activeTab;
         return matchesSearch && matchesTab;
     });
@@ -591,14 +591,14 @@ export const StaffManagement: React.FC = () => {
                                             <div
                                                 key={member.id}
                                                 onClick={() => setSelectedStaffId(member.id)}
-                                                className={`group flex items-center p-4 md:px-6 cursor-pointer transition-all duration-200 hover:bg-slate-50 dark:hover:bg-slate-800 ${selectedStaffId === member.id ? 'bg-indigo-50 dark:bg-indigo-900/10' : ''}`}
+                                                className={`group flex items-center p-4 md:px-6 cursor-pointer transition-all duration-200 hover:bg-slate-50 dark:hover:bg-slate-800 ${String(selectedStaffId) === String(member.id) ? 'bg-indigo-50 dark:bg-indigo-900/10' : ''}`}
                                             >
                                                 <div className="flex items-center gap-4 flex-1 md:w-1/3">
                                                     <div className={`size-10 rounded-xl flex items-center justify-center font-black text-xs bg-${member.color}-100 dark:bg-${member.color}-900/30 text-${member.color}-600 shadow-sm group-hover:scale-105 transition-transform`}>
                                                         {member.initials}
                                                     </div>
                                                     <div className="min-w-0">
-                                                        <p className={`font-bold text-sm ${selectedStaffId === member.id ? 'text-indigo-700 dark:text-indigo-400' : 'text-slate-900 dark:text-white'} truncate`}>{member.name}</p>
+                                                        <p className={`font-bold text-sm ${String(selectedStaffId) === String(member.id) ? 'text-indigo-700 dark:text-indigo-400' : 'text-slate-900 dark:text-white'} truncate`}>{member.name}</p>
                                                         <p className="text-xs text-slate-500 truncate">{member.email}</p>
                                                     </div>
                                                 </div>

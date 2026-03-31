@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { Pagination, usePagination } from '../../components/ui/Pagination';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { exportToExcel, ExportColumn } from '../../src/lib/exportUtils';
 
 export const Bookings: React.FC = () => {
     const { packages, customers } = useData();
@@ -43,6 +44,7 @@ export const Bookings: React.FC = () => {
         payment: 'Unpaid',
         packageId: '',
         guests: '2 Adults, 0 Children',
+        endDate: today,
         details: ''
     });
 
@@ -124,6 +126,7 @@ export const Bookings: React.FC = () => {
             payment: 'Unpaid',
             packageId: '',
             guests: '2 Adults',
+            endDate: today,
             details: ''
         });
         setIsModalOpen(true);
@@ -145,6 +148,7 @@ export const Bookings: React.FC = () => {
             payment: booking.payment as string,
             packageId: booking.packageId || '',
             guests: booking.guests || '2 Adults',
+            endDate: booking.endDate || booking.date,
             details: booking.details || ''
         });
         setIsModalOpen(true);
@@ -153,11 +157,21 @@ export const Bookings: React.FC = () => {
     const handlePackageChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const pkgId = e.target.value;
         const selectedPkg = packages.find(p => p.id === pkgId);
+        
+        let calculatedEndDate = formData.date;
+        if (selectedPkg && selectedPkg.days) {
+            const startDate = new Date(formData.date);
+            const endDate = new Date(startDate);
+            endDate.setDate(startDate.getDate() + (selectedPkg.days - 1));
+            calculatedEndDate = endDate.toISOString().split('T')[0];
+        }
+
         setFormData(prev => ({
             ...prev,
             packageId: pkgId,
             title: selectedPkg ? selectedPkg.title : '',
-            amount: selectedPkg ? selectedPkg.price : prev.amount
+            amount: selectedPkg ? selectedPkg.price : prev.amount,
+            endDate: calculatedEndDate
         }));
     };
 
@@ -204,6 +218,7 @@ export const Bookings: React.FC = () => {
             packageId: formData.packageId,
             title: formData.title || `${formData.type} Booking`,
             date: formData.date,
+            endDate: formData.endDate,
             amount: Number(formData.amount) || 0,
             status: formData.status,
             payment: formData.payment as any,
@@ -226,29 +241,26 @@ export const Bookings: React.FC = () => {
     };
 
     const handleExport = () => {
-        // Escape csv fields
-        const escapeCsv = (str: string | number | undefined) => {
-            if (str === undefined || str === null) return '';
-            const stringValue = String(str);
-            if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n')) {
-                return `"${stringValue.replace(/"/g, '""')}"`;
-            }
-            return stringValue;
-        };
+        const columns: ExportColumn<Booking>[] = [
+            { header: 'ID', key: 'id', width: 25 },
+            { header: 'Customer', key: 'customer', width: 30 },
+            { header: 'Email', key: 'email', width: 35 },
+            { header: 'Phone', key: 'phone', width: 20 },
+            { header: 'Type', key: 'type', width: 15 },
+            { header: 'Title', key: 'title', width: 40 },
+            { header: 'Start Date', key: 'date', width: 15 },
+            { header: 'End Date', key: 'endDate', width: 15 },
+            { header: 'Amount (INR)', key: 'amount', width: 20 },
+            { header: 'Status', key: 'status', width: 15 },
+            { header: 'Payment', key: 'payment', width: 15 }
+        ];
 
-        const csvHeader = "ID,Customer,Email,Type,Title,Date,Amount,Status,Payment\n";
-        const csvRows = filteredBookings.map(b =>
-            `${escapeCsv(b.id)},${escapeCsv(b.customer)},${escapeCsv(b.email)},${escapeCsv(b.type)},${escapeCsv(b.title)},${escapeCsv(b.date)},${escapeCsv(b.amount)},${escapeCsv(b.status)},${escapeCsv(b.payment)}`
-        ).join("\n");
-
-        const csvContent = "data:text/csv;charset=utf-8," + encodeURIComponent(csvHeader + csvRows);
-
-        const link = document.createElement("a");
-        link.setAttribute("href", csvContent);
-        link.setAttribute("download", `bookings_export_${new Date().toISOString().split('T')[0]}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        exportToExcel(filteredBookings, columns, {
+            filename: `Bookings_Export_${today}`,
+            sheetName: 'Bookings',
+            title: 'Shravya Tours - Bookings Report',
+            subtitle: `Generated on: ${new Date().toLocaleDateString('en-IN')}`
+        });
     };
 
     // --- Actions Logic ---
@@ -410,7 +422,11 @@ export const Bookings: React.FC = () => {
     // --- Filters ---
 
     const filteredBookings = bookings.filter(b => {
-        const matchesTab = activeTab === 'All' || b.status === activeTab;
+        const isOngoing = b.status === BookingStatus.CONFIRMED && today >= b.date && today <= (b.endDate || b.date);
+        
+        const matchesTab = activeTab === 'All' || 
+                         (activeTab === 'Ongoing' ? isOngoing : b.status === activeTab);
+                         
         const matchesSearch = b.customer.toLowerCase().includes(search.toLowerCase()) ||
             b.id.toLowerCase().includes(search.toLowerCase()) ||
             b.title.toLowerCase().includes(search.toLowerCase());
@@ -542,8 +558,26 @@ export const Bookings: React.FC = () => {
                                         )}
                                     </div>
                                     <div className="space-y-1">
-                                        <label className="text-xs font-bold text-slate-500">Travel Date</label>
-                                        <input type="date" min={today} value={formData.date} onChange={e => setFormData({ ...formData, date: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                                        <label className="text-xs font-bold text-slate-500">Start Date</label>
+                                        <input type="date" min={today} value={formData.date} onChange={e => {
+                                            const newStartDate = e.target.value;
+                                            // Try to keep the duration same if existing end date
+                                            setFormData(prev => {
+                                                const updates: any = { ...prev, date: newStartDate };
+                                                if (prev.endDate && prev.date) {
+                                                    const start = new Date(prev.date);
+                                                    const end = new Date(prev.endDate);
+                                                    const duration = end.getTime() - start.getTime();
+                                                    const newEnd = new Date(new Date(newStartDate).getTime() + duration);
+                                                    updates.endDate = newEnd.toISOString().split('T')[0];
+                                                }
+                                                return updates;
+                                            });
+                                        }} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-bold text-slate-500">End Date</label>
+                                        <input type="date" min={formData.date} value={formData.endDate} onChange={e => setFormData({ ...formData, endDate: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
                                     </div>
                                     <div className="space-y-1">
                                         <label className="text-xs font-bold text-slate-500">Total Amount (₹)</label>
@@ -616,7 +650,7 @@ export const Bookings: React.FC = () => {
                     </div>
                     <div className="flex items-center gap-3">
                         <button onClick={handleExport} className="hidden sm:flex items-center gap-2 px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-bold hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors dark:text-white">
-                            <span className="material-symbols-outlined text-[18px]">download</span> Export CSV
+                            <span className="material-symbols-outlined text-[18px]">download</span> Export Excel
                         </button>
                         {hasPermission('bookings', 'manage') && (
                             <button onClick={openCreateModal} className="flex items-center gap-2 px-5 py-2.5 bg-primary text-white rounded-xl text-sm font-bold shadow-lg shadow-primary/20 hover:bg-primary-dark transition-all active:scale-95 btn-glow">
@@ -629,7 +663,7 @@ export const Bookings: React.FC = () => {
                 {/* Toolbar */}
                 <div className="mt-6 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
                     <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl w-full sm:w-auto overflow-x-auto">
-                        {['All', BookingStatus.PENDING, BookingStatus.CONFIRMED, BookingStatus.COMPLETED, BookingStatus.CANCELLED].map((tab) => (
+                        {['All', 'Ongoing', BookingStatus.PENDING, BookingStatus.CONFIRMED, BookingStatus.COMPLETED, BookingStatus.CANCELLED].map((tab) => (
                             <button
                                 key={tab}
                                 onClick={() => setActiveTab(tab)}
@@ -721,7 +755,12 @@ export const Bookings: React.FC = () => {
                                                         <p className="text-xs text-slate-500">{booking.guests}</p>
                                                     </td>
                                                     <td className="px-6 py-4">
-                                                        <span className="text-sm font-medium text-slate-600 dark:text-slate-400 whitespace-nowrap">{booking.date}</span>
+                                                        <div className="flex flex-col">
+                                                            <span className="text-sm font-bold text-slate-600 dark:text-slate-400 whitespace-nowrap">{booking.date}</span>
+                                                            {booking.endDate && booking.endDate !== booking.date && (
+                                                                <span className="text-[10px] text-slate-400 font-medium">to {booking.endDate}</span>
+                                                            )}
+                                                        </div>
                                                     </td>
                                                     <td className="px-6 py-4">
                                                         <div className="flex flex-col gap-1">

@@ -45,7 +45,8 @@ export const calculateSellPrice = (netCost: number, baseMarkupPercent: number, e
 interface TripDetails {
     title: string;
     startDate: string;
-    duration: number;
+    days: number;
+    nights: number;
     destination: string;
     coverImage: string;
     adults: number;
@@ -80,6 +81,7 @@ interface ItineraryContextType {
     taxConfig: TaxConfig;
     packageMarkupPercent: number;
     packageMarkupFlat: number;
+    dayMeta: Record<number, DayMeta>;
 
     // Computed
     subtotal: number;
@@ -139,7 +141,8 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
     const [tripDetails, setTripDetails] = useState<TripDetails>({
         title: '',
         startDate: new Date().toISOString().split('T')[0],
-        duration: 3,
+        days: 4,
+        nights: 3,
         destination: '',
         coverImage: 'https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?q=80&w=2070&auto=format&fit=crop',
         adults: 2,
@@ -301,7 +304,8 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
         if (pkg.builderData) {
             // Restore exact state if available
             setTripDetails(pkg.builderData.tripDetails);
-            setItems(pkg.builderData.items);
+            setItems(pkg.builderData.items || []);
+            setDayMeta(pkg.builderData.dayMeta || {});
             setCurrency(pkg.builderData.currency);
             setTaxConfig(pkg.builderData.taxConfig);
             setPackageMarkupPercent(pkg.builderData.packageMarkupPercent);
@@ -314,7 +318,8 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
             setTripDetails({
                 title: pkg.title,
                 startDate: new Date().toISOString().split('T')[0],
-                duration: pkg.days,
+                days: pkg.days,
+                nights: Math.max(0, pkg.days - 1),
                 destination: pkg.location,
                 coverImage: pkg.image || 'https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?q=80&w=2070&auto=format&fit=crop',
                 adults: guests,
@@ -377,11 +382,12 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
         setPackageMarkup,
         loadPackage,
         formatCurrency,
-        convertCurrency
+        convertCurrency,
+        dayMeta
     }), [step, tripDetails, items, currency, taxConfig, packageMarkupPercent, packageMarkupFlat,
         subtotal, packageMarkupAmount, taxAmount, grandTotal, editPackageId,
         updateTripDetails, addItem, updateItem, removeItem, replaceAllItems, reorderItems,
-        getItemsForDay, updateTaxConfig, setPackageMarkup, loadPackage, formatCurrency, convertCurrency]);
+        getItemsForDay, updateTaxConfig, setPackageMarkup, loadPackage, formatCurrency, convertCurrency, dayMeta]);
 
     return (
         <ItineraryContext.Provider value={value}>

@@ -70,10 +70,10 @@ export const LedgerManagementModal: React.FC<LedgerManagementModalProps> = ({ is
     return (
         <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
             <div className="bg-white dark:bg-[#1A2633] w-full max-w-4xl rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 h-[80vh]">
-                <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-800/50">
-                    <div>
+                <div className="p-4 sm:p-6 border-b border-slate-100 dark:border-slate-700 flex justify-between items-start gap-3 bg-slate-50 dark:bg-slate-800/50">
+                    <div className="min-w-0 flex-1">
                         <h2 className="text-xl font-bold text-slate-900 dark:text-white">Billing Ledger</h2>
-                        <p className="text-xs text-slate-500 font-bold uppercase mt-1">Client: {booking.customer} | Booking: {booking.id}</p>
+                        <p className="text-xs text-slate-500 font-bold uppercase mt-1 break-all">Client: {booking.customer} | Booking: {booking.id}</p>
                     </div>
                     <div className="flex gap-3">
                         {hasPermission('finance', 'manage') && (
@@ -92,7 +92,7 @@ export const LedgerManagementModal: React.FC<LedgerManagementModalProps> = ({ is
 
                 <div className="flex-1 overflow-y-auto p-6 scrollbar-thin">
                     {/* Summary Cards */}
-                    <div className="grid grid-cols-4 gap-4 mb-8">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
                         <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700">
                             <p className="text-xs font-bold text-slate-500 uppercase">Booking Value</p>
                             <p className="text-2xl font-black text-slate-900 dark:text-white mt-1">₹{booking.amount.toLocaleString()}</p>
@@ -155,7 +155,8 @@ export const LedgerManagementModal: React.FC<LedgerManagementModalProps> = ({ is
 
                     {/* Transactions Table */}
                     <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden shadow-sm">
-                        <table className="w-full text-left text-sm">
+                        <div className="overflow-x-auto">
+                        <table className="w-full text-left text-sm min-w-[600px]">
                             <thead className="bg-slate-50 dark:bg-slate-800/50 text-xs uppercase text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700">
                                 <tr>
                                     <th className="px-5 py-4">Date</th>
@@ -206,6 +207,7 @@ export const LedgerManagementModal: React.FC<LedgerManagementModalProps> = ({ is
                                 )}
                             </tbody>
                         </table>
+                        </div>
                     </div>
                 </div>
             </div>

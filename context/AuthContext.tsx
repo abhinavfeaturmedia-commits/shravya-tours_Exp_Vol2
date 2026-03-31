@@ -170,6 +170,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                         // Admin bypass user — use mock admin directly, no DB needed
                         if (payload.id === 999) {
                             setCurrentUser(MOCK_ADMIN_USER);
+                            // Also load staff list so Staff Management page works
+                            api.getStaff().then(setStaff).catch(console.warn);
                         } else {
                             try {
                                 await loadUserProfile(payload.email);
@@ -254,6 +256,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             // If admin bypass user (id 999), use mock admin directly — no DB needed
             if (data.user?.id === 999) {
                 setCurrentUser(MOCK_ADMIN_USER);
+                // Also load staff list so Staff Management page works
+                api.getStaff().then(setStaff).catch(console.warn);
             } else {
                 // Load user profile from DB, fallback gracefully on error
                 try {
