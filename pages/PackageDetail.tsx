@@ -171,12 +171,12 @@ export const PackageDetail: React.FC = () => {
   };
 
   const calculateTotal = () => {
-    const baseTotal = tour.price * getGuestMultiplier();
+    // tour.price is the total package price as set in admin — use it directly
     const addonsTotal = selectedAddons.reduce((acc, curr) => {
       const addon = addonsList.find(a => a.id === curr);
       return acc + (addon ? addon.price : 0);
     }, 0);
-    return Math.round(baseTotal + addonsTotal);
+    return Math.round(tour.price + addonsTotal);
   };
 
   const confirmBooking = (e: React.FormEvent) => {
@@ -646,10 +646,10 @@ export const PackageDetail: React.FC = () => {
               <div className="sticky top-32 space-y-6 animate-in fade-in slide-in-from-right-8 duration-700">
                 <div className="bg-white dark:bg-[#151d29] rounded-[2.5rem] shadow-2xl shadow-slate-200/50 dark:shadow-none border border-slate-100 dark:border-slate-800 overflow-hidden ring-1 ring-slate-900/5">
                   <div className="p-8 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/20">
-                    <p className="text-xs font-black uppercase tracking-widest text-slate-400 mb-1">Starting From</p>
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-400 mb-1">Package Price</p>
                     <div className="flex items-baseline gap-1 mb-2">
                       <span className="text-4xl font-black text-slate-900 dark:text-white tracking-tight">₹{calculateTotal().toLocaleString()}</span>
-                      <span className="text-sm font-bold text-slate-500">/ person</span>
+                      <span className="text-sm font-bold text-slate-500">/ total</span>
                     </div>
 
                     {/* Limited Seats Warning */}
@@ -734,7 +734,7 @@ export const PackageDetail: React.FC = () => {
         <div className="fixed bottom-0 left-0 right-0 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-t border-slate-200 dark:border-slate-800 p-4 z-40 lg:hidden shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.1)] pb-safe-area-bottom">
           <div className="flex items-center justify-between max-w-lg mx-auto">
             <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Total Price</p>
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Package Price</p>
               <p className="text-2xl font-black text-slate-900 dark:text-white">₹{calculateTotal().toLocaleString()}</p>
             </div>
             <button
