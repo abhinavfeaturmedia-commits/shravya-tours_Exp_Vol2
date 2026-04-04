@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useData } from '../../context/DataContext';
 import { useLeads } from '../../src/hooks/useLeads';
+import { useBookings } from '../../src/hooks/useBookings';
 import { useAuth } from '../../context/AuthContext';
 import { Lead, BookingStatus, FollowUpType, Customer } from '../../types'; // Removed unused imports
 import { toast } from 'sonner'; // Use sonner for consistency if available, or keep existing toast
@@ -35,8 +36,9 @@ const StatusBadge = ({ status }: { status: string }) => {
 };
 
 export const Leads: React.FC = () => {
-    const { addFollowUp, addBooking, followUps, customers, addCustomer } = useData();
+    const { addFollowUp, followUps, customers, addCustomer } = useData();
     const { leads, addLead, updateLead, deleteLead, addLeadLog, isLoading } = useLeads();
+    const { addBooking } = useBookings();
     const { currentUser, staff } = useAuth();
     const navigate = useNavigate();
 
@@ -182,7 +184,7 @@ export const Leads: React.FC = () => {
         }
     };
 
-    const handleConvertToBooking = () => {
+    const handleConvertToBooking = async () => {
         if (!selectedLead) return;
 
         // Validation: require budget and start date
@@ -226,7 +228,8 @@ export const Leads: React.FC = () => {
                 targetCustomerId = newCustomerId;
             }
 
-            addBooking({
+        try {
+            await addBooking({
                 id: `BK-${Date.now()}`,
                 type: 'Tour',
                 customer: selectedLead.name,
@@ -235,12 +238,15 @@ export const Leads: React.FC = () => {
                 phone: selectedLead.phone,
                 title: `Trip to ${selectedLead.destination}`,
                 date: selectedLead.startDate || new Date().toISOString().split('T')[0],
+                endDate: selectedLead.endDate || undefined,
                 amount: selectedLead.potentialValue || 0,
-                status: BookingStatus.CONFIRMED,
+                status: BookingStatus.PENDING,
                 payment: 'Unpaid',
-                guests: selectedLead.travelers
+                guests: selectedLead.travelers,
+                details: `Converted from Lead. Destination: ${selectedLead.destination}. Budget: ₹${selectedLead.potentialValue?.toLocaleString()}.`
             });
 
+            // Only mark lead as converted AFTER booking is saved successfully
             updateLead(selectedLead.id, { status: 'Converted' });
             addLeadLog(selectedLead.id, {
                 id: `lg-conv-${Date.now()}`,
@@ -248,7 +254,10 @@ export const Leads: React.FC = () => {
                 content: `Lead converted to Booking. Customer profile ${existingCustomer ? 'linked' : 'created'}.`,
                 timestamp: new Date().toISOString()
             });
-            toast.success('Lead converted to Booking!');
+            toast.success('Lead converted to Booking! Now visible in Pending bookings.');
+        } catch (err: any) {
+            toast.error(err.message || 'Failed to convert lead to booking.');
+        }
     };
 
     const openAddModal = () => {
