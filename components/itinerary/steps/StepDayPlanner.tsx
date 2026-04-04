@@ -337,12 +337,42 @@ const ServiceCard: React.FC<{ item: ItineraryItem; onRemove: () => void; onUpdat
                         </div>
                     )}
 
-                    {/* Description */}
-                    <input
+                    {/* Description — multiline with auto-grow */}
+                    <textarea
                         value={item.description || ''}
-                        onChange={e => onUpdate(item.id, { description: e.target.value })}
-                        placeholder="Add notes or description..."
-                        className="w-full text-xs md:text-sm font-medium text-slate-400 bg-transparent border-none p-0 focus:ring-0 placeholder:text-slate-300"
+                        onChange={e => {
+                            onUpdate(item.id, { description: e.target.value });
+                            // Auto-grow
+                            e.target.style.height = 'auto';
+                            e.target.style.height = `${e.target.scrollHeight}px`;
+                        }}
+                        onKeyDown={e => {
+                            // On Enter, if the current line starts with • add a bullet on the new line
+                            if (e.key === 'Enter') {
+                                const el = e.currentTarget;
+                                const cursorPos = el.selectionStart;
+                                const textBefore = el.value.substring(0, cursorPos);
+                                const currentLineStart = textBefore.lastIndexOf('\n') + 1;
+                                const currentLine = textBefore.substring(currentLineStart);
+                                if (currentLine.startsWith('• ')) {
+                                    e.preventDefault();
+                                    const newValue = el.value.substring(0, cursorPos) + '\n• ' + el.value.substring(cursorPos);
+                                    onUpdate(item.id, { description: newValue });
+                                    requestAnimationFrame(() => {
+                                        el.selectionStart = el.selectionEnd = cursorPos + 3;
+                                        el.style.height = 'auto';
+                                        el.style.height = `${el.scrollHeight}px`;
+                                    });
+                                }
+                            }
+                        }}
+                        onFocus={e => {
+                            e.target.style.height = 'auto';
+                            e.target.style.height = `${e.target.scrollHeight}px`;
+                        }}
+                        placeholder="Add notes or description... (Press Enter for new line, type • for bullet points)"
+                        rows={1}
+                        className="w-full text-xs md:text-sm font-medium text-slate-500 dark:text-slate-400 bg-transparent border-none p-0 focus:ring-0 placeholder:text-slate-300 resize-none overflow-hidden leading-relaxed"
                     />
                 </div>
 
