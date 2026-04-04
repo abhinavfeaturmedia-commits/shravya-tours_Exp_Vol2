@@ -463,7 +463,9 @@ export const api = {
             serviceType: row.service_type,
             paxAdult: row.pax_adult,
             paxChild: row.pax_child,
-            paxInfant: row.pax_infant
+            paxInfant: row.pax_infant,
+            residentialAddress: row.residential_address,
+            officeAddress: row.office_address
         }));
     },
 
@@ -492,7 +494,9 @@ export const api = {
             service_type: lead.serviceType,
             pax_adult: lead.paxAdult,
             pax_child: lead.paxChild,
-            pax_infant: lead.paxInfant
+            pax_infant: lead.paxInfant,
+            residential_address: lead.residentialAddress,
+            office_address: lead.officeAddress
         });
     },
 
@@ -520,6 +524,8 @@ export const api = {
         if (updates.paxAdult !== undefined) dbUpdates.pax_adult = updates.paxAdult;
         if (updates.paxChild !== undefined) dbUpdates.pax_child = updates.paxChild;
         if (updates.paxInfant !== undefined) dbUpdates.pax_infant = updates.paxInfant;
+        if (updates.residentialAddress !== undefined) dbUpdates.residential_address = updates.residentialAddress;
+        if (updates.officeAddress !== undefined) dbUpdates.office_address = updates.officeAddress;
         await crud.update('leads', id, dbUpdates);
     },
 
@@ -1292,6 +1298,8 @@ export const api = {
             ...r,
             leadId: r.lead_id,
             leadName: r.lead_name || 'Unknown',
+            description: r.notes,
+            notes: r.notes,
             scheduledAt: r.scheduled_at,
             reminderEnabled: r.reminder_enabled,
             assignedTo: r.assigned_to,

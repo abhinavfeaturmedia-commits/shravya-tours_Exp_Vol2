@@ -26,6 +26,7 @@ export const Bookings: React.FC = () => {
     const [isEditMode, setIsEditMode] = useState(false);
     const [selectedBookingForSuppliers, setSelectedBookingForSuppliers] = useState<Booking | null>(null);
     const [bookingForLedger, setBookingForLedger] = useState<Booking | null>(null);
+    const [viewingBooking, setViewingBooking] = useState<Booking | null>(null);
 
     const today = new Date().toISOString().split('T')[0];
 
@@ -467,6 +468,213 @@ export const Bookings: React.FC = () => {
     return (
         <div className="flex flex-col h-full admin-page-bg relative">
 
+            {/* Booking Detail View Modal */}
+            {viewingBooking && (() => {
+                const startD = viewingBooking.date ? new Date(viewingBooking.date) : null;
+                const endD = viewingBooking.endDate ? new Date(viewingBooking.endDate) : startD;
+                const durationDays = startD && endD ? Math.max(1, Math.round((endD.getTime() - startD.getTime()) / 86400000) + 1) : null;
+                const amountPaid = viewingBooking.payment === 'Paid' ? viewingBooking.amount : viewingBooking.payment === 'Deposit' ? Math.round(viewingBooking.amount * 0.3) : 0;
+                const balanceDue = viewingBooking.amount - amountPaid;
+                const linkedPkg = packages.find(p => p.id === viewingBooking.packageId);
+                return (
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in" onClick={() => setViewingBooking(null)}>
+                    <div className="bg-white dark:bg-[#1A2633] w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 max-h-[92vh]" onClick={e => e.stopPropagation()}>
+
+                        {/* ── Header ── */}
+                        <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-start bg-gradient-to-r from-slate-50 to-white dark:from-slate-800/60 dark:to-[#1A2633]">
+                            <div className="flex items-start gap-3">
+                                <div className="size-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
+                                    <span className="material-symbols-outlined text-primary text-[22px]">confirmation_number</span>
+                                </div>
+                                <div>
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <p className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-widest">{viewingBooking.id}</p>
+                                        {viewingBooking.invoiceNo && (
+                                            <span className="text-[10px] font-mono bg-slate-100 dark:bg-slate-700 text-slate-500 px-1.5 py-0.5 rounded">INV# {viewingBooking.invoiceNo}</span>
+                                        )}
+                                    </div>
+                                    <h2 className="text-lg font-bold text-slate-900 dark:text-white leading-snug mt-0.5">{viewingBooking.title || 'Booking Details'}</h2>
+                                    {linkedPkg && (
+                                        <p className="text-xs text-primary font-semibold mt-0.5 flex items-center gap-1">
+                                            <span className="material-symbols-outlined text-[13px]">book_online</span>
+                                            {linkedPkg.title}
+                                        </p>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                                <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${getStatusColor(viewingBooking.status)}`}>
+                                    <span className="size-1.5 rounded-full bg-current"></span>
+                                    {viewingBooking.status}
+                                </span>
+                                <button onClick={() => setViewingBooking(null)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+                                    <span className="material-symbols-outlined">close</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* ── Quick Stats Bar ── */}
+                        <div className="grid grid-cols-4 divide-x divide-slate-100 dark:divide-slate-700 border-b border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/20">
+                            <div className="px-4 py-3 text-center">
+                                <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">Type</p>
+                                <div className="flex items-center justify-center gap-1">
+                                    <span className="material-symbols-outlined text-[14px] text-primary">{viewingBooking.type === 'Car' ? 'directions_car' : viewingBooking.type === 'Bus' ? 'directions_bus' : viewingBooking.type === 'Hotel' ? 'hotel' : 'travel_explore'}</span>
+                                    <p className="text-sm font-bold text-slate-700 dark:text-slate-300">{viewingBooking.type}</p>
+                                </div>
+                            </div>
+                            <div className="px-4 py-3 text-center">
+                                <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">Guests</p>
+                                <p className="text-sm font-bold text-slate-700 dark:text-slate-300">{viewingBooking.guests || '—'}</p>
+                            </div>
+                            <div className="px-4 py-3 text-center">
+                                <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">Duration</p>
+                                <p className="text-sm font-bold text-slate-700 dark:text-slate-300">{durationDays ? `${durationDays}N` : '—'}</p>
+                            </div>
+                            <div className="px-4 py-3 text-center">
+                                <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">Amount</p>
+                                <p className="text-sm font-bold text-slate-700 dark:text-slate-300">₹{Number(viewingBooking.amount).toLocaleString()}</p>
+                            </div>
+                        </div>
+
+                        {/* ── Scrollable Body ── */}
+                        <div className="p-6 overflow-y-auto space-y-5">
+
+                            {/* Customer Info */}
+                            <div>
+                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">Customer Information</p>
+                                <div className="flex items-center gap-4 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700">
+                                    <div className="size-12 rounded-full bg-primary/10 flex items-center justify-center font-black text-primary text-lg shrink-0">
+                                        {viewingBooking.customer?.charAt(0)?.toUpperCase()}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-base font-bold text-slate-900 dark:text-white">{viewingBooking.customer}</p>
+                                        <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1">
+                                            <a href={`mailto:${viewingBooking.email}`} className="text-xs text-primary hover:underline flex items-center gap-1">
+                                                <span className="material-symbols-outlined text-[13px]">mail</span>{viewingBooking.email}
+                                            </a>
+                                            {viewingBooking.phone && (
+                                                <a href={`tel:${viewingBooking.phone}`} className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 flex items-center gap-1">
+                                                    <span className="material-symbols-outlined text-[13px]">call</span>{viewingBooking.phone}
+                                                </a>
+                                            )}
+                                        </div>
+                                    </div>
+                                    {viewingBooking.customerId && (
+                                        <span className="text-[10px] font-bold bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400 px-2 py-1 rounded-lg shrink-0">Linked Customer</span>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Trip Dates */}
+                            <div>
+                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">Trip Dates</p>
+                                <div className="grid grid-cols-3 gap-3">
+                                    <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700">
+                                        <p className="text-[10px] text-slate-400 font-bold uppercase mb-1 flex items-center gap-1"><span className="material-symbols-outlined text-[12px]">flight_takeoff</span>Start Date</p>
+                                        <p className="text-sm font-bold text-slate-800 dark:text-slate-200">{viewingBooking.date}</p>
+                                    </div>
+                                    <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700">
+                                        <p className="text-[10px] text-slate-400 font-bold uppercase mb-1 flex items-center gap-1"><span className="material-symbols-outlined text-[12px]">flight_land</span>End Date</p>
+                                        <p className="text-sm font-bold text-slate-800 dark:text-slate-200">{viewingBooking.endDate || viewingBooking.date}</p>
+                                    </div>
+                                    <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700">
+                                        <p className="text-[10px] text-slate-400 font-bold uppercase mb-1 flex items-center gap-1"><span className="material-symbols-outlined text-[12px]">schedule</span>Duration</p>
+                                        <p className="text-sm font-bold text-slate-800 dark:text-slate-200">{durationDays ? `${durationDays} Night${durationDays > 1 ? 's' : ''}` : '—'}</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Financial Breakdown */}
+                            <div>
+                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">Financial Breakdown</p>
+                                <div className="rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+                                    <div className="flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-slate-800/50">
+                                        <p className="text-sm text-slate-600 dark:text-slate-300 font-medium">Total Package Amount</p>
+                                        <p className="text-sm font-bold text-slate-800 dark:text-white">₹{Number(viewingBooking.amount).toLocaleString()}</p>
+                                    </div>
+                                    <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 dark:border-slate-700">
+                                        <p className="text-sm text-slate-600 dark:text-slate-300 font-medium">Amount Received</p>
+                                        <p className="text-sm font-bold text-green-600">₹{amountPaid.toLocaleString()}</p>
+                                    </div>
+                                    <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 dark:border-slate-700 bg-slate-900 dark:bg-slate-950">
+                                        <div className="flex items-center gap-2">
+                                            <p className="text-sm text-white font-bold">Balance Due</p>
+                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${viewingBooking.payment === 'Paid' ? 'bg-green-500/20 text-green-400' : viewingBooking.payment === 'Deposit' ? 'bg-yellow-500/20 text-yellow-400' : viewingBooking.payment === 'Refunded' ? 'bg-purple-500/20 text-purple-300' : 'bg-red-500/20 text-red-400'}`}>{viewingBooking.payment}</span>
+                                        </div>
+                                        <p className={`text-sm font-black ${balanceDue <= 0 ? 'text-green-400' : 'text-red-400'}`}>₹{Math.abs(balanceDue).toLocaleString()}</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Supplier & Transaction Summary */}
+                            {((viewingBooking.supplierBookings && viewingBooking.supplierBookings.length > 0) || (viewingBooking.transactions && viewingBooking.transactions.length > 0)) && (
+                                <div className="grid grid-cols-2 gap-3">
+                                    {viewingBooking.supplierBookings && viewingBooking.supplierBookings.length > 0 && (
+                                        <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700">
+                                            <p className="text-[10px] text-slate-400 font-bold uppercase mb-1 flex items-center gap-1"><span className="material-symbols-outlined text-[12px]">inventory</span>Supplier Bookings</p>
+                                            <p className="text-lg font-black text-slate-800 dark:text-white">{viewingBooking.supplierBookings.length}</p>
+                                            <p className="text-[10px] text-slate-400 mt-0.5">Linked services</p>
+                                        </div>
+                                    )}
+                                    {viewingBooking.transactions && viewingBooking.transactions.length > 0 && (
+                                        <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700">
+                                            <p className="text-[10px] text-slate-400 font-bold uppercase mb-1 flex items-center gap-1"><span className="material-symbols-outlined text-[12px]">receipt</span>Transactions</p>
+                                            <p className="text-lg font-black text-slate-800 dark:text-white">{viewingBooking.transactions.length}</p>
+                                            <p className="text-[10px] text-slate-400 mt-0.5">Payment records</p>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Internal Notes — always shown */}
+                            <div>
+                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2 flex items-center gap-1.5">
+                                    <span className="material-symbols-outlined text-[14px]">sticky_note_2</span>
+                                    Internal Notes
+                                </p>
+                                {viewingBooking.details ? (
+                                    <div className="text-sm text-slate-700 dark:text-slate-300 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/40 rounded-xl p-4 leading-relaxed whitespace-pre-wrap">
+                                        {viewingBooking.details}
+                                    </div>
+                                ) : (
+                                    <div className="text-sm text-slate-400 italic bg-slate-50 dark:bg-slate-800/40 border border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-4 text-center">
+                                        No notes added for this booking.
+                                    </div>
+                                )}
+                            </div>
+
+                        </div>
+
+                        {/* ── Footer Actions ── */}
+                        <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 flex justify-between items-center gap-3">
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => { handleGenerateInvoice(viewingBooking); }}
+                                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-bold text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 transition-colors"
+                                >
+                                    <span className="material-symbols-outlined text-[17px]">receipt_long</span> Invoice
+                                </button>
+                                <button
+                                    onClick={() => { setViewingBooking(null); setBookingForLedger(viewingBooking); }}
+                                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-bold text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 transition-colors"
+                                >
+                                    <span className="material-symbols-outlined text-[17px]">account_balance_wallet</span> Ledger
+                                </button>
+                            </div>
+                            {hasPermission('bookings', 'manage') && (
+                                <button
+                                    onClick={() => { setViewingBooking(null); openEditModal(viewingBooking); }}
+                                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-white text-sm font-bold shadow-lg shadow-primary/20 hover:bg-primary-dark transition-colors"
+                                >
+                                    <span className="material-symbols-outlined text-[18px]">edit</span> Edit Booking
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+                );
+            })()}
+
             {/* Create/Edit Modal */}
             {isModalOpen && (
                 <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
@@ -480,19 +688,6 @@ export const Bookings: React.FC = () => {
                             <div>
                                 <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-3">Customer Information</h3>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div className="space-y-1 md:col-span-2">
-                                        <label className="text-xs font-bold text-slate-500">Select Customer (Optional)</label>
-                                        <select
-                                            value={formData.customerId}
-                                            onChange={handleCustomerSelect}
-                                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none"
-                                        >
-                                            <option value="">-- New / Manual Entry --</option>
-                                            {customers.map(c => (
-                                                <option key={c.id} value={c.id}>{c.name} ({c.email})</option>
-                                            ))}
-                                        </select>
-                                    </div>
                                     <div className="space-y-1">
                                         <label className="text-xs font-bold text-slate-500">Full Name</label>
                                         <input required value={formData.customer} onChange={e => setFormData({ ...formData, customer: e.target.value })} type="text" className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
@@ -726,10 +921,10 @@ export const Bookings: React.FC = () => {
                                             <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-right">Actions</th>
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-700 cursor-pointer">
                                         {paginatedBookings.length > 0 ? (
                                             paginatedBookings.map((booking) => (
-                                                <tr key={booking.id} className="group hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                                                <tr key={booking.id} onClick={() => setViewingBooking(booking)} className="group hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer">
                                                     <td className="px-6 py-4">
                                                         <div className="flex flex-col">
                                                             <span className="text-xs font-bold font-mono text-primary">{booking.id}</span>
@@ -776,7 +971,7 @@ export const Bookings: React.FC = () => {
                                                             {booking.status}
                                                         </span>
                                                     </td>
-                                                    <td className="px-6 py-4 text-right">
+                                                    <td className="px-6 py-4 text-right" onClick={e => e.stopPropagation()}>
                                                         <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                                             <button onClick={() => handleGenerateInvoice(booking)} className="p-2 text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors" title="Invoice">
                                                                 <span className="material-symbols-outlined text-[18px]">receipt_long</span>

@@ -159,6 +159,8 @@ export interface Lead {
   paxAdult?: number; // New: Number of adults
   paxChild?: number; // New: Number of children
   paxInfant?: number; // New: Number of infants
+  residentialAddress?: string; // New: Residential Address
+  officeAddress?: string; // New: Office Address
 }
 
 export interface CustomerPreference {

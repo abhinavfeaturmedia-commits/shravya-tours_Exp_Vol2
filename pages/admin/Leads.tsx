@@ -9,7 +9,8 @@ import { useNavigate } from 'react-router-dom';
 import {
     Phone, Mail, MapPin, Calendar, Users, Clock, X, Plus, Search,
     ChevronRight, Sparkles, Edit2, Trash2, ArrowRight, MessageCircle,
-    FileText, Bell, CheckCircle2, MoreHorizontal, Filter, Save, CalendarDays
+    FileText, Bell, CheckCircle2, MoreHorizontal, Filter, Save, CalendarDays,
+    ChevronDown, ChevronUp
 } from 'lucide-react';
 import { TravelerSelector } from '../../components/ui/TravelerSelector';
 import { exportToExcel, ExportColumn } from '../../src/lib/exportUtils';
@@ -34,8 +35,8 @@ const StatusBadge = ({ status }: { status: string }) => {
 };
 
 export const Leads: React.FC = () => {
-    const { addLeadLog, addFollowUp, addBooking, followUps, customers, addCustomer } = useData();
-    const { leads, addLead, updateLead, deleteLead, isLoading } = useLeads();
+    const { addFollowUp, addBooking, followUps, customers, addCustomer } = useData();
+    const { leads, addLead, updateLead, deleteLead, addLeadLog, isLoading } = useLeads();
     const { currentUser, staff } = useAuth();
     const navigate = useNavigate();
 
@@ -46,6 +47,7 @@ export const Leads: React.FC = () => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [activeTab, setActiveTab] = useState<'All' | 'New' | 'Warm' | 'Hot' | 'Offer Sent' | 'Converted' | 'Cold'>('All');
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+    const [isAgendaExpanded, setIsAgendaExpanded] = useState(false);
 
     // Forms
     const [noteContent, setNoteContent] = useState('');
@@ -281,10 +283,37 @@ export const Leads: React.FC = () => {
 
     const openEditModal = () => {
         if (!selectedLead) return;
+        
+        // Helper to format date safely into local YYYY-MM-DD for date inputs
+        const formatLocalIso = (dateStr?: string) => {
+            if (!dateStr) return '';
+            const d = new Date(dateStr);
+            if (isNaN(d.getTime())) return '';
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        };
+
         setModalMode('edit');
-        setLeadForm({ ...selectedLead, budget: String(selectedLead.potentialValue) });
+        setLeadForm({ 
+            ...selectedLead, 
+            budget: String(selectedLead.potentialValue),
+            startDate: formatLocalIso(selectedLead.startDate),
+            endDate: formatLocalIso(selectedLead.endDate)
+        });
         setIsModalOpen(true);
     };
+
+    // Compute agenda items once for use in both the strip and badge
+    const agendaItems = (() => {
+        const now = new Date();
+        return followUps
+            .filter(f => f.status === 'Pending' && f.scheduledAt && new Date(f.scheduledAt).getTime() <= now.setHours(23, 59, 59, 999))
+            .sort((a, b) => {
+                const priorityVal: Record<string, number> = { 'High': 3, 'Medium': 2, 'Low': 1 };
+                const pDiff = (priorityVal[b.priority || 'Medium'] as number) - (priorityVal[a.priority || 'Medium'] as number);
+                if (pDiff !== 0) return pDiff;
+                return new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime();
+            });
+    })();
 
     return (
         <div className="flex h-full admin-page-bg">
@@ -320,6 +349,105 @@ export const Leads: React.FC = () => {
                             </div>
                         </div>
                     </div>
+
+                    {/* ── TODAY'S AGENDA STRIP ── */}
+                    <div className="mb-6">
+                        {/* Collapsed toggle bar */}
+                        <button
+                            onClick={() => setIsAgendaExpanded(v => !v)}
+                            className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-all group"
+                        >
+                            <CalendarDays size={16} className="text-primary shrink-0" />
+                            <span className="text-sm font-black text-slate-800 dark:text-white">Today's Agenda</span>
+                            {agendaItems.length > 0 ? (
+                                <>
+                                    <span className="ml-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-primary/10 text-primary">
+                                        {agendaItems.length} task{agendaItems.length > 1 ? 's' : ''}
+                                    </span>
+                                    {agendaItems.some(t => new Date(t.scheduledAt).getTime() < new Date().getTime()) && (
+                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-red-100 text-red-600">Overdue</span>
+                                    )}
+                                </>
+                            ) : (
+                                <span className="ml-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-600">All clear ✓</span>
+                            )}
+                            <span className="ml-auto text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-300 transition-colors">
+                                {isAgendaExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                            </span>
+                        </button>
+
+                        {/* Expanded content: horizontal scroll row of task chips */}
+                        {isAgendaExpanded && (
+                            <div className="mt-2 animate-in slide-in-from-top-2 duration-200">
+                                {agendaItems.length === 0 ? (
+                                    <div className="flex items-center gap-3 px-4 py-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700">
+                                        <div className="h-8 w-8 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+                                            <Sparkles size={14} className="text-emerald-500" />
+                                        </div>
+                                        <div>
+                                            <p className="text-sm font-bold text-slate-700 dark:text-slate-300">All caught up!</p>
+                                            <p className="text-xs text-slate-400">No pending follow-ups for today.</p>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+                                        {agendaItems.map(task => {
+                                            const scheduledDate = new Date(task.scheduledAt);
+                                            const isOverdue = scheduledDate.getTime() < new Date().getTime();
+                                            const isToday = scheduledDate.toDateString() === new Date().toDateString();
+                                            const priorityConfig: Record<string, { bar: string; badge: string }> = {
+                                                'High':   { bar: 'bg-red-500',    badge: 'bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400' },
+                                                'Medium': { bar: 'bg-amber-400',  badge: 'bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400' },
+                                                'Low':    { bar: 'bg-emerald-400',badge: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400' },
+                                            };
+                                            const pc = priorityConfig[task.priority || 'Medium'];
+                                            return (
+                                                <div
+                                                    key={task.id}
+                                                    className={`shrink-0 w-56 bg-white dark:bg-[#1A2633] rounded-xl border shadow-sm overflow-hidden flex flex-col hover:shadow-md transition-all cursor-pointer ${
+                                                        isOverdue ? 'border-red-300 dark:border-red-800' : 'border-slate-200 dark:border-slate-700'
+                                                    }`}
+                                                    onClick={() => { 
+                                                        const targetLead = leads.find(l => l.id === task.leadId);
+                                                        if (targetLead) {
+                                                            setSelectedLeadId(task.leadId); 
+                                                            setIsAgendaExpanded(false); 
+                                                        } else {
+                                                            toast.error("Lead not found or has been deleted.");
+                                                        }
+                                                    }}
+                                                >
+                                                    {/* Priority colour bar */}
+                                                    <div className={`h-1 w-full ${pc.bar}`} />
+                                                    <div className="p-3 flex flex-col gap-1.5">
+                                                        <div className="flex items-center justify-between">
+                                                            <span className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wide ${pc.badge}`}>
+                                                                {task.priority || 'Medium'}
+                                                            </span>
+                                                            {isOverdue && (
+                                                                <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-red-100 text-red-700">OVERDUE</span>
+                                                            )}
+                                                        </div>
+                                                        <p className="text-xs font-black text-slate-900 dark:text-white truncate flex items-center gap-1">
+                                                            {task.leadName} <ArrowRight size={11} className="text-slate-400 shrink-0" />
+                                                        </p>
+                                                        <p className="text-[10px] text-slate-500 line-clamp-2 leading-relaxed">{task.description || "No detailed notes provided."}</p>
+                                                        <div className={`flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider mt-auto pt-1 border-t border-slate-100 dark:border-slate-700 ${
+                                                            isOverdue ? 'text-red-500' : 'text-slate-400'
+                                                        }`}>
+                                                            <Clock size={10} />
+                                                            <span>{isToday ? 'Today' : scheduledDate.toLocaleDateString([], { month: 'short', day: 'numeric' })} · {scheduledDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                    {/* ── END AGENDA STRIP ── */}
 
                     {/* Filter Tabs */}
                     <div className="flex flex-wrap p-1 bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-800 rounded-xl w-full mb-6">
@@ -438,9 +566,10 @@ export const Leads: React.FC = () => {
                 </div>
             </div>
 
-            {/* RIGHT DETAIL PANEL (Fixed Sidebar) */}
-            {selectedLead ? (
-                <div className="w-full lg:w-[450px] bg-white dark:bg-[#1A2633] border-l border-slate-200 dark:border-slate-800 flex flex-col h-full fixed lg:static inset-0 z-50 overflow-y-auto animate-in slide-in-from-right-10 duration-200 shadow-2xl lg:shadow-none">
+            {/* LEAD DETAILS (Modal) */}
+            {selectedLead && (
+                <div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
+                    <div className="bg-white dark:bg-[#1A2633] rounded-2xl w-full max-w-4xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden animate-in zoom-in-95">
 
                     {/* Panel Header */}
                     <div className="p-6 border-b border-slate-100 dark:border-slate-800">
@@ -515,6 +644,29 @@ export const Leads: React.FC = () => {
                                 </div>
                             </div>
                         </div>
+
+                        {/* Addresses Grid (if present) */}
+                        {(selectedLead.residentialAddress || selectedLead.officeAddress) && (
+                            <div className="mb-8 p-4 bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-slate-100 dark:border-slate-800">
+                                <h3 className="text-xs font-bold text-slate-400 uppercase mb-4 tracking-wider flex items-center gap-2 section-heading-accent">
+                                    <MapPin size={14} /> Addresses
+                                </h3>
+                                <div className="space-y-4">
+                                    {selectedLead.residentialAddress && (
+                                        <div>
+                                            <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Residential Address</p>
+                                            <p className="text-sm font-bold text-slate-900 dark:text-white leading-relaxed">{selectedLead.residentialAddress}</p>
+                                        </div>
+                                    )}
+                                    {selectedLead.officeAddress && (
+                                        <div>
+                                            <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Office Address</p>
+                                            <p className="text-sm font-bold text-slate-900 dark:text-white leading-relaxed">{selectedLead.officeAddress}</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
 
                         {/* Quick Actions */}
                         <div className="mb-8">
@@ -625,76 +777,6 @@ export const Leads: React.FC = () => {
                         </div>
                     </div>
                 </div>
-            ) : (
-                <div className="w-full lg:w-[380px] bg-slate-50 dark:bg-[#0B1116] border-l border-slate-200 dark:border-slate-800 hidden lg:flex flex-col h-full">
-                    <div className="p-6 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-[#1A2633] sticky top-0 z-10">
-                        <h2 className="text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
-                            <CalendarDays size={20} className="text-primary" /> Today's Agenda
-                        </h2>
-                        <p className="text-xs text-slate-500 mt-1">Pending follow-ups & tasks</p>
-                    </div>
-                    <div className="p-4 flex-1 overflow-y-auto space-y-4">
-                        {(() => {
-                            const now = new Date();
-                            const pendingTasks = followUps.filter(f => f.status === 'Pending' && f.scheduledAt && new Date(f.scheduledAt).getTime() <= now.setHours(23, 59, 59, 999))
-                                .sort((a, b) => {
-                                    // Sort by Priority (High > Medium > Low) then Date
-                                    const priorityVal: Record<string, number> = { 'High': 3, 'Medium': 2, 'Low': 1 };
-                                    const pDiff = (priorityVal[b.priority || 'Medium'] as number) - (priorityVal[a.priority || 'Medium'] as number);
-                                    if (pDiff !== 0) return pDiff;
-                                    return new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime();
-                                });
-
-                            if (pendingTasks.length === 0) {
-                                return (
-                                    <div className="text-center p-8 mt-10">
-                                        <div className="size-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto mb-3">
-                                            <Sparkles className="text-slate-400" size={20} />
-                                        </div>
-                                        <p className="text-sm font-bold text-slate-600 dark:text-slate-400">All caught up!</p>
-                                        <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">No pending tasks for today.</p>
-                                    </div>
-                                )
-                            }
-
-                            return pendingTasks.map(task => {
-                                const scheduledDate = new Date(task.scheduledAt);
-                                // Overdue if scheduled day is in past, or today but time has passed
-                                const isOverdue = scheduledDate.getTime() < new Date().getTime();
-                                const isToday = scheduledDate.toDateString() === new Date().toDateString();
-
-                                const priorityColors: Record<string, string> = {
-                                    'High': 'text-red-600 bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800/50',
-                                    'Medium': 'text-amber-600 bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800/50',
-                                    'Low': 'text-green-600 bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800/50'
-                                };
-                                const pStyle = priorityColors[task.priority || 'Medium'];
-
-                                return (
-                                    <div key={task.id} className={`p-4 rounded-xl border bg-white dark:bg-[#1A2633] shadow-sm relative overflow-hidden transition-all hover:shadow-md ${isOverdue ? 'border-red-300 dark:border-red-800' : 'border-slate-200 dark:border-slate-700'}`}>
-                                        {isOverdue && <div className="absolute top-0 left-0 w-1 h-full bg-red-500"></div>}
-                                        <div className="flex justify-between items-start mb-2 pl-1">
-                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wide ${pStyle}`}>
-                                                {task.priority || 'Medium'}
-                                            </span>
-                                        </div>
-                                        <h4 className="font-bold text-sm text-slate-900 dark:text-white pl-1 leading-tight mb-1 truncate cursor-pointer hover:text-primary transition-colors flex items-center gap-1"
-                                            onClick={() => setSelectedLeadId(task.leadId)}>
-                                            {task.leadName} <ArrowRight size={14} className="text-slate-400" />
-                                        </h4>
-                                        <p className="text-xs text-slate-500 line-clamp-2 pl-1 mb-3 leading-relaxed">{task.description}</p>
-                                        <div className="flex items-center justify-between pl-1">
-                                            <div className={`flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider ${isOverdue ? 'text-red-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400'}`}>
-                                                <Clock size={12} />
-                                                <span>{isToday ? 'TODAY' : scheduledDate.toLocaleDateString([], { month: 'short', day: 'numeric' })} at {scheduledDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                                                {isOverdue && <span className="ml-1 bg-red-100 text-red-700 px-1.5 py-0.5 rounded">OVERDUE</span>}
-                                            </div>
-                                        </div>
-                                    </div>
-                                );
-                            });
-                        })()}
-                    </div>
                 </div>
             )}
 
@@ -719,6 +801,16 @@ export const Leads: React.FC = () => {
                                 <div>
                                     <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Email</label>
                                     <input required type="email" placeholder="Email Address" value={leadForm.email || ''} onChange={e => setLeadForm({ ...leadForm, email: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary" />
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Residential Address</label>
+                                    <input placeholder="Home Address" value={leadForm.residentialAddress || ''} onChange={e => setLeadForm({ ...leadForm, residentialAddress: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary" />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Office Address</label>
+                                    <input placeholder="Work Address" value={leadForm.officeAddress || ''} onChange={e => setLeadForm({ ...leadForm, officeAddress: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary" />
                                 </div>
                             </div>
                             <div className="grid grid-cols-2 gap-3">

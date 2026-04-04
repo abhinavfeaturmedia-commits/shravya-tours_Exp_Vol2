@@ -68,6 +68,24 @@ export const useLeads = () => {
             queryClient.invalidateQueries({ queryKey: ['leads'] });
         },
     });
+    const addLeadLogMutation = useMutation({
+        mutationFn: ({ id, log }: { id: string; log: any }) => api.createLeadLog(id, log),
+        onMutate: async ({ id, log }) => {
+            await queryClient.cancelQueries({ queryKey: ['leads'] });
+            const previousLeads = queryClient.getQueryData<Lead[]>(['leads']);
+            queryClient.setQueryData<Lead[]>(['leads'], (old) =>
+                old?.map((lead) => (lead.id === id ? { ...lead, logs: [log, ...(lead.logs || [])] } : lead))
+            );
+            return { previousLeads };
+        },
+        onError: (err: any, variables, context) => {
+            queryClient.setQueryData(['leads'], context?.previousLeads);
+            toast.error(err.message || 'Failed to add lead log');
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['leads'] });
+        },
+    });
 
     return {
         leads,
@@ -76,5 +94,6 @@ export const useLeads = () => {
         addLead: addLeadMutation.mutateAsync,
         updateLead: (id: string, updates: Partial<Lead>) => updateLeadMutation.mutateAsync({ id, updates }),
         deleteLead: deleteLeadMutation.mutateAsync,
+        addLeadLog: (id: string, log: any) => addLeadLogMutation.mutateAsync({ id, log })
     };
 };
