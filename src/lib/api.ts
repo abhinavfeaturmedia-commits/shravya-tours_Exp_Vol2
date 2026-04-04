@@ -1471,10 +1471,7 @@ export const api = {
         }
 
         const { url } = await res.json();
-        // For local dev, prefix with the backend origin. In production the URL is relative.
-        if (url.startsWith('/')) {
-            return `${API_BASE}${url}`;
-        }
-        return url;
+        // Always return relative URL - works in dev (Vite proxy) and production (Express static)
+        return url.startsWith('/') ? url : `/${url}`;
     }
 };

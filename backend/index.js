@@ -162,6 +162,20 @@ app.get('/api/db-test', async (req, res) => {
     }
 });
 
+// ─── Static file serving for uploaded images ───
+app.use('/uploads', express.static(uploadsDir));
+
+// ─── File Upload Route ───
+app.post('/api/upload', authMiddleware, upload.single('file'), (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded or invalid file type' });
+    }
+    // Return a relative URL so it works in both dev and production
+    const relativeUrl = `/uploads/${req.file.filename}`;
+    console.log(`[Upload] File saved: ${req.file.filename} (${(req.file.size / 1024).toFixed(0)}KB)`);
+    res.json({ url: relativeUrl, filename: req.file.filename, size: req.file.size });
+});
+
 // ═══════════════════════════════════════════
 // AUTH ROUTES
 // ═══════════════════════════════════════════
