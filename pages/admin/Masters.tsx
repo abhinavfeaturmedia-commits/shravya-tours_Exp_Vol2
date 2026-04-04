@@ -199,6 +199,10 @@ const MasterModal: React.FC<{
                             {masterLocations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
                         </select>
                     </div>
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Address</label>
+                        <input value={form.address || ''} onChange={e => setForm({ ...form, address: e.target.value })} className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 outline-none" placeholder="Hotel Address or Area" />
+                    </div>
                     <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Price (₹/night)</label>
@@ -1149,6 +1153,7 @@ export const Masters: React.FC = () => {
                                     <div className="flex flex-col">
                                         <span>{item.rating} Stars</span>
                                         <span className="text-xs text-slate-400">{getLocationNameById(item.locationId)}</span>
+                                        {item.address && <span className="text-xs text-slate-500 mt-0.5 line-clamp-1">{item.address}</span>}
                                     </div>
                                 );
                                 break;

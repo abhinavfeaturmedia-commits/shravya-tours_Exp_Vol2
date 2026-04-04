@@ -938,6 +938,7 @@ export const api = {
             amenities: typeof h.amenities === 'string' ? JSON.parse(h.amenities) : (h.amenities || []),
             pricePerNight: h.price_per_night,
             image: h.image,
+            address: h.address,
             status: h.status
         }));
     },
@@ -945,7 +946,7 @@ export const api = {
         await crud.create('master_hotels', {
             name: hotel.name, location_id: hotel.locationId, rating: hotel.rating,
             amenities: hotel.amenities, price_per_night: hotel.pricePerNight,
-            image: hotel.image, status: hotel.status || 'Active'
+            image: hotel.image, address: hotel.address, status: hotel.status || 'Active'
         });
     },
     updateMasterHotel: async (id: string, hotel: Partial<MasterHotel>) => {
@@ -956,6 +957,7 @@ export const api = {
         if (hotel.amenities !== undefined) dbHotel.amenities = hotel.amenities;
         if (hotel.pricePerNight !== undefined) dbHotel.price_per_night = hotel.pricePerNight;
         if (hotel.image !== undefined) dbHotel.image = hotel.image;
+        if (hotel.address !== undefined) dbHotel.address = hotel.address;
         if (hotel.status !== undefined) dbHotel.status = hotel.status;
         await crud.update('master_hotels', id, dbHotel);
     },

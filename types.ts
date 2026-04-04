@@ -385,6 +385,7 @@ export interface MasterHotel {
   amenities: string[];
   pricePerNight: number;
   image?: string;
+  address?: string;
   status: 'Active' | 'Inactive';
 }
 
