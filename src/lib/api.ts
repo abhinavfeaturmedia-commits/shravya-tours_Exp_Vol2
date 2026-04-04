@@ -89,7 +89,6 @@ const mapPackage = (row: any): Package => ({
     remainingSeats: row.remaining_seats,
     highlights: parseJsonFieldSafe(row.features, []).map((f: string) => ({ icon: 'star', label: f })),
     itinerary: [],
-    gallery: [],
     theme: row.theme || 'Tour',
     overview: row.overview || row.description || '',
     status: row.status as any || 'Active',
@@ -279,10 +278,12 @@ export const api = {
             }, 0);
 
             let dynamicPayment: BookingStatus | 'Paid' | 'Unpaid' | 'Deposit' | 'Refunded' = 'Unpaid';
-            if (netPaid >= totalAmount && totalAmount > 0) dynamicPayment = 'Paid';
+            if (row.payment_status === 'paid') dynamicPayment = 'Paid';
+            else if (row.payment_status === 'deposit') dynamicPayment = 'Deposit';
+            else if (row.payment_status === 'refunded') dynamicPayment = 'Refunded';
+            else if (netPaid >= totalAmount && totalAmount > 0) dynamicPayment = 'Paid';
             else if (netPaid > 0) dynamicPayment = 'Deposit';
             else if (netPaid < 0) dynamicPayment = 'Refunded';
-            else if (row.payment_status === 'paid') dynamicPayment = 'Paid';
 
             const sbs = (row.supplier_bookings || []).map((sb: any) => ({
                 id: sb.id,
@@ -298,18 +299,32 @@ export const api = {
                 notes: sb.notes
             }));
 
+            // Format dates strictly to YYYY-MM-DD using local time parts for <input type="date">
+            const toLocalISO = (d: any) => {
+                if (!d) return '';
+                const dateObj = new Date(d);
+                return `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
+            };
+            
+            const rawDate = row.booking_date || row.date;
+            const rawEndDate = row.end_date;
+            const formattedDate = toLocalISO(rawDate);
+            const formattedEndDate = toLocalISO(rawEndDate);
+
             return {
                 id: row.id,
-                type: 'Tour',
+                type: row.type || 'Tour',
                 customer: row.customer_name,
                 email: row.customer_email || row.email,
                 phone: row.customer_phone || row.phone,
-                title: row.package_title || 'Unknown Package',
-                date: row.booking_date || row.date,
+                title: row.title || row.package_title || 'Unknown Package',
+                date: formattedDate,
+                endDate: formattedEndDate || formattedDate,
+                guests: row.number_of_people ? `${row.number_of_people} Adults, 0 Children` : undefined,
                 amount: totalAmount,
                 status: (row.status ? row.status.charAt(0).toUpperCase() + row.status.slice(1) : 'Pending') as BookingStatus,
                 payment: dynamicPayment as any,
-                packageId: row.package_id,
+                packageId: row.tour_id || row.package_id,
                 invoiceNo: row.invoice_no || `INV-${row.id}`,
                 transactions: txs,
                 supplierBookings: sbs
@@ -358,10 +373,14 @@ export const api = {
             customer_email: booking.email || '',
             customer_phone: booking.phone || '',
             booking_date: booking.date || new Date().toISOString().split('T')[0],
+            end_date: booking.endDate || null,
+            type: booking.type || 'Tour',
+            title: booking.title || 'Unknown',
             total_price: booking.amount || 0,
             number_of_people: booking.guests ? parseInt(booking.guests.split(' ')[0]) || 1 : 1, // Extract count from "2 Adults" etc.
             status: booking.status === 'Confirmed' ? 'confirmed' : 'pending',
-            payment_status: booking.payment === 'Paid' ? 'paid' : 'pending' // Enums: pending, paid, failed, refunded
+            payment_status: booking.payment === 'Paid' ? 'paid' : 'pending', // Enums: pending, paid, failed, refunded
+            notes: booking.details || ''
         };
 
         if (booking.packageId) dbBooking.package_id = booking.packageId;
@@ -380,8 +399,22 @@ export const api = {
         if (updates.email !== undefined) dbUpdates.customer_email = updates.email;
         if (updates.phone !== undefined) dbUpdates.customer_phone = updates.phone;
         if (updates.date !== undefined) dbUpdates.booking_date = updates.date;
+        if (updates.endDate !== undefined) dbUpdates.end_date = updates.endDate || null;
+        if (updates.type !== undefined) dbUpdates.type = updates.type;
+        if (updates.title !== undefined) dbUpdates.title = updates.title;
         if (updates.amount !== undefined) dbUpdates.total_price = updates.amount;
-        if (updates.packageId !== undefined) dbUpdates.package_id = updates.packageId;
+        if (updates.packageId !== undefined) {
+            dbUpdates.package_id = updates.packageId || null;
+        }
+        if (updates.status !== undefined) {
+            dbUpdates.status = updates.status.toLowerCase();
+        }
+        if (updates.details !== undefined) {
+            dbUpdates.notes = updates.details;
+        }
+        if (updates.guests !== undefined) {
+            dbUpdates.number_of_people = updates.guests ? parseInt(updates.guests.split(' ')[0]) || 1 : 1;
+        }
         if (updates.payment !== undefined) {
             const tempMap: any = { 'Paid': 'paid', 'Unpaid': 'pending', 'Deposit': 'deposit', 'Refunded': 'refunded' };
             dbUpdates.payment_status = tempMap[updates.payment] || 'pending';
