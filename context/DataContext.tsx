@@ -961,8 +961,32 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       toast.error(e.message || "Failed to add customer");
     }
   }, [customers, logAction]);
-  const updateCustomer = useCallback((id: string, c: Partial<Customer>) => setCustomers(p => p.map(x => x.id === id ? { ...x, ...c } : x)), []);
-  const deleteCustomer = useCallback((id: string) => setCustomers(p => p.filter(x => x.id !== id)), []);
+  const updateCustomer = useCallback(async (id: string, c: Partial<Customer>) => {
+    const previousState = customers;
+    setCustomers(p => p.map(x => x.id === id ? { ...x, ...c } : x));
+    try {
+      await api.updateCustomer(id, c);
+      logAction('Update', 'Customers', `Updated Customer: ${id}`);
+      toast.success("Customer updated");
+    } catch (e: any) {
+      setCustomers(previousState);
+      toast.error(e.message || "Failed to update customer");
+    }
+  }, [customers, logAction]);
+
+  const deleteCustomer = useCallback(async (id: string) => {
+    const previousState = customers;
+    setCustomers(p => p.filter(x => x.id !== id));
+    try {
+      await api.deleteCustomer(id);
+      logAction('Delete', 'Customers', `Deleted Customer: ${id}`);
+      toast.success("Customer deleted");
+    } catch (e: any) {
+      setCustomers(previousState);
+      toast.error(e.message || "Failed to delete customer");
+    }
+  }, [customers, logAction]);
+  
   const importCustomers = useCallback((newCustomers: Customer[]) => setCustomers(p => [...newCustomers, ...p]), []);
 
   // Inventory

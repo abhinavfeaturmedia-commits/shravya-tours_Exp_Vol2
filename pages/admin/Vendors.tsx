@@ -76,6 +76,8 @@ export const Vendors: React.FC = () => {
 
     const [paymentForm, setPaymentForm] = useState({ amount: '', reference: '' });
     const [noteText, setNoteText] = useState('');
+    const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+    const [editNoteText, setEditNoteText] = useState('');
     const [docForm, setDocForm] = useState({ type: 'Contract', expiry: '', name: '', url: '' });
 
     const selectedVendor = vendors.find(v => v.id === selectedVendorId);
@@ -386,13 +388,37 @@ export const Vendors: React.FC = () => {
     const handleAddNote = (e: React.FormEvent) => {
         e.preventDefault();
         if (!selectedVendor || !noteText.trim()) return;
-        addVendorNote(selectedVendor.id, {
+        
+        const newNote = {
             id: `N-${Date.now()}`,
             text: noteText,
             date: new Date().toISOString().split('T')[0],
             author: 'You'
-        });
+        };
+        
+        const updatedNotes = [newNote, ...(selectedVendor.notes || [])];
+        updateVendor(selectedVendor.id, { notes: updatedNotes });
         setNoteText('');
+        showToast('Note added');
+    };
+
+    const handleUpdateNote = (noteId: string) => {
+        if (!selectedVendor || !editNoteText.trim()) return;
+        const updatedNotes = (selectedVendor.notes || []).map(note => 
+            note.id === noteId ? { ...note, text: editNoteText } : note
+        );
+        updateVendor(selectedVendor.id, { notes: updatedNotes });
+        setEditingNoteId(null);
+        setEditNoteText('');
+        showToast('Note updated');
+    };
+
+    const handleDeleteNote = (noteId: string) => {
+        if (!selectedVendor) return;
+        if (!confirm('Are you sure you want to delete this note?')) return;
+        const updatedNotes = (selectedVendor.notes || []).filter(note => note.id !== noteId);
+        updateVendor(selectedVendor.id, { notes: updatedNotes });
+        showToast('Note deleted');
     };
 
     const handleRenewContract = () => {
@@ -884,13 +910,39 @@ export const Vendors: React.FC = () => {
                                             <div className="max-h-[200px] overflow-y-auto space-y-3 mb-4 pr-2 scrollbar-thin">
                                                 {selectedVendor.notes && selectedVendor.notes.length > 0 ? (
                                                     selectedVendor.notes.map((note, i) => (
-                                                        <div key={i} className="flex gap-3">
-                                                            <div className="size-6 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-[10px] font-bold text-slate-600 dark:text-slate-300 shrink-0">
+                                                        <div key={i} className="flex gap-3 relative group">
+                                                            <div className="size-6 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-[10px] font-bold text-slate-600 dark:text-slate-300 shrink-0 mt-2">
                                                                 {note.author.charAt(0)}
                                                             </div>
-                                                            <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-r-xl rounded-bl-xl text-sm border border-slate-100 dark:border-slate-700">
-                                                                <p className="text-slate-700 dark:text-slate-300 leading-snug">{note.text}</p>
-                                                                <p className="text-xs text-slate-400 mt-1">{note.date} • {note.author}</p>
+                                                            <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-r-xl rounded-bl-xl text-sm border border-slate-100 dark:border-slate-700 flex-1">
+                                                                <div className="flex justify-between items-start">
+                                                                    <p className="text-xs text-slate-400 mb-1">{note.date} • {note.author}</p>
+                                                                    <div className="opacity-0 group-hover:opacity-100 transition-opacity flex space-x-1">
+                                                                        <button onClick={() => { setEditingNoteId(note.id); setEditNoteText(note.text); }} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded text-slate-400 hover:text-primary transition-colors">
+                                                                            <span className="material-symbols-outlined text-[14px]">edit</span>
+                                                                        </button>
+                                                                        <button onClick={() => handleDeleteNote(note.id)} className="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 rounded text-slate-400 hover:text-red-500 transition-colors">
+                                                                            <span className="material-symbols-outlined text-[14px]">delete</span>
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                                
+                                                                {editingNoteId === note.id ? (
+                                                                    <div className="mt-2">
+                                                                        <textarea
+                                                                            value={editNoteText}
+                                                                            onChange={(e) => setEditNoteText(e.target.value)}
+                                                                            className="w-full p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm focus:ring-1 focus:ring-primary outline-none"
+                                                                            rows={3}
+                                                                        />
+                                                                        <div className="flex justify-end gap-2 mt-2">
+                                                                            <button onClick={() => setEditingNoteId(null)} className="px-3 py-1 text-xs font-bold text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg">Cancel</button>
+                                                                            <button onClick={() => handleUpdateNote(note.id)} disabled={!editNoteText.trim()} className="px-3 py-1 text-xs font-bold bg-primary text-white hover:bg-primary-dark rounded-lg disabled:opacity-50">Save</button>
+                                                                        </div>
+                                                                    </div>
+                                                                ) : (
+                                                                    <p className="text-slate-700 dark:text-slate-300 leading-snug">{note.text}</p>
+                                                                )}
                                                             </div>
                                                         </div>
                                                     ))

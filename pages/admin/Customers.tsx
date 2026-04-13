@@ -15,7 +15,7 @@ type SortField = 'name' | 'totalSpent' | 'bookingsCount' | 'joinedDate' | 'lastA
 type SortOrder = 'asc' | 'desc';
 
 export const Customers: React.FC = () => {
-    const { customers, bookings, leads, addCustomer, updateCustomer, importCustomers } = useData();
+    const { customers, bookings, leads, addCustomer, updateCustomer, deleteCustomer, importCustomers } = useData();
     const [search, setSearch] = useState('');
     const [sortField, setSortField] = useState<SortField>('lastActive');
     const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
@@ -309,6 +309,8 @@ const CustomerDetailsDrawer: React.FC<{
     onEdit: () => void;
 }> = ({ isOpen, onClose, customer, bookings, leads, updateCustomer, onEdit }) => {
     const [note, setNote] = useState('');
+    const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+    const [editNoteText, setEditNoteText] = useState('');
 
     const history = useMemo(() => {
         if (!customer) return [];
@@ -335,6 +337,25 @@ const CustomerDetailsDrawer: React.FC<{
         updateCustomer(customer.id, { notes: [newNote, ...existingNotes] });
         setNote('');
         toast.success('Note added');
+    };
+
+    const handleDeleteNote = (noteId: string) => {
+        if (!customer) return;
+        if (!confirm('Delete this note?')) return;
+        const updatedNotes = (customer.notes || []).filter(n => n.id !== noteId);
+        updateCustomer(customer.id, { notes: updatedNotes });
+        toast.success('Note deleted');
+    };
+
+    const handleUpdateNote = (noteId: string) => {
+        if (!customer || !editNoteText.trim()) return;
+        const updatedNotes = (customer.notes || []).map(n =>
+            n.id === noteId ? { ...n, text: editNoteText } : n
+        );
+        updateCustomer(customer.id, { notes: updatedNotes });
+        setEditingNoteId(null);
+        setEditNoteText('');
+        toast.success('Note updated');
     };
 
     return (
@@ -407,14 +428,37 @@ const CustomerDetailsDrawer: React.FC<{
                             <div className="clear-both"></div>
                         </form>
                         <div className="space-y-6 pl-4 border-l border-slate-100 dark:border-slate-700">
+                            {(customer.notes || []).length === 0 && (
+                                <p className="text-sm text-slate-400 italic">No notes yet.</p>
+                            )}
                             {(customer.notes || []).map(n => (
                                 <div key={n.id} className="relative group">
                                     <div className="absolute -left-[21px] top-1 size-2.5 rounded-full bg-slate-300 dark:bg-slate-600 border-2 border-white dark:border-slate-800 group-hover:bg-primary transition-colors"></div>
-                                    <div className="flex justify-between items-start mb-1">
-                                        <span className="text-xs font-bold text-slate-900 dark:text-white">{n.author}</span>
-                                        <span className="text-[10px] text-slate-400">{new Date(n.date).toLocaleDateString()}</span>
+                                    <div className="flex justify-between items-start mb-1 flex-wrap gap-1">
+                                        <div>
+                                            <span className="text-xs font-bold text-slate-900 dark:text-white">{n.author}</span>
+                                            <span className="text-[10px] text-slate-400 ml-2">{new Date(n.date).toLocaleDateString()}</span>
+                                        </div>
+                                        <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1.5">
+                                            <button onClick={() => { setEditingNoteId(n.id); setEditNoteText(n.text); }} className="text-[10px] bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded font-bold transition-colors">Edit</button>
+                                            <button onClick={() => handleDeleteNote(n.id)} className="text-[10px] bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-800/40 text-red-600 dark:text-red-400 px-2 py-0.5 rounded font-bold transition-colors">Delete</button>
+                                        </div>
                                     </div>
-                                    <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">{n.text}</p>
+                                    {editingNoteId === n.id ? (
+                                        <div className="mt-2">
+                                            <textarea
+                                                value={editNoteText}
+                                                onChange={e => setEditNoteText(e.target.value)}
+                                                className="w-full p-2 bg-white dark:bg-slate-800 border border-primary/40 rounded-lg text-sm focus:ring-2 focus:ring-primary outline-none resize-none h-20 mb-2"
+                                            />
+                                            <div className="flex justify-end gap-2">
+                                                <button onClick={() => { setEditingNoteId(null); setEditNoteText(''); }} className="text-xs px-3 py-1.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">Cancel</button>
+                                                <button onClick={() => handleUpdateNote(n.id)} disabled={!editNoteText.trim()} className="bg-primary text-white text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-primary-dark transition-colors disabled:opacity-50">Save</button>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed whitespace-pre-wrap">{n.text}</p>
+                                    )}
                                 </div>
                             ))}
                         </div>

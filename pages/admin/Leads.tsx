@@ -37,7 +37,7 @@ const StatusBadge = ({ status }: { status: string }) => {
 
 export const Leads: React.FC = () => {
     const { addFollowUp, followUps, customers, addCustomer } = useData();
-    const { leads, addLead, updateLead, deleteLead, addLeadLog, isLoading } = useLeads();
+    const { leads, addLead, updateLead, deleteLead, addLeadLog, updateLeadLog, deleteLeadLog, isLoading } = useLeads();
     const { addBooking } = useBookings();
     const { currentUser, staff } = useAuth();
     const navigate = useNavigate();
@@ -53,6 +53,8 @@ export const Leads: React.FC = () => {
 
     // Forms
     const [noteContent, setNoteContent] = useState('');
+    const [editingLogId, setEditingLogId] = useState<string | null>(null);
+    const [editLogContent, setEditLogContent] = useState('');
     const [isReminderSet, setIsReminderSet] = useState(false);
     const [reminderDate, setReminderDate] = useState('');
     const [leadForm, setLeadForm] = useState<Partial<Lead>>({
@@ -118,6 +120,22 @@ export const Leads: React.FC = () => {
         setIsReminderSet(false);
         setReminderDate('');
         setFollowUpPriority('Medium');
+    };
+
+    const handleUpdateLog = (logId: string) => {
+        if (!selectedLeadId || !editLogContent.trim()) return;
+        updateLeadLog(logId, editLogContent);
+        setEditingLogId(null);
+        setEditLogContent('');
+        toast.success('Log updated successfully');
+    };
+
+    const handleDeleteLog = (logId: string) => {
+        if (!selectedLeadId) return;
+        if (confirm('Are you sure you want to delete this log?')) {
+            deleteLeadLog(logId);
+            toast.success('Log deleted');
+        }
     };
 
     const handleFormSubmit = (e: React.FormEvent) => {
@@ -806,11 +824,43 @@ export const Leads: React.FC = () => {
                                     [...selectedLead.logs].reverse().map((log) => (
                                         <div key={log.id} className="relative pl-6 group">
                                             <div className="absolute -left-[5px] top-1 h-3 w-3 rounded-full border-2 border-white bg-slate-300 ring-4 ring-white dark:ring-[#1A2633] group-hover:bg-primary transition-colors"></div>
-                                            <p className="text-[10px] font-bold text-slate-400 uppercase mb-0.5">
-                                                {new Date(log.timestamp).toLocaleDateString()} {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                            </p>
-                                            <p className="text-sm font-bold text-slate-900 dark:text-white capitalize">{log.type}</p>
-                                            <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">{log.content}</p>
+                                            <div className="flex justify-between items-start">
+                                                <div>
+                                                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-0.5">
+                                                        {new Date(log.timestamp).toLocaleDateString()} {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                    </p>
+                                                    <p className="text-sm font-bold text-slate-900 dark:text-white capitalize flex items-center gap-2">
+                                                        {log.type}
+                                                        {log.type === 'Note' && (
+                                                            <div className="opacity-0 group-hover:opacity-100 transition-opacity flex space-x-1">
+                                                                <button onClick={() => { setEditingLogId(log.id); setEditLogContent(log.content); }} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded text-slate-400 hover:text-primary transition-colors">
+                                                                    <span className="material-symbols-outlined text-[14px]">edit</span>
+                                                                </button>
+                                                                <button onClick={() => handleDeleteLog(log.id)} className="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 rounded text-slate-400 hover:text-red-500 transition-colors">
+                                                                    <span className="material-symbols-outlined text-[14px]">delete</span>
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            
+                                            {editingLogId === log.id ? (
+                                                <div className="mt-2">
+                                                    <textarea
+                                                        value={editLogContent}
+                                                        onChange={(e) => setEditLogContent(e.target.value)}
+                                                        className="w-full p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm focus:ring-1 focus:ring-primary outline-none"
+                                                        rows={3}
+                                                    />
+                                                    <div className="flex justify-end gap-2 mt-2">
+                                                        <button onClick={() => setEditingLogId(null)} className="px-3 py-1 text-xs font-bold text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg">Cancel</button>
+                                                        <button onClick={() => handleUpdateLog(log.id)} disabled={!editLogContent.trim()} className="px-3 py-1 text-xs font-bold bg-primary text-white hover:bg-primary-dark rounded-lg disabled:opacity-50">Save</button>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <p className="text-xs text-slate-500 mt-0.5 leading-relaxed whitespace-pre-wrap">{log.content}</p>
+                                            )}
                                         </div>
                                     ))
                                 ) : (

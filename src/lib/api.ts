@@ -563,6 +563,14 @@ export const api = {
         });
     },
 
+    updateLeadLog: async (logId: string, content: string) => {
+        await crud.update('lead_logs', logId, { content });
+    },
+
+    deleteLeadLog: async (logId: string) => {
+        await crud.remove('lead_logs', logId);
+    },
+
     // --- INVENTORY ---
     getInventory: async (): Promise<Record<number, any>> => {
         const { data } = await crud.getAll('daily_inventory');
@@ -871,7 +879,10 @@ export const api = {
             status: c.status,
             totalSpent: c.total_spent,
             bookingsCount: c.bookings_count,
-            joinedDate: c.created_at
+            joinedDate: c.created_at,
+            notes: typeof c.notes === 'string' ? JSON.parse(c.notes) : (c.notes || []),
+            tags: typeof c.tags === 'string' ? JSON.parse(c.tags) : (c.tags || []),
+            preferences: typeof c.preferences === 'string' ? JSON.parse(c.preferences) : (c.preferences || {})
         }));
     },
 
@@ -885,7 +896,10 @@ export const api = {
             type: customer.type || 'New',
             status: customer.status || 'Active',
             total_spent: customer.totalSpent || 0,
-            bookings_count: customer.bookingsCount || 0
+            bookings_count: customer.bookingsCount || 0,
+            notes: customer.notes ? JSON.stringify(customer.notes) : '[]',
+            tags: customer.tags ? JSON.stringify(customer.tags) : '[]',
+            preferences: customer.preferences ? JSON.stringify(customer.preferences) : '{}'
         });
         return data;
     },
@@ -900,6 +914,9 @@ export const api = {
         if (updates.status !== undefined) dbUpdates.status = updates.status;
         if (updates.totalSpent !== undefined) dbUpdates.total_spent = updates.totalSpent;
         if (updates.bookingsCount !== undefined) dbUpdates.bookings_count = updates.bookingsCount;
+        if (updates.notes !== undefined) dbUpdates.notes = JSON.stringify(updates.notes);
+        if (updates.tags !== undefined) dbUpdates.tags = JSON.stringify(updates.tags);
+        if (updates.preferences !== undefined) dbUpdates.preferences = JSON.stringify(updates.preferences);
         await crud.update('customers', id, dbUpdates);
     },
 

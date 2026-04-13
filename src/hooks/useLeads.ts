@@ -87,13 +87,68 @@ export const useLeads = () => {
         },
     });
 
+    const updateLeadLogMutation = useMutation({
+        mutationFn: ({ logId, content }: { logId: string; content: string }) => api.updateLeadLog(logId, content),
+        onMutate: async ({ logId, content }) => {
+            // Find the lead that has this log and update it
+            let targetLeadId: string | null = null;
+            queryClient.setQueryData(['leads'], (old: Lead[] | undefined) => {
+                if (!old) return old;
+                return old.map(lead => {
+                    const hasLog = lead.logs?.some(l => l.id === logId);
+                    if (hasLog) {
+                        targetLeadId = lead.id;
+                        return {
+                            ...lead,
+                            logs: lead.logs?.map(l => l.id === logId ? { ...l, content } : l)
+                        };
+                    }
+                    return lead;
+                });
+            });
+            return { targetLeadId };
+        },
+        onError: (err, variables, context: any) => {
+            toast.error(err.message || 'Failed to update lead log');
+            queryClient.invalidateQueries({ queryKey: ['leads'] });
+        }
+    });
+
+    const deleteLeadLogMutation = useMutation({
+        mutationFn: (logId: string) => api.deleteLeadLog(logId),
+        onMutate: async (logId) => {
+            let targetLeadId: string | null = null;
+            queryClient.setQueryData(['leads'], (old: Lead[] | undefined) => {
+                if (!old) return old;
+                return old.map(lead => {
+                    const hasLog = lead.logs?.some(l => l.id === logId);
+                    if (hasLog) {
+                        targetLeadId = lead.id;
+                        return {
+                            ...lead,
+                            logs: lead.logs?.filter(l => l.id !== logId)
+                        };
+                    }
+                    return lead;
+                });
+            });
+            return { targetLeadId };
+        },
+        onError: (err, variables, context) => {
+            toast.error(err.message || 'Failed to delete lead log');
+            queryClient.invalidateQueries({ queryKey: ['leads'] });
+        }
+    });
+
     return {
         leads,
         isLoading,
         error,
-        addLead: addLeadMutation.mutateAsync,
-        updateLead: (id: string, updates: Partial<Lead>) => updateLeadMutation.mutateAsync({ id, updates }),
-        deleteLead: deleteLeadMutation.mutateAsync,
-        addLeadLog: (id: string, log: any) => addLeadLogMutation.mutateAsync({ id, log })
+        addLead: (lead: Lead) => addLeadMutation.mutate(lead),
+        updateLead: (id: string, updates: Partial<Lead>) => updateLeadMutation.mutate({ id, updates }),
+        deleteLead: (id: string) => deleteLeadMutation.mutate(id),
+        addLeadLog: (id: string, log: any) => addLeadLogMutation.mutateAsync({ id, log }),
+        updateLeadLog: (logId: string, content: string) => updateLeadLogMutation.mutate({ logId, content }),
+        deleteLeadLog: (logId: string) => deleteLeadLogMutation.mutate(logId)
     };
 };
