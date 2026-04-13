@@ -340,50 +340,32 @@ export const Leads: React.FC = () => {
                     {/* Smart Suggestions for Leads */}
                     {(() => {
                         const unassigned = leads.filter(l => !l.assignedTo && l.status !== 'Converted' && l.status !== 'Cold');
-                        const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
-                        const coldLeads = leads.filter(l => l.status === 'Cold' && (!l.updatedAt || l.updatedAt < thirtyDaysAgo));
+                        const coldLeads = leads.filter(l => l.status === 'Cold');
                         const highBudgetNoAction = leads.filter(l =>
                             (l.potentialValue || 0) >= 50000 &&
                             l.status !== 'Converted' && l.status !== 'Cold' &&
                             followUps.filter(f => f.leadId === l.id && f.status === 'Pending').length === 0
                         );
+                        if (unassigned.length === 0 && coldLeads.length < 3 && highBudgetNoAction.length === 0) return null;
                         return (
                             <div className="mb-6 space-y-2">
-                                {unassigned.length > 0 && !isDismissed('leads-unassigned') && !isSnoozed('leads-unassigned') && (
-                                    <SuggestPopup
-                                        id="leads-unassigned"
-                                        variant="banner"
-                                        icon="person_off"
-                                        color="amber"
-                                        title={unassigned.length + ' lead' + (unassigned.length > 1 ? 's' : '') + ' not assigned to any staff!'}
-                                        description="Unassigned leads have no one responsible for follow-up. Assign them to prevent going cold."
-                                        primaryAction={{ label: 'Review Leads', icon: 'groups', onClick: () => {} }}
-                                        snoozeMinutes={480}
-                                    />
+                                {unassigned.length > 0 && (
+                                    <div className="flex items-center gap-3 px-4 py-3 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/30 rounded-xl text-sm">
+                                        <span className="material-symbols-outlined text-amber-600 text-[20px]">person_off</span>
+                                        <p className="font-bold text-amber-800 dark:text-amber-300">{unassigned.length} lead{unassigned.length > 1 ? 's' : ''} not assigned to any staff — assign them to prevent going cold.</p>
+                                    </div>
                                 )}
-                                {coldLeads.length >= 3 && !isDismissed('leads-cold-revival') && !isSnoozed('leads-cold-revival') && (
-                                    <SuggestPopup
-                                        id="leads-cold-revival"
-                                        variant="banner"
-                                        icon="ac_unit"
-                                        color="indigo"
-                                        title={coldLeads.length + ' cold leads untouched for 30+ days'}
-                                        description="Re-engage with a seasonal offer or personalised message. Some may be ready to book!"
-                                        primaryAction={{ label: 'Filter Cold Leads', icon: 'filter_list', onClick: () => {} }}
-                                        snoozeMinutes={10080}
-                                    />
+                                {coldLeads.length >= 3 && (
+                                    <div className="flex items-center gap-3 px-4 py-3 bg-indigo-50 dark:bg-indigo-900/10 border border-indigo-200 dark:border-indigo-800/30 rounded-xl text-sm">
+                                        <span className="material-symbols-outlined text-indigo-600 text-[20px]">ac_unit</span>
+                                        <p className="font-bold text-indigo-800 dark:text-indigo-300">{coldLeads.length} cold leads — consider re-engaging with a seasonal offer.</p>
+                                    </div>
                                 )}
-                                {highBudgetNoAction.length > 0 && !isDismissed('leads-high-budget') && !isSnoozed('leads-high-budget') && (
-                                    <SuggestPopup
-                                        id="leads-high-budget"
-                                        variant="banner"
-                                        icon="diamond"
-                                        color="purple"
-                                        title={highBudgetNoAction.length + ' high-value lead' + (highBudgetNoAction.length > 1 ? 's' : '') + ' (50k+) with no follow-up!'}
-                                        description="These are your best opportunities. Send a customised proposal or schedule a call immediately."
-                                        primaryAction={{ label: 'Prioritize Now', icon: 'star', onClick: () => {} }}
-                                        snoozeMinutes={240}
-                                    />
+                                {highBudgetNoAction.length > 0 && (
+                                    <div className="flex items-center gap-3 px-4 py-3 bg-purple-50 dark:bg-purple-900/10 border border-purple-200 dark:border-purple-800/30 rounded-xl text-sm">
+                                        <span className="material-symbols-outlined text-purple-600 text-[20px]">diamond</span>
+                                        <p className="font-bold text-purple-800 dark:text-purple-300">{highBudgetNoAction.length} high-value lead{highBudgetNoAction.length > 1 ? 's' : ''} (₹50k+) with no follow-up scheduled.</p>
+                                    </div>
                                 )}
                             </div>
                         );
