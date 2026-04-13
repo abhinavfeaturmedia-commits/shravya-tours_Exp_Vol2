@@ -744,36 +744,38 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       // 4. Update Booking State
-      setBookings(prev => prev.map(b => {
-        if (b.id === bookingId) {
-          const newTransactions = [...(b.transactions || []), tx];
-          const totalPaid = newTransactions.filter(t => t.type === 'Payment').reduce((sum, t) => sum + t.amount, 0);
-          const totalRefunded = newTransactions.filter(t => t.type === 'Refund').reduce((sum, t) => sum + t.amount, 0);
-          const netPaid = totalPaid - totalRefunded;
+      // Compute new status OUTSIDE setBookings so we can await the DB update
+      const currentBooking = bookings.find(b => b.id === bookingId);
+      if (currentBooking) {
+        const newTransactions = [...(currentBooking.transactions || []), tx];
+        const totalPaid = newTransactions.filter(t => t.type === 'Payment').reduce((sum, t) => sum + t.amount, 0);
+        const totalRefunded = newTransactions.filter(t => t.type === 'Refund').reduce((sum, t) => sum + t.amount, 0);
+        const netPaid = totalPaid - totalRefunded;
 
-          let newStatus: 'Paid' | 'Unpaid' | 'Deposit' | 'Refunded' = 'Unpaid';
-          if (netPaid >= b.amount && b.amount > 0) newStatus = 'Paid';
-          else if (netPaid > 0) newStatus = 'Deposit';
-          else if (netPaid < 0) newStatus = 'Refunded';
+        let newStatus: 'Paid' | 'Unpaid' | 'Deposit' | 'Refunded' = 'Unpaid';
+        if (netPaid >= currentBooking.amount && currentBooking.amount > 0) newStatus = 'Paid';
+        else if (netPaid > 0) newStatus = 'Deposit';
+        else if (netPaid < 0) newStatus = 'Refunded';
 
-          // Persist updated payment status to DB — show error toast if it fails
-          try {
-            await api.updateBooking(bookingId, { payment: newStatus });
-          } catch (dbErr: any) {
-            toast.error('Payment recorded locally but DB status update failed. Refresh may reset display.');
-          }
-
-          return { ...b, transactions: newTransactions, payment: newStatus };
+        // Persist updated payment status to DB — show error toast if it fails
+        try {
+          await api.updateBooking(bookingId, { payment: newStatus });
+        } catch (dbErr: any) {
+          toast.error('Payment recorded locally but DB status update failed. Refresh may reset display.');
         }
-        return b;
-      }));
+
+        // Now update local UI state synchronously
+        setBookings(prev => prev.map(b =>
+          b.id === bookingId ? { ...b, transactions: newTransactions, payment: newStatus } : b
+        ));
+      }
 
       logAction('Transaction', 'Finance', `Recorded ${tx.type} of amount ${tx.amount} for Booking ${bookingId}`);
       toast.success("Transaction recorded to ledger");
     } catch (e: any) {
       toast.error(e.message || "Failed to record transaction");
     }
-  }, [accounts]);
+  }, [accounts, bookings]);
 
   const deleteBookingTransaction = useCallback(async (bookingId: string, txId: string) => {
     try {
