@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useFinance, FinanceTransaction } from '../../src/hooks/useFinance';
 import { useAuth } from '../../context/AuthContext';
 import { Pagination, usePagination } from '../../components/ui/Pagination';
+import { ActionMenu } from '../../components/ui/ActionMenu';
 
 export const FinanceVerification: React.FC = () => {
     const { transactions, isLoading, updateTransactionStatus } = useFinance();
@@ -167,7 +168,8 @@ export const FinanceVerification: React.FC = () => {
                                                 </span>
                                             </td>
                                             <td className="px-6 py-4 text-right">
-                                                <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+<ActionMenu>
+
                                                     {hasPermission('finance', 'manage') && tx.status === 'Pending' && (
                                                         <>
                                                             <button 
@@ -199,8 +201,9 @@ export const FinanceVerification: React.FC = () => {
                                                     {hasPermission('finance', 'manage') && tx.status !== 'Pending' && (
                                                         <span className="text-xs text-slate-400 px-3">Processed</span>
                                                     )}
-                                                </div>
-                                            </td>
+                                                
+</ActionMenu>
+</td>
                                         </tr>
                                     ))
                                 ) : (

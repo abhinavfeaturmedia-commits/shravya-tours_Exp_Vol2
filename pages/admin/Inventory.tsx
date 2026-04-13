@@ -8,11 +8,20 @@ import { DailySlot, BookingType } from '../../types';
 
 
 export const Inventory: React.FC = () => {
-    const { inventory, updateInventory, packages, bookings, masterTransports } = useData();
+    const { inventory, updateInventory, packages, bookings, masterTransports, vendors, leads } = useData();
 
-    // Derived Assets
-    const carAssets = useMemo(() => masterTransports.filter(t => t.type !== 'Bus' && t.type !== 'Tempo Traveller'), [masterTransports]);
-    const busAssets = useMemo(() => masterTransports.filter(t => t.type === 'Bus' || t.type === 'Tempo Traveller'), [masterTransports]);
+    // Derived Assets from Masters and Vendors
+    const carAssets = useMemo(() => {
+        const fromMaster = masterTransports.filter(t => ['Sedan', 'SUV', 'Hatchback'].includes(t.type));
+        const fromVendors = vendors.filter(v => v.category === 'Transport' && (v.subCategory === 'Taxi/Cab' || !v.subCategory)).map(v => ({ id: v.id, name: v.name, type: 'Vendor Car' as any, capacity: 4, baseRate: 0, status: 'Active' as any }));
+        return [...fromMaster, ...fromVendors];
+    }, [masterTransports, vendors]);
+
+    const busAssets = useMemo(() => {
+        const fromMaster = masterTransports.filter(t => ['Bus', 'Tempo Traveller'].includes(t.type));
+        const fromVendors = vendors.filter(v => v.category === 'Transport' && v.subCategory === 'Bus').map(v => ({ id: v.id, name: v.name, type: 'Vendor Bus' as any, capacity: 40, baseRate: 0, status: 'Active' as any }));
+        return [...fromMaster, ...fromVendors];
+    }, [masterTransports, vendors]);
 
     // State
     const [inventoryType, setInventoryType] = useState<'Tour' | 'Car' | 'Bus'>('Tour');
@@ -50,7 +59,7 @@ export const Inventory: React.FC = () => {
 
         // 1. TOUR LOGIC (Dynamic Calculation + Manual Settings)
         if (inventoryType === 'Tour') {
-            const defaultSlot = { date: day, capacity: 20, booked: 0, price: 35000, isBlocked: false };
+            const defaultSlot = { date: day, capacity: 0, booked: 0, price: 35000, isBlocked: false };
             const slotSettings = inventory[day] || defaultSlot;
 
             // Calculate booked count from meaningful bookings
@@ -74,6 +83,7 @@ export const Inventory: React.FC = () => {
 
             return {
                 ...slotSettings,
+                capacity: 0, // Enforce unlimited (0) for Tours
                 booked: matchingBookings
             };
         }
@@ -183,10 +193,42 @@ export const Inventory: React.FC = () => {
 
     const getStatus = (slot: DailySlot) => {
         if (slot.isBlocked) return 'blocked';
-        if (slot.booked >= slot.capacity) return 'full';
-        if (slot.booked >= slot.capacity * 0.75) return 'filling';
+        if (slot.capacity > 0 && slot.booked >= slot.capacity) return 'full';
+        if (slot.capacity > 0 && slot.booked >= slot.capacity * 0.75) return 'filling';
         return 'avail';
     };
+
+    // Calculate advanced metrics for selected date
+    const getAdvancedMetrics = () => {
+        if (!selectedDate) return { pendingInquiries: 0, driversAssigned: 0, totalAssignedNeeded: 0 };
+        
+        const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(selectedDate).padStart(2, '0')}`;
+        
+        let pendingInquiries = 0;
+        if (leads && leads.length > 0) {
+            pendingInquiries = leads.filter(l => 
+                ['New', 'Warm', 'Hot', 'Offer Sent'].includes(l.status) &&
+                l.startDate?.startsWith(dateStr)
+            ).length;
+        }
+        
+        let driversAssigned = 0;
+        let totalAssignedNeeded = 0;
+        if (bookings && bookings.length > 0) {
+            let relevantBookings = [];
+            if (inventoryType === 'Tour') {
+                relevantBookings = bookings.filter(b => b.type === 'Tour' && b.packageId === selectedAssetId && b.date?.startsWith(dateStr));
+            } else {
+                const asset = inventoryType === 'Car' ? carAssets.find(c => c.id === selectedAssetId) : busAssets.find(b => b.id === selectedAssetId);
+                relevantBookings = bookings.filter(b => b.type === inventoryType && b.details && asset && b.details.includes(asset.name) && b.date?.startsWith(dateStr));
+            }
+            totalAssignedNeeded = relevantBookings.length;
+            driversAssigned = relevantBookings.filter(b => b.assignedTo).length;
+        }
+        
+        return { pendingInquiries, driversAssigned, totalAssignedNeeded };
+    };
+    const advancedMetrics = getAdvancedMetrics();
 
     return (
         <div className="flex h-full overflow-hidden relative admin-page-bg">
@@ -301,14 +343,17 @@ export const Inventory: React.FC = () => {
                                             <div className="space-y-1 md:space-y-1.5">
                                                 <div className="flex justify-between text-[10px] md:text-xs text-slate-600 dark:text-slate-400">
                                                     <span className="hidden md:inline">{inventoryType === 'Bus' ? 'Seats' : 'Units'}</span>
-                                                    <span className={`font-medium ml-auto ${status === 'full' ? 'text-red-600' : ''}`}>{slot.booked}/{slot.capacity}</span>
+                                                    <span className={`font-medium ml-auto ${status === 'full' ? 'text-red-600' : ''}`}>
+                                                        {slot.capacity > 0 ? `${slot.booked}/${slot.capacity}` : `${slot.booked} Booked`}
+                                                    </span>
                                                 </div>
-                                                <div className="h-1.5 md:h-2 w-full bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-                                                    <div className={`h-full rounded-full transition-all duration-500 ${status === 'full' ? 'bg-red-500' : status === 'filling' ? 'bg-yellow-500' : 'bg-green-500'}`} style={{ width: `${occupancyPct}%` }}></div>
-                                                </div>
+                                                {slot.capacity > 0 && (
+                                                    <div className="h-1.5 md:h-2 w-full bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                                                        <div className={`h-full rounded-full transition-all duration-500 ${status === 'full' ? 'bg-red-500' : status === 'filling' ? 'bg-yellow-500' : 'bg-green-500'}`} style={{ width: `${occupancyPct}%` }}></div>
+                                                    </div>
+                                                )}
                                                 <div className="flex justify-between items-center">
-                                                    <span className={`hidden md:inline text-[10px] px-1.5 py-0.5 rounded ${status === 'full' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>{status === 'full' ? 'Sold Out' : 'Available'}</span>
-                                                    <span className="text-[10px] text-slate-400 md:ml-0 ml-auto">₹{slot.price}</span>
+                                                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${status === 'full' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>{status === 'full' ? 'Sold Out' : 'Available'}</span>
                                                 </div>
                                             </div>
                                         )}
@@ -348,19 +393,25 @@ export const Inventory: React.FC = () => {
 
                             {/* Stats */}
                             <div className="grid grid-cols-2 gap-4">
-                                <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 flex flex-col items-center justify-center text-center">
-                                    <span className="text-3xl kpi-number text-slate-900 dark:text-white">{getSlot(selectedDate).capacity}</span>
-                                    <span className="text-xs font-medium text-slate-500 uppercase tracking-wide mt-1">Total Capacity</span>
+                                <div className="col-span-2 p-4 rounded-xl bg-blue-50 dark:bg-blue-900/10 flex flex-col items-center justify-center text-center border border-blue-100 dark:border-blue-900/20">
+                                    <span className="text-4xl kpi-number text-primary">{getSlot(selectedDate).booked}</span>
+                                    <span className="text-sm font-medium text-primary/80 uppercase tracking-wide mt-1">Total Confirmed Bookings</span>
                                 </div>
-                                <div className="p-4 rounded-xl bg-blue-50 dark:bg-blue-900/10 flex flex-col items-center justify-center text-center border border-blue-100 dark:border-blue-900/20">
-                                    <span className="text-3xl kpi-number text-primary">{getSlot(selectedDate).booked}</span>
-                                    <span className="text-xs font-medium text-primary/80 uppercase tracking-wide mt-1">Confirmed</span>
+                                <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-900/10 flex flex-col items-center justify-center text-center border border-amber-100 dark:border-amber-900/20">
+                                    <span className="text-3xl kpi-number text-amber-600">{advancedMetrics.pendingInquiries}</span>
+                                    <span className="text-xs font-medium text-amber-600/80 uppercase tracking-wide mt-1">Pending Inquiries</span>
+                                </div>
+                                <div className="p-4 rounded-xl bg-purple-50 dark:bg-purple-900/10 flex flex-col items-center justify-center text-center border border-purple-100 dark:border-purple-900/20">
+                                    <span className="text-3xl kpi-number text-purple-600">{advancedMetrics.driversAssigned}/{advancedMetrics.totalAssignedNeeded}</span>
+                                    <span className="text-xs font-medium text-purple-600/80 uppercase tracking-wide mt-1">Staffing Readiness</span>
                                 </div>
                             </div>
 
                             <div>
-                                <div className="flex justify-between items-center mb-2"><h3 className="text-sm font-semibold text-slate-900 dark:text-white">Occupancy Rate</h3><span className="text-sm font-bold text-slate-700 dark:text-slate-300">{Math.round((getSlot(selectedDate).booked / (getSlot(selectedDate).capacity || 1)) * 100)}%</span></div>
-                                <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-3 overflow-hidden"><div className="bg-primary h-3 rounded-full" style={{ width: `${(getSlot(selectedDate).booked / (getSlot(selectedDate).capacity || 1)) * 100}%` }}></div></div>
+                                <div className="flex justify-between items-center mb-2"><h3 className="text-sm font-semibold text-slate-900 dark:text-white">{getSlot(selectedDate).capacity > 0 ? 'Occupancy Rate' : 'Total Booked'}</h3><span className="text-sm font-bold text-slate-700 dark:text-slate-300">{getSlot(selectedDate).capacity > 0 ? `${Math.round((getSlot(selectedDate).booked / getSlot(selectedDate).capacity) * 100)}%` : getSlot(selectedDate).booked}</span></div>
+                                {getSlot(selectedDate).capacity > 0 && (
+                                    <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-3 overflow-hidden"><div className="bg-primary h-3 rounded-full" style={{ width: `${(getSlot(selectedDate).booked / getSlot(selectedDate).capacity) * 100}%` }}></div></div>
+                                )}
                             </div>
 
                             {/* Type specific notice */}
@@ -385,24 +436,6 @@ export const Inventory: React.FC = () => {
                                     <input type="checkbox" checked={editForm.isBlocked} onChange={e => setEditForm({ ...editForm, isBlocked: e.target.checked })} className="w-11 h-6 rounded-full text-primary focus:ring-primary/20 cursor-pointer" />
                                 </div>
 
-                                <div className="space-y-3">
-                                    <label className="block">
-                                        <span className="text-xs font-medium text-slate-700 dark:text-slate-300">Slot Capacity</span>
-                                        <div className="flex items-center mt-1">
-                                            <button type="button" onClick={() => setEditForm(p => ({ ...p, capacity: Math.max(0, p.capacity - 1) }))} className="p-2 bg-slate-100 dark:bg-slate-800 rounded-l-lg hover:bg-slate-200 dark:hover:bg-slate-700">
-                                                <span className="material-symbols-outlined text-[18px]">remove</span>
-                                            </button>
-                                            <input className="flex-1 text-center bg-slate-50 dark:bg-slate-900 border-y border-slate-200 dark:border-slate-700 py-2 text-sm font-medium focus:ring-0" type="number" value={editForm.capacity} onChange={e => setEditForm({ ...editForm, capacity: parseInt(e.target.value) || 0 })} />
-                                            <button type="button" onClick={() => setEditForm(p => ({ ...p, capacity: p.capacity + 1 }))} className="p-2 bg-slate-100 dark:bg-slate-800 rounded-r-lg hover:bg-slate-200 dark:hover:bg-slate-700">
-                                                <span className="material-symbols-outlined text-[18px]">add</span>
-                                            </button>
-                                        </div>
-                                    </label>
-                                    <label className="block">
-                                        <span className="text-xs font-medium text-slate-700 dark:text-slate-300">Price per slot (₹)</span>
-                                        <input className="w-full mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-primary focus:border-primary" type="number" value={editForm.price} onChange={e => setEditForm({ ...editForm, price: parseInt(e.target.value) || 0 })} />
-                                    </label>
-                                </div>
                                 <button onClick={handleUpdate} className="w-full py-3 bg-primary text-white text-sm font-bold rounded-lg shadow-sm hover:bg-primary/90 transition-colors mt-2">
                                     Update Availability
                                 </button>

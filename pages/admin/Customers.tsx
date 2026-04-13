@@ -8,6 +8,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { exportToExcel, ExportColumn } from '../../src/lib/exportUtils';
 import { DataImportModal, ColumnMapping } from '../../src/components/admin/DataImportModal';
+import { ActionMenu } from '../../components/ui/ActionMenu';
 
 // --- Sort & Filter Types ---
 type SortField = 'name' | 'totalSpent' | 'bookingsCount' | 'joinedDate' | 'lastActive';

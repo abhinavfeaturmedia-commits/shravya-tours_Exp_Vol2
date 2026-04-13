@@ -4,6 +4,8 @@ import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { toast } from 'sonner';
+import { SuggestPopup, isDismissed, isSnoozed, dismissSuggestion, snoozeSuggestion } from '../../components/ui/SuggestPopup';
+import { getPaymentDueBookings } from '../../src/hooks/useSuggestions';
 
 const NAV_GROUPS = [
   {
@@ -54,15 +56,21 @@ const NAV_GROUPS = [
 
 export const AdminLayout: React.FC = () => {
   const { currentUser, logout, isAuthenticated, isLoading, isMasquerading, stopMasquerading, realUser, hasPermission } = useAuth();
-  const { bookings, leads, followUps, updateFollowUp } = useData(); // Connect to real data
+  const { bookings, leads, followUps, updateFollowUp, packages, vendors } = useData(); // Connect to real data
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isFabOpen, setIsFabOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [commandSearch, setCommandSearch] = useState('');
   const [notifiedIds, setNotifiedIds] = useState<Set<string>>(new Set());
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
+  // Smart popup state
+  const [showMorningBriefing, setShowMorningBriefing] = useState(false);
+  const [paymentNudgeDismissed, setPaymentNudgeDismissed] = useState(false);
+  const [vendorAlertIdx, setVendorAlertIdx] = useState(0);
+  const [isUserIdle, setIsUserIdle] = useState(false);
+  const [sessionBookingsProcessed, setSessionBookingsProcessed] = useState(0);
+  const [showPositiveReinforcement, setShowPositiveReinforcement] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -96,6 +104,63 @@ export const AdminLayout: React.FC = () => {
     checkFollowUps();
     return () => clearInterval(timer);
   }, [isAuthenticated, followUps, notifiedIds, navigate]);
+
+  // Morning briefing — show once per day after login
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const today = new Date().toDateString();
+    const lastShown = localStorage.getItem('morning_briefing_last_shown');
+    if (lastShown !== today) {
+      // Slight delay so dashboard data has time to load
+      const t = setTimeout(() => setShowMorningBriefing(true), 1500);
+      return () => clearTimeout(t);
+    }
+  }, [isAuthenticated]);
+
+  // Vendor alert cycling
+  useEffect(() => {
+    const interval = setInterval(() => setVendorAlertIdx(i => i + 1), 15000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Idle detection — triggers after 20 minutes of no interaction
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let idleTimer: ReturnType<typeof setTimeout>;
+    const resetIdle = () => {
+      setIsUserIdle(false);
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => setIsUserIdle(true), 20 * 60 * 1000); // 20 minutes
+    };
+    const events = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
+    events.forEach(e => window.addEventListener(e, resetIdle, { passive: true }));
+    resetIdle(); // Start timer
+    return () => {
+      events.forEach(e => window.removeEventListener(e, resetIdle));
+      clearTimeout(idleTimer);
+    };
+  }, [isAuthenticated]);
+
+  // Track bookings processed this session for positive reinforcement
+  useEffect(() => {
+    const key = 'session_bookings_count';
+    const stored = parseInt(sessionStorage.getItem(key) || '0');
+    setSessionBookingsProcessed(stored);
+  }, [bookings.length]);
+
+  useEffect(() => {
+    const key = 'session_bookings_count';
+    const prev = parseInt(sessionStorage.getItem(key) || '0');
+    if (bookings.length > prev) {
+      const newCount = prev + (bookings.length - prev);
+      sessionStorage.setItem(key, String(newCount));
+      setSessionBookingsProcessed(newCount);
+      if (newCount > 0 && newCount % 5 === 0) {
+        setShowPositiveReinforcement(true);
+        setTimeout(() => setShowPositiveReinforcement(false), 8000);
+      }
+    }
+  }, [bookings.length]);
 
   // Route Protection: Redirect if not logged in (wait for auth to finish loading first)
   useEffect(() => {
@@ -554,10 +619,191 @@ export const AdminLayout: React.FC = () => {
           </div>
         </header>
 
+        {/* ── Payment Collection Nudge Banner ── */}
+        {(() => {
+          const dueBookings = getPaymentDueBookings(bookings, 15);
+          const nudgeId = 'payment-nudge-global';
+          if (dueBookings.length === 0 || isDismissed(nudgeId) || isSnoozed(nudgeId)) return null;
+          const first = dueBookings[0];
+          const daysLeft = Math.ceil((new Date(first.date).getTime() - Date.now()) / 86_400_000);
+          return (
+            <div className="px-6 pt-3">
+              <SuggestPopup
+                id={nudgeId}
+                variant="banner"
+                icon="payments"
+                color="red"
+                title={`${dueBookings.length} booking${dueBookings.length > 1 ? 's' : ''} with unpaid balance before departure!`}
+                description={`${first.customer}'s trip departs in ${daysLeft} day${daysLeft !== 1 ? 's' : ''} — collect ₹${(first.amount - (first.payment === 'Deposit' ? Math.round(first.amount * 0.3) : 0)).toLocaleString()} now.`}
+                primaryAction={{ label: 'View Bookings', icon: 'open_in_new', onClick: () => navigate('/admin/bookings?filter=unpaid') }}
+                snoozeMinutes={60 * 4}
+              />
+            </div>
+          );
+        })()}
+
+        {/* ── Dashboard Intelligence Banners (only shown on /admin dashboard) ── */}
+        {location.pathname === '/admin' && (() => {
+          // #8: Revenue drop — compare this month vs last month
+          const now = new Date();
+          const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+          const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().split('T')[0];
+          const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().split('T')[0];
+          const thisMonthRevenue = bookings.filter(b => b.date >= thisMonthStart && b.payment !== 'Refunded').reduce((s, b) => s + (b.amount || 0), 0);
+          const lastMonthRevenue = bookings.filter(b => b.date >= lastMonthStart && b.date <= lastMonthEnd && b.payment !== 'Refunded').reduce((s, b) => s + (b.amount || 0), 0);
+          const revenueDrop = lastMonthRevenue > 0 ? Math.round(((lastMonthRevenue - thisMonthRevenue) / lastMonthRevenue) * 100) : 0;
+
+          // #9: Zero new leads this week
+          const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString().split('T')[0];
+          const newLeadsThisWeek = leads.filter(l => (l.createdAt || '').split('T')[0] >= weekAgo).length;
+
+          // #10: Low conversion rate (<10% of leads converted)
+          const totalLeads = leads.length;
+          const convertedLeads = leads.filter(l => l.status === 'Converted').length;
+          const conversionRate = totalLeads > 0 ? Math.round((convertedLeads / totalLeads) * 100) : 0;
+
+          return (
+            <div className="px-6 pt-2 space-y-2">
+              {/* #8 Revenue Drop */}
+              {revenueDrop >= 15 && !isSnoozed('dashboard-revenue-drop') && !isDismissed('dashboard-revenue-drop') && (
+                <SuggestPopup
+                  id="dashboard-revenue-drop"
+                  variant="banner"
+                  icon="trending_down"
+                  color="red"
+                  title={`Revenue is ${revenueDrop}% below last month`}
+                  description="Consider launching a promotional offer or following up with warm leads to boost this month's numbers."
+                  primaryAction={{ label: 'View Analytics', icon: 'bar_chart', onClick: () => navigate('/admin/analytics') }}
+                  snoozeMinutes={60 * 24}
+                />
+              )}
+              {/* #9 Zero new leads this week */}
+              {newLeadsThisWeek === 0 && totalLeads > 0 && !isSnoozed('dashboard-no-leads-week') && !isDismissed('dashboard-no-leads-week') && (
+                <SuggestPopup
+                  id="dashboard-no-leads-week"
+                  variant="banner"
+                  icon="person_search"
+                  color="amber"
+                  title="No new leads this week!"
+                  description="Your pipeline is dry. Consider running a WhatsApp campaign or promoting a new package to generate inquiries."
+                  primaryAction={{ label: 'Go to Marketing', icon: 'campaign', onClick: () => navigate('/admin/marketing') }}
+                  snoozeMinutes={60 * 24 * 3}
+                />
+              )}
+              {/* #10 Low conversion rate */}
+              {totalLeads >= 10 && conversionRate < 10 && !isSnoozed('dashboard-low-conversion') && !isDismissed('dashboard-low-conversion') && (
+                <SuggestPopup
+                  id="dashboard-low-conversion"
+                  variant="banner"
+                  icon="funnel"
+                  color="purple"
+                  title={`Only ${conversionRate}% of leads are converting`}
+                  description="Review your proposal quality and follow-up frequency. Hot leads older than 3 days with no contact are likely going cold."
+                  primaryAction={{ label: 'View Leads', icon: 'groups', onClick: () => navigate('/admin/leads') }}
+                  snoozeMinutes={60 * 24 * 7}
+                />
+              )}
+            </div>
+          );
+        })()}
+
         {/* Scrollable Content Area */}
         <div className="flex-1 overflow-y-auto scroll-smooth">
           <Outlet />
         </div>
+
+        {/* ── Vendor Payment Due – Floating Alert (bottom-left) ── */}
+        {(() => {
+          // Gather supplier bookings with unpaid payment due within 7 days
+          // We use bookings.supplierBookings which may exist on some bookings
+          const vendorDue: Array<{ name: string; amount: number; daysLeft: number }> = [];
+          bookings.forEach(b => {
+            (b as any).supplierBookings?.forEach((sb: any) => {
+              if (sb.paymentStatus === 'Unpaid' && sb.paymentDueDate) {
+                const d = Math.ceil((new Date(sb.paymentDueDate).getTime() - Date.now()) / 86_400_000);
+                if (d >= 0 && d <= 7) vendorDue.push({ name: sb.vendorName || 'Vendor', amount: sb.totalCost || 0, daysLeft: d });
+              }
+            });
+          });
+          if (vendorDue.length === 0) return null;
+          const v = vendorDue[vendorAlertIdx % vendorDue.length];
+          const nudgeId = `vendor-due-${v.name}-${v.daysLeft}`;
+          if (isDismissed(nudgeId)) return null;
+          return (
+            <div className="fixed bottom-6 left-[300px] z-[49]">
+              <SuggestPopup
+                id={nudgeId}
+                variant="float"
+                icon="storefront"
+                color="amber"
+                title={`Vendor payment due in ${v.daysLeft} day${v.daysLeft !== 1 ? 's' : ''}!`}
+                description={`₹${v.amount.toLocaleString()} owed to ${v.name}. Pay before the deadline to avoid issues.`}
+                primaryAction={{ label: 'View Vendors', icon: 'open_in_new', onClick: () => navigate('/admin/vendors') }}
+                snoozeMinutes={60 * 24}
+                autoDismissMs={15000}
+              />
+            </div>
+          );
+        })()}
+
+        {/* ── #15: Overdue Backlog Warning (staff login) ── */}
+        {(() => {
+          if (!currentUser) return null;
+          const isStaff = currentUser.role === 'Staff';
+          const myOverdue = followUps.filter(f =>
+            f.status === 'Pending' &&
+            f.scheduledAt &&
+            new Date(f.scheduledAt) <= new Date()
+          ).length;
+          const nudgeId = `overdue-backlog-${currentUser.id}`;
+          if (myOverdue < 10 || isDismissed(nudgeId) || isSnoozed(nudgeId)) return null;
+          return (
+            <div className="fixed bottom-24 right-6 z-[48]">
+              <SuggestPopup
+                id={nudgeId}
+                variant="float"
+                icon="warning"
+                color="red"
+                title={`${myOverdue} overdue follow-ups!`}
+                description="Your backlog is growing. Clear overdue items before adding new leads to maintain quality."
+                primaryAction={{ label: 'View Follow-ups', icon: 'alarm', onClick: () => navigate('/admin/leads') }}
+                snoozeMinutes={60 * 4}
+              />
+            </div>
+          );
+        })()}
+
+        {/* ── #16: Idle Session Warning ── */}
+        {isUserIdle && !isSnoozed('idle-session-warning') && !isDismissed('idle-session-warning') && (
+          <div className="fixed bottom-6 left-[300px] z-[47]">
+            <SuggestPopup
+              id="idle-session-warning"
+              variant="float"
+              icon="timer"
+              color="amber"
+              title="Still working?"
+              description="You've been inactive for 20 minutes. Save any unsaved changes — your session may expire soon."
+              primaryAction={{ label: "I'm still here", icon: 'check', onClick: () => setIsUserIdle(false) }}
+              snoozeMinutes={30}
+              autoDismissMs={60000}
+            />
+          </div>
+        )}
+
+        {/* ── #17: Positive Reinforcement ── */}
+        {showPositiveReinforcement && (
+          <div className="fixed bottom-6 left-[300px] z-[46]">
+            <SuggestPopup
+              id={`positive-reinforcement-${sessionBookingsProcessed}`}
+              variant="float"
+              icon="celebration"
+              color="emerald"
+              title={`${sessionBookingsProcessed} bookings processed today! 🔥`}
+              description="You're on a roll! Great work keeping the pipeline moving. Keep it up!"
+              autoDismissMs={8000}
+            />
+          </div>
+        )}
 
         {/* Floating Action Button (FAB) */}
         <div className="fixed bottom-6 right-6 z-50">
@@ -589,6 +835,100 @@ export const AdminLayout: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* ── Morning Briefing Modal ── */}
+      {showMorningBriefing && (() => {
+        const overdueFollowUps = followUps.filter(f => f.status === 'Pending' && f.scheduledAt && new Date(f.scheduledAt) <= new Date()).length;
+        const todayDepartures = bookings.filter(b => b.date === new Date().toISOString().split('T')[0] && b.status === 'Confirmed').length;
+        const unpaidBookings = bookings.filter(b => b.payment === 'Unpaid').length;
+        const hotLeads = leads.filter(l => l.status === 'Hot').length;
+        return (
+          <div className="fixed inset-0 z-[220] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
+            <div className="relative w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 overflow-hidden animate-in zoom-in-95">
+              <div className="h-1.5 bg-gradient-to-r from-indigo-500 to-purple-600" />
+              <div className="p-6">
+                <div className="flex items-start justify-between mb-5">
+                  <div>
+                    <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">
+                      {new Date().getHours() < 12 ? 'Good morning' : new Date().getHours() < 18 ? 'Good afternoon' : 'Good evening'}
+                    </p>
+                    <h3 className="text-xl font-black text-slate-900 dark:text-white">{currentUser.name.split(' ')[0]}! Here's your day {new Date().getHours() < 18 ? '☀️' : '🌙'}</h3>
+                  </div>
+                  <button onClick={() => { setShowMorningBriefing(false); localStorage.setItem('morning_briefing_last_shown', new Date().toDateString()); }} className="size-8 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors">
+                    <span className="material-symbols-outlined text-[18px]">close</span>
+                  </button>
+                </div>
+                <div className="space-y-3 mb-6">
+                  {overdueFollowUps > 0 && (
+                    <div className="flex items-center gap-3 p-3 bg-red-50 dark:bg-red-900/10 rounded-xl border border-red-100 dark:border-red-800/30">
+                      <div className="size-9 rounded-lg bg-red-100 dark:bg-red-900/30 flex items-center justify-center text-red-600 dark:text-red-400 shrink-0">
+                        <span className="material-symbols-outlined text-[18px]">alarm</span>
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-slate-900 dark:text-white">{overdueFollowUps} overdue follow-up{overdueFollowUps > 1 ? 's' : ''}</p>
+                        <p className="text-xs text-slate-500">Need immediate attention</p>
+                      </div>
+                    </div>
+                  )}
+                  {todayDepartures > 0 && (
+                    <div className="flex items-center gap-3 p-3 bg-blue-50 dark:bg-blue-900/10 rounded-xl border border-blue-100 dark:border-blue-800/30">
+                      <div className="size-9 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400 shrink-0">
+                        <span className="material-symbols-outlined text-[18px]">flight_takeoff</span>
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-slate-900 dark:text-white">{todayDepartures} booking{todayDepartures > 1 ? 's' : ''} departing today</p>
+                        <p className="text-xs text-slate-500">Check itineraries are shared</p>
+                      </div>
+                    </div>
+                  )}
+                  {unpaidBookings > 0 && (
+                    <div className="flex items-center gap-3 p-3 bg-amber-50 dark:bg-amber-900/10 rounded-xl border border-amber-100 dark:border-amber-800/30">
+                      <div className="size-9 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center text-amber-600 dark:text-amber-400 shrink-0">
+                        <span className="material-symbols-outlined text-[18px]">payments</span>
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-slate-900 dark:text-white">{unpaidBookings} unpaid booking{unpaidBookings > 1 ? 's' : ''}</p>
+                        <p className="text-xs text-slate-500">Collect payment before departure</p>
+                      </div>
+                    </div>
+                  )}
+                  {hotLeads > 0 && (
+                    <div className="flex items-center gap-3 p-3 bg-purple-50 dark:bg-purple-900/10 rounded-xl border border-purple-100 dark:border-purple-800/30">
+                      <div className="size-9 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center text-purple-600 dark:text-purple-400 shrink-0">
+                        <span className="material-symbols-outlined text-[18px]">local_fire_department</span>
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-slate-900 dark:text-white">{hotLeads} hot lead{hotLeads > 1 ? 's' : ''} need a proposal</p>
+                        <p className="text-xs text-slate-500">Strike while the iron is hot!</p>
+                      </div>
+                    </div>
+                  )}
+                  {overdueFollowUps === 0 && todayDepartures === 0 && unpaidBookings === 0 && hotLeads === 0 && (
+                    <div className="flex items-center gap-3 p-4 bg-emerald-50 dark:bg-emerald-900/10 rounded-xl border border-emerald-100 dark:border-emerald-800/30">
+                      <span className="material-symbols-outlined text-emerald-500 text-[28px]">check_circle</span>
+                      <p className="text-sm font-bold text-slate-900 dark:text-white">All clear! No urgent items today. Great work!</p>
+                    </div>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { navigate('/admin/leads'); setShowMorningBriefing(false); localStorage.setItem('morning_briefing_last_shown', new Date().toDateString()); }}
+                    className="flex-1 py-3 text-sm font-bold text-white rounded-2xl bg-gradient-to-r from-indigo-500 to-purple-600 shadow-lg hover:opacity-90 transition-opacity"
+                  >
+                    Start with Leads →
+                  </button>
+                  <button
+                    onClick={() => { setShowMorningBriefing(false); localStorage.setItem('morning_briefing_last_shown', new Date().toDateString()); }}
+                    className="px-4 py-3 text-sm font-bold text-slate-500 dark:text-slate-400 rounded-2xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Command Palette Modal */}
       {isCommandPaletteOpen && (

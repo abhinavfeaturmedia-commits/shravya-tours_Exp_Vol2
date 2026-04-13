@@ -727,11 +727,15 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await api.createAccountTransaction(targetAccount.id, accTx);
 
         // 3. Update Account State
-        setAccounts(prevAccounts => prevAccounts.map((acc, index) => {
-          if (index === 0) {
+        const newBalance = isCredit ? targetAccount.currentBalance + tx.amount : targetAccount.currentBalance - tx.amount;
+        
+        await api.updateAccount(targetAccount.id, { currentBalance: newBalance });
+
+        setAccounts(prevAccounts => prevAccounts.map(acc => {
+          if (acc.id === targetAccount.id) {
             return {
               ...acc,
-              currentBalance: isCredit ? acc.currentBalance + tx.amount : acc.currentBalance - tx.amount,
+              currentBalance: newBalance,
               transactions: [accTx, ...(acc.transactions || [])]
             };
           }
@@ -766,35 +770,35 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [accounts]);
 
-  const deleteBookingTransaction = useCallback((bookingId: string, txId: string) => {
-    // We need to know the deleted tx details to reverse it in accounts
-    // But safely accessing state here is tricky if we rely on 'bookings' state which might be stale in closure?
-    // Actually, 'setBookings' callback gives fresh state. But 'setAccounts' is separate.
-    // To do this correctly without complex thunks, we'll assume we can't easily reverse the Account side 
-    // without fetching the specific transaction first.
-    // For now, simpler approach: We will NOT auto-delete from Ledger to avoid desync if logic fails.
-    // Or, we find it inside the functional update.
+  const deleteBookingTransaction = useCallback(async (bookingId: string, txId: string) => {
+    try {
+      await api.deleteBookingTransaction(txId);
+      
+      setBookings(prev => {
+        const updated = prev.map(b => {
+          if (b.id === bookingId) {
+            const newTransactions = (b.transactions || []).filter(t => t.id !== txId);
+            const totalPaid = newTransactions.filter(t => t.type === 'Payment').reduce((sum, t) => sum + t.amount, 0);
+            const totalRefunded = newTransactions.filter(t => t.type === 'Refund').reduce((sum, t) => sum + t.amount, 0);
+            const netPaid = totalPaid - totalRefunded;
 
-    // Changing approach: Only update Booking side, but warn User or Log it.
-    // Strict accounting usually forbids 'deleting' transactions, only 'reversing' them with a new transaction.
-    // So we will just update the Booking UI state here.
+            let newStatus: 'Paid' | 'Unpaid' | 'Deposit' | 'Refunded' = 'Unpaid';
+            if (netPaid >= b.amount && b.amount > 0) newStatus = 'Paid';
+            else if (netPaid > 0) newStatus = 'Deposit';
+            else if (netPaid < 0) newStatus = 'Refunded';
 
-    setBookings(prev => prev.map(b => {
-      if (b.id === bookingId) {
-        const newTransactions = (b.transactions || []).filter(t => t.id !== txId);
-        const totalPaid = newTransactions.filter(t => t.type === 'Payment').reduce((sum, t) => sum + t.amount, 0);
-        const totalRefunded = newTransactions.filter(t => t.type === 'Refund').reduce((sum, t) => sum + t.amount, 0);
-        const netPaid = totalPaid - totalRefunded;
+            api.updateBooking(bookingId, { payment: newStatus }).catch(console.error);
 
-        let newStatus: 'Paid' | 'Unpaid' | 'Deposit' | 'Refunded' = 'Unpaid';
-        if (netPaid >= b.amount) newStatus = 'Paid';
-        else if (netPaid > 0) newStatus = 'Deposit';
-        else if (netPaid < 0) newStatus = 'Refunded';
-
-        return { ...b, transactions: newTransactions, payment: newStatus };
-      }
-      return b;
-    }));
+            return { ...b, transactions: newTransactions, payment: newStatus };
+          }
+          return b;
+        });
+        return updated;
+      });
+      toast.success("Transaction deleted successfully");
+    } catch (e: any) {
+      toast.error(e.message || "Failed to delete transaction");
+    }
   }, []);
 
   // Supplier Booking Handlers
@@ -1021,10 +1025,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     
     setVendors(prev => prev.map(v => {
       if (v.id === vendorId) {
+        const pureManualTransactions = (v.transactions || []).filter(tx => !tx.id || (!tx.id.includes('-cost') && !tx.id.includes('-paid')));
         return {
           ...v,
           balanceDue: v.balanceDue - amount,
-          transactions: [transaction, ...(v.transactions || [])]
+          transactions: [transaction, ...pureManualTransactions]
         };
       }
       return v;
@@ -1033,17 +1038,48 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const vendor = vendors.find(v => v.id === vendorId);
       if (vendor) {
+        const pureManualTransactions = (vendor.transactions || []).filter(tx => !tx.id || (!tx.id.includes('-cost') && !tx.id.includes('-paid')));
         await api.updateVendor(vendorId, {
-          balanceDue: vendor.balanceDue - amount,
-          transactions: [transaction, ...(vendor.transactions || [])]
+          transactions: [transaction, ...pureManualTransactions],
+          balanceDue: vendor.balanceDue - amount
         });
+
+        // ─── ADD TO SECURE LEDGER (Main Office Account) ───
+        const targetAccount = accounts.find(a => a.name === 'Main Office') || accounts[0];
+        if (targetAccount) {
+          const accTx: AccountTransaction = {
+            id: `TX-${Date.now()}-V${vendorId}`,
+            date: new Date().toISOString().split('T')[0],
+            type: 'Debit',
+            amount: amount,
+            description: `Vendor Payout: ${vendor.name}`,
+            reference: reference || `VP-${vendorId}`
+          };
+          
+          const newBalance = targetAccount.currentBalance - amount;
+          
+          await api.createAccountTransaction(targetAccount.id, accTx);
+          await api.updateAccount(targetAccount.id, { currentBalance: newBalance });
+
+          setAccounts(prevAccounts => prevAccounts.map(acc => {
+            if (acc.id === targetAccount.id) {
+              return {
+                ...acc,
+                currentBalance: newBalance,
+                transactions: [accTx, ...(acc.transactions || [])]
+              };
+            }
+            return acc;
+          }));
+        }
+
         logAction('Update', 'Vendors', `Processed payment for Vendor: ${vendor.name}`);
         toast.success("Payment recorded");
       }
     } catch (e: any) {
       toast.error(e.message || "Failed to record vendor payment");
     }
-  }, [vendors, logAction]);
+  }, [vendors, accounts, logAction]);
 
   const addVendorDocument = useCallback(() => { }, []);
   const deleteVendorDocument = useCallback(() => { }, []);

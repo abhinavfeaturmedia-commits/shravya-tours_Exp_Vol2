@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
+import { api } from '../src/lib/api';
+import { toast } from 'sonner';
 
 export const AdminDashboard: React.FC = () => {
     const navigate = useNavigate();
@@ -13,7 +15,43 @@ export const AdminDashboard: React.FC = () => {
     const [greeting, setGreeting] = useState('');
     const [selectedYear, setSelectedYear] = useState('This Year');
     const [salesTimeFilter, setSalesTimeFilter] = useState<'7' | '14' | '30'>('7');
+    const [deletionRequests, setDeletionRequests] = useState<any[]>([]);
+    const [isProcessingDel, setIsProcessingDel] = useState<string | null>(null);
     const today = new Date().toISOString().split('T')[0];
+
+    useEffect(() => {
+        if (currentUser?.userType === 'Admin') {
+            api.getDeletionRequests().then(data => {
+                setDeletionRequests((data || []).filter((req: any) => req.status === 'pending'));
+            }).catch(console.error);
+        }
+    }, [currentUser]);
+
+    const handleApproveDeletion = async (id: string) => {
+        setIsProcessingDel(id);
+        try {
+            await api.approveDeletionRequest(id);
+            setDeletionRequests(prev => prev.filter(req => req.id !== id));
+            toast.success('Deletion request approved and item hard-deleted');
+        } catch (error: any) {
+            toast.error(error.message || 'Failed to approve');
+        } finally {
+            setIsProcessingDel(null);
+        }
+    };
+
+    const handleRejectDeletion = async (id: string) => {
+        setIsProcessingDel(id);
+        try {
+            await api.rejectDeletionRequest(id);
+            setDeletionRequests(prev => prev.filter(req => req.id !== id));
+            toast.success('Deletion request rejected');
+        } catch (error: any) {
+            toast.error(error.message || 'Failed to reject');
+        } finally {
+            setIsProcessingDel(null);
+        }
+    };
 
     // --- RBAC Scoping ---
     const isRestricted = currentUser?.queryScope === 'Show Assigned Query Only';
@@ -685,6 +723,61 @@ export const AdminDashboard: React.FC = () => {
 
                 {/* 4. Right Sidebar (Widgets) */}
                 <div className="flex flex-col gap-8">
+
+                    {/* Pending Deletion Requests (Admin Only) */}
+                    {currentUser?.userType === 'Admin' && deletionRequests.length > 0 && (
+                        <div className="bg-gradient-to-br from-orange-50 to-rose-50 dark:from-orange-950/20 dark:to-rose-950/20 p-8 rounded-[2.5rem] border border-orange-100 dark:border-rose-900/30 shadow-sm relative overflow-hidden">
+                            <div className="absolute top-0 right-0 p-6 opacity-10 pointer-events-none">
+                                <span className="material-symbols-outlined text-8xl text-orange-600">delete_sweep</span>
+                            </div>
+                            <div className="relative z-10 flex items-center justify-between mb-6">
+                                <div>
+                                    <h3 className="font-bold text-lg text-orange-900 dark:text-orange-400 flex items-center gap-2">
+                                        <span className="material-symbols-outlined text-orange-600">admin_panel_settings</span>
+                                        Pending Deletions
+                                    </h3>
+                                    <p className="text-xs text-orange-700/70 dark:text-orange-300/50 mt-1 font-medium">Require Admin Approval</p>
+                                </div>
+                                <span className="size-8 rounded-full bg-orange-200 text-orange-700 dark:bg-orange-900/50 dark:text-orange-400 font-black flex items-center justify-center shadow-inner">
+                                    {deletionRequests.length}
+                                </span>
+                            </div>
+
+                            <div className="relative z-10 space-y-3 max-h-[350px] overflow-y-auto pr-2 custom-scrollbar">
+                                {deletionRequests.map((req) => (
+                                    <div key={req.id} className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-orange-100 dark:border-orange-900/20 shadow-sm flex flex-col gap-3">
+                                        <div>
+                                            <div className="flex items-center justify-between">
+                                                <h4 className="text-sm font-bold text-slate-900 dark:text-white truncate">{req.record_name}</h4>
+                                                <span className="text-[10px] font-black uppercase text-orange-600 bg-orange-100 dark:bg-orange-900/30 px-2 py-0.5 rounded-full">{req.table_name}</span>
+                                            </div>
+                                            <p className="text-xs text-slate-500 mt-1">Requested by: <span className="font-bold text-slate-700 dark:text-slate-300">{req.requested_by}</span></p>
+                                            <div className="mt-2 text-xs bg-slate-50 dark:bg-slate-800/50 p-2 rounded-lg text-slate-600 dark:text-slate-400 border border-slate-100 dark:border-slate-800">
+                                                <span className="font-bold">Reason:</span> {req.reason}
+                                            </div>
+                                        </div>
+                                        
+                                        <div className="flex gap-2 mt-1">
+                                            <button 
+                                                onClick={() => handleRejectDeletion(req.id)}
+                                                disabled={isProcessingDel === req.id}
+                                                className="flex-1 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors disabled:opacity-50"
+                                            >
+                                                Reject
+                                            </button>
+                                            <button 
+                                                onClick={() => handleApproveDeletion(req.id)}
+                                                disabled={isProcessingDel === req.id}
+                                                className="flex-1 py-1.5 rounded-xl bg-orange-500 text-white text-xs font-bold hover:bg-orange-600 transition-colors shadow-md shadow-orange-500/20 disabled:opacity-50 flex justify-center items-center"
+                                            >
+                                                {isProcessingDel === req.id ? 'Processing...' : 'Approve Delete'}
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
 
                     {/* Sales by User Leaderboard */}
                     <div className="bg-white dark:bg-[#151d29] p-8 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-sm">

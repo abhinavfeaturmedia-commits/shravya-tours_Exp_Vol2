@@ -35,10 +35,10 @@ const crud = {
         const qs = params.toString();
         return fetchApi(`/api/crud/${table}${qs ? `?${qs}` : ''}`);
     },
-    getOne: (table: string, id: string | number) => fetchApi(`/api/crud/${table}/${id}`),
+    getOne: (table: string, id: string | number) => fetchApi(`/api/crud/${table}/${encodeURIComponent(String(id))}`),
     create: (table: string, body: any) => fetchApi(`/api/crud/${table}`, { method: 'POST', body: JSON.stringify(body) }),
-    update: (table: string, id: string | number, body: any) => fetchApi(`/api/crud/${table}/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
-    remove: (table: string, id: string | number) => fetchApi(`/api/crud/${table}/${id}`, { method: 'DELETE' }),
+    update: (table: string, id: string | number, body: any) => fetchApi(`/api/crud/${table}/${encodeURIComponent(String(id))}`, { method: 'PUT', body: JSON.stringify(body) }),
+    remove: (table: string, id: string | number) => fetchApi(`/api/crud/${table}/${encodeURIComponent(String(id))}`, { method: 'DELETE' }),
     upsert: (table: string, body: any) => fetchApi(`/api/crud/${table}/upsert`, { method: 'POST', body: JSON.stringify(body) }),
 };
 
@@ -248,6 +248,10 @@ export const api = {
         });
     },
 
+    deleteBookingTransaction: async (id: string) => {
+        await crud.remove('booking_transactions', id);
+    },
+
     updateAccountTransactionStatus: async (txId: string, status: string) => {
         await crud.update('account_transactions', txId, { status });
     },
@@ -317,6 +321,7 @@ export const api = {
                 customer: row.customer_name,
                 email: row.customer_email || row.email,
                 phone: row.customer_phone || row.phone,
+                assignedTo: row.assigned_to ? Number(row.assigned_to) : undefined,
                 title: row.title || row.package_title || 'Unknown Package',
                 date: formattedDate,
                 endDate: formattedEndDate || formattedDate,
@@ -380,7 +385,8 @@ export const api = {
             number_of_people: booking.guests ? parseInt(booking.guests.split(' ')[0]) || 1 : 1, // Extract count from "2 Adults" etc.
             status: booking.status === 'Confirmed' ? 'confirmed' : 'pending',
             payment_status: booking.payment === 'Paid' ? 'paid' : 'pending', // Enums: pending, paid, failed, refunded
-            notes: booking.details || ''
+            notes: booking.details || '',
+            assigned_to: booking.assignedTo || null
         };
 
         if (booking.packageId) dbBooking.package_id = booking.packageId;
@@ -411,6 +417,9 @@ export const api = {
         }
         if (updates.details !== undefined) {
             dbUpdates.notes = updates.details;
+        }
+        if (updates.assignedTo !== undefined) {
+            dbUpdates.assigned_to = updates.assignedTo || null;
         }
         if (updates.guests !== undefined) {
             dbUpdates.number_of_people = updates.guests ? parseInt(updates.guests.split(' ')[0]) || 1 : 1;
@@ -1473,5 +1482,23 @@ export const api = {
         const { url } = await res.json();
         // Always return relative URL - works in dev (Vite proxy) and production (Express static)
         return url.startsWith('/') ? url : `/${url}`;
+    },
+
+    // ─── DELETION REQUESTS ───
+    requestDeletion: async (tableName: string, recordId: string, recordName: string, reason: string) => {
+        return fetchApi('/api/deletion-requests', {
+            method: 'POST',
+            body: JSON.stringify({ table_name: tableName, record_id: recordId, record_name: recordName, reason })
+        });
+    },
+    getDeletionRequests: async () => {
+        const { data } = await fetchApi('/api/deletion-requests');
+        return data;
+    },
+    approveDeletionRequest: async (id: string) => {
+        return fetchApi(`/api/deletion-requests/${id}/approve`, { method: 'POST' });
+    },
+    rejectDeletionRequest: async (id: string) => {
+        return fetchApi(`/api/deletion-requests/${id}/reject`, { method: 'POST' });
     }
 };

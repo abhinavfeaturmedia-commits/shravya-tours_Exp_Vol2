@@ -299,17 +299,31 @@ app.get('/api/crud/:table', optionalAuthMiddleware, validateTable, async (req, r
         const params = [];
 
         // Build WHERE clauses from eq_ prefixed query params
+        const whereClauses = [];
+        
+        // --- RBAC Scoping (Sync with MySQL) ---
+        if (req.user && req.user.role !== 'admin') {
+            const staffId = req.user.staffId;
+            const myDataTables = ['leads', 'bookings', 'follow_ups', 'tasks'];
+            if (myDataTables.includes(table) && staffId) {
+                whereClauses.push(`\`assignedTo\` = ?`);
+                params.push(staffId);
+            }
+        }
+
         const eqFilters = Object.entries(req.query).filter(([k]) => k.startsWith('eq_'));
         if (eqFilters.length > 0) {
-            const whereClauses = eqFilters.map(([key, val]) => {
+            eqFilters.forEach(([key, val]) => {
                 const col = key.replace('eq_', '');
-                if (!isValidColumn(col)) return null;
-                params.push(val);
-                return `\`${col}\` = ?`;
-            }).filter(Boolean);
-            if (whereClauses.length > 0) {
-                query += ' WHERE ' + whereClauses.join(' AND ');
-            }
+                if (isValidColumn(col)) {
+                    whereClauses.push(`\`${col}\` = ?`);
+                    params.push(val);
+                }
+            });
+        }
+
+        if (whereClauses.length > 0) {
+            query += ' WHERE ' + whereClauses.join(' AND ');
         }
 
         if (order) {
@@ -407,8 +421,14 @@ app.put('/api/crud/:table/:id', authMiddleware, validateTable, writeGuard, async
 });
 
 // DELETE - Delete row by ID
-app.delete('/api/crud/:table/:id', authMiddleware, validateTable, writeGuard, async (req, res) => {
+app.delete('/api/crud/:table/:id', authMiddleware, validateTable, async (req, res) => {
     const { table, id } = req.params;
+    
+    // Strict backend safeguard: ONLY admins can ever execute hard deletes natively
+    if (req.user?.role !== 'admin') {
+        return res.status(403).json({ error: 'Unauthorized: Only Administrators can permanently delete data.' });
+    }
+
     try {
         await pool.query(`DELETE FROM \`${table}\` WHERE id = ?`, [id]);
 
@@ -419,6 +439,84 @@ app.delete('/api/crud/:table/:id', authMiddleware, validateTable, writeGuard, as
     } catch (error) {
         console.error(`DELETE /${table}/${id} error:`, error);
         res.status(500).json({ error: `Failed to delete from ${table}` });
+    }
+});
+
+// ═══════════════════════════════════════════
+// DELETION REQUESTS WORKFLOW
+// ═══════════════════════════════════════════
+
+// Get all pending deletion requests (Admin only)
+app.get('/api/deletion-requests', authMiddleware, async (req, res) => {
+    if (req.user?.role !== 'admin') return res.status(403).json({ error: 'Unauthorized' });
+    try {
+        const [rows] = await pool.query('SELECT * FROM deletion_requests ORDER BY created_at DESC');
+        res.json({ data: rows });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch deletion requests' });
+    }
+});
+
+// Create a new deletion request (Staff)
+app.post('/api/deletion-requests', authMiddleware, async (req, res) => {
+    const { table_name, record_id, record_name, reason } = req.body;
+    try {
+        const id = crypto.randomUUID();
+        await pool.query(
+            'INSERT INTO deletion_requests (id, table_name, record_id, record_name, requested_by, reason, status) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [id, table_name, record_id, record_name || 'Unknown', req.user?.email, reason || 'No reason provided', 'pending']
+        );
+        res.status(201).json({ status: 'success', id });
+    } catch (error) {
+        console.error('Create deletion request error:', error);
+        res.status(500).json({ error: 'Failed to create deletion request' });
+    }
+});
+
+// Approve a deletion request (Admin)
+app.post('/api/deletion-requests/:id/approve', authMiddleware, async (req, res) => {
+    if (req.user?.role !== 'admin') return res.status(403).json({ error: 'Unauthorized' });
+    const { id } = req.params;
+    
+    try {
+        const [reqs] = await pool.query('SELECT * FROM deletion_requests WHERE id = ?', [id]);
+        if (!reqs.length) return res.status(404).json({ error: 'Request not found' });
+        
+        const request = reqs[0];
+        if (request.status !== 'pending') return res.status(400).json({ error: 'Already processed' });
+
+        // Validate table to prevent injection
+        if (!ALLOWED_TABLES.has(request.table_name)) {
+            return res.status(400).json({ error: 'Invalid table requested' });
+        }
+
+        // 1. Perform actual hard delete
+        await pool.query(`DELETE FROM \`${request.table_name}\` WHERE id = ?`, [request.record_id]);
+        
+        // 2. Mark request as approved
+        await pool.query('UPDATE deletion_requests SET status = "approved" WHERE id = ?', [id]);
+        
+        // 3. Audit log
+        auditLog('Delete Approved', request.table_name, `Approved deletion of ${request.record_id} requested by ${request.requested_by}`, req.user?.email);
+
+        res.json({ status: 'success' });
+    } catch (error) {
+        console.error('Approve deletion error:', error);
+        res.status(500).json({ error: 'Failed to approve deletion' });
+    }
+});
+
+// Reject a deletion request (Admin)
+app.post('/api/deletion-requests/:id/reject', authMiddleware, async (req, res) => {
+    if (req.user?.role !== 'admin') return res.status(403).json({ error: 'Unauthorized' });
+    const { id } = req.params;
+    
+    try {
+        await pool.query('UPDATE deletion_requests SET status = "rejected" WHERE id = ?', [id]);
+        res.json({ status: 'success' });
+    } catch (error) {
+        console.error('Reject deletion error:', error);
+        res.status(500).json({ error: 'Failed to reject deletion' });
     }
 });
 
@@ -574,11 +672,36 @@ app.get('/api/vendors-with-stats', authMiddleware, async (req, res) => {
 
         const result = vendors.map(v => {
             const stats = statsByVendor[v.id] || { totalCost: 0, totalPaid: 0 };
+            
+            let manualTransactions = [];
+            try {
+                if (v.transactions && typeof v.transactions === 'string') {
+                    manualTransactions = JSON.parse(v.transactions);
+                } else if (Array.isArray(v.transactions)) {
+                    manualTransactions = v.transactions;
+                }
+            } catch(e) {}
+            if (!Array.isArray(manualTransactions)) manualTransactions = [];
+
+            const pureManualTransactions = manualTransactions.filter(tx => !tx.id || (!tx.id.includes('-cost') && !tx.id.includes('-paid')));
+
+            let manualPaid = 0;
+            pureManualTransactions.forEach(tx => {
+                const amount = Number(tx.amount) || 0;
+                if (tx.type === 'Debit') manualPaid += amount;
+                else if (tx.type === 'Credit') manualPaid -= amount;
+            });
+            
+            const combinedLedger = [
+                ...pureManualTransactions,
+                ...(ledgerByVendor[v.id] || [])
+            ].sort((a,b) => new Date(b.date) - new Date(a.date));
+
             return {
                 ...v,
                 total_sales: stats.totalCost,
-                balance_due: stats.totalCost - stats.totalPaid,
-                ledger_entries: ledgerByVendor[v.id] || []
+                balance_due: stats.totalCost - (stats.totalPaid + manualPaid),
+                ledger_entries: combinedLedger
             };
         });
 

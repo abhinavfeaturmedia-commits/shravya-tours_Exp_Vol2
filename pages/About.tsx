@@ -126,6 +126,35 @@ export const About: React.FC = () => {
                         </div>
                     </div>
 
+                    {/* Team Section */}
+                    <div className="mt-24 mb-10">
+                        <div className="text-center mb-12">
+                            <span className="inline-block py-1 px-3 rounded-full bg-primary/10 text-primary font-bold text-sm tracking-wide uppercase mb-4">Our People</span>
+                            <h2 className="text-3xl md:text-4xl font-black text-slate-900 dark:text-white">Meet Our Team</h2>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                            {[
+                                { role: 'Founder Director', name: 'Manali', icon: 'stars' },
+                                { role: 'Managing Director', name: 'Rohit', icon: 'manage_accounts' },
+                                { role: 'Finance Head', name: 'Akshay', icon: 'account_balance' },
+                                { role: 'Sales Head', name: 'Sayali', icon: 'point_of_sale' },
+                                { role: 'Operations Head', name: 'Ajinkya', icon: 'engineering' },
+                                { role: 'Customer Care Head', name: 'Manali', icon: 'support_agent' },
+                                { role: 'IT & Marketing Head', name: 'Abhinav', icon: 'campaign' },
+                                { role: 'Fleet Manager', name: 'Dipak', icon: 'directions_car' },
+                                { role: 'Sales Executive', name: 'Vacant', icon: 'person_add' },
+                            ].map((member, i) => (
+                                <div key={i} className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 text-center hover:shadow-md transition-shadow">
+                                    <div className="size-16 mx-auto bg-slate-50 dark:bg-slate-900 rounded-full flex items-center justify-center text-slate-400 mb-4 border border-slate-100 dark:border-slate-800">
+                                        <span className="material-symbols-outlined text-2xl">{member.icon}</span>
+                                    </div>
+                                    <h3 className="text-lg font-black text-slate-900 dark:text-white mb-1">{member.name}</h3>
+                                    <p className="text-sm font-bold tracking-wide text-primary uppercase">{member.role}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
                 </div>
             </div>
         </>

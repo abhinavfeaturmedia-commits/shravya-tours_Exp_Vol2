@@ -1,6 +1,7 @@
-import React from 'react';
-import { Link, useLocation, Navigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { Link, useLocation, Navigate, useNavigate } from 'react-router-dom';
 import { SEO } from '../components/ui/SEO';
+import { SuggestPopup, isDismissed, isSnoozed } from '../components/ui/SuggestPopup';
 
 interface BookingConfirmationState {
     referenceId: string;
@@ -15,7 +16,16 @@ interface BookingConfirmationState {
 
 export const BookingConfirmation: React.FC = () => {
     const location = useLocation();
+    const navigate = useNavigate();
     const state = location.state as BookingConfirmationState | null;
+
+    // Cross-sell popup: show after 4 seconds
+    const [showCrossSell, setShowCrossSell] = useState(false);
+    useEffect(() => {
+        if (!state) return;
+        const t = setTimeout(() => setShowCrossSell(true), 4000);
+        return () => clearTimeout(t);
+    }, []);
 
     // If user navigates directly without booking, redirect to home
     if (!state) {
@@ -167,6 +177,29 @@ export const BookingConfirmation: React.FC = () => {
 
                 </div>
             </div>
+
+            {/* ── Cross-Sell Float ── */}
+            {showCrossSell && (
+                <SuggestPopup
+                    id={`post-booking-crosssell-${referenceId}`}
+                    variant="float"
+                    icon="travel_explore"
+                    color="purple"
+                    title="While you wait — explore more destinations!"
+                    description="Customers who booked this trip also loved our Coorg and Ooty packages."
+                    primaryAction={{
+                        label: 'Explore Packages',
+                        icon: 'map',
+                        onClick: () => navigate('/packages')
+                    }}
+                    secondaryAction={{
+                        label: 'No thanks',
+                        onClick: () => setShowCrossSell(false)
+                    }}
+                    onDismiss={() => setShowCrossSell(false)}
+                />
+            )}
         </>
     );
 };
+

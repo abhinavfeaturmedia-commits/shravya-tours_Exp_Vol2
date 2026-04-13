@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { parseInvoice } from '../../src/lib/gemini';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { ActionMenu } from '../../components/ui/ActionMenu';
 
 export const Accounts: React.FC = () => {
     const { accounts, addAccount, updateAccount, deleteAccount, addAccountTransaction, updateAccountTxStatus, bookings } = useData();

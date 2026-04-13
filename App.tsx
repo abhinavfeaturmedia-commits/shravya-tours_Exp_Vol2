@@ -19,6 +19,7 @@ const BookingConfirmation = lazy(() => import('./pages/BookingConfirmation').the
 const Terms = lazy(() => import('./pages/Terms').then(module => ({ default: module.Terms })));
 const Privacy = lazy(() => import('./pages/Privacy').then(module => ({ default: module.Privacy })));
 const Cancellation = lazy(() => import('./pages/Cancellation').then(module => ({ default: module.Cancellation })));
+const Careers = lazy(() => import('./pages/Careers').then(module => ({ default: module.Careers })));
 
 
 
@@ -76,6 +77,7 @@ const App: React.FC = () => {
                   <Route path="terms" element={<Terms />} />
                   <Route path="privacy" element={<Privacy />} />
                   <Route path="cancellation" element={<Cancellation />} />
+                  <Route path="careers" element={<Careers />} />
                 </Route>
 
                 <Route path="/login" element={<Login />} />

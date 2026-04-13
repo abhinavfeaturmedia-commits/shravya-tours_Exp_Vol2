@@ -11,10 +11,18 @@ import {
 } from 'lucide-react';
 
 export const Analytics: React.FC = () => {
-   const { bookings, vendors, leads, customers, followUps } = useData();
-   const { staff } = useAuth();
+   const { bookings: globalBookings, vendors, leads: globalLeads, customers: globalCustomers, followUps: globalFollowUps } = useData();
+   const { staff, currentUser } = useAuth();
    const [timeRange, setTimeRange] = useState<'all' | '30days' | 'thisMonth' | 'thisYear'>('all');
    const [activeTab, setActiveTab] = useState<'financial' | 'sales' | 'team' | 'bi'>('financial');
+
+   // --- RBAC Scoping ---
+   const isAdmin = currentUser?.userType === 'Admin';
+   
+   const bookings = useMemo(() => isAdmin ? globalBookings : globalBookings.filter(b => b.assignedTo === currentUser?.id), [isAdmin, globalBookings, currentUser?.id]);
+   const leads = useMemo(() => isAdmin ? globalLeads : globalLeads.filter(l => l.assignedTo === currentUser?.id), [isAdmin, globalLeads, currentUser?.id]);
+   const followUps = useMemo(() => isAdmin ? globalFollowUps : globalFollowUps.filter(f => f.assignedTo === currentUser?.id), [isAdmin, globalFollowUps, currentUser?.id]);
+   const customers = useMemo(() => isAdmin ? globalCustomers : globalCustomers.filter(c => bookings.some(b => b.customer === c.id || b.customerId === c.id) || leads.some(l => l.email === c.email || l.phone === c.phone)), [isAdmin, globalCustomers, bookings, leads]);
 
    // --- Data Processing ---
    const filteredBookings = useMemo(() => {

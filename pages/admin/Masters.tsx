@@ -23,6 +23,7 @@ import {
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 import { ImageUpload } from '../../components/ui/ImageUpload';
+import { ActionMenu } from '../../components/ui/ActionMenu';
 
 type MasterTab = 'analytics' | 'locations' | 'hotels' | 'activities' | 'transports' | 'plans' | 'room-types' | 'meal-plans' | 'lead-sources' | 'terms';
 type ViewMode = 'grid' | 'list';
