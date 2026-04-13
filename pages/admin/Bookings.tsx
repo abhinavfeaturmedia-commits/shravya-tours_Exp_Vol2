@@ -1,11 +1,13 @@
-
 import React, { useState, useEffect } from 'react';
 import { useData } from '../../context/DataContext';
 import { useBookings } from '../../src/hooks/useBookings';
 import { BookingStatus, Booking, BookingType } from '../../types';
 import { SupplierManagementModal } from '../../components/admin/SupplierManagementModal';
 import { LedgerManagementModal } from '../../components/admin/LedgerManagementModal';
-import { useLocation } from 'react-router-dom';
+import { RequestDeletionModal } from '../../components/ui/RequestDeletionModal';
+import { ActionMenu } from '../../components/ui/ActionMenu';
+import { SuggestPopup, isDismissed, isSnoozed } from '../../components/ui/SuggestPopup';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'sonner';
 import { Pagination, usePagination } from '../../components/ui/Pagination';
@@ -18,6 +20,7 @@ export const Bookings: React.FC = () => {
     const { bookings, addBooking, updateBooking, deleteBooking, isLoading } = useBookings();
     const { currentUser, hasPermission } = useAuth();
     const location = useLocation();
+    const navigate = useNavigate();
     const [viewMode, setViewMode] = useState<'list' | 'board'>('list');
     const [activeTab, setActiveTab] = useState('All');
     const [search, setSearch] = useState('');
@@ -282,7 +285,7 @@ export const Bookings: React.FC = () => {
     const handleGenerateInvoice = (booking: Booking) => {
         const isPaid = booking.payment === 'Paid';
         // Use actual deposit amount if tracked, otherwise estimate at 30%
-        const amountPaid = isPaid ? booking.amount : (booking.payment === 'Deposit' ? ((booking as any).depositAmount || booking.amount * 0.3) : 0);
+        const amountPaid = isPaid ? booking.amount : (booking.payment === 'Deposit' ? ((booking as any).depositAmount || 0) : 0);
         const balanceDue = booking.amount - amountPaid;
         const invoiceDate = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
         const dueDate = new Date(booking.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -468,12 +471,86 @@ export const Bookings: React.FC = () => {
     return (
         <div className="flex flex-col h-full admin-page-bg relative">
 
+            {/* ── Smart Suggestion Banners for Bookings ── */}
+            {(() => {
+                const tomorrow = new Date();
+                tomorrow.setDate(tomorrow.getDate() + 1);
+                const tomorrowStr = tomorrow.toISOString().split('T')[0];
+                const threeDaysAgo = new Date(Date.now() - 3 * 86_400_000).toISOString().split('T')[0];
+
+                // #1: Bookings with no supplier attached
+                const noSupplierBookings = bookings.filter(b =>
+                    b.status !== 'Cancelled' && b.status !== 'Completed' &&
+                    (!(b as any).supplierBookings || (b as any).supplierBookings?.length === 0)
+                );
+                // #2: Bookings departing tomorrow
+                const tomorrowDepartures = bookings.filter(b => b.date === tomorrowStr && b.status === 'Confirmed');
+                // #3: Bookings stuck in Pending for 3+ days
+                const stuckPending = bookings.filter(b => b.status === 'Pending' && b.date <= threeDaysAgo);
+                // #4: Confirmed bookings with no notes
+                const noItinerary = bookings.filter(b => b.status === 'Confirmed' && !b.details);
+
+                return (
+                    <div className="px-6 pt-3 space-y-2">
+                        {noSupplierBookings.length > 0 && !isDismissed('bookings-no-supplier') && !isSnoozed('bookings-no-supplier') && (
+                            <SuggestPopup
+                                id="bookings-no-supplier"
+                                variant="banner"
+                                icon="inventory"
+                                color="amber"
+                                title={`${noSupplierBookings.length} booking${noSupplierBookings.length > 1 ? 's' : ''} have no supplier attached!`}
+                                description="Missing suppliers means hotel & transport are unconfirmed. Add supplier details to avoid last-minute issues."
+                                primaryAction={{ label: 'Manage Suppliers', icon: 'add_business', onClick: () => navigate('/admin/vendors') }}
+                                snoozeMinutes={60 * 6}
+                            />
+                        )}
+                        {tomorrowDepartures.length > 0 && !isDismissed(`bookings-tomorrow-${tomorrowStr}`) && !isSnoozed(`bookings-tomorrow-${tomorrowStr}`) && (
+                            <SuggestPopup
+                                id={`bookings-tomorrow-${tomorrowStr}`}
+                                variant="banner"
+                                icon="flight_takeoff"
+                                color="blue"
+                                title={`${tomorrowDepartures.length} booking${tomorrowDepartures.length > 1 ? 's' : ''} depart${tomorrowDepartures.length === 1 ? 's' : ''} tomorrow!`}
+                                description={`Confirm vehicle, driver, and hotel are ready. Ensure itineraries are shared with customers.`}
+                                primaryAction={{ label: 'Review Bookings', icon: 'checklist', onClick: () => navigate('/admin/bookings') }}
+                                snoozeMinutes={60 * 2}
+                            />
+                        )}
+                        {stuckPending.length >= 5 && !isDismissed('bookings-stuck-pending') && !isSnoozed('bookings-stuck-pending') && (
+                            <SuggestPopup
+                                id="bookings-stuck-pending"
+                                variant="banner"
+                                icon="pending_actions"
+                                color="red"
+                                title={`${stuckPending.length} bookings stuck in Pending for 3+ days!`}
+                                description="Review and advance these bookings — customers may be waiting for confirmation."
+                                primaryAction={{ label: 'Filter Pending', icon: 'filter_list', onClick: () => navigate('/admin/bookings?status=Pending') }}
+                                snoozeMinutes={60 * 24}
+                            />
+                        )}
+                        {noItinerary.length > 0 && !isDismissed('bookings-no-itinerary') && !isSnoozed('bookings-no-itinerary') && (
+                            <SuggestPopup
+                                id="bookings-no-itinerary"
+                                variant="banner"
+                                icon="map"
+                                color="indigo"
+                                title={`${noItinerary.length} confirmed booking${noItinerary.length > 1 ? 's' : ''} have no itinerary notes!`}
+                                description="Add notes and itinerary details so customers and drivers know the plan."
+                                primaryAction={{ label: 'Itinerary Builder', icon: 'edit_road', onClick: () => navigate('/admin/itinerary-builder') }}
+                                snoozeMinutes={60 * 8}
+                            />
+                        )}
+                    </div>
+                );
+            })()}
+
             {/* Booking Detail View Modal */}
             {viewingBooking && (() => {
                 const startD = viewingBooking.date ? new Date(viewingBooking.date) : null;
                 const endD = viewingBooking.endDate ? new Date(viewingBooking.endDate) : startD;
                 const durationDays = startD && endD ? Math.max(1, Math.round((endD.getTime() - startD.getTime()) / 86400000) + 1) : null;
-                const amountPaid = viewingBooking.payment === 'Paid' ? viewingBooking.amount : viewingBooking.payment === 'Deposit' ? Math.round(viewingBooking.amount * 0.3) : 0;
+                const depositPaid = (viewingBooking as any).depositAmount || 0;
+                const amountPaid = viewingBooking.payment === 'Paid' ? viewingBooking.amount : viewingBooking.payment === 'Deposit' ? depositPaid : 0;
                 const balanceDue = viewingBooking.amount - amountPaid;
                 const linkedPkg = packages.find(p => p.id === viewingBooking.packageId);
                 return (
@@ -972,33 +1049,33 @@ export const Bookings: React.FC = () => {
                                                         </span>
                                                     </td>
                                                     <td className="px-6 py-4 text-right" onClick={e => e.stopPropagation()}>
-                                                        <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                            <button onClick={() => handleGenerateInvoice(booking)} className="p-2 text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors" title="Invoice">
-                                                                <span className="material-symbols-outlined text-[18px]">receipt_long</span>
+                                                        <ActionMenu>
+                                                            <button onClick={() => handleGenerateInvoice(booking)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors">
+                                                                <span className="material-symbols-outlined text-[18px] text-blue-500">receipt_long</span> Invoice
                                                             </button>
-                                                            <button onClick={() => setBookingForLedger(booking)} className="p-2 text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-colors" title="Billing Ledger">
-                                                                <span className="material-symbols-outlined text-[18px]">account_balance_wallet</span>
+                                                            <button onClick={() => setBookingForLedger(booking)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors">
+                                                                <span className="material-symbols-outlined text-[18px] text-indigo-500">account_balance_wallet</span> Billing Ledger
                                                             </button>
-                                                            <button onClick={() => setSelectedBookingForSuppliers(booking)} className="p-2 text-slate-400 hover:text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-lg transition-colors" title="Manage Suppliers">
-                                                                <span className="material-symbols-outlined text-[18px]">inventory</span>
+                                                            <button onClick={() => setSelectedBookingForSuppliers(booking)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors">
+                                                                <span className="material-symbols-outlined text-[18px] text-emerald-500">inventory</span> Manage Suppliers
                                                             </button>
                                                             {hasPermission('bookings', 'manage') && (
-                                                                <button onClick={() => openEditModal(booking)} className="p-2 text-slate-400 hover:text-primary hover:bg-primary/10 rounded-lg transition-colors" title="Edit">
-                                                                    <span className="material-symbols-outlined text-[18px]">edit</span>
+                                                                <button onClick={() => openEditModal(booking)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors">
+                                                                    <span className="material-symbols-outlined text-[18px] text-primary">edit</span> Edit
                                                                 </button>
                                                             )}
 
                                                             {/* Logic for Refund Button */}
                                                             {hasPermission('bookings', 'manage') && booking.status === BookingStatus.CANCELLED && (booking.payment === 'Paid' || booking.payment === 'Deposit') && (
-                                                                <button onClick={() => handleProcessRefund(booking.id)} className="p-2 text-purple-400 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-lg transition-colors" title="Refund">
-                                                                    <span className="material-symbols-outlined text-[18px]">currency_exchange</span>
+                                                                <button onClick={() => handleProcessRefund(booking.id)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors">
+                                                                    <span className="material-symbols-outlined text-[18px] text-purple-500">currency_exchange</span> Refund
                                                                 </button>
                                                             )}
 
                                                             {/* Logic for Cancel Button */}
                                                             {hasPermission('bookings', 'manage') && (booking.status === BookingStatus.PENDING || booking.status === BookingStatus.CONFIRMED) && (
-                                                                <button onClick={() => handleCancelBooking(booking.id)} className="p-2 text-slate-400 hover:text-orange-500 hover:bg-orange-50 dark:hover:bg-orange-900/20 rounded-lg transition-colors" title="Cancel Booking">
-                                                                    <span className="material-symbols-outlined text-[18px]">cancel</span>
+                                                                <button onClick={() => handleCancelBooking(booking.id)} className="w-full text-left px-4 py-2 text-sm text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20 flex items-center gap-2 transition-colors border-t border-slate-100 dark:border-slate-800">
+                                                                    <span className="material-symbols-outlined text-[18px]">cancel</span> Cancel Booking
                                                                 </button>
                                                             )}
 
@@ -1007,11 +1084,11 @@ export const Bookings: React.FC = () => {
                                                                     if (confirm("Are you sure you want to permanently delete this booking? This action cannot be undone.")) {
                                                                         deleteBooking(booking.id);
                                                                     }
-                                                                }} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors" title="Delete">
-                                                                    <span className="material-symbols-outlined text-[18px]">delete</span>
+                                                                }} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-2 transition-colors border-t border-slate-100 dark:border-slate-800">
+                                                                    <span className="material-symbols-outlined text-[18px]">delete</span> Delete
                                                                 </button>
                                                             )}
-                                                        </div>
+                                                        </ActionMenu>
                                                     </td>
                                                 </tr>
                                             ))

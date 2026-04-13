@@ -5,6 +5,8 @@ import { Vendor, VendorService, VendorDocument } from '../../types';
 import { ImageUpload } from '../../components/ui/ImageUpload';
 import { useNavigate } from 'react-router-dom';
 import { VendorBulkEmailModal } from '../../components/admin/VendorBulkEmailModal';
+import { SuggestPopup, isDismissed, isSnoozed } from '../../components/ui/SuggestPopup';
+import { ActionMenu } from '../../components/ui/ActionMenu';
 
 // Internal Toast Component
 const Toast = ({ message, type, onClose }: { message: string, type: 'success' | 'error', onClose: () => void }) => (
@@ -20,8 +22,11 @@ const Toast = ({ message, type, onClose }: { message: string, type: 'success' | 
     </div>
 );
 
+import { useBookings } from '../../src/hooks/useBookings';
+
 export const Vendors: React.FC = () => {
-    const { vendors, addVendor, updateVendor, deleteVendor, processVendorPayment, addVendorDocument, deleteVendorDocument, addVendorNote, packages, bookings } = useData();
+    const { vendors, addVendor, updateVendor, deleteVendor, processVendorPayment, addVendorDocument, deleteVendorDocument, addVendorNote, packages } = useData();
+    const { bookings } = useBookings();
     const navigate = useNavigate();
 
     // Notification State
@@ -471,6 +476,46 @@ export const Vendors: React.FC = () => {
             {/* Toast Notification */}
             {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
 
+            {/* Smart Suggestions for Vendors (#11, #12) */}
+            {(() => {
+                const usedVendorIds = new Set(
+                    bookings.flatMap(b => ((b as any).supplierBookings || []).map((sb: any) => sb.vendorId))
+                );
+                const unusedVendors = vendors.filter(v => !usedVendorIds.has(v.id));
+                const fourteenDaysAgo = new Date(Date.now() - 14 * 86400000).toISOString();
+                const newUnusedVendors = vendors.filter(v =>
+                    v.createdAt && v.createdAt >= fourteenDaysAgo && !usedVendorIds.has(v.id)
+                );
+                return (
+                    <div className="px-6 pt-4 space-y-2">                    
+                        {unusedVendors.length >= 5 && !isDismissed('vendors-unused') && !isSnoozed('vendors-unused') && (
+                            <SuggestPopup
+                                id="vendors-unused"
+                                variant="banner"
+                                icon="storefront"
+                                color="amber"
+                                title={unusedVendors.length + ' vendor' + (unusedVendors.length > 1 ? 's have' : ' has') + ' never been used in a booking!'}
+                                description="Review and deactivate vendors you no longer work with to keep your supplier list clean."
+                                primaryAction={{ label: 'Review Vendors', icon: 'manage_search', onClick: () => {} }}
+                                snoozeMinutes={10080}
+                            />
+                        )}
+                        {newUnusedVendors.length > 0 && !isDismissed('vendors-new-unused') && !isSnoozed('vendors-new-unused') && (
+                            <SuggestPopup
+                                id="vendors-new-unused"
+                                variant="banner"
+                                icon="fiber_new"
+                                color="indigo"
+                                title={newUnusedVendors.length + ' new vendor' + (newUnusedVendors.length > 1 ? 's' : '') + ' added but not yet used in any booking!'}
+                                description="You recently added new suppliers. Assign them to upcoming bookings to put them to work."
+                                primaryAction={{ label: 'View Bookings', icon: 'airplane_ticket', onClick: () => navigate('/admin/bookings') }}
+                                snoozeMinutes={2880}
+                            />
+                        )}
+                    </div>
+                );
+            })()}
+
             {/* BULK ACTIONS TOOLBAR (Floating) */}
             <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[150] transition-all duration-300 transform ${selectedIds.size > 0 ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0 pointer-events-none'}`}>
                 <div className="bg-slate-900/90 text-white rounded-full shadow-2xl px-6 py-3 flex items-center gap-6 border border-slate-700/50 backdrop-blur-xl">
@@ -677,29 +722,38 @@ export const Vendors: React.FC = () => {
                                                         </span>
                                                     </td>
                                                     <td className="px-6 py-4 font-medium text-slate-900 dark:text-white" onClick={() => setSelectedVendorId(vendor.id)}>₹{(vendor.balanceDue / 1000).toFixed(1)}k</td>
-                                                    <td className="px-6 py-4 text-right">
-                                                        <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                            {vendor.contactPhone && (
-                                                                <>
-                                                                    <a href={`tel:${vendor.contactPhone}`} onClick={(e) => e.stopPropagation()} className="p-1.5 text-slate-400 hover:text-blue-500 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-sm" title="Call">
-                                                                        <span className="material-symbols-outlined text-[18px]">call</span>
-                                                                    </a>
-                                                                    <a href={`https://wa.me/${vendor.contactPhone.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="p-1.5 text-slate-400 hover:text-emerald-500 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-sm" title="WhatsApp">
-                                                                        <span className="material-symbols-outlined text-[18px]">forum</span>
-                                                                    </a>
-                                                                </>
-                                                            )}
-                                                            {vendor.contactEmail && (
-                                                                <a href={`mailto:${vendor.contactEmail}`} onClick={(e) => e.stopPropagation()} className="p-1.5 text-slate-400 hover:text-rose-500 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-sm" title="Email">
-                                                                    <span className="material-symbols-outlined text-[18px]">mail</span>
-                                                                </a>
-                                                            )}
-                                                            <button onClick={(e) => { e.stopPropagation(); setSelectedVendorId(vendor.id); setActiveTab('Financials'); setIsPaymentModalOpen(true); }} className="p-1.5 text-slate-400 hover:text-green-500 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-sm" title="Pay">
-                                                                <span className="material-symbols-outlined text-[18px]">payments</span>
-                                                            </button>
-                                                            <button onClick={(e) => { e.stopPropagation(); setSelectedVendorId(vendor.id); }} className="p-1.5 text-slate-400 hover:text-primary bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-sm">
+                                                    <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+                                                        <div className="flex items-center justify-end gap-1">
+                                                            <button onClick={(e) => { e.stopPropagation(); setSelectedVendorId(vendor.id); }} className="p-1.5 text-slate-400 hover:text-primary hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">
                                                                 <span className="material-symbols-outlined text-[18px]">chevron_right</span>
                                                             </button>
+                                                            <ActionMenu>
+                                                                {vendor.contactPhone && (
+                                                                    <a href={`tel:${vendor.contactPhone}`} className="flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors w-full text-left">
+                                                                        <span className="material-symbols-outlined text-[18px] text-blue-500">call</span> Call Vendor
+                                                                    </a>
+                                                                )}
+                                                                {vendor.contactPhone && (
+                                                                    <a href={`https://wa.me/${vendor.contactPhone.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors w-full text-left">
+                                                                        <span className="material-symbols-outlined text-[18px] text-emerald-500">forum</span> WhatsApp
+                                                                    </a>
+                                                                )}
+                                                                {vendor.contactEmail && (
+                                                                    <a href={`mailto:${vendor.contactEmail}`} className="flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors w-full text-left">
+                                                                        <span className="material-symbols-outlined text-[18px] text-rose-500">mail</span> Send Email
+                                                                    </a>
+                                                                )}
+                                                                <button onClick={() => { setSelectedVendorId(vendor.id); setActiveTab('Financials'); setIsPaymentModalOpen(true); }} className="flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors w-full text-left">
+                                                                    <span className="material-symbols-outlined text-[18px] text-green-500">payments</span> Record Payment
+                                                                </button>
+                                                                <div className="my-1 border-t border-slate-100 dark:border-slate-700" />
+                                                                <button onClick={() => handleOpenEdit(vendor)} className="flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors w-full text-left">
+                                                                    <span className="material-symbols-outlined text-[18px] text-primary">edit</span> Edit Vendor
+                                                                </button>
+                                                                <button onClick={() => { if (confirm(`Delete ${vendor.name}?`)) { deleteVendor(vendor.id); setSelectedVendorId(null); } }} className="flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/10 transition-colors w-full text-left">
+                                                                    <span className="material-symbols-outlined text-[18px]">delete</span> Delete
+                                                                </button>
+                                                            </ActionMenu>
                                                         </div>
                                                     </td>
                                                 </tr>
@@ -974,12 +1028,12 @@ export const Vendors: React.FC = () => {
                                                                 </button>
                                                                 <button
                                                                     onClick={() => handleStartEditService(service)}
-                                                                    className="p-2 text-slate-300 hover:text-primary opacity-0 group-hover:opacity-100 transition-all"
+                                                                    className="p-2 text-slate-400 hover:text-primary hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
                                                                     title="Edit Service"
                                                                 >
                                                                     <span className="material-symbols-outlined text-[20px]">edit</span>
                                                                 </button>
-                                                                <button onClick={() => handleDeleteService(service.id)} className="p-2 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><span className="material-symbols-outlined text-[20px]">delete</span></button>
+                                                                <button onClick={() => handleDeleteService(service.id)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10 rounded-lg transition-colors" title="Delete Service"><span className="material-symbols-outlined text-[20px]">delete</span></button>
                                                             </div>
                                                         </div>
                                                     </div>
@@ -1158,13 +1212,13 @@ export const Vendors: React.FC = () => {
                                                             <p className="font-bold text-slate-900 dark:text-white text-sm line-clamp-1">{doc.name}</p>
                                                             <p className="text-[10px] text-slate-500 font-bold uppercase mt-1">Exp: {doc.expiryDate || 'N/A'}</p>
                                                         </div>
-                                                        <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        <div className="flex gap-2">
                                                             <a href={doc.url !== '#' ? doc.url : undefined} target="_blank" rel="noopener noreferrer" download={doc.url.startsWith('data:') ? doc.name : undefined} className={`flex-1 py-2 text-center text-[10px] font-black uppercase rounded-lg transition-colors ${doc.url && doc.url !== '#' ? 'bg-slate-50 dark:bg-slate-800 hover:bg-primary hover:text-white cursor-pointer' : 'bg-slate-50 dark:bg-slate-800 text-slate-300 cursor-not-allowed'}`}>View</a>
                                                             <button onClick={() => {
                                                                 if (confirm('Are you sure you want to delete this document? This action cannot be undone.')) {
                                                                     deleteVendorDocument(selectedVendor.id, doc.id);
                                                                 }
-                                                            }} className="p-2 text-slate-300 hover:text-red-500 rounded-lg"><span className="material-symbols-outlined text-[18px]">delete</span></button>
+                                                            }} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10 rounded-lg transition-colors"><span className="material-symbols-outlined text-[18px]">delete</span></button>
                                                         </div>
                                                     </div>
                                                 ))}

@@ -7,6 +7,7 @@ import {
     FileText, CheckCircle, AlertCircle, Trash2, Pencil, Loader2
 } from 'lucide-react';
 import { Expense } from '../../types';
+import { ActionMenu } from '../../components/ui/ActionMenu';
 
 export const Expenses: React.FC = () => {
     const { expenses, isLoading, addExpense, updateExpense, deleteExpense } = useExpenses();
@@ -188,15 +189,16 @@ export const Expenses: React.FC = () => {
                                             <td className="px-6 py-4 text-right font-black text-slate-900 dark:text-white">
                                                 {fmt(expense.amount)}
                                             </td>
-                                            <td className="px-6 py-4 text-right">
-                                                <div className="flex items-center justify-end gap-2">
-                                                    <button onClick={() => handleOpenModal(expense)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 hover:text-primary rounded-lg transition-colors">
-                                                        <Pencil size={16} />
+                                            <td className="px-6 py-4 text-right" onClick={e => e.stopPropagation()}>
+                                                <ActionMenu>
+                                                    <button onClick={() => handleOpenModal(expense)} className="flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors w-full text-left">
+                                                        <Pencil size={16} className="text-primary" /> Edit Expense
                                                     </button>
-                                                    <button onClick={() => handleDelete(expense.id)} className="p-2 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-lg transition-colors">
-                                                        <Trash2 size={16} />
+                                                    <div className="my-1 border-t border-slate-100 dark:border-slate-700" />
+                                                    <button onClick={() => handleDelete(expense.id)} className="flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/10 transition-colors w-full text-left">
+                                                        <Trash2 size={16} /> Delete
                                                     </button>
-                                                </div>
+                                                </ActionMenu>
                                             </td>
                                         </tr>
                                     ))
@@ -281,7 +283,7 @@ export const Expenses: React.FC = () => {
                                     <option value="Cash">Cash</option>
                                 </select>
                             </div>
-                            
+
                             <div>
                                 <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Payment Confirmation Note</label>
                                 <input className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-3 rounded-xl w-full font-bold outline-none focus:ring-2 focus:ring-red-500 text-slate-900 dark:text-white"

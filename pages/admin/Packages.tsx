@@ -3,6 +3,9 @@ import { useData } from '../../context/DataContext';
 import { useNavigate } from 'react-router-dom';
 import { Package, MasterLocation } from '../../types';
 import { ImageUpload } from '../../components/ui/ImageUpload';
+import { SuggestPopup, isDismissed, isSnoozed } from '../../components/ui/SuggestPopup';
+import { useBookings } from '../../src/hooks/useBookings';
+import { ActionMenu } from '../../components/ui/ActionMenu';
 
 // Helper to resolve location ID to name
 const getLocationName = (locationValue: string, masterLocations: MasterLocation[]): string => {
@@ -54,7 +57,7 @@ const PackageCard = React.memo(({
             <div className="w-full md:w-auto flex items-center justify-between md:justify-end gap-8 md:pr-4 md:border-r border-slate-100 dark:border-slate-700">
                 <div className="text-center md:text-right">
                     <p className="text-xs font-bold text-slate-400 uppercase">Price</p>
-                    <p className="font-black text-slate-900 dark:text-white">₹{(pkg.price / 1000).toFixed(0)}k</p>
+                    <p className="font-black text-slate-900 dark:text-white">â‚¹{(pkg.price / 1000).toFixed(0)}k</p>
                 </div>
             </div>
 
@@ -72,12 +75,15 @@ const PackageCard = React.memo(({
                 >
                     {pkg.status === 'Active' ? 'Active' : 'Hidden'}
                 </button>
-                <button onClick={() => onEdit(pkg)} className="p-2.5 text-slate-400 hover:text-primary hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors" title="Edit">
-                    <span className="material-symbols-outlined">edit</span>
-                </button>
-                <button onClick={() => onDelete(pkg.id)} className="p-2.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors" title="Delete">
-                    <span className="material-symbols-outlined">delete</span>
-                </button>
+                <ActionMenu>
+                    <button onClick={() => onEdit(pkg)} className="flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors w-full text-left">
+                        <span className="material-symbols-outlined text-[18px] text-primary">edit</span> Edit Package
+                    </button>
+                    <div className="my-1 border-t border-slate-100 dark:border-slate-700" />
+                    <button onClick={() => onDelete(pkg.id)} className="flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/10 transition-colors w-full text-left">
+                        <span className="material-symbols-outlined text-[18px]">delete</span> Delete
+                    </button>
+                </ActionMenu>
             </div>
         </div>
     );
@@ -85,6 +91,7 @@ const PackageCard = React.memo(({
 
 export const AdminPackages: React.FC = () => {
     const { packages, updatePackage, deletePackage, cmsGallery, masterLocations } = useData();
+    const { bookings } = useBookings();
     const navigate = useNavigate();
     const [search, setSearch] = useState('');
 
@@ -203,7 +210,7 @@ export const AdminPackages: React.FC = () => {
                                         </select>
                                     </div>
                                     <div>
-                                        <label className="text-xs font-bold text-slate-500 mb-1 block">Price (₹)</label>
+                                        <label className="text-xs font-bold text-slate-500 mb-1 block">Price (â‚¹)</label>
                                         <input required value={editForm.price} onChange={e => setEditForm({ ...editForm, price: parseInt(e.target.value) || 0 })} type="number" className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
                                     </div>
                                     <div className="grid grid-cols-2 gap-4">
@@ -355,6 +362,47 @@ export const AdminPackages: React.FC = () => {
                     />
                 </div>
             </div>
+
+            {/* Smart Suggestions for Packages (#13, #14) */}
+            {(() => {
+                // #13: Active packages with zero bookings
+                const packageBookingCounts = packages.reduce((acc, pkg) => {
+                    acc[pkg.id] = bookings.filter(b => b.packageId === pkg.id).length;
+                    return acc;
+                }, {} as Record<string, number>);
+                const activeNoBookings = packages.filter(p => p.status === 'Active' && (packageBookingCounts[p.id] || 0) === 0);
+                // #14: More than 50% packages are hidden/inactive
+                const inactiveCount = packages.filter(p => p.status === 'Inactive').length;
+                const inactivePct = packages.length > 0 ? Math.round((inactiveCount / packages.length) * 100) : 0;
+                return (
+                    <div className="px-6 md:px-8 pt-2 space-y-2">
+                        {activeNoBookings.length > 0 && !isDismissed('packages-no-bookings') && !isSnoozed('packages-no-bookings') && (
+                            <SuggestPopup
+                                id="packages-no-bookings"
+                                variant="banner"
+                                icon="package_2"
+                                color="amber"
+                                title={`${activeNoBookings.length} active package${activeNoBookings.length > 1 ? 's have' : ' has'} never been booked!`}
+                                description="These packages are live but getting no traction. Consider updating the description, price, or promoting them to warm leads."
+                                primaryAction={{ label: 'Edit Packages', icon: 'edit', onClick: () => {} }}
+                                snoozeMinutes={60 * 24 * 7}
+                            />
+                        )}
+                        {packages.length >= 4 && inactivePct >= 50 && !isDismissed('packages-too-many-hidden') && !isSnoozed('packages-too-many-hidden') && (
+                            <SuggestPopup
+                                id="packages-too-many-hidden"
+                                variant="banner"
+                                icon="visibility_off"
+                                color="red"
+                                title={`${inactivePct}% of your packages are hidden from customers!`}
+                                description="Over half your catalogue is invisible. Activate or remove outdated packages to give customers a better selection."
+                                primaryAction={{ label: 'Review Packages', icon: 'inventory_2', onClick: () => {} }}
+                                snoozeMinutes={60 * 24 * 3}
+                            />
+                        )}
+                    </div>
+                );
+            })()}
 
             {/* Package List */}
             <div className="flex-1 overflow-y-auto px-6 md:px-8 pb-10">

@@ -337,6 +337,58 @@ export const Leads: React.FC = () => {
                         You have <span className="text-primary font-bold">{stats.tasks}</span> follow-up(s) due today.
                     </p>
 
+                    {/* Smart Suggestions for Leads */}
+                    {(() => {
+                        const unassigned = leads.filter(l => !l.assignedTo && l.status !== 'Converted' && l.status !== 'Cold');
+                        const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
+                        const coldLeads = leads.filter(l => l.status === 'Cold' && (!l.updatedAt || l.updatedAt < thirtyDaysAgo));
+                        const highBudgetNoAction = leads.filter(l =>
+                            (l.potentialValue || 0) >= 50000 &&
+                            l.status !== 'Converted' && l.status !== 'Cold' &&
+                            followUps.filter(f => f.leadId === l.id && f.status === 'Pending').length === 0
+                        );
+                        return (
+                            <div className="mb-6 space-y-2">
+                                {unassigned.length > 0 && !isDismissed('leads-unassigned') && !isSnoozed('leads-unassigned') && (
+                                    <SuggestPopup
+                                        id="leads-unassigned"
+                                        variant="banner"
+                                        icon="person_off"
+                                        color="amber"
+                                        title={unassigned.length + ' lead' + (unassigned.length > 1 ? 's' : '') + ' not assigned to any staff!'}
+                                        description="Unassigned leads have no one responsible for follow-up. Assign them to prevent going cold."
+                                        primaryAction={{ label: 'Review Leads', icon: 'groups', onClick: () => {} }}
+                                        snoozeMinutes={480}
+                                    />
+                                )}
+                                {coldLeads.length >= 3 && !isDismissed('leads-cold-revival') && !isSnoozed('leads-cold-revival') && (
+                                    <SuggestPopup
+                                        id="leads-cold-revival"
+                                        variant="banner"
+                                        icon="ac_unit"
+                                        color="indigo"
+                                        title={coldLeads.length + ' cold leads untouched for 30+ days'}
+                                        description="Re-engage with a seasonal offer or personalised message. Some may be ready to book!"
+                                        primaryAction={{ label: 'Filter Cold Leads', icon: 'filter_list', onClick: () => {} }}
+                                        snoozeMinutes={10080}
+                                    />
+                                )}
+                                {highBudgetNoAction.length > 0 && !isDismissed('leads-high-budget') && !isSnoozed('leads-high-budget') && (
+                                    <SuggestPopup
+                                        id="leads-high-budget"
+                                        variant="banner"
+                                        icon="diamond"
+                                        color="purple"
+                                        title={highBudgetNoAction.length + ' high-value lead' + (highBudgetNoAction.length > 1 ? 's' : '') + ' (50k+) with no follow-up!'}
+                                        description="These are your best opportunities. Send a customised proposal or schedule a call immediately."
+                                        primaryAction={{ label: 'Prioritize Now', icon: 'star', onClick: () => {} }}
+                                        snoozeMinutes={240}
+                                    />
+                                )}
+                            </div>
+                        );
+                    })()}
+
                     {/* Stats Cards */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8 stagger-cards">
                         <div className="bg-white dark:bg-[#1A2633] p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
