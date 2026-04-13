@@ -16,8 +16,12 @@ export const LedgerManagementModal: React.FC<LedgerManagementModalProps> = ({ is
 
     // Derived Totals
     const transactions = booking.transactions || [];
-    const totalPaid = transactions.filter(t => t.type === 'Payment').reduce((sum, t) => sum + t.amount, 0);
-    const totalRefunded = transactions.filter(t => t.type === 'Refund').reduce((sum, t) => sum + t.amount, 0);
+    // Verified/Rejected separated so summary is financially accurate
+    const verifiedPayments = transactions.filter(t => t.type === 'Payment' && t.status !== 'Rejected' && t.status !== 'Pending');
+    const pendingPayments = transactions.filter(t => t.type === 'Payment' && t.status === 'Pending');
+    const totalPaid = verifiedPayments.reduce((sum, t) => sum + t.amount, 0);
+    const pendingAmount = pendingPayments.reduce((sum, t) => sum + t.amount, 0);
+    const totalRefunded = transactions.filter(t => t.type === 'Refund' && t.status !== 'Rejected').reduce((sum, t) => sum + t.amount, 0);
     const netReceived = totalPaid - totalRefunded;
     const balanceDue = booking.amount - netReceived;
 
@@ -98,9 +102,18 @@ export const LedgerManagementModal: React.FC<LedgerManagementModalProps> = ({ is
                             <p className="text-2xl font-black text-slate-900 dark:text-white mt-1">₹{booking.amount.toLocaleString()}</p>
                         </div>
                         <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-900/10 border border-emerald-100 dark:border-emerald-800/30">
-                            <p className="text-xs font-bold text-emerald-600 uppercase">Total Received</p>
+                            <p className="text-xs font-bold text-emerald-600 uppercase">Verified Received</p>
                             <p className="text-2xl font-black text-emerald-600 mt-1">₹{totalPaid.toLocaleString()}</p>
                         </div>
+                        {pendingAmount > 0 && (
+                            <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/30">
+                                <p className="text-xs font-bold text-amber-600 uppercase flex items-center gap-1">
+                                    <span className="material-symbols-outlined text-[14px]">pending</span>
+                                    Pending Verify
+                                </p>
+                                <p className="text-2xl font-black text-amber-600 mt-1">₹{pendingAmount.toLocaleString()}</p>
+                            </div>
+                        )}
                         <div className="p-4 rounded-xl bg-rose-50 dark:bg-rose-900/10 border border-rose-100 dark:border-rose-800/30">
                             <p className="text-xs font-bold text-rose-600 uppercase">Refunded</p>
                             <p className="text-2xl font-black text-rose-600 mt-1">₹{totalRefunded.toLocaleString()}</p>
@@ -156,7 +169,7 @@ export const LedgerManagementModal: React.FC<LedgerManagementModalProps> = ({ is
                     {/* Transactions Table */}
                     <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden shadow-sm">
                         <div className="overflow-x-auto">
-                        <table className="w-full text-left text-sm min-w-[600px]">
+                        <table className="w-full text-left text-sm min-w-[640px]">
                             <thead className="bg-slate-50 dark:bg-slate-800/50 text-xs uppercase text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700">
                                 <tr>
                                     <th className="px-5 py-4">Date</th>
@@ -164,6 +177,7 @@ export const LedgerManagementModal: React.FC<LedgerManagementModalProps> = ({ is
                                     <th className="px-5 py-4">Method</th>
                                     <th className="px-5 py-4">Details</th>
                                     <th className="px-5 py-4 text-right">Amount</th>
+                                    <th className="px-5 py-4 text-center">Status</th>
                                     <th className="px-5 py-4 text-center">Recorded By</th>
                                     <th className="px-5 py-4 text-right">Actions</th>
                                 </tr>
@@ -175,7 +189,7 @@ export const LedgerManagementModal: React.FC<LedgerManagementModalProps> = ({ is
                                     </tr>
                                 ) : (
                                     transactions.map(tx => (
-                                        <tr key={tx.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                                        <tr key={tx.id} className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors ${tx.status === 'Rejected' ? 'opacity-50' : ''}`}>
                                             <td className="px-5 py-4 text-slate-600 dark:text-slate-300 font-mono">
                                                 {new Date(tx.date).toLocaleDateString()}
                                             </td>
@@ -191,6 +205,12 @@ export const LedgerManagementModal: React.FC<LedgerManagementModalProps> = ({ is
                                             </td>
                                             <td className={`px-5 py-4 text-right font-bold ${tx.type === 'Payment' ? 'text-emerald-600' : 'text-rose-600'}`}>
                                                 {tx.type === 'Refund' ? '-' : '+'}₹{tx.amount.toLocaleString()}
+                                            </td>
+                                            <td className="px-5 py-4 text-center">
+                                                {tx.status === 'Verified' && <span className="text-[10px] font-bold bg-green-100 text-green-700 px-2 py-0.5 rounded-full">✓ Verified</span>}
+                                                {tx.status === 'Pending' && <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">⏳ Pending</span>}
+                                                {tx.status === 'Rejected' && <span className="text-[10px] font-bold bg-red-100 text-red-700 px-2 py-0.5 rounded-full">✕ Rejected</span>}
+                                                {!tx.status && <span className="text-[10px] font-bold bg-green-100 text-green-700 px-2 py-0.5 rounded-full">✓ Verified</span>}
                                             </td>
                                             <td className="px-5 py-4 text-center text-xs text-slate-400">
                                                 {tx.recordedBy || 'System'}

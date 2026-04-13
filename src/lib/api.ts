@@ -201,7 +201,8 @@ export const api = {
             reference: tx.reference,
             notes: tx.notes,
             status: tx.status || 'Pending',
-            receipt_url: tx.receiptUrl
+            receipt_url: tx.receiptUrl,
+            recorded_by: tx.recordedBy || 'System'  // Persist the staff name who recorded this
         });
     },
 
@@ -269,7 +270,8 @@ export const api = {
                 reference: t.reference,
                 notes: t.notes,
                 status: t.status || 'Verified',
-                receiptUrl: t.receipt_url
+                receiptUrl: t.receipt_url,
+                recordedBy: t.recorded_by || 'System'  // Map back from DB so it survives refresh
             }));
 
             const totalAmount = Number(row.total_price) || Number(row.amount) || 0;

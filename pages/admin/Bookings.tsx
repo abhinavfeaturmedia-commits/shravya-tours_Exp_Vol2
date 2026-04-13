@@ -283,9 +283,11 @@ export const Bookings: React.FC = () => {
     };
 
     const handleGenerateInvoice = (booking: Booking) => {
-        const isPaid = booking.payment === 'Paid';
-        // Use actual deposit amount if tracked, otherwise estimate at 30%
-        const amountPaid = isPaid ? booking.amount : (booking.payment === 'Deposit' ? ((booking as any).depositAmount || 0) : 0);
+        // Derive amount paid from actual transaction records (same logic as LedgerManagementModal)
+        const txs = booking.transactions || [];
+        const totalReceived = txs.filter(t => t.type === 'Payment').reduce((sum, t) => sum + t.amount, 0);
+        const totalRefunded = txs.filter(t => t.type === 'Refund').reduce((sum, t) => sum + t.amount, 0);
+        const amountPaid = totalReceived - totalRefunded;
         const balanceDue = booking.amount - amountPaid;
         const invoiceDate = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
         const dueDate = new Date(booking.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -549,8 +551,11 @@ export const Bookings: React.FC = () => {
                 const startD = viewingBooking.date ? new Date(viewingBooking.date) : null;
                 const endD = viewingBooking.endDate ? new Date(viewingBooking.endDate) : startD;
                 const durationDays = startD && endD ? Math.max(1, Math.round((endD.getTime() - startD.getTime()) / 86400000) + 1) : null;
-                const depositPaid = (viewingBooking as any).depositAmount || 0;
-                const amountPaid = viewingBooking.payment === 'Paid' ? viewingBooking.amount : viewingBooking.payment === 'Deposit' ? depositPaid : 0;
+                // Derive payment totals from actual transaction records (same as LedgerManagementModal)
+                const viewTxs = viewingBooking.transactions || [];
+                const viewTotalPaid = viewTxs.filter(t => t.type === 'Payment').reduce((sum, t) => sum + t.amount, 0);
+                const viewTotalRefunded = viewTxs.filter(t => t.type === 'Refund').reduce((sum, t) => sum + t.amount, 0);
+                const amountPaid = viewTotalPaid - viewTotalRefunded;
                 const balanceDue = viewingBooking.amount - amountPaid;
                 const linkedPkg = packages.find(p => p.id === viewingBooking.packageId);
                 return (

@@ -756,7 +756,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           else if (netPaid > 0) newStatus = 'Deposit';
           else if (netPaid < 0) newStatus = 'Refunded';
 
-          api.updateBooking(bookingId, { payment: newStatus }).catch(console.error);
+          // Persist updated payment status to DB — show error toast if it fails
+          try {
+            await api.updateBooking(bookingId, { payment: newStatus });
+          } catch (dbErr: any) {
+            toast.error('Payment recorded locally but DB status update failed. Refresh may reset display.');
+          }
 
           return { ...b, transactions: newTransactions, payment: newStatus };
         }
@@ -772,8 +777,28 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const deleteBookingTransaction = useCallback(async (bookingId: string, txId: string) => {
     try {
+      // Find the transaction BEFORE deleting so we can reverse the account entry
+      const booking = bookings.find(b => b.id === bookingId);
+      const deletedTx = booking?.transactions?.find(t => t.id === txId);
+
       await api.deleteBookingTransaction(txId);
-      
+
+      // Reverse the account balance entry that was created when this transaction was added
+      if (deletedTx) {
+        const targetAccount = accounts.find(a => a.name === 'Main Office') || accounts[0];
+        if (targetAccount) {
+          const wasCredit = deletedTx.type === 'Payment';
+          const reversedBalance = wasCredit
+            ? targetAccount.currentBalance - deletedTx.amount
+            : targetAccount.currentBalance + deletedTx.amount;
+
+          await api.updateAccount(targetAccount.id, { currentBalance: reversedBalance });
+          setAccounts(prev => prev.map(acc =>
+            acc.id === targetAccount.id ? { ...acc, currentBalance: reversedBalance } : acc
+          ));
+        }
+      }
+
       setBookings(prev => {
         const updated = prev.map(b => {
           if (b.id === bookingId) {
@@ -787,7 +812,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             else if (netPaid > 0) newStatus = 'Deposit';
             else if (netPaid < 0) newStatus = 'Refunded';
 
-            api.updateBooking(bookingId, { payment: newStatus }).catch(console.error);
+            // Persist updated payment status — show error if it fails
+            api.updateBooking(bookingId, { payment: newStatus }).catch(() =>
+              toast.error('Transaction deleted but DB status update failed. Refresh may reset display.')
+            );
 
             return { ...b, transactions: newTransactions, payment: newStatus };
           }
@@ -795,11 +823,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
         return updated;
       });
-      toast.success("Transaction deleted successfully");
+      toast.success("Transaction deleted and account balance reversed");
     } catch (e: any) {
       toast.error(e.message || "Failed to delete transaction");
     }
-  }, []);
+  }, [accounts, bookings]);
 
   // Supplier Booking Handlers
   const addSupplierBooking = useCallback(async (bookingId: string, sb: SupplierBooking) => {
