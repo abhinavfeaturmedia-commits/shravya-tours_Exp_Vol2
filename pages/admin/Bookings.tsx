@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useData } from '../../context/DataContext';
 import { useBookings } from '../../src/hooks/useBookings';
-import { BookingStatus, Booking, BookingType } from '../../types';
+import { BookingStatus, Booking, BookingType, BookingNote } from '../../types';
 import { SupplierManagementModal } from '../../components/admin/SupplierManagementModal';
 import { LedgerManagementModal } from '../../components/admin/LedgerManagementModal';
 import { RequestDeletionModal } from '../../components/ui/RequestDeletionModal';
@@ -30,6 +30,10 @@ export const Bookings: React.FC = () => {
     const [selectedBookingForSuppliers, setSelectedBookingForSuppliers] = useState<Booking | null>(null);
     const [bookingForLedger, setBookingForLedger] = useState<Booking | null>(null);
     const [viewingBooking, setViewingBooking] = useState<Booking | null>(null);
+
+    const [noteText, setNoteText] = useState('');
+    const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+    const [editNoteText, setEditNoteText] = useState('');
 
     const today = new Date().toISOString().split('T')[0];
 
@@ -113,6 +117,62 @@ export const Bookings: React.FC = () => {
     }, [location.search]);
 
     // --- Handlers ---
+
+    const handleAddNote = (e: React.FormEvent, bookingId: string) => {
+        e.preventDefault();
+        if (!noteText.trim()) return;
+        const booking = bookings.find(b => b.id === bookingId);
+        if (!booking) return;
+
+        const newNote: BookingNote = {
+            id: `NOTE-${Date.now()}`,
+            text: noteText,
+            date: new Date().toISOString(),
+            author: currentUser?.name || 'System'
+        };
+        const existingNotes = booking.notes || [];
+        updateBooking(bookingId, { notes: [newNote, ...existingNotes] });
+        
+        if (viewingBooking && viewingBooking.id === bookingId) {
+            setViewingBooking({ ...viewingBooking, notes: [newNote, ...existingNotes] });
+        }
+
+        setNoteText('');
+        toast.success('Note added');
+    };
+
+    const handleDeleteNote = (bookingId: string, noteId: string) => {
+        if (!confirm('Delete this note?')) return;
+        const booking = bookings.find(b => b.id === bookingId);
+        if (!booking) return;
+
+        const updatedNotes = (booking.notes || []).filter(n => n.id !== noteId);
+        updateBooking(bookingId, { notes: updatedNotes });
+        
+        if (viewingBooking && viewingBooking.id === bookingId) {
+            setViewingBooking({ ...viewingBooking, notes: updatedNotes });
+        }
+        toast.success('Note deleted');
+    };
+
+    const handleUpdateNote = (bookingId: string, noteId: string) => {
+        if (!editNoteText.trim()) return;
+        const booking = bookings.find(b => b.id === bookingId);
+        if (!booking) return;
+
+        const updatedNotes = (booking.notes || []).map(n =>
+            n.id === noteId ? { ...n, text: editNoteText } : n
+        );
+        updateBooking(bookingId, { notes: updatedNotes });
+        
+        if (viewingBooking && viewingBooking.id === bookingId) {
+            setViewingBooking({ ...viewingBooking, notes: updatedNotes });
+        }
+
+        setEditingNoteId(null);
+        setEditNoteText('');
+        toast.success('Note updated');
+    };
 
     const openCreateModal = () => {
         setIsEditMode(false);
@@ -708,21 +768,71 @@ export const Bookings: React.FC = () => {
                                 </div>
                             )}
 
-                            {/* Internal Notes — always shown */}
+                            {/* Internal Notes */}
                             <div>
-                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2 flex items-center gap-1.5">
+                                <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3 flex items-center gap-1.5">
                                     <span className="material-symbols-outlined text-[14px]">sticky_note_2</span>
                                     Internal Notes
-                                </p>
-                                {viewingBooking.details ? (
-                                    <div className="text-sm text-slate-700 dark:text-slate-300 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/40 rounded-xl p-4 leading-relaxed whitespace-pre-wrap">
-                                        {viewingBooking.details}
+                                </h3>
+                                
+                                <form onSubmit={(e) => handleAddNote(e, viewingBooking.id)} className="mb-4">
+                                    <textarea
+                                        value={noteText}
+                                        onChange={e => setNoteText(e.target.value)}
+                                        placeholder="Type a new internal note..."
+                                        className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-primary outline-none h-20 resize-none mb-2"
+                                    />
+                                    <div className="flex justify-end">
+                                        <button type="submit" disabled={!noteText.trim()} className="bg-primary text-white text-xs font-bold px-4 py-2 rounded-lg hover:bg-primary-dark transition-colors disabled:opacity-50">
+                                            Add Note
+                                        </button>
                                     </div>
-                                ) : (
-                                    <div className="text-sm text-slate-400 italic bg-slate-50 dark:bg-slate-800/40 border border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-4 text-center">
-                                        No notes added for this booking.
-                                    </div>
-                                )}
+                                </form>
+
+                                <div className="space-y-3">
+                                    {/* Legacy Details string compatibility */}
+                                    {viewingBooking.details && (viewingBooking.notes || []).length === 0 && (
+                                        <div className="text-sm text-slate-700 dark:text-slate-300 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/40 rounded-xl p-4 leading-relaxed whitespace-pre-wrap">
+                                            {viewingBooking.details}
+                                        </div>
+                                    )}
+
+                                    {!(viewingBooking.details && (viewingBooking.notes || []).length === 0) && (viewingBooking.notes || []).length === 0 && (
+                                        <div className="text-sm text-slate-400 italic bg-slate-50 dark:bg-slate-800/40 border border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-4 text-center">
+                                            No notes added for this booking.
+                                        </div>
+                                    )}
+
+                                    {(viewingBooking.notes || []).map(n => (
+                                        <div key={n.id} className="bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-700 rounded-xl p-4">
+                                            <div className="flex justify-between items-start mb-2">
+                                                <div>
+                                                    <p className="text-xs font-bold text-slate-900 dark:text-white">{n.author}</p>
+                                                    <p className="text-[10px] text-slate-400">{new Date(n.date).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</p>
+                                                </div>
+                                                <div className="flex gap-1">
+                                                    <button onClick={() => { setEditingNoteId(n.id); setEditNoteText(n.text); }} className="text-[10px] bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded font-bold transition-colors">Edit</button>
+                                                    <button onClick={() => handleDeleteNote(viewingBooking.id, n.id)} className="text-[10px] bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-800/40 text-red-600 dark:text-red-400 px-2 py-0.5 rounded font-bold transition-colors">Delete</button>
+                                                </div>
+                                            </div>
+                                            {editingNoteId === n.id ? (
+                                                <div className="mt-2">
+                                                    <textarea
+                                                        value={editNoteText}
+                                                        onChange={e => setEditNoteText(e.target.value)}
+                                                        className="w-full bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none h-16 resize-none mb-2"
+                                                    />
+                                                    <div className="flex justify-end gap-2">
+                                                        <button onClick={() => { setEditingNoteId(null); setEditNoteText(''); }} className="text-xs px-3 py-1.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">Cancel</button>
+                                                        <button onClick={() => handleUpdateNote(viewingBooking.id, n.id)} disabled={!editNoteText.trim()} className="bg-primary text-white text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-primary-dark transition-colors disabled:opacity-50">Save</button>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <p className="text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap">{n.text}</p>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
 
                         </div>

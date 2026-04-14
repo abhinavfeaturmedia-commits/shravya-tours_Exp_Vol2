@@ -67,6 +67,15 @@ export interface Booking {
   assignedTo?: number;
   supplierBookings?: SupplierBooking[];
   transactions?: BookingTransaction[];
+  notes?: BookingNote[];
+}
+
+export interface BookingNote {
+  id: string;
+  text: string;
+  date: string;
+  author: string;
+  isPinned?: boolean;
 }
 
 export interface BookingTransaction {
