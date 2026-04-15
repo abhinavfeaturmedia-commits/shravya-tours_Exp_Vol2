@@ -52,7 +52,7 @@ export const useBookings = () => {
     });
 
     const updateBookingMutation = useMutation({
-        mutationFn: ({ id, updates }: { id: string; updates: Partial<Booking> }) => api.updateBooking(id, updates),
+        mutationFn: ({ id, updates, silent }: { id: string; updates: Partial<Booking>; silent?: boolean }) => api.updateBooking(id, updates),
         onMutate: async ({ id, updates }) => {
             await queryClient.cancelQueries({ queryKey: ['bookings'] });
             const previousBookings = queryClient.getQueryData<Booking[]>(['bookings']);
@@ -65,8 +65,8 @@ export const useBookings = () => {
             queryClient.setQueryData(['bookings'], context?.previousBookings);
             toast.error(err.message || 'Failed to update booking');
         },
-        onSuccess: () => {
-            toast.success('Booking updated');
+        onSuccess: (_data, variables) => {
+            if (!variables.silent) toast.success('Booking updated');
             queryClient.invalidateQueries({ queryKey: ['bookings'] });
         },
     });
@@ -94,7 +94,7 @@ export const useBookings = () => {
         isLoading,
         error,
         addBooking: addBookingMutation.mutateAsync,
-        updateBooking: (id: string, updates: Partial<Booking>) => updateBookingMutation.mutateAsync({ id, updates }),
+        updateBooking: (id: string, updates: Partial<Booking>, silent?: boolean) => updateBookingMutation.mutateAsync({ id, updates, silent }),
         updateBookingStatus: (id: string, status: BookingStatus) => updateBookingStatusMutation.mutateAsync({ id, status }),
         deleteBooking: deleteBookingMutation.mutateAsync,
     };

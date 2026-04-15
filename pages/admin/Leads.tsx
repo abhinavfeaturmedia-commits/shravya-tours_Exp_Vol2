@@ -6,7 +6,7 @@ import { useBookings } from '../../src/hooks/useBookings';
 import { useAuth } from '../../context/AuthContext';
 import { Lead, BookingStatus, FollowUpType, Customer } from '../../types'; // Removed unused imports
 import { toast } from 'sonner'; // Use sonner for consistency if available, or keep existing toast
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
     Phone, Mail, MapPin, Calendar, Users, Clock, X, Plus, Search,
     ChevronRight, Sparkles, Edit2, Trash2, ArrowRight, MessageCircle,
@@ -50,6 +50,15 @@ export const Leads: React.FC = () => {
     const [activeTab, setActiveTab] = useState<'All' | 'New' | 'Warm' | 'Hot' | 'Offer Sent' | 'Converted' | 'Cold'>('All');
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const [isAgendaExpanded, setIsAgendaExpanded] = useState(false);
+
+    const location = useLocation();
+    useEffect(() => {
+        const searchParams = new URLSearchParams(location.search);
+        const filterParam = searchParams.get('filter');
+        if (filterParam === 'overdue') {
+            setIsAgendaExpanded(true);
+        }
+    }, [location.search]);
 
     // Forms
     const [noteContent, setNoteContent] = useState('');

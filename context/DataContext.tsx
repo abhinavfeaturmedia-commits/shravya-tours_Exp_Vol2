@@ -9,6 +9,7 @@ import {
   CMSBanner, CMSTestimonial, CMSGalleryImage, CMSPost,
   Task, DailyTarget, UserActivity, TimeSession, AssignmentRule
 } from '../types';
+import { DeletionRequestModal } from '../components/ui/DeletionRequestModal';
 
 // Storage helpers
 const STORAGE_KEY = 'shravya_data';
@@ -383,6 +384,7 @@ interface DataContextType {
   updateDailyTarget: (id: string, updates: Partial<DailyTarget>) => void;
   userActivities: UserActivity[];
   logUserActivity: (activity: Omit<UserActivity, 'id' | 'timestamp'>) => void;
+  refreshData: () => Promise<void>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -402,6 +404,19 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
 
   // Master Data State (Keep local except Locations and Hotels)
+  const isStaffContext = useCallback(() => {
+    try {
+      const token = localStorage.getItem('shravya_jwt');
+      if (!token) return false;
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      return payload.role !== 'admin' && payload.id !== 999;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const [pendingDelete, setPendingDelete] = useState<{tableName: string, recordId: string, recordName: string} | null>(null);
+
   const [masterHotels, setMasterHotels] = useState<MasterHotel[]>(() => loadFromStorageNonEmpty(`${STORAGE_KEY}_m_hotels`, INITIAL_MASTER_HOTELS));
   const [masterActivities, setMasterActivities] = useState<MasterActivity[]>(() => loadFromStorageNonEmpty(`${STORAGE_KEY}_m_activities`, INITIAL_MASTER_ACTIVITIES));
   const [masterTransports, setMasterTransports] = useState<MasterTransport[]>(() => loadFromStorageNonEmpty(`${STORAGE_KEY}_m_transports`, INITIAL_MASTER_TRANSPORT));
@@ -446,48 +461,47 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
 
   // Load Real Data
-  useEffect(() => {
-    const loadRealData = async () => {
-      try {
-        const pkgs = await api.getPackages();
-        setPackages(pkgs);
-      } catch (e) {
-        console.error("Failed to load packages", e);
-      }
+  const refreshData = useCallback(async () => {
+    try {
+      const pkgs = await api.getPackages();
+      setPackages(pkgs);
+    } catch (e) {
+      console.error("Failed to load packages", e);
+    }
 
-      // Load Authorized Data
-      try {
-        const [b, l, v, a, c, locs, cam, htl, tsk] = await Promise.all([
-          api.getBookings().catch(() => []),
-          api.getLeads().catch(() => []),
-          api.getVendors().catch(() => []),
-          api.getAccounts().catch(() => []),
-          api.getCustomers().catch(() => []),
-          api.getLocations().catch(() => []),
-          api.getCampaigns().catch(() => []),
-          api.getMasterHotels().catch(() => []),
-          api.getTasks().catch(() => [])
-        ]);
-        setBookings(b);
-        setLeads(l);
-        setVendors(v as Vendor[]);
-        setAccounts(a as Account[]);
-        setCustomers(c);
-        setMasterLocations(locs as MasterLocation[]);
-        setCampaigns(cam);
-        if (htl.length > 0) setMasterHotels(htl);
-        setTasks(tsk);
-      } catch (e) {
-        console.warn("Auth required or network error for some data");
-      }
-    };
+    try {
+      const [b, l, v, a, c, locs, cam, htl, tsk, fups] = await Promise.all([
+        api.getBookings().catch(() => []),
+        api.getLeads().catch(() => []),
+        api.getVendors().catch(() => []),
+        api.getAccounts().catch(() => []),
+        api.getCustomers().catch(() => []),
+        api.getLocations().catch(() => []),
+        api.getCampaigns().catch(() => []),
+        api.getMasterHotels().catch(() => []),
+        api.getTasks().catch(() => []),
+        api.getFollowUps().catch(() => [])
+      ]);
+      setBookings(b);
+      setLeads(l);
+      setVendors(v as Vendor[]);
+      setAccounts(a as Account[]);
+      setCustomers(c);
+      setMasterLocations(locs as MasterLocation[]);
+      setCampaigns(cam);
+      if (htl.length > 0) setMasterHotels(htl);
+      setTasks(tsk);
+      if (fups.length > 0) setFollowUps(fups);
+    } catch (e) {
+      console.warn("Auth required or network error for some data");
+    }
 
     const loadPhase3Data = async () => {
       try {
         const [
           activities, transports, plans, roomTypes, mealPlans, leadSources, termsTemplates,
           cmsBannersList, cmsTestList, cmsGalList, cmsPostsList,
-          fups, props, targets, sessions, rules, uActs, auditList
+          props, targets, sessions, rules, uActs, auditList
         ] = await Promise.all([
           api.getMasterActivities().catch(() => []),
           api.getMasterTransports().catch(() => []),
@@ -500,7 +514,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           api.getCMSTestimonials().catch(() => []),
           api.getCMSGalleryImages().catch(() => []),
           api.getCMSPosts().catch(() => []),
-          api.getFollowUps().catch(() => []),
           api.getProposals().catch(() => []),
           api.getDailyTargets().catch(() => []),
           api.getTimeSessions().catch(() => []),
@@ -517,7 +530,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (leadSources.length > 0) setMasterLeadSources(leadSources);
         if (termsTemplates.length > 0) setMasterTermsTemplates(termsTemplates);
 
-        if (fups.length > 0) setFollowUps(fups);
         if (props.length > 0) setProposals(props);
         if (targets.length > 0) setDailyTargets(targets);
         if (sessions.length > 0) setTimeSessions(sessions);
@@ -533,11 +545,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.warn("Error loading secondary Supabase data:", e);
       }
     };
-
-    loadRealData();
-    // Defer Phase 3 loading by 1.5 seconds so as not to block main dashboard rendering
+    
+    // Defer Phase 3
     setTimeout(loadPhase3Data, 1500);
   }, []);
+
+  useEffect(() => {
+    refreshData();
+  }, [refreshData]);
 
   // Persistence Effects (Only for non-migrated data)
   useEffect(() => { saveToStorage(`${STORAGE_KEY}_m_hotels`, masterHotels); }, [masterHotels]);
@@ -606,6 +621,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [packages]);
 
   const deletePackage = useCallback(async (id: string) => {
+    if (isStaffContext()) {
+      const record = packages.find(p => p.id === id);
+      setPendingDelete({ tableName: 'packages', recordId: id, recordName: record?.title || `Package: ${id}` });
+      return;
+    }
     const previousState = packages;
     setPackages(p => p.filter(x => x.id !== id));
     try {
@@ -690,6 +710,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [bookings]);
 
   const deleteBooking = useCallback(async (id: string) => {
+    if (isStaffContext()) {
+      const record = bookings.find(b => b.id === id);
+      setPendingDelete({ tableName: 'bookings', recordId: id, recordName: record?.customer || `Booking: ${id}` });
+      return;
+    }
     const previousState = bookings;
     setBookings(prev => prev.filter(b => b.id !== id));
     try {
@@ -922,6 +947,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [leads]);
 
   const deleteLead = useCallback(async (id: string) => {
+    if (isStaffContext()) {
+      const record = leads.find(l => l.id === id);
+      setPendingDelete({ tableName: 'leads', recordId: id, recordName: record?.name || `Lead: ${id}` });
+      return;
+    }
     const previousState = leads;
     setLeads(l => l.filter(x => x.id !== id));
     try {
@@ -975,6 +1005,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [customers, logAction]);
 
   const deleteCustomer = useCallback(async (id: string) => {
+    if (isStaffContext()) {
+      const record = customers.find(c => c.id === id);
+      setPendingDelete({ tableName: 'customers', recordId: id, recordName: record?.name || `Customer: ${id}` });
+      return;
+    }
     const previousState = customers;
     setCustomers(p => p.filter(x => x.id !== id));
     try {
@@ -1018,6 +1053,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const deleteVendor = useCallback(async (id: string) => {
+    if (isStaffContext()) {
+      const record = vendors.find(v => v.id === id);
+      setPendingDelete({ tableName: 'vendors', recordId: id, recordName: record?.name || `Vendor: ${id}` });
+      return;
+    }
     // Protection Check: Active Supplier Bookings
     const hasActiveBookings = bookings.some(b =>
       b.supplierBookings?.some(sb => sb.vendorId === id && sb.bookingStatus !== 'Cancelled')
@@ -1625,6 +1665,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   return (
     <DataContext.Provider value={value} >
       {children}
+      <DeletionRequestModal
+        isOpen={!!pendingDelete}
+        onClose={() => setPendingDelete(null)}
+        tableName={pendingDelete?.tableName || ''}
+        recordId={pendingDelete?.recordId || ''}
+        recordName={pendingDelete?.recordName || ''}
+      />
     </DataContext.Provider >
   );
 };

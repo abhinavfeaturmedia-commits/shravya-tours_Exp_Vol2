@@ -334,7 +334,8 @@ export const api = {
                 packageId: row.tour_id || row.package_id,
                 invoiceNo: row.invoice_no || `INV-${row.id}`,
                 transactions: txs,
-                supplierBookings: sbs
+                supplierBookings: sbs,
+                notes: parseJsonFieldSafe(row.booking_notes, [])
             };
         });
     },
@@ -429,6 +430,9 @@ export const api = {
         if (updates.payment !== undefined) {
             const tempMap: any = { 'Paid': 'paid', 'Unpaid': 'pending', 'Deposit': 'deposit', 'Refunded': 'refunded' };
             dbUpdates.payment_status = tempMap[updates.payment] || 'pending';
+        }
+        if (updates.notes !== undefined) {
+            dbUpdates.booking_notes = JSON.stringify(updates.notes);
         }
         
         await crud.update('bookings', id, dbUpdates);

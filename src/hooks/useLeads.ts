@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 export const useLeads = () => {
     const queryClient = useQueryClient();
 
-    const { data, isLoading, error } = useQuery({
+    const { data, isLoading, error, refetch } = useQuery({
         queryKey: ['leads'],
         queryFn: () => api.getLeads(),
     });
@@ -149,6 +149,7 @@ export const useLeads = () => {
         deleteLead: (id: string) => deleteLeadMutation.mutate(id),
         addLeadLog: (id: string, log: any) => addLeadLogMutation.mutateAsync({ id, log }),
         updateLeadLog: (logId: string, content: string) => updateLeadLogMutation.mutate({ logId, content }),
-        deleteLeadLog: (logId: string) => deleteLeadLogMutation.mutate(logId)
+        deleteLeadLog: (logId: string) => deleteLeadLogMutation.mutate(logId),
+        refetchLeads: refetch
     };
 };

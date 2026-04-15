@@ -766,7 +766,7 @@ export const AdminLayout: React.FC = () => {
                 color="red"
                 title={`${myOverdue} overdue follow-ups!`}
                 description="Your backlog is growing. Clear overdue items before adding new leads to maintain quality."
-                primaryAction={{ label: 'View Follow-ups', icon: 'alarm', onClick: () => navigate('/admin/leads') }}
+                primaryAction={{ label: 'View Follow-ups', icon: 'alarm', onClick: () => navigate('/admin/leads?filter=overdue') }}
                 snoozeMinutes={60 * 4}
               />
             </div>

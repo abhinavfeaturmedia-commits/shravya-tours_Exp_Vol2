@@ -5,8 +5,9 @@ import { useLeads } from '../../src/hooks/useLeads';
 import {
     CheckCircle2, Clock, IndianRupee, TrendingUp, Users,
     AlertTriangle, Target, X, ChevronDown, Download, ArrowRight,
-    Calendar, Activity, BarChart2, Award, Zap, PieChart
+    Calendar, Activity, BarChart2, Award, Zap, PieChart, RefreshCw
 } from 'lucide-react';
+import { toast } from 'sonner';
 
 // ── Types & helpers ──────────────────────────────────────────────────────────
 
@@ -249,12 +250,13 @@ const DrillDownModal: React.FC<{ member: any; onClose: () => void }> = ({ member
 
 export const TeamPerformance: React.FC = () => {
     const { staff } = useAuth();
-    const { followUps, bookings, dailyTargets } = useData();
-    const { leads } = useLeads();
+    const { followUps, bookings, dailyTargets, refreshData } = useData();
+    const { leads, refetchLeads } = useLeads();
 
     const [period, setPeriod] = useState<TimePeriod>('30d');
     const [showPeriodMenu, setShowPeriodMenu] = useState(false);
     const [selectedMember, setSelectedMember] = useState<any | null>(null);
+    const [isRefreshing, setIsRefreshing] = useState(false);
 
     const today = new Date().toISOString().split('T')[0];
     const periodStart = useMemo(() => getPeriodStart(period), [period]);
@@ -332,6 +334,21 @@ export const TeamPerformance: React.FC = () => {
         })), `team-performance-${period}-${today}.csv`);
     };
 
+    const handleRefresh = async () => {
+        setIsRefreshing(true);
+        try {
+            await Promise.all([
+                refreshData?.(),
+                refetchLeads?.()
+            ]);
+            toast.success('Data synced successfully');
+        } catch (error) {
+            toast.error('Failed to sync data');
+        } finally {
+            setIsRefreshing(false);
+        }
+    };
+
     const maxRevenue = Math.max(...metrics.map(m => m.actualRevenue), 1);
     const maxConvDays = Math.max(...metrics.filter(m => m.avgConversionDays !== null).map(m => m.avgConversionDays as number), 1);
 
@@ -371,6 +388,14 @@ export const TeamPerformance: React.FC = () => {
                                 </div>
                             )}
                         </div>
+                        <button 
+                            onClick={handleRefresh} 
+                            disabled={isRefreshing}
+                            className="flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-sm font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition-all shadow-sm disabled:opacity-50"
+                        >
+                            <RefreshCw size={14} className={isRefreshing ? "animate-spin" : ""} /> 
+                            {isRefreshing ? 'Syncing...' : 'Sync'}
+                        </button>
                         <button onClick={handleExport} className="flex items-center gap-2 px-4 py-2.5 bg-primary text-white rounded-xl text-sm font-bold hover:opacity-90 transition-all shadow-sm">
                             <Download size={14} /> Export CSV
                         </button>

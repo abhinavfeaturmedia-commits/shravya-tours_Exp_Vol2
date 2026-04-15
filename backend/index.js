@@ -306,7 +306,7 @@ app.get('/api/crud/:table', optionalAuthMiddleware, validateTable, async (req, r
             const staffId = req.user.staffId;
             const myDataTables = ['leads', 'bookings', 'follow_ups', 'tasks'];
             if (myDataTables.includes(table) && staffId) {
-                whereClauses.push(`\`assignedTo\` = ?`);
+                whereClauses.push(`\`assigned_to\` = ?`);
                 params.push(staffId);
             }
         }

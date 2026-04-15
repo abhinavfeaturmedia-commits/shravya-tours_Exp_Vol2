@@ -114,6 +114,10 @@ export const Bookings: React.FC = () => {
             // Assuming statusParam matches the enum values (Pending, Confirmed, etc.)
             setActiveTab(statusParam);
         }
+        const filterParam = searchParams.get('filter');
+        if (filterParam === 'unpaid') {
+            setSearch('unpaid');
+        }
     }, [location.search]);
 
     // --- Handlers ---
@@ -131,7 +135,7 @@ export const Bookings: React.FC = () => {
             author: currentUser?.name || 'System'
         };
         const existingNotes = booking.notes || [];
-        updateBooking(bookingId, { notes: [newNote, ...existingNotes] });
+        updateBooking(bookingId, { notes: [newNote, ...existingNotes] }, true);
         
         if (viewingBooking && viewingBooking.id === bookingId) {
             setViewingBooking({ ...viewingBooking, notes: [newNote, ...existingNotes] });
@@ -147,7 +151,7 @@ export const Bookings: React.FC = () => {
         if (!booking) return;
 
         const updatedNotes = (booking.notes || []).filter(n => n.id !== noteId);
-        updateBooking(bookingId, { notes: updatedNotes });
+        updateBooking(bookingId, { notes: updatedNotes }, true);
         
         if (viewingBooking && viewingBooking.id === bookingId) {
             setViewingBooking({ ...viewingBooking, notes: updatedNotes });
@@ -163,7 +167,7 @@ export const Bookings: React.FC = () => {
         const updatedNotes = (booking.notes || []).map(n =>
             n.id === noteId ? { ...n, text: editNoteText } : n
         );
-        updateBooking(bookingId, { notes: updatedNotes });
+        updateBooking(bookingId, { notes: updatedNotes }, true);
         
         if (viewingBooking && viewingBooking.id === bookingId) {
             setViewingBooking({ ...viewingBooking, notes: updatedNotes });
@@ -495,7 +499,8 @@ export const Bookings: React.FC = () => {
                          
         const matchesSearch = b.customer.toLowerCase().includes(search.toLowerCase()) ||
             b.id.toLowerCase().includes(search.toLowerCase()) ||
-            b.title.toLowerCase().includes(search.toLowerCase());
+            b.title.toLowerCase().includes(search.toLowerCase()) ||
+            (b.payment && b.payment.toLowerCase() === search.toLowerCase());
 
         // Permission Filter
         const isRestricted = currentUser?.queryScope === 'Show Assigned Query Only';

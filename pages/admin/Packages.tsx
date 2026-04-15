@@ -1,6 +1,6 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useData } from '../../context/DataContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Package, MasterLocation } from '../../types';
 import { ImageUpload } from '../../components/ui/ImageUpload';
 import { SuggestPopup, isDismissed, isSnoozed } from '../../components/ui/SuggestPopup';
@@ -93,7 +93,19 @@ export const AdminPackages: React.FC = () => {
     const { packages, updatePackage, deletePackage, cmsGallery, masterLocations } = useData();
     const { bookings } = useBookings();
     const navigate = useNavigate();
+    const location = useLocation();
     const [search, setSearch] = useState('');
+
+    useEffect(() => {
+        const searchParams = new URLSearchParams(location.search);
+        const filterParam = searchParams.get('filter');
+        const statusParam = searchParams.get('status');
+        if (filterParam === 'no-bookings') {
+            setSearch('no-bookings');
+        } else if (statusParam === 'Inactive') {
+            setSearch('Hidden');
+        }
+    }, [location.search]);
 
     // Edit Modal State
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -172,11 +184,20 @@ export const AdminPackages: React.FC = () => {
     }, [navigate]);
 
     const filteredPackages = useMemo(() => {
+        if (search === 'no-bookings') {
+            const packageBookingCounts = packages.reduce((acc, pkg) => {
+                acc[pkg.id] = bookings.filter(b => b.packageId === pkg.id).length;
+                return acc;
+            }, {} as Record<string, number>);
+            return packages.filter(p => p.status === 'Active' && (packageBookingCounts[p.id] || 0) === 0);
+        } else if (search === 'Hidden') {
+            return packages.filter(p => p.status === 'Inactive');
+        }
         return packages.filter(p =>
             p.title.toLowerCase().includes(search.toLowerCase()) ||
             p.location.toLowerCase().includes(search.toLowerCase())
         );
-    }, [packages, search]);
+    }, [packages, search, bookings]);
 
     return (
         <div className="flex flex-col h-full admin-page-bg">
@@ -384,7 +405,7 @@ export const AdminPackages: React.FC = () => {
                                 color="amber"
                                 title={`${activeNoBookings.length} active package${activeNoBookings.length > 1 ? 's have' : ' has'} never been booked!`}
                                 description="These packages are live but getting no traction. Consider updating the description, price, or promoting them to warm leads."
-                                primaryAction={{ label: 'Edit Packages', icon: 'edit', onClick: () => {} }}
+                                primaryAction={{ label: 'Review Packages', icon: 'edit', onClick: () => navigate('/admin/packages?filter=no-bookings') }}
                                 snoozeMinutes={60 * 24 * 7}
                             />
                         )}
@@ -396,7 +417,7 @@ export const AdminPackages: React.FC = () => {
                                 color="red"
                                 title={`${inactivePct}% of your packages are hidden from customers!`}
                                 description="Over half your catalogue is invisible. Activate or remove outdated packages to give customers a better selection."
-                                primaryAction={{ label: 'Review Packages', icon: 'inventory_2', onClick: () => {} }}
+                                primaryAction={{ label: 'Review Packages', icon: 'inventory_2', onClick: () => navigate('/admin/packages?status=Inactive') }}
                                 snoozeMinutes={60 * 24 * 3}
                             />
                         )}

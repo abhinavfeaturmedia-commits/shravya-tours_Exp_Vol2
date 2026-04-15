@@ -3,7 +3,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useData } from '../../context/DataContext';
 import { Vendor, VendorService, VendorDocument } from '../../types';
 import { ImageUpload } from '../../components/ui/ImageUpload';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { VendorBulkEmailModal } from '../../components/admin/VendorBulkEmailModal';
 import { SuggestPopup, isDismissed, isSnoozed } from '../../components/ui/SuggestPopup';
 import { ActionMenu } from '../../components/ui/ActionMenu';
@@ -28,6 +28,7 @@ export const Vendors: React.FC = () => {
     const { vendors, addVendor, updateVendor, deleteVendor, processVendorPayment, addVendorDocument, deleteVendorDocument, addVendorNote, packages } = useData();
     const { bookings } = useBookings();
     const navigate = useNavigate();
+    const location = useLocation();
 
     // Notification State
     const [toast, setToast] = useState<{ msg: string, type: 'success' | 'error' } | null>(null);
@@ -35,6 +36,14 @@ export const Vendors: React.FC = () => {
     // Filter & Search State
     const [search, setSearch] = useState('');
     const [categoryFilter, setCategoryFilter] = useState('All');
+
+    useEffect(() => {
+        const searchParams = new URLSearchParams(location.search);
+        const filterParam = searchParams.get('filter');
+        if (filterParam === 'unused') {
+            setSearch('unused');
+        }
+    }, [location.search]);
 
     // UI State
     const [selectedVendorId, setSelectedVendorId] = useState<string | null>(null);
@@ -97,16 +106,24 @@ export const Vendors: React.FC = () => {
     // Filter and Sort
     const filteredVendors = useMemo(() => {
         return vendors.filter(v => {
-            const matchesSearch = v.name.toLowerCase().includes(search.toLowerCase()) ||
-                v.location.toLowerCase().includes(search.toLowerCase()) ||
-                v.contactName.toLowerCase().includes(search.toLowerCase());
+            if (search === 'unused') {
+                const usedVendorIds = new Set(
+                    bookings.flatMap(b => ((b as any).supplierBookings || []).map((sb: any) => sb.vendorId))
+                );
+                if (usedVendorIds.has(v.id)) return false;
+            } else {
+                const matchesSearch = v.name.toLowerCase().includes(search.toLowerCase()) ||
+                    v.location.toLowerCase().includes(search.toLowerCase()) ||
+                    v.contactName.toLowerCase().includes(search.toLowerCase());
+                if (!matchesSearch) return false;
+            }
 
             let matchesCategory = true;
             if (categoryFilter !== 'All') {
                 matchesCategory = v.category === categoryFilter;
             }
 
-            return matchesSearch && matchesCategory;
+            return matchesCategory;
         }).sort((a, b) => {
             const aValue = a[sortConfig.key];
             const bValue = b[sortConfig.key];
@@ -116,7 +133,7 @@ export const Vendors: React.FC = () => {
             if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
             return 0;
         });
-    }, [vendors, search, categoryFilter, sortConfig]);
+    }, [vendors, search, categoryFilter, sortConfig, bookings]);
 
     // Dashboard Stats
     const stats = useMemo(() => {
@@ -522,7 +539,7 @@ export const Vendors: React.FC = () => {
                                 color="amber"
                                 title={unusedVendors.length + ' vendor' + (unusedVendors.length > 1 ? 's have' : ' has') + ' never been used in a booking!'}
                                 description="Review and deactivate vendors you no longer work with to keep your supplier list clean."
-                                primaryAction={{ label: 'Review Vendors', icon: 'manage_search', onClick: () => {} }}
+                                primaryAction={{ label: 'Review Vendors', icon: 'manage_search', onClick: () => navigate('/admin/vendors?filter=unused') }}
                                 snoozeMinutes={10080}
                             />
                         )}
