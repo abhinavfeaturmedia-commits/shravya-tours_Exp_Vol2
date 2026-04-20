@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import { useData } from '../../context/DataContext';
 import { useAuth } from '../../context/AuthContext';
 import { Booking, SupplierBooking } from '../../types';
@@ -7,14 +7,28 @@ import {
    PieChart, CreditCard, Calendar, Filter, Download,
    Users, Map as MapIcon, Link as LinkIcon, Timer, Clock,
    Target, AlertCircle, ThumbsUp, Globe, Star,
-   MessageSquare, Award, XCircle, Zap, Activity
+   MessageSquare, Award, XCircle, Zap, Activity, RefreshCw
 } from 'lucide-react';
+import { toast } from 'sonner';
 
 export const Analytics: React.FC = () => {
-   const { bookings: globalBookings, vendors, leads: globalLeads, customers: globalCustomers, followUps: globalFollowUps } = useData();
+   const { bookings: globalBookings, vendors, leads: globalLeads, customers: globalCustomers, followUps: globalFollowUps, refreshData } = useData();
    const { staff, currentUser } = useAuth();
-   const [timeRange, setTimeRange] = useState<'all' | '30days' | 'thisMonth' | 'thisYear'>('all');
+   const [timeRange, setTimeRange] = useState<'all' | '7days' | '30days' | 'thisMonth' | 'thisYear'>('all');
    const [activeTab, setActiveTab] = useState<'financial' | 'sales' | 'team' | 'bi'>('financial');
+   const [isSyncing, setIsSyncing] = useState(false);
+
+   const handleSync = async () => {
+      setIsSyncing(true);
+      try {
+         await refreshData();
+         toast.success('Analytics data synchronized with database');
+      } catch (err) {
+         toast.error('Failed to sync. Please try again.');
+      } finally {
+         setIsSyncing(false);
+      }
+   };
 
    // --- RBAC Scoping ---
    const isAdmin = currentUser?.userType === 'Admin';
@@ -24,15 +38,52 @@ export const Analytics: React.FC = () => {
    const followUps = useMemo(() => isAdmin ? globalFollowUps : globalFollowUps.filter(f => f.assignedTo === currentUser?.id), [isAdmin, globalFollowUps, currentUser?.id]);
    const customers = useMemo(() => isAdmin ? globalCustomers : globalCustomers.filter(c => bookings.some(b => b.customer === c.id || b.customerId === c.id) || leads.some(l => l.email === c.email || l.phone === c.phone)), [isAdmin, globalCustomers, bookings, leads]);
 
-   // --- Data Processing ---
-   const filteredBookings = useMemo(() => {
+   // --- Data Processing (Filtered by Time Range) ---
+   const isWithinRange = useCallback((dateStr: string) => {
+      if (timeRange === 'all' || !dateStr) return true;
+      
+      // Parse YYYY-MM-DD string as a local date for consistent comparison with 'now'
+      const parts = dateStr.split('T')[0].split('-');
+      const d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+      
       const now = new Date();
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+
+      if (timeRange === '7days') {
+         const threshold = new Date(startOfToday);
+         threshold.setDate(threshold.getDate() - 7);
+         return d >= threshold && d <= endOfToday;
+      }
+      if (timeRange === '30days') {
+         const threshold = new Date(startOfToday);
+         threshold.setDate(threshold.getDate() - 30);
+         return d >= threshold && d <= endOfToday;
+      }
+      if (timeRange === 'thisMonth') {
+         return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+      }
+      if (timeRange === 'thisYear') {
+         return d.getFullYear() === now.getFullYear();
+      }
+      return true;
+   }, [timeRange]);
+
+   const filteredBookings = useMemo(() => {
       return bookings.filter(b => {
-         if (b.status === 'Cancelled') return false; // Exclude cancelled usually
-         // Apply Date Filter logic here if needed
-         return true;
+         if (b.status === 'Cancelled') return false;
+         return isWithinRange(b.date);
       });
-   }, [bookings, timeRange]);
+   }, [bookings, isWithinRange]);
+
+   const filteredLeads = useMemo(() => {
+      return leads.filter(l => isWithinRange(l.addedOn));
+   }, [leads, isWithinRange]);
+
+   const filteredFollowUps = useMemo(() => {
+      // FollowUp uses scheduledAt (not date) — filter by the scheduled date
+      return followUps.filter(f => isWithinRange(f.scheduledAt));
+   }, [followUps, isWithinRange]);
 
    const metrics = useMemo(() => {
       let totalRevenue = 0; // Total Customer Price
@@ -50,11 +101,11 @@ export const Analytics: React.FC = () => {
          totalRevenue += booking.amount;
 
          const received = (booking.transactions || [])
-            .filter(t => t.type === 'Payment')
+            .filter(t => t.type === 'Payment' && (t.status === 'Verified' || !t.status))
             .reduce((sum, t) => sum + t.amount, 0);
 
          const refunded = (booking.transactions || [])
-            .filter(t => t.type === 'Refund')
+            .filter(t => t.type === 'Refund' && (t.status === 'Verified' || !t.status))
             .reduce((sum, t) => sum + t.amount, 0);
 
          totalReceived += (received - refunded);
@@ -135,23 +186,27 @@ export const Analytics: React.FC = () => {
 
    // --- NEW: 3. Lead Source ROI ---
    const leadSourceROI = useMemo(() => {
-      const srcMap = new Map<string, { totalLeads: number, converted: number, revenueFromConverted: number }>();
+      const sources = new Map<string, { totalLeads: number, converted: number, revenueFromConverted: number }>();
 
-      (leads || []).forEach(l => {
-         const source = l.source || 'Direct/Other';
-         const existing = srcMap.get(source) || { totalLeads: 0, converted: 0, revenueFromConverted: 0 };
-         existing.totalLeads += 1;
+      (filteredLeads || []).forEach(l => {
+         const src = l.source || 'Unknown';
+         const existing = sources.get(src) || { totalLeads: 0, converted: 0, revenueFromConverted: 0 };
+         existing.totalLeads++;
          if (l.status === 'Converted') {
-            existing.converted += 1;
-            existing.revenueFromConverted += (l.potentialValue || 0); // Approx ROI
+            existing.converted++;
+            // Find corresponding booking to get revenue
+            const b = globalBookings.find(bk => bk.id === l.bookingId || bk.customerId === l.customerId);
+            if (b) existing.revenueFromConverted += b.amount;
          }
-         srcMap.set(source, existing);
+         sources.set(src, existing);
       });
 
-      return Array.from(srcMap.entries())
-         .map(([source, data]) => ({ source, ...data, rate: Math.round((data.converted / data.totalLeads) * 100) }))
-         .sort((a, b) => b.revenueFromConverted - a.revenueFromConverted);
-   }, [leads]);
+      return Array.from(sources.entries()).map(([source, data]) => ({
+         source,
+         ...data,
+         rate: data.totalLeads > 0 ? Math.round((data.converted / data.totalLeads) * 100) : 0
+      })).sort((a, b) => b.revenueFromConverted - a.revenueFromConverted);
+   }, [filteredLeads, globalBookings]);
 
    // --- NEW: 4. Most Profitable Destinations ---
    const destProfitability = useMemo(() => {
@@ -181,24 +236,28 @@ export const Analytics: React.FC = () => {
 
    // --- NEW: 5. Average Conversion Time ---
    const averageConversionTimeDays = useMemo(() => {
+      // Estimate: time from lead creation to the first booking-related log entry (type='Quote' or 'System'),
+      // or fall back to time from addedOn to the last log entry for converted leads.
+      // This avoids inflating the metric by measuring to "today".
       let totalDays = 0;
       let convertedCount = 0;
 
-      (leads || []).forEach(l => {
+      (filteredLeads || []).forEach(l => {
          if (l.status === 'Converted' && l.addedOn) {
-            // Approximate by assuming if it's converted now, the difference between addedOn and current date (or a specific closing date if we tracked it)
-            // Since we don't have a strict strict closing date tracked, we'll use a simulated or proxy method if needed.
-            // Let's assume it was converted recently.
             const start = new Date(l.addedOn).getTime();
-            const end = new Date().getTime(); // Proxy for 'date converted'
-            const days = Math.round((end - start) / (1000 * 3600 * 24));
-            totalDays += Math.max(days, 1); // at least 1 day
-            convertedCount++;
+            // Use the most recent log timestamp as a proxy for conversion time
+            const lastLog = (l.logs || []).slice(-1)[0];
+            const end = lastLog ? new Date(lastLog.timestamp).getTime() : new Date().getTime();
+            const days = Math.round(Math.abs(end - start) / (1000 * 3600 * 24));
+            if (days <= 365) { // Exclude outliers over 1 year
+               totalDays += Math.max(days, 1);
+               convertedCount++;
+            }
          }
       });
 
       return convertedCount > 0 ? Math.round(totalDays / convertedCount) : 0;
-   }, [leads]);
+   }, [filteredLeads]);
 
    // --- NEW: 6. Accounts Aging Report (Receivables) ---
    const agingReport = useMemo(() => {
@@ -207,8 +266,8 @@ export const Analytics: React.FC = () => {
 
       filteredBookings.forEach(b => {
          if (b.payment === 'Unpaid' || b.payment === 'Deposit') {
-            const paid = (b.transactions || []).filter(t => t.type === 'Payment').reduce((sum, t) => sum + t.amount, 0);
-            const refunded = (b.transactions || []).filter(t => t.type === 'Refund').reduce((sum, t) => sum + t.amount, 0);
+            const paid = (b.transactions || []).filter(t => t.type === 'Payment' && (t.status === 'Verified' || !t.status)).reduce((sum, t) => sum + t.amount, 0);
+            const refunded = (b.transactions || []).filter(t => t.type === 'Refund' && (t.status === 'Verified' || !t.status)).reduce((sum, t) => sum + t.amount, 0);
             const remaining = b.amount - (paid - refunded);
 
             if (remaining > 0) {
@@ -228,30 +287,30 @@ export const Analytics: React.FC = () => {
 
    // --- NEW: Lost Lead Analysis ---
    const lostLeadAnalysis = useMemo(() => {
-      const all = leads || [];
+      const all = filteredLeads || [];
       const byStatus = ['New','Warm','Hot','Cold','Offer Sent','Converted'].reduce((acc, s) => {
          acc[s] = all.filter(l => l.status === s).length; return acc;
       }, {} as Record<string, number>);
       return { byStatus, total: all.length };
-   }, [leads]);
+   }, [filteredLeads]);
 
    // --- NEW: Follow-Up Effectiveness ---
    const followUpEffect = useMemo(() => {
-      const fuLeads = new Set((followUps || []).map(f => f.leadId));
-      const all = leads || [];
+      const fuLeads = new Set((filteredFollowUps || []).map(f => f.leadId));
+      const all = filteredLeads || [];
       const wFU = all.filter(l => fuLeads.has(l.id));
       const woFU = all.filter(l => !fuLeads.has(l.id));
       const rWith = wFU.length > 0 ? Math.round(wFU.filter(l => l.status === 'Converted').length / wFU.length * 100) : 0;
       const rWithout = woFU.length > 0 ? Math.round(woFU.filter(l => l.status === 'Converted').length / woFU.length * 100) : 0;
       return { rWith, rWithout, wFUCount: wFU.length, woFUCount: woFU.length };
-   }, [leads, followUps]);
+   }, [filteredLeads, filteredFollowUps]);
 
    // --- NEW: Inquiry to Quote Ratio ---
    const inquiryToQuote = useMemo(() => {
-      const total = (leads || []).length;
-      const withQuote = (leads || []).filter(l => (l.logs || []).some(log => log.type === 'Quote')).length;
+      const total = (filteredLeads || []).length;
+      const withQuote = (filteredLeads || []).filter(l => (l.logs || []).some(log => log.type === 'Quote')).length;
       return { total, withQuote, ratio: total > 0 ? Math.round((withQuote / total) * 100) : 0 };
-   }, [leads]);
+   }, [filteredLeads]);
 
    // --- NEW: Customer Lifetime Value ---
    const clvData = useMemo(() => {
@@ -277,13 +336,17 @@ export const Analytics: React.FC = () => {
    }, [filteredBookings]);
 
    // --- NEW: Cancellation Patterns ---
+   // NOTE: filteredBookings already excludes Cancelled status. We need raw RBAC-scoped bookings
+   // (all statuses, but still respecting the time range) to compute accurate cancellation rates.
    const cancellationData = useMemo(() => {
-      const cancelled = bookings.filter(b => b.status === 'Cancelled');
-      const refundTotal = bookings.reduce((s, b) =>
+      // Include ALL statuses but still respect time range for fair comparison
+      const allBookings = bookings.filter(b => isWithinRange(b.date));
+      const cancelled = allBookings.filter(b => b.status === 'Cancelled');
+      const refundTotal = allBookings.reduce((s, b) =>
          s + (b.transactions || []).filter(t => t.type === 'Refund').reduce((rs, t) => rs + t.amount, 0), 0);
-      const rate = bookings.length > 0 ? Math.round((cancelled.length / bookings.length) * 100) : 0;
-      return { count: cancelled.length, total: bookings.length, rate, refundTotal };
-   }, [bookings]);
+      const rate = allBookings.length > 0 ? Math.round((cancelled.length / allBookings.length) * 100) : 0;
+      return { count: cancelled.length, total: allBookings.length, rate, refundTotal };
+   }, [bookings, isWithinRange]);
 
    // --- NEW: Payment Collection Lag ---
    const paymentLag = useMemo(() => {
@@ -340,7 +403,7 @@ export const Analytics: React.FC = () => {
    // --- NEW: Staff Response Time ---
    const staffResponseTime = useMemo(() => {
       const m = new Map<number, { name: string; initials: string; color: string; total: number; count: number }>();
-      (leads || []).forEach(l => {
+      (filteredLeads || []).forEach(l => {
          if (!l.assignedTo || !l.addedOn || !(l.logs?.length)) return;
          const fl = [...l.logs].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())[0];
          if (!fl) return;
@@ -355,12 +418,12 @@ export const Analytics: React.FC = () => {
       return Array.from(m.values())
          .map(s => ({ ...s, avg: s.count > 0 ? +(s.total / s.count).toFixed(1) : 0 }))
          .sort((a, b) => a.avg - b.avg);
-   }, [leads, staff]);
+   }, [filteredLeads, staff]);
 
    // --- NEW: Destination Trend (Quarterly) ---
    const destTrend = useMemo(() => {
       const qMap: Record<string, Record<string, number>> = { Q1: {}, Q2: {}, Q3: {}, Q4: {} };
-      (leads || []).forEach(l => {
+      (filteredLeads || []).forEach(l => {
          if (!l.addedOn || !l.destination) return;
          const mo = new Date(l.addedOn).getMonth();
          const q = mo < 3 ? 'Q1' : mo < 6 ? 'Q2' : mo < 9 ? 'Q3' : 'Q4';
@@ -372,12 +435,20 @@ export const Analytics: React.FC = () => {
          .map(d => ({ d, t: Object.values(qMap).reduce((s, q) => s + (q[d] || 0), 0) }))
          .sort((a, b) => b.t - a.t).slice(0, 5).map(x => x.d);
       return { qMap, topDests };
-   }, [leads]);
+   }, [filteredLeads]);
 
    // Format Currency
    const fmt = (n: number) => `₹${n.toLocaleString('en-IN')}`;
-   // Format Short Currency (e.g. 5.2L)
-   const fmtShort = (n: number) => `₹${(n / 100000).toFixed(n > 1000000 ? 1 : 2)}L`;
+   // Format Short Currency — handles thousands, lakhs, and crores correctly
+   const fmtShort = (n: number) => {
+      if (!n || isNaN(n)) return '₹0';
+      const abs = Math.abs(n);
+      const sign = n < 0 ? '-' : '';
+      if (abs >= 10000000) return `${sign}₹${(abs / 10000000).toFixed(1)}Cr`;
+      if (abs >= 100000) return `${sign}₹${(abs / 100000).toFixed(1)}L`;
+      if (abs >= 1000) return `${sign}₹${(abs / 1000).toFixed(1)}K`;
+      return `${sign}₹${abs.toFixed(0)}`;
+   };
 
    return (
       <div className="flex flex-col h-full admin-page-bg">
@@ -390,12 +461,25 @@ export const Analytics: React.FC = () => {
                <p className="text-slate-500 dark:text-slate-400 text-sm">Profit & Loss, Cash Flow, and Expense Breakdown</p>
             </div>
             <div className="flex items-center gap-3">
+               <button 
+                  onClick={handleSync}
+                  disabled={isSyncing}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold transition-all shadow-sm ${
+                     isSyncing 
+                     ? 'bg-slate-100 text-slate-400 cursor-not-allowed' 
+                     : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'
+                  }`}
+               >
+                  <RefreshCw size={18} className={isSyncing ? 'animate-spin' : ''} />
+                  {isSyncing ? 'Syncing...' : 'Sync'}
+               </button>
                <select
                   value={timeRange}
                   onChange={(e) => setTimeRange(e.target.value as any)}
-                  className="bg-slate-50 dark:bg-slate-800 border-none text-slate-900 dark:text-white text-sm rounded-lg px-4 py-2.5 font-bold shadow-sm focus:ring-2 focus:ring-primary outline-none"
+                  className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-sm rounded-lg px-4 py-2.5 font-bold shadow-sm focus:ring-2 focus:ring-primary outline-none"
                >
                   <option value="all">All Time</option>
+                  <option value="7days">Last 7 Days</option>
                   <option value="thisMonth">This Month</option>
                   <option value="30days">Last 30 Days</option>
                   <option value="thisYear">This Year</option>

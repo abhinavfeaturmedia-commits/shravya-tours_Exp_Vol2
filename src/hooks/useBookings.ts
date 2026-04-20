@@ -25,9 +25,40 @@ export const useBookings = () => {
             queryClient.setQueryData(['bookings'], context?.previousBookings);
             toast.error(err.message || 'Failed to create booking');
         },
-        onSuccess: () => {
+        onSuccess: async (_data, newBooking) => {
             toast.success('Booking created completely!');
             queryClient.invalidateQueries({ queryKey: ['bookings'] });
+
+            // Auto-create or update Customer record in MySQL (non-blocking)
+            try {
+                const existing = await api.findCustomerByContact(newBooking.email, newBooking.phone);
+                if (!existing) {
+                    await api.createCustomer({
+                        id: `CUST-${Date.now()}`,
+                        name: newBooking.customer,
+                        email: newBooking.email || '',
+                        phone: newBooking.phone || '',
+                        location: '',
+                        type: 'New',
+                        status: 'Active',
+                        totalSpent: newBooking.amount || 0,
+                        bookingsCount: 1,
+                        joinedDate: new Date().toISOString().split('T')[0],
+                        tags: [],
+                        preferences: { dietary: [], flight: [], accommodation: [] },
+                        notes: []
+                    });
+                } else {
+                    await api.updateCustomer(existing.id, {
+                        totalSpent: (existing.totalSpent || 0) + (newBooking.amount || 0),
+                        bookingsCount: (existing.bookingsCount || 0) + 1
+                    });
+                }
+                // Signal DataContext to re-fetch the customers list
+                window.dispatchEvent(new CustomEvent('customers-changed'));
+            } catch (custErr) {
+                console.warn('Failed to sync customer from booking:', custErr);
+            }
         },
     });
 

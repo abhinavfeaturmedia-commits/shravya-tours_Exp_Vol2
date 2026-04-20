@@ -492,6 +492,22 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (htl.length > 0) setMasterHotels(htl);
       setTasks(tsk);
       if (fups.length > 0) setFollowUps(fups);
+
+      // After loading both bookings and customers, silently sync any missing customers
+      // from bookings (non-blocking — runs in background, re-fetches customers on success)
+      api.syncCustomersFromBookings()
+        .then(async (result) => {
+          if (result.created > 0) {
+            console.log(`[DataContext] Customer sync: created=${result.created}, updated=${result.updated}`);
+            // Re-fetch the updated customers list
+            const updatedCustomers = await api.getCustomers().catch(() => null);
+            if (updatedCustomers) setCustomers(updatedCustomers);
+          }
+        })
+        .catch((e) => {
+          // Silently ignore — sync will be retried on next page load
+          console.warn('[DataContext] Background customer sync skipped:', e?.message);
+        });
     } catch (e) {
       console.warn("Auth required or network error for some data");
     }
@@ -553,6 +569,21 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     refreshData();
   }, [refreshData]);
+
+  // Listen for the custom 'customers-changed' event to silently update the customers list
+  // This is used when a customer is auto-created or updated globally outside this context (e.g., from useBookings hooks)
+  useEffect(() => {
+    const handleCustomersChanged = async () => {
+      try {
+        const c = await api.getCustomers();
+        setCustomers(c);
+      } catch (e) {
+        console.error("Failed to refresh customers on 'customers-changed' event:", e);
+      }
+    };
+    window.addEventListener('customers-changed', handleCustomersChanged);
+    return () => window.removeEventListener('customers-changed', handleCustomersChanged);
+  }, []);
 
   // Persistence Effects (Only for non-migrated data)
   useEffect(() => { saveToStorage(`${STORAGE_KEY}_m_hotels`, masterHotels); }, [masterHotels]);
@@ -674,10 +705,64 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       logAction('Create', 'Bookings', `Created Booking for ${booking.customer}`);
       toast.success("Booking created successfully");
+
+      // 5. Auto-create or update Customer record (non-blocking)
+      try {
+        // Deduplication: match by email first, phone as fallback
+        const existingCustomer = customers.find(c =>
+          (booking.email && c.email?.toLowerCase() === booking.email.toLowerCase()) ||
+          (!booking.email && booking.phone && c.phone === booking.phone)
+        );
+
+        if (!existingCustomer) {
+          // Build new Customer from booking data
+          const newCustomer: Customer = {
+            id: `CUST-${Date.now()}`,
+            name: booking.customer,
+            email: booking.email || '',
+            phone: booking.phone || '',
+            location: '',
+            type: 'New',
+            status: 'Active',
+            totalSpent: booking.amount || 0,
+            bookingsCount: 1,
+            joinedDate: new Date().toISOString().split('T')[0],
+            tags: [],
+            preferences: { dietary: [], flight: [], accommodation: [] },
+            notes: []
+          };
+          // Optimistic UI update
+          setCustomers(p => [newCustomer, ...p]);
+          // Persist to MySQL
+          const created = await api.createCustomer(newCustomer);
+          // Sync DB-assigned ID back into state
+          if (created) {
+            setCustomers(p => p.map(x => x.id === newCustomer.id ? { ...x, ...created } : x));
+          }
+          logAction('Create', 'Customers', `Auto-created Customer: ${booking.customer} from Booking`);
+        } else {
+          // Update existing customer spend & count
+          const updatedTotalSpent = (existingCustomer.totalSpent || 0) + (booking.amount || 0);
+          const updatedBookingsCount = (existingCustomer.bookingsCount || 0) + 1;
+          setCustomers(p => p.map(c =>
+            c.id === existingCustomer.id
+              ? { ...c, totalSpent: updatedTotalSpent, bookingsCount: updatedBookingsCount }
+              : c
+          ));
+          await api.updateCustomer(existingCustomer.id, {
+            totalSpent: updatedTotalSpent,
+            bookingsCount: updatedBookingsCount
+          });
+          logAction('Update', 'Customers', `Updated Customer stats for: ${existingCustomer.name} from new Booking`);
+        }
+      } catch (custErr: any) {
+        console.warn('Failed to sync customer from booking:', custErr);
+        toast.warning('Booking created. Customer sync failed — check Customers page.');
+      }
     } catch (e: any) {
       toast.error(e.message || "Failed to create booking. Please try again.");
     }
-  }, []);
+  }, [customers, logAction]);
 
   const updateBooking = useCallback(async (id: string, booking: Partial<Booking>) => {
     const previousState = bookings;
@@ -1622,6 +1707,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Phase 3: Time Tracking & Auto-Assignment
     timeSessions, startTimeSession, updateTimeSession, endTimeSession, getActiveSession,
     assignmentRules, addAssignmentRule, updateAssignmentRule, deleteAssignmentRule,
+    refreshData
   }), [
     packages, bookings, leads, inventory, vendors, accounts, campaigns, customers,
     masterLocations, masterHotels, masterActivities, masterTransports, masterPlans,
@@ -1659,7 +1745,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     userActivities, logUserActivity,
     // Phase 3 deps
     timeSessions, startTimeSession, updateTimeSession, endTimeSession, getActiveSession,
-    assignmentRules, addAssignmentRule, updateAssignmentRule, deleteAssignmentRule
+    assignmentRules, addAssignmentRule, updateAssignmentRule, deleteAssignmentRule,
+    refreshData
   ]);
 
   return (

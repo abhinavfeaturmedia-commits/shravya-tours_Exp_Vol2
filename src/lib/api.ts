@@ -2,7 +2,9 @@ import imageCompression from 'browser-image-compression';
 import { Package, Booking, Lead, BookingStatus, StaffMember, Customer, MasterRoomType, MasterMealPlan, MasterActivity, MasterTransport, MasterPlan, MasterLeadSource, MasterTermsTemplate, CMSBanner, CMSTestimonial, CMSGalleryImage, CMSPost, FollowUp, Proposal, DailyTarget, TimeSession, AssignmentRule, UserActivity, Campaign, MasterHotel, Task, AuditLog, Expense } from '../../types';
 
 // ─── BASE API URL ───
-const API_BASE = import.meta.env.PROD ? '' : (import.meta.env.VITE_API_URL || `http://${window.location.hostname}:3001`);
+// In dev mode, use Vite proxy (empty string) so request goes to the same origin.
+// Only override if VITE_API_URL is explicitly set (e.g. for production, use '').
+const API_BASE = import.meta.env.VITE_API_URL || '';
 
 // ─── Fetch Helper ───
 async function fetchApi(path: string, options: RequestInit = {}): Promise<any> {
@@ -439,7 +441,24 @@ export const api = {
     },
 
     deleteBooking: async (id: string) => {
-        await crud.remove('bookings', id);
+        console.log('[API] deleteBooking called for id:', id);
+        const token = localStorage.getItem('shravya_jwt');
+        const res = await fetch(`/api/bookings/${encodeURIComponent(id)}`, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+                ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+            },
+        });
+        if (!res.ok) {
+            const errBody = await res.json().catch(() => ({}));
+            const msg = errBody.error || errBody.message || `Delete failed: ${res.status}`;
+            console.error('[API] deleteBooking FAILED:', msg, errBody);
+            throw new Error(msg);
+        }
+        const data = await res.json();
+        console.log('[API] deleteBooking success:', data);
+        return data;
     },
 
     // --- LEADS ---
@@ -890,6 +909,34 @@ export const api = {
         }));
     },
 
+    // Look up a single customer by email (primary) or phone (fallback) — used for booking auto-sync
+    findCustomerByContact: async (email?: string, phone?: string): Promise<Customer | null> => {
+        const mapRow = (c: any): Customer => ({
+            id: c.id,
+            name: c.name,
+            email: c.email,
+            phone: c.phone,
+            location: c.location,
+            type: c.type,
+            status: c.status,
+            totalSpent: c.total_spent,
+            bookingsCount: c.bookings_count,
+            joinedDate: c.created_at,
+            notes: typeof c.notes === 'string' ? JSON.parse(c.notes) : (c.notes || []),
+            tags: typeof c.tags === 'string' ? JSON.parse(c.tags) : (c.tags || []),
+            preferences: typeof c.preferences === 'string' ? JSON.parse(c.preferences) : (c.preferences || {})
+        });
+        if (email) {
+            const { data } = await crud.getAll('customers', { filters: { email } });
+            if (data && data.length > 0) return mapRow(data[0]);
+        }
+        if (phone) {
+            const { data } = await crud.getAll('customers', { filters: { phone } });
+            if (data && data.length > 0) return mapRow(data[0]);
+        }
+        return null;
+    },
+
     createCustomer: async (customer: Partial<Customer>) => {
         const { data } = await crud.create('customers', {
             id: customer.id,
@@ -925,7 +972,31 @@ export const api = {
     },
 
     deleteCustomer: async (id: string) => {
-        await crud.remove('customers', id);
+        console.log('[API] deleteCustomer called for id:', id);
+        const token = localStorage.getItem('shravya_jwt');
+        const res = await fetch(`/api/customers/${encodeURIComponent(id)}`, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+                ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+            },
+        });
+        if (!res.ok) {
+            const errBody = await res.json().catch(() => ({}));
+            const msg = errBody.error || errBody.message || `Delete failed: ${res.status}`;
+            console.error('[API] deleteCustomer FAILED:', msg);
+            throw new Error(msg);
+        }
+        const data = await res.json();
+        console.log('[API] deleteCustomer success:', data);
+        return data;
+    },
+
+    // Sync / backfill customers from all bookings in the database.
+    // Safe to call multiple times (deduplicates by email/phone server-side).
+    syncCustomersFromBookings: async (): Promise<{ created: number; updated: number; skipped: number }> => {
+        const result = await fetchApi('/api/sync-customers-from-bookings', { method: 'POST' });
+        return result;
     },
 
     // --- CAMPAIGNS ---

@@ -1202,7 +1202,17 @@ export const Bookings: React.FC = () => {
                                                             {hasPermission('bookings', 'manage') && (
                                                                 <button onClick={() => {
                                                                     if (confirm("Are you sure you want to permanently delete this booking? This action cannot be undone.")) {
-                                                                        deleteBooking(booking.id);
+                                                                        const toastId = toast.loading('Deleting booking...');
+                                                                        deleteBooking(booking.id)
+                                                                            .then(() => {
+                                                                                toast.dismiss(toastId);
+                                                                                toast.success('Booking deleted successfully');
+                                                                            })
+                                                                            .catch((err: any) => {
+                                                                                toast.dismiss(toastId);
+                                                                                toast.error(`Delete failed: ${err?.message || 'Unknown error'}`);
+                                                                                console.error('[Delete Booking Error]', err);
+                                                                            });
                                                                     }
                                                                 }} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-2 transition-colors border-t border-slate-100 dark:border-slate-800">
                                                                     <span className="material-symbols-outlined text-[18px]">delete</span> Delete

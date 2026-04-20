@@ -210,11 +210,15 @@ export const AdminDashboard: React.FC = () => {
                 const existing = salesMap.get(b.assignedTo) || { count: 0, revenue: 0, name: 'Unknown Staff', initials: 'US', color: 'slate' };
                 // Find staff details if first time
                 if (existing.count === 0) {
-                    const st = staff.find(s => s.id === b.assignedTo);
+                    const st = staff.find(s => String(s.id) === String(b.assignedTo));
                     if (st) {
                         existing.name = st.name;
                         existing.initials = st.initials;
                         existing.color = st.color;
+                    } else if (currentUser && String(currentUser.id) === String(b.assignedTo)) {
+                        existing.name = currentUser.name;
+                        existing.initials = currentUser.initials;
+                        existing.color = currentUser.color;
                     }
                 }
                 existing.count += 1;

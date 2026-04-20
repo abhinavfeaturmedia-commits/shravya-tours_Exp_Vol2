@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en" class="light">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Shravya Tours</title>
+  <meta name="description" content="Your Travel. Streamlined." />
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;0,800;1,400;1,600&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,300;1,9..40,400&family=Outfit:wght@100..900&display=swap"
+    rel="stylesheet" />
+
+  <!-- Material Symbols -->
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
+    rel="stylesheet" />
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <script>
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "primary": "#C9732A",
+            "primary-dark": "#A85E1E",
+            "primary-light": "#E8935B",
+            "secondary": "#64748B",
+            "accent": "#2D6A4F",
+            "background-light": "#FBF7F0",
+            "background-dark": "#0D1710",
+            "card-light": "#FFFFFF",
+            "card-dark": "#152019",
+            "border-light": "#EDE8DF",
+            "border-dark": "#243527",
+            "surface-light": "#FBF7F0",
+            "surface-dark": "#152019",
+          },
+          fontFamily: {
+            "sans": ["DM Sans", "sans-serif"],
+            "display": ["Outfit", "sans-serif"]
+          },
+          backgroundImage: {
+            'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',
+            'gradient-conic': 'conic-gradient(from 180deg at 50% 50%, var(--tw-gradient-stops))',
+            'gradient-hero': 'linear-gradient(135deg, #C9732A 0%, #2D6A4F 100%)',
+            'gradient-warm': 'linear-gradient(135deg, #E8935B 0%, #C9732A 100%)',
+            'gradient-cool': 'linear-gradient(135deg, #2D6A4F 0%, #52B788 100%)',
+            'gradient-success': 'linear-gradient(135deg, #2D6A4F 0%, #52B788 100%)',
+            'gradient-sunset': 'linear-gradient(135deg, #C9732A 0%, #E8935B 100%)',
+          },
+          boxShadow: {
+            'glow': '0 0 20px rgba(201, 115, 42, 0.4)',
+            'glow-lg': '0 0 40px rgba(201, 115, 42, 0.3)',
+            'card': '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+            'card-hover': '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+            'inner-glow': 'inset 0 2px 4px 0 rgba(255, 255, 255, 0.1)',
+          },
+          animation: {
+            'float': 'float 6s ease-in-out infinite',
+            'pulse-slow': 'pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+            'shimmer': 'shimmer 2s linear infinite',
+            'slide-up': 'slideUp 0.3s ease-out',
+            'slide-down': 'slideDown 0.3s ease-out',
+            'scale-in': 'scaleIn 0.2s ease-out',
+            'fade-in': 'fadeIn 0.3s ease-out',
+          },
+          keyframes: {
+            float: {
+              '0%, 100%': { transform: 'translateY(0)' },
+              '50%': { transform: 'translateY(-10px)' },
+            },
+            shimmer: {
+              '0%': { backgroundPosition: '-200% 0' },
+              '100%': { backgroundPosition: '200% 0' },
+            },
+            slideUp: {
+              '0%': { transform: 'translateY(10px)', opacity: '0' },
+              '100%': { transform: 'translateY(0)', opacity: '1' },
+            },
+            slideDown: {
+              '0%': { transform: 'translateY(-10px)', opacity: '0' },
+              '100%': { transform: 'translateY(0)', opacity: '1' },
+            },
+            scaleIn: {
+              '0%': { transform: 'scale(0.95)', opacity: '0' },
+              '100%': { transform: 'scale(1)', opacity: '1' },
+            },
+            fadeIn: {
+              '0%': { opacity: '0' },
+              '100%': { opacity: '1' },
+            },
+          },
+        },
+      },
+    }
+  </script>
+  <style>
+    html {
+      font-size: 14.4px; /* Scaled to 90% to match requested design density */
+    }
+
+    body {
+      font-family: 'DM Sans', sans-serif;
+    }
+
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+    }
+
+    .material-symbols-outlined.fill {
+      font-variation-settings: 'FILL' 1;
+    }
+
+    /* Glassmorphism */
+    .glass {
+      background: rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+    }
+
+    .glass-dark {
+      background: rgba(15, 23, 42, 0.8);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    /* Modern Button Effects */
+    .btn-press {
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .btn-press:active {
+      transform: scale(0.97);
+    }
+
+    /* Card Hover Lift */
+    .card-lift {
+      transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.3s ease;
+    }
+
+    .card-lift:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 20px 40px -12px rgba(0, 0, 0, 0.15);
+    }
+
+    /* Input Glow */
+    .input-glow:focus {
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+    }
+
+    /* Skeleton Loading */
+    .skeleton {
+      background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.5s infinite;
+    }
+
+    .dark .skeleton {
+      background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+      background-size: 200% 100%;
+    }
+
+    /* Gradient Text */
+    .gradient-text {
+      background: linear-gradient(135deg, #C9732A 0%, #E8935B 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    /* Mesh warm background */
+    .mesh-warm {
+      background:
+        radial-gradient(ellipse at 20% 60%, rgba(201, 115, 42, 0.13) 0%, transparent 55%),
+        radial-gradient(ellipse at 80% 20%, rgba(45, 106, 79, 0.11) 0%, transparent 55%),
+        radial-gradient(ellipse at 55% 90%, rgba(232, 147, 91, 0.08) 0%, transparent 50%),
+        #FBF7F0;
+    }
+
+    .dark .mesh-warm {
+      background:
+        radial-gradient(ellipse at 20% 60%, rgba(201, 115, 42, 0.10) 0%, transparent 55%),
+        radial-gradient(ellipse at 80% 20%, rgba(45, 106, 79, 0.09) 0%, transparent 55%),
+        #0D1710;
+    }
+
+    /* Grain overlay */
+    .grain {
+      position: relative;
+    }
+
+    .grain::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+      opacity: 0.04;
+      pointer-events: none;
+      z-index: 0;
+      border-radius: inherit;
+    }
+
+    /* Staggered reveal animation */
+    .reveal {
+      animation: revealUp 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+
+    @keyframes revealUp {
+      from {
+        opacity: 0;
+        transform: translateY(18px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .reveal-delay-1 {
+      animation-delay: 60ms;
+    }
+
+    .reveal-delay-2 {
+      animation-delay: 120ms;
+    }
+
+    .reveal-delay-3 {
+      animation-delay: 180ms;
+    }
+
+    .reveal-delay-4 {
+      animation-delay: 240ms;
+    }
+
+    .reveal-delay-5 {
+      animation-delay: 300ms;
+    }
+
+    .reveal-delay-6 {
+      animation-delay: 360ms;
+    }
+
+    /* Scrollbar Styling */
+    .scrollbar-thin::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+
+    .scrollbar-thin::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .scrollbar-thin::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 3px;
+    }
+
+    .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+
+    .dark .scrollbar-thin::-webkit-scrollbar-thumb {
+      background: #475569;
+    }
+
+    /* Reduced Motion */
+    @media (prefers-reduced-motion: reduce) {
+
+      *,
+      *::before,
+      *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+
+    /* === ADMIN DESIGN SYSTEM ENHANCEMENTS === */
+
+    /* Auto-stagger child cards with revealUp */
+    .stagger-cards>* {
+      animation: revealUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+
+    .stagger-cards>*:nth-child(1) {
+      animation-delay: 0ms;
+    }
+
+    .stagger-cards>*:nth-child(2) {
+      animation-delay: 70ms;
+    }
+
+    .stagger-cards>*:nth-child(3) {
+      animation-delay: 140ms;
+    }
+
+    .stagger-cards>*:nth-child(4) {
+      animation-delay: 210ms;
+    }
+
+    .stagger-cards>*:nth-child(5) {
+      animation-delay: 280ms;
+    }
+
+    .stagger-cards>*:nth-child(6) {
+      animation-delay: 350ms;
+    }
+
+    /* Primary glow button */
+    .btn-glow {
+      transition: box-shadow 0.25s ease, transform 0.15s ease, opacity 0.15s ease;
+    }
+
+    .btn-glow:hover {
+      box-shadow: 0 0 22px rgba(201, 115, 42, 0.45), 0 6px 20px rgba(201, 115, 42, 0.25);
+      transform: translateY(-1px);
+    }
+
+    .btn-glow:active {
+      transform: scale(0.97);
+      box-shadow: none;
+    }
+
+    /* Admin page atmospheric background */
+    .admin-page-bg {
+      background:
+        radial-gradient(ellipse at 10% 0%, rgba(201, 115, 42, 0.06) 0%, transparent 50%),
+        radial-gradient(ellipse at 90% 100%, rgba(45, 106, 79, 0.05) 0%, transparent 50%),
+        #f8fafc;
+    }
+
+    .dark .admin-page-bg {
+      background:
+        radial-gradient(ellipse at 10% 0%, rgba(201, 115, 42, 0.07) 0%, transparent 50%),
+        radial-gradient(ellipse at 90% 100%, rgba(45, 106, 79, 0.05) 0%, transparent 50%),
+        #0b1116;
+    }
+
+    .kpi-number {
+      font-family: 'Outfit', sans-serif;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+    }
+
+    /* Brand warm gradient card */
+    .card-brand-gradient {
+      background: linear-gradient(135deg, #C9732A 0%, #E8935B 60%, #c9862a 100%);
+    }
+
+    /* Animated progress bar */
+    .progress-bar-animated {
+      animation: growWidth 1s cubic-bezier(0.22, 1, 0.36, 1) both;
+      animation-delay: 300ms;
+    }
+
+    @keyframes growWidth {
+      from {
+        width: 0 !important;
+      }
+
+      to {
+        /* uses inline style width */
+      }
+    }
+
+    /* Section heading with brand left-border accent */
+    .section-heading-accent {
+      position: relative;
+      padding-left: 12px;
+    }
+
+    .section-heading-accent::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 3px;
+      height: 70%;
+      background: linear-gradient(180deg, #C9732A, #E8935B);
+      border-radius: 2px;
+    }
+  </style>
+
+
+  <link rel="stylesheet" href="/index.css">
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.3.1",
+    "react/": "https://esm.sh/react@18.3.1/",
+    "react-dom": "https://esm.sh/react-dom@18.3.1",
+    "react-dom/": "https://esm.sh/react-dom@18.3.1/",
+    "react-router-dom": "https://esm.sh/react-router-dom@6.28.0?deps=react@18.3.1,react-dom@18.3.1",
+    "lucide-react": "https://esm.sh/lucide-react@0.263.1?deps=react@18.3.1",
+    "gsap": "https://esm.sh/gsap@3.12.5"
+  }
+}
+</script>
+  <script type="module" crossorigin src="/assets/index-Blgrfgho.js"></script>
+</head>
+
+<body
+  class="bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-100 antialiased overflow-x-hidden font-sans">
+  <div id="root"></div>
+</body>
+
+</html>
