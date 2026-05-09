@@ -71,14 +71,204 @@ async function ensureUsersTable() {
         try {
             await pool.query('ALTER TABLE staff_members ADD COLUMN phone VARCHAR(50)');
             console.log('Added phone column to staff_members.');
-        } catch(err) {
-            // Ignore if column already exists or table doesn't exist
-        }
+        } catch(err) { /* already exists */ }
+
+        // Ensure last_active column exists for login tracking
+        try {
+            await pool.query("ALTER TABLE staff_members ADD COLUMN last_active VARCHAR(100) DEFAULT 'Never'");
+            console.log('Added last_active column to staff_members.');
+        } catch(err) { /* already exists */ }
+
+        // Ensure status column exists with proper default
+        try {
+            await pool.query("ALTER TABLE staff_members ADD COLUMN status VARCHAR(50) DEFAULT 'Active'");
+            console.log('Added status column to staff_members.');
+        } catch(err) { /* already exists */ }
+
     } catch (err) {
         console.error('Failed to ensure users table:', err.message);
     }
 }
 ensureUsersTable();
+
+// Ensure audit_logs table has correct INT AUTO_INCREMENT id (not VARCHAR)
+async function ensureAuditLogsSchema() {
+    try {
+        // Create if not exists with correct schema
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS audit_logs (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                action VARCHAR(100),
+                module VARCHAR(100),
+                details TEXT,
+                severity VARCHAR(50) DEFAULT 'Info',
+                performed_by VARCHAR(255),
+                timestamp VARCHAR(100)
+            )
+        `);
+    } catch (err) {
+        console.error('Failed to ensure audit_logs schema:', err.message);
+    }
+}
+ensureAuditLogsSchema();
+
+// Ensure packages table has the extra columns added after initial schema
+async function migratePackagesColumns() {
+    const alterations = [
+        "ALTER TABLE packages ADD COLUMN IF NOT EXISTS addons LONGTEXT",
+        "ALTER TABLE packages ADD COLUMN IF NOT EXISTS remaining_seats INT DEFAULT NULL"
+    ];
+    for (const sql of alterations) {
+        try {
+            await pool.query(sql);
+        } catch (err) {
+            // Column already exists or DB doesn't support IF NOT EXISTS — safe to ignore
+            if (!err.message?.includes('Duplicate column')) {
+                console.warn('[Packages Migration] Skipped:', err.message?.split('\n')[0]);
+            }
+        }
+    }
+    console.log('[Packages Migration] Column check complete.');
+}
+migratePackagesColumns();
+
+// Ensure the settings table exists (key-value store for admin configuration)
+async function ensureSettingsTable() {
+    try {
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS settings (
+                id VARCHAR(255) PRIMARY KEY,
+                \`key\` VARCHAR(255) UNIQUE NOT NULL,
+                value LONGTEXT NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+        console.log('Settings table ensured.');
+    } catch (err) {
+        console.error('Failed to ensure settings table:', err.message);
+    }
+}
+ensureSettingsTable();
+
+// ─── Migrate Staff Permissions (adds new permission keys to existing records) ───
+// Runs on every startup. Non-destructive: only adds missing keys, never overwrites.
+const NEW_PERMISSION_KEYS = ['operations', 'invoices', 'proposals', 'settings'];
+const DEFAULT_NEW_PERMISSION = { view: false, manage: false };
+
+async function migrateStaffPermissions() {
+    try {
+        const [rows] = await pool.query('SELECT id, permissions FROM `staff_members`');
+        let migratedCount = 0;
+        for (const row of rows) {
+            let perms = {};
+            try {
+                perms = typeof row.permissions === 'string'
+                    ? JSON.parse(row.permissions)
+                    : (row.permissions || {});
+            } catch { perms = {}; }
+
+            let changed = false;
+            for (const key of NEW_PERMISSION_KEYS) {
+                if (!(key in perms)) {
+                    perms[key] = { ...DEFAULT_NEW_PERMISSION };
+                    changed = true;
+                }
+            }
+
+            if (changed) {
+                await pool.query(
+                    'UPDATE `staff_members` SET `permissions` = ? WHERE id = ?',
+                    [JSON.stringify(perms), row.id]
+                );
+                migratedCount++;
+            }
+        }
+        if (migratedCount > 0) {
+            console.log(`[Permissions Migration] Updated ${migratedCount} staff record(s) with new permission keys: ${NEW_PERMISSION_KEYS.join(', ')}`);
+        } else {
+            console.log('[Permissions Migration] All staff records up to date.');
+        }
+    } catch (err) {
+        console.error('[Permissions Migration] Failed:', err.message);
+    }
+}
+migrateStaffPermissions();
+
+// Ensure inventory table has the correct schema for V2 (Asset specific)
+async function ensureInventoryTable() {
+    try {
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS daily_inventory (
+                id VARCHAR(255) PRIMARY KEY,
+                date VARCHAR(50) NOT NULL,
+                asset_id VARCHAR(255) NOT NULL,
+                asset_type VARCHAR(50) NOT NULL,
+                capacity INT DEFAULT 0,
+                booked INT DEFAULT 0,
+                is_blocked BOOLEAN DEFAULT false,
+                price DECIMAL(10,2) DEFAULT 0,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY unique_slot (date, asset_id)
+            )
+        `);
+        console.log('Daily Inventory table ensured.');
+    } catch (err) {
+        console.error('Failed to ensure daily_inventory table:', err.message);
+    }
+}
+ensureInventoryTable();
+
+
+// ─── Live Operations Schema Migration ───
+// Adds new columns to bookings/supplier_bookings and creates attendance_logs table
+async function ensureLiveOpsSchema() {
+    // 1. New columns on bookings table
+    const bookingAlterations = [
+        "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS duration_days INT DEFAULT NULL",
+        "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS pax_count INT DEFAULT NULL",
+        "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS whatsapp_group_url VARCHAR(500) DEFAULT NULL",
+        "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS live_status VARCHAR(50) DEFAULT 'Live'"
+    ];
+    for (const sql of bookingAlterations) {
+        try { await pool.query(sql); }
+        catch (err) { if (!err.message?.includes('Duplicate column')) console.warn('[LiveOps Migration] Bookings:', err.message?.split('\n')[0]); }
+    }
+
+    // 2. New columns on supplier_bookings table
+    const sbAlterations = [
+        "ALTER TABLE supplier_bookings ADD COLUMN IF NOT EXISTS driver_name VARCHAR(100) DEFAULT NULL",
+        "ALTER TABLE supplier_bookings ADD COLUMN IF NOT EXISTS driver_phone VARCHAR(50) DEFAULT NULL",
+        "ALTER TABLE supplier_bookings ADD COLUMN IF NOT EXISTS vehicle_number VARCHAR(50) DEFAULT NULL"
+    ];
+    for (const sql of sbAlterations) {
+        try { await pool.query(sql); }
+        catch (err) { if (!err.message?.includes('Duplicate column')) console.warn('[LiveOps Migration] SupplierBookings:', err.message?.split('\n')[0]); }
+    }
+
+    // 3. Create attendance_logs table
+    try {
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS attendance_logs (
+                id VARCHAR(255) PRIMARY KEY,
+                staff_id INT NOT NULL,
+                date DATE NOT NULL,
+                status VARCHAR(50) NOT NULL,
+                check_in_time DATETIME DEFAULT NULL,
+                check_out_time DATETIME DEFAULT NULL,
+                location VARCHAR(255) DEFAULT NULL,
+                notes VARCHAR(500) DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY unique_staff_date (staff_id, date)
+            )
+        `);
+        console.log('[LiveOps Migration] attendance_logs table ensured.');
+    } catch (err) {
+        console.error('[LiveOps Migration] Failed to create attendance_logs:', err.message);
+    }
+
+    console.log('[LiveOps Migration] Schema check complete.');
+}
+ensureLiveOpsSchema();
 
 // Allowed tables (whitelist to prevent SQL injection)
 const ALLOWED_TABLES = new Set([
@@ -92,7 +282,9 @@ const ALLOWED_TABLES = new Set([
     'master_terms_templates',
     'cms_banners', 'cms_testimonials', 'cms_gallery_images', 'cms_posts',
     'follow_ups', 'proposals', 'daily_targets', 'time_sessions',
-    'assignment_rules', 'user_activities', 'audit_logs', 'settings'
+    'assignment_rules', 'user_activities', 'audit_logs', 'settings',
+    'invoices', 'invoice_items',
+    'attendance_logs'  // Live Operations attendance tracking
 ]);
 
 // ─── Auth Middleware ───
@@ -139,8 +331,8 @@ function writeGuard(req, res, next) {
 async function auditLog(action, table, details, performedBy) {
     try {
         await pool.query(
-            'INSERT INTO `audit_logs` (id, action, module, details, severity, performed_by, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            [crypto.randomUUID(), action, table, details, 'Info', performedBy || 'System', new Date().toISOString()]
+            'INSERT INTO `audit_logs` (action, module, details, severity, performed_by, timestamp) VALUES (?, ?, ?, ?, ?, ?)',
+            [action, table, details, 'Info', performedBy || 'System', new Date().toISOString()]
         );
     } catch (e) {
         console.error('Audit log write failed:', e.message);
@@ -220,6 +412,14 @@ app.post('/api/auth/login', async (req, res) => {
             { expiresIn: '7d' }
         );
 
+        // Fix #9: Update last_active on every successful login
+        if (staffProfile) {
+            await pool.query(
+                "UPDATE staff_members SET last_active = DATE_FORMAT(NOW(), '%Y-%m-%dT%H:%i:%sZ') WHERE email = ?",
+                [trimmedEmail]
+            ).catch(e => console.error('Failed to update last_active:', e.message));
+        }
+
         console.log(`Login successful: ${trimmedEmail}`);
         return res.json({ token, user: { id: users[0].id, email: trimmedEmail, role: users[0].role }, staff: staffProfile });
     } catch (error) {
@@ -232,6 +432,17 @@ app.post('/api/auth/login', async (req, res) => {
 app.get('/api/auth/me', authMiddleware, async (req, res) => {
     try {
         const [staff] = await pool.query('SELECT * FROM staff_members WHERE email = ?', [req.user.email]);
+        // Update last_active on every session restore (page load with valid JWT)
+        if (staff.length > 0) {
+            await pool.query(
+                "UPDATE staff_members SET last_active = DATE_FORMAT(NOW(), '%Y-%m-%dT%H:%i:%sZ') WHERE email = ?",
+                [req.user.email]
+            ).catch(e => console.error('Failed to update last_active on /me:', e.message));
+            // Return the record with updated last_active so frontend sees it immediately
+            const now = new Date();
+            const isoNow = now.toISOString().replace('.000', '').replace(/\.\d{3}/, '');
+            staff[0].last_active = isoNow;
+        }
         res.json({ user: req.user, staff: staff[0] || null });
     } catch (error) {
         console.error(error);
@@ -277,11 +488,20 @@ function optionalAuthMiddleware(req, res, next) {
     return authMiddleware(req, res, next);
 }
 
+// Inject an Active-only filter for public package reads (no auth header present)
+function injectPackageStatusFilter(req, res, next) {
+    if (req.params.table === 'packages' && !req.headers.authorization) {
+        // Append an eq_ filter so the generic GET handler restricts to Active
+        req.query = { ...req.query, eq_status: 'Active' };
+    }
+    next();
+}
+
 // GET all rows from a table
 // Supports: ?order=column&asc=true&limit=100&select=col1,col2
 // Supports: ?eq_field=value for equality filters
 // Supports: ?join=related_table for left joins
-app.get('/api/crud/:table', optionalAuthMiddleware, validateTable, async (req, res) => {
+app.get('/api/crud/:table', optionalAuthMiddleware, injectPackageStatusFilter, validateTable, async (req, res) => {
     const { table } = req.params;
     const { order, asc, limit, select } = req.query;
 
@@ -301,13 +521,24 @@ app.get('/api/crud/:table', optionalAuthMiddleware, validateTable, async (req, r
         // Build WHERE clauses from eq_ prefixed query params
         const whereClauses = [];
         
-        // --- RBAC Scoping (Sync with MySQL) ---
+        // --- RBAC Scoping: Fix #4 — respect query_scope from staff_members ---
         if (req.user && req.user.role !== 'admin') {
             const staffId = req.user.staffId;
             const myDataTables = ['leads', 'bookings', 'follow_ups', 'tasks'];
             if (myDataTables.includes(table) && staffId) {
-                whereClauses.push(`\`assigned_to\` = ?`);
-                params.push(staffId);
+                // Fetch query_scope for this staff member
+                try {
+                    const [scopeRows] = await pool.query('SELECT query_scope FROM staff_members WHERE id = ?', [staffId]);
+                    const queryScope = scopeRows[0]?.query_scope || 'Show Assigned Query Only';
+                    if (queryScope !== 'Show All Queries') {
+                        whereClauses.push(`\`assigned_to\` = ?`);
+                        params.push(staffId);
+                    }
+                } catch (e) {
+                    // Fail safe: apply restriction if scope check fails
+                    whereClauses.push(`\`assigned_to\` = ?`);
+                    params.push(staffId);
+                }
             }
         }
 
@@ -356,6 +587,40 @@ app.get('/api/crud/:table/:id', optionalAuthMiddleware, validateTable, async (re
     } catch (error) {
         console.error(`GET /${table}/${id} error:`, error);
         res.status(500).json({ error: `Failed to fetch from ${table}` });
+    }
+});
+
+// Fix #21: When staff_members email is updated, sync to users table
+app.put('/api/crud/staff_members/:id', authMiddleware, writeGuard, async (req, res) => {
+    const { id } = req.params;
+    const body = req.body;
+    try {
+        if (!body || Object.keys(body).length === 0) {
+            return res.status(400).json({ error: 'No fields to update' });
+        }
+        const fields = Object.keys(body).filter(k => isValidColumn(k));
+        if (fields.length === 0) return res.status(400).json({ error: 'No valid fields' });
+        const values = fields.map(k => {
+            const v = body[k];
+            return typeof v === 'object' && v !== null ? JSON.stringify(v) : v;
+        });
+        const setClause = fields.map(f => `\`${f}\` = ?`).join(', ');
+        await pool.query(`UPDATE \`staff_members\` SET ${setClause} WHERE id = ?`, [...values, id]);
+
+        // Sync email change to users table
+        if (body.email) {
+            const [staffRows] = await pool.query('SELECT email FROM staff_members WHERE id = ?', [id]);
+            const oldEmail = staffRows[0]?.email;
+            if (oldEmail && oldEmail !== body.email) {
+                await pool.query('UPDATE users SET email = ? WHERE email = ?', [body.email, oldEmail]).catch(e => console.error('Email sync to users failed:', e.message));
+            }
+        }
+
+        const [updated] = await pool.query('SELECT * FROM `staff_members` WHERE id = ?', [id]);
+        res.json({ data: updated[0] || {} });
+    } catch (error) {
+        console.error(`PUT /staff_members/${id} error:`, error);
+        res.status(500).json({ error: 'Failed to update staff member' });
     }
 });
 
@@ -445,6 +710,11 @@ app.delete('/api/crud/:table/:id', authMiddleware, validateTable, async (req, re
             await pool.query(`DELETE FROM lead_logs WHERE lead_id = ?`, [id]);
             await pool.query(`DELETE FROM follow_ups WHERE lead_id = ?`, [id]);
             console.log(`[Delete] Cleared logs and follow-ups for lead ${id}`);
+        } else if (table === 'packages') {
+            // Nullify packageId references in bookings and leads to prevent broken links
+            await pool.query(`UPDATE bookings SET package_id = NULL WHERE package_id = ?`, [id]).catch(() => {});
+            await pool.query(`UPDATE leads SET package_id = NULL WHERE package_id = ?`, [id]).catch(() => {});
+            console.log(`[Delete] Nullified packageId references for package ${id}`);
         }
 
         const [result] = await pool.query(`DELETE FROM \`${table}\` WHERE id = ?`, [id]);
@@ -985,29 +1255,87 @@ app.post('/api/staff/create', authMiddleware, async (req, res) => {
     }
 });
 
-// Sync all staff members with users table
+// Fix #13: Sync staff to users — unique random temp password per user
+function generateTempPassword() {
+    const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+    let result = '';
+    for (let i = 0; i < 8; i++) result += chars.charAt(Math.floor(Math.random() * chars.length));
+    return result;
+}
+
 app.post('/api/admin/sync-staff-auth', authMiddleware, async (req, res) => {
     if (req.user.role !== 'admin') {
         return res.status(403).json({ error: 'Admins only' });
     }
-
     try {
         const [staffMembers] = await pool.query('SELECT * FROM staff_members');
-        const defaultPassword = 'password123';
-        const hash = await bcrypt.hash(defaultPassword, 10);
-        let createdCount = 0;
-
+        const created = [];
         for (const staff of staffMembers) {
-            const [users] = await pool.query('SELECT * FROM users WHERE email = ?', [staff.email]);
+            const [users] = await pool.query('SELECT id FROM users WHERE email = ?', [staff.email]);
             if (users.length === 0) {
-                await pool.query('INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)', [staff.email, hash, staff.role || 'staff']);
-                createdCount++;
+                const tempPass = generateTempPassword();
+                const hash = await bcrypt.hash(tempPass, 10);
+                await pool.query('INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)', [staff.email, hash, staff.user_type === 'Admin' ? 'admin' : 'staff']);
+                created.push({ name: staff.name, email: staff.email, tempPassword: tempPass });
             }
         }
-        res.json({ message: `Sync complete. Created ${createdCount} missing user records with default password: ${defaultPassword}` });
+        res.json({ message: `Sync complete. Created ${created.length} missing auth account(s).`, created });
     } catch (error) {
         console.error('Sync error:', error);
         res.status(500).json({ error: 'Sync failed' });
+    }
+});
+
+// Fix #3: Atomic Staff Delete — removes from staff_members AND users table
+app.delete('/api/staff/:id', authMiddleware, async (req, res) => {
+    if (req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'Admin access required' });
+    }
+    const { id } = req.params;
+    try {
+        const [staff] = await pool.query('SELECT email FROM staff_members WHERE id = ?', [id]);
+        if (staff.length === 0) return res.status(404).json({ error: 'Staff member not found' });
+        const email = staff[0].email;
+
+        // Delete from both tables atomically
+        await pool.query('DELETE FROM staff_members WHERE id = ?', [id]);
+        await pool.query('DELETE FROM users WHERE email = ?', [email]);
+
+        await auditLog('Delete', 'staff_members', `Staff member ID ${id} (${email}) deleted`, req.user.email);
+        res.json({ message: 'Staff member and auth account deleted successfully' });
+    } catch (error) {
+        console.error('Staff delete error:', error);
+        res.status(500).json({ error: 'Failed to delete staff member' });
+    }
+});
+
+// Fix #1: Reset staff password endpoint
+app.post('/api/staff/:id/reset-password', authMiddleware, async (req, res) => {
+    if (req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'Admin access required' });
+    }
+    const { id } = req.params;
+    const { newPassword } = req.body;
+    if (!newPassword || newPassword.length < 6) {
+        return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+    try {
+        const [staff] = await pool.query('SELECT email FROM staff_members WHERE id = ?', [id]);
+        if (staff.length === 0) return res.status(404).json({ error: 'Staff member not found' });
+        const email = staff[0].email;
+        const hash = await bcrypt.hash(newPassword, 10);
+        const [existing] = await pool.query('SELECT id FROM users WHERE email = ?', [email]);
+        if (existing.length > 0) {
+            await pool.query('UPDATE users SET password_hash = ? WHERE email = ?', [hash, email]);
+        } else {
+            // Create auth record if missing
+            await pool.query('INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)', [email, hash, 'staff']);
+        }
+        await auditLog('PasswordReset', 'staff_members', `Password reset for staff ID ${id} (${email})`, req.user.email);
+        res.json({ message: 'Password updated successfully' });
+    } catch (error) {
+        console.error('Password reset error:', error);
+        res.status(500).json({ error: 'Failed to reset password' });
     }
 });
 

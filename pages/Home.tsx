@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import { SEO } from '../components/ui/SEO';
 import { OptimizedImage } from '../components/ui/OptimizedImage';
+import { getLocationName, formatPrice } from '../utils/packageUtils';
 import {
   HotelBookingForm,
   TourBookingForm,
@@ -15,7 +16,7 @@ import {
 } from '../components/booking';
 
 export const Home: React.FC = () => {
-  const { packages, cmsBanners, cmsTestimonials, cmsGallery } = useData();
+  const { packages, masterLocations, cmsBanners, cmsTestimonials, cmsGallery } = useData();
   const [activeTab, setActiveTab] = useState('tour-packages');
   const navigate = useNavigate();
 
@@ -78,13 +79,8 @@ export const Home: React.FC = () => {
   // Collections are now dynamic
   // const collections = ... (Removed static)
 
-  // Trending destinations - Left Static/Package driven for now as per plan
-  const trendingTours = [
-    { id: 'kerala-backwaters', title: 'Kerala Backwaters', price: '₹35,000', days: '5 Days', loc: 'Kerala, India', img: 'https://lh3.googleusercontent.com/aida-public/AB6AXuBp90RDz-sdjWIaMxCiFRFPO2JsAtK8_dVyOrgkjVXU2eyOfv-QVT0aL8P898Icc29bRifPA2obAWYdG2DUFAu34TSsNNv6AEBb3PkvvVLUy7SiHFhxeAmVHy5JBvY1y3-aVD3CNyS4GknQTya93LHTeT3z7AdLkm9WnOOCJCJKFhwsg0FzrktdLVdl7GvmF40ru8MoKKDLDCnEKa5pwANUTQwYGofMrr6hkRstcsuxW0zFPZrgXEepwClL91yq119GbnN_2TXDnS-4' },
-    { id: 'manali-escape', title: 'Majestic Manali', price: '₹28,000', days: '6 Days', loc: 'Himachal, India', img: 'https://lh3.googleusercontent.com/aida-public/AB6AXuCw3nTyyZIHE-X4IDz1WIxoLShlt4crH7NAqMA0V0L2ehFuGP9AGiAolK-y2VtcGXQNnGxdEkuHTXyJ44x9J5RiIg5apuiNJV-7xi5I2UV2r-KSd-dgzrATQDbBkFz4UKlFbdF5SgirAYanpbXenNDr-_uktTK_A2FTmUBwhVLQfYFh1gqRN8EoLj-9g8qrA6B21OH52wai00ETSdEUNm2LJQX1poTztcNfmmE2IMrm1oTdfTQ3Sg0DwMSXi2UM_QPDWQt27m2xr8-D' },
-    { id: 'golden-triangle', title: 'Golden Triangle Tour', price: '₹45,000', days: '6 Days', loc: 'North India', img: 'https://lh3.googleusercontent.com/aida-public/AB6AXuDe8BDAUta_Sad0sbfFPp3eGFuTDne-kjCHaSbEmPIsw2A35eYa_4cmO0qQIrrAUnyuBkmJYYx5BswvQ8xoNvi-V48GV78qtY2osp3mRT5dAgVv31-tcAdYZIYq5VwnghdHN-xLMZHlH8DhevC9MvU-RUVOzTxENfRuR9CornjT44jfRzEHiuwDi6on6RQISv-Sa7xPzXf6U61FblGpi9Ou2aXfsR5_PoyNJhX-aCt1zuv1ogRgtmIOXqYjfcAQ79z48VNTNX3nLemm' },
-    { id: 'ladakh-adventure', title: 'Leh Ladakh Adventure', price: '₹65,000', days: '8 Days', loc: 'Ladakh, India', img: 'https://lh3.googleusercontent.com/aida-public/AB6AXuDpQiwfKH0yIRycIB8I2oEBy84i-Io3CIha3W5YAJfjpY1Jghiz6KZm9ugQVQh2w1iYR3smMg-3cpUXS07wl7wtOG7tMr-mD3U-5wbABd_2KyTx6jhq4cZAZVjMPjbUU1yxD4LrltucSAO-ZFLoA_ccgWlKW0wsSVrrkrWiCVwGsI8quL38dPZQOPDjQJbUiojqsqXyVKEnZ2jpVDbJw0GE7jrTbRPihr9RoDuW21hmKXYHaB52a6heuHbI7htXFMkWjCPab-3djC20' },
-  ];
+  // Trending packages: active only, first 4
+  const trendingPackages = packages.filter(p => p.status !== 'Inactive').slice(0, 4);
 
   const actualReviews = [
     {
@@ -92,7 +88,7 @@ export const Home: React.FC = () => {
       customerName: "Omkar Bhalerao",
       platform: "Justdial",
       date: "20 Sep 2024",
-      text: "I had an excellent experience with Shravya Tours & Travels. They offered good deals and their prices were reasonable. The reservations were efficient and timely, and their service was quick. Overall, it was an excellent interaction with them.",
+      text: "I had an excellent experience with SHRAWELLO Travel Hub. They offered good deals and their prices were reasonable. The reservations were efficient and timely, and their service was quick. Overall, it was an excellent interaction with them.",
       rating: 5,
     },
     {
@@ -100,7 +96,7 @@ export const Home: React.FC = () => {
       customerName: "User",
       platform: "Justdial",
       date: "24 Sep 2024",
-      text: "Awesome and great experience with Shravya Tours and Travels. Well-experienced drivers with polite attitude.",
+      text: "Awesome and great experience with SHRAWELLO Travel Hub. Well-experienced drivers with polite attitude.",
       rating: 5,
     },
     {
@@ -108,7 +104,7 @@ export const Home: React.FC = () => {
       customerName: "Payal Shinde",
       platform: "Justdial",
       date: "21 Sep 2024",
-      text: "Shravya Tours & Travels is an excellent transportation booking service. Their clean vehicles, reasonable pricing, and adherence to standard procedures make them a top choice. With fast response times and quick service, they are a reliable option for all your travel needs.",
+      text: "SHRAWELLO Travel Hub is an excellent transportation booking service. Their clean vehicles, reasonable pricing, and adherence to standard procedures make them a top choice. With fast response times and quick service, they are a reliable option for all your travel needs.",
       rating: 5,
     },
     {
@@ -116,7 +112,7 @@ export const Home: React.FC = () => {
       customerName: "Tejas",
       platform: "Justdial",
       date: "21 Sep 2024",
-      text: "I recently travelled with Shravya Tours and Travels and had a fantastic experience. The service was excellent, trip was very comfortable, and the rates were very reasonable. Highly recommend!!",
+      text: "I recently travelled with SHRAWELLO Travel Hub and had a fantastic experience. The service was excellent, trip was very comfortable, and the rates were very reasonable. Highly recommend!!",
       rating: 5,
     },
     {
@@ -124,7 +120,7 @@ export const Home: React.FC = () => {
       customerName: "Dnyaneshwar Lohar",
       platform: "Justdial",
       date: "28 Sep 2024",
-      text: "I had an excellent experience with Shravya Tours & Travels! The SUV provided was safe, clean, and properly sanitised. Booking was easy and the service was quick. I would highly recommend them for any travel needs.",
+      text: "I had an excellent experience with SHRAWELLO Travel Hub! The SUV provided was safe, clean, and properly sanitised. Booking was easy and the service was quick. I would highly recommend them for any travel needs.",
       rating: 5,
     },
     {
@@ -140,7 +136,7 @@ export const Home: React.FC = () => {
       customerName: "Sandesh Sankpal",
       platform: "Google",
       date: "",
-      text: "I recently travelled through Shravya Tours Sedan car to Southern region of India... The services are unbelievable, like free water bottles, tissue papers, basic medicines etc. are available in clean car. Wish you all the best for your future journey... Thanks...",
+      text: "I recently travelled through SHRAWELLO Travel Hub Sedan car to Southern region of India... The services are unbelievable, like free water bottles, tissue papers, basic medicines etc. are available in clean car. Wish you all the best for your future journey... Thanks...",
       rating: 5,
     },
     {
@@ -148,7 +144,7 @@ export const Home: React.FC = () => {
       customerName: "Pratik Patil",
       platform: "Google",
       date: "",
-      text: "We booked an office friends' trip to Prayagraj with Shravya Tours and Travels, and it was an unforgettable experience! The team took care of every detail, from transportation to sightseeing, and ensured that we had a wonderful time. What sets them apart is their personalized attention to detail.",
+      text: "We booked an office friends' trip to Prayagraj with SHRAWELLO Travel Hub, and it was an unforgettable experience! The team took care of every detail, from transportation to sightseeing, and ensured that we had a wonderful time. What sets them apart is their personalized attention to detail.",
       rating: 5,
     },
     {
@@ -239,7 +235,7 @@ export const Home: React.FC = () => {
 
 
 
-      {/* The Shravya Advantage */}
+      {/* The SHRAWELLO Advantage */}
       <section className="py-12 mesh-warm dark:bg-slate-900 border-b border-border-light dark:border-border-dark grain">
         <div className="container mx-auto px-4 md:px-10 relative z-10">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -366,7 +362,7 @@ export const Home: React.FC = () => {
             </Link>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
-            {packages.slice(0, 4).map((tour, idx) => {
+            {trendingPackages.map((tour, idx) => {
               const remainingSeats = tour.remainingSeats;
 
               return (
@@ -395,12 +391,12 @@ export const Home: React.FC = () => {
                       </div>
                       <div className="flex items-center gap-4 text-slate-500 dark:text-slate-400 text-sm font-medium mb-6">
                         <span className="flex items-center gap-1"><span className="material-symbols-outlined text-[18px]">schedule</span> {tour.days} Days</span>
-                        <span className="flex items-center gap-1"><span className="material-symbols-outlined text-[18px]">location_on</span> {tour.location}</span>
+                        <span className="flex items-center gap-1"><span className="material-symbols-outlined text-[18px]">location_on</span> {getLocationName(tour.location, masterLocations)}</span>
                       </div>
                       <div className="flex items-center justify-between border-t border-slate-100 dark:border-slate-700 pt-4">
                         <div className="flex flex-col">
                           <span className="text-xs text-slate-400 uppercase tracking-wider font-bold">From</span>
-                          <span className="text-lg font-black text-slate-900 dark:text-white">₹{tour.price.toLocaleString()}</span>
+                          <span className="text-lg font-black text-slate-900 dark:text-white">{formatPrice(tour.price)}</span>
                         </div>
                         <div className="size-10 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-slate-400 group-hover:bg-primary group-hover:text-white transition-colors">
                           <span className="material-symbols-outlined">arrow_forward</span>

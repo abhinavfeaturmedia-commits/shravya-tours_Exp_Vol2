@@ -4,10 +4,10 @@ import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import {
     Map, Calendar, Users, Briefcase, CheckCircle,
-    XCircle, Clock, AlertTriangle, Phone, MoreHorizontal,
-    Car, Plus, Save
+    XCircle, Clock, AlertTriangle, LogOut, Link, Car, Plus, Save
 } from 'lucide-react';
 import { Booking, SupplierBooking } from '../../types';
+import { api } from '../../src/lib/api';
 import { toast } from 'sonner';
 
 export const Operations: React.FC = () => {
@@ -26,41 +26,41 @@ export const Operations: React.FC = () => {
         const completed: Booking[] = [];
 
         bookings.forEach(b => {
-            // Robust Date Parsing
             const dateParts = b.date ? b.date.split('-') : null;
             if (!dateParts || dateParts.length < 3) return;
 
             const start = new Date(parseInt(dateParts[0]), parseInt(dateParts[1]) - 1, parseInt(dateParts[2]));
             start.setHours(0, 0, 0, 0);
 
-            // Dynamic Duration from Package
-            const pkg = packages.find(p => p.id === b.packageId) || packages.find(p => p.title === b.title);
-            const duration = pkg?.days || 1; // Default to 1 day if unknown
+            // Use explicit DB field first, fall back to package lookup
+            let duration = b.durationDays ?? null;
+            if (!duration) {
+                const pkg = packages.find(p => p.id === b.packageId) || packages.find(p => p.title === b.title);
+                duration = pkg?.days || 1;
+            }
 
             const end = new Date(start);
             end.setDate(start.getDate() + (duration - 1));
             end.setHours(23, 59, 59, 999);
 
-            // Parse Pax Count
-            let paxCount = 0;
-            if (b.guests) {
-                const numbers = b.guests.match(/\d+/g);
-                if (numbers) {
-                    paxCount = numbers.reduce((acc, num) => acc + parseInt(num), 0);
-                }
+            // Use explicit DB field first, fall back to regex on guests string
+            let paxCount = b.paxCount ?? 0;
+            if (!paxCount && b.guests) {
+                const nums = b.guests.match(/\d+/g);
+                // Take only first number (adult count) to avoid summing room numbers
+                paxCount = nums ? parseInt(nums[0]) : 1;
             }
-            if (paxCount === 0) paxCount = 1; // Fallback
+            if (!paxCount) paxCount = 1;
 
-            if (start <= today && end >= today && b.status === 'Confirmed') {
+            if (start <= today && end >= today && b.status === 'Confirmed' && b.liveStatus !== 'Completed' && b.liveStatus !== 'Cancelled') {
                 live.push({ ...b, paxCount, duration, endDate: end });
             } else if (start > today && start <= new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000) && b.status === 'Confirmed') {
                 upcoming.push({ ...b, paxCount });
-            } else if (end < today && b.status === 'Completed') {
+            } else if ((end < today && b.status === 'Completed') || b.liveStatus === 'Completed') {
                 completed.push(b);
             }
         });
 
-        // Sorting
         live.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
         upcoming.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
@@ -68,35 +68,55 @@ export const Operations: React.FC = () => {
     }, [bookings, packages]);
 
 
-    // --- Attendance Logic ---
-    const handleStatusChange = async (id: number, newStatus: string) => {
+    // --- Attendance Logic (persists to MySQL attendance_logs table) ---
+    const isAdmin = currentUser?.role === 'admin' || currentUser?.userType === 'Admin';
+
+    const handleStatusChange = async (empId: number, newStatus: string) => {
+        if (!isAdmin && currentUser?.id !== empId) {
+            toast.error("You can only update your own attendance.");
+            return;
+        }
         try {
-            const updates: any = { attendanceStatus: newStatus as any };
+            const today = new Date().toISOString().split('T')[0];
+            const nowISO = new Date().toISOString();
+            const logId = `ATL-${empId}-${today}`;
 
-            // Auto-set check-in time if marking as Present and not already set
-            const targetStaff = staff.find(s => s.id === id);
-            if (newStatus === 'Present' && !targetStaff?.checkInTime) {
-                updates.checkInTime = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+            if (newStatus === 'Present' || newStatus === 'On Field' || newStatus === 'Remote') {
+                await api.upsertAttendanceLog({ id: logId, staffId: empId, date: today, status: newStatus as any, checkInTime: nowISO });
+                await updateStaff(empId, { attendanceStatus: newStatus as any, checkInTime: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) });
+            } else {
+                await api.upsertAttendanceLog({ id: logId, staffId: empId, date: today, status: newStatus as any, checkOutTime: nowISO });
+                await updateStaff(empId, { attendanceStatus: newStatus as any, checkInTime: newStatus === 'Absent' ? '-' : undefined });
             }
-            // Clear check-in if Absent
-            if (newStatus === 'Absent') {
-                updates.checkInTime = '-';
-            }
-
-            await updateStaff(id, updates);
             toast.success("Attendance updated");
         } catch (e) {
-            toast.error("Failed to update status");
+            toast.error("Failed to update attendance");
         }
     };
 
+    const handleCheckOut = async (empId: number) => {
+        if (!isAdmin && currentUser?.id !== empId) { toast.error("You can only check out yourself."); return; }
+        try {
+            const today = new Date().toISOString().split('T')[0];
+            const logId = `ATL-${empId}-${today}`;
+            await api.updateAttendanceLog(logId, { checkOutTime: new Date().toISOString() });
+            await updateStaff(empId, { attendanceStatus: 'Absent', checkInTime: '-' });
+            toast.success("Checked out");
+        } catch { toast.error("Failed to check out"); }
+    };
+
     const handleLocationChange = async (id: number, newLocation: string) => {
+        if (!isAdmin && currentUser?.id !== id) return;
         try {
             await updateStaff(id, { currentLocation: newLocation });
-            // toast.success("Location updated"); // Too noisy
-        } catch (e) {
-            console.error("Failed to update location");
-        }
+        } catch (e) { console.error("Failed to update location"); }
+    };
+
+    const handleLiveStatusChange = async (bookingId: string, liveStatus: string) => {
+        try {
+            await api.updateBooking(bookingId, { liveStatus } as any);
+            toast.success("Tour status updated");
+        } catch { toast.error("Failed to update tour status"); }
     };
 
 
@@ -105,15 +125,23 @@ export const Operations: React.FC = () => {
     const [prepModalOpen, setPrepModalOpen] = useState(false);
     const [driverVendorId, setDriverVendorId] = useState('');
     const [driverCost, setDriverCost] = useState('');
+    const [driverName, setDriverName] = useState('');
+    const [driverPhone, setDriverPhone] = useState('');
+    const [vehicleNumber, setVehicleNumber] = useState('');
+    const [whatsappGroupUrl, setWhatsappGroupUrl] = useState('');
 
     const openPrepModal = (booking: Booking) => {
         setSelectedBookingForPrep(booking);
         setDriverVendorId('');
         setDriverCost('');
+        setDriverName('');
+        setDriverPhone('');
+        setVehicleNumber('');
+        setWhatsappGroupUrl(booking.whatsappGroupUrl || '');
         setPrepModalOpen(true);
     };
 
-    const handleAssignDriver = () => {
+    const handleAssignDriver = async () => {
         if (!selectedBookingForPrep || !driverVendorId) return;
 
         const newSupplierBooking: SupplierBooking = {
@@ -125,10 +153,17 @@ export const Operations: React.FC = () => {
             paidAmount: 0,
             paymentStatus: 'Unpaid',
             bookingStatus: 'Confirmed',
-            notes: 'Assigned via Operations Console'
+            notes: 'Assigned via Operations Console',
+            driverName: driverName || undefined,
+            driverPhone: driverPhone || undefined,
+            vehicleNumber: vehicleNumber || undefined
         };
 
-        addSupplierBooking(selectedBookingForPrep.id, newSupplierBooking);
+        await addSupplierBooking(selectedBookingForPrep.id, newSupplierBooking);
+        // Persist WhatsApp group URL if set
+        if (whatsappGroupUrl) {
+            await api.updateBooking(selectedBookingForPrep.id, { whatsappGroupUrl } as any);
+        }
         toast.success("Driver assigned successfully");
         setPrepModalOpen(false);
     };
@@ -213,13 +248,26 @@ export const Operations: React.FC = () => {
                                                     </div>
                                                 </div>
 
-                                                <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 flex gap-2">
+                                                <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 flex gap-2 flex-wrap">
                                                     <button
-                                                        onClick={() => window.open(`https://wa.me/${tour.phone?.replace(/\D/g, '')}`, '_blank')}
+                                                        onClick={() => {
+                                                            const url = tour.whatsappGroupUrl || `https://wa.me/${tour.phone?.replace(/\D/g, '')}`;
+                                                            window.open(url, '_blank');
+                                                        }}
                                                         className="flex-1 py-2 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 text-xs font-bold rounded-lg hover:bg-green-100 transition-colors"
                                                     >
-                                                        WhatsApp Group
+                                                        {tour.whatsappGroupUrl ? 'WA Group' : 'WhatsApp'}
                                                     </button>
+                                                    <select
+                                                        value={tour.liveStatus || 'Live'}
+                                                        onChange={(e) => handleLiveStatusChange(tour.id, e.target.value)}
+                                                        className="px-2 py-2 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold rounded-lg border-none outline-none cursor-pointer"
+                                                    >
+                                                        <option value="Live">🟢 Live</option>
+                                                        <option value="Issue">🔴 Issue</option>
+                                                        <option value="Completed">✅ Done</option>
+                                                        <option value="Cancelled">❌ Cancel</option>
+                                                    </select>
                                                     <button
                                                         onClick={() => navigate(`/admin/bookings?search=${tour.id}`)}
                                                         className="flex-1 py-2 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold rounded-lg hover:bg-slate-100 transition-colors"
@@ -351,7 +399,8 @@ export const Operations: React.FC = () => {
                                                 <select
                                                     value={emp.attendanceStatus || 'Absent'}
                                                     onChange={(e) => handleStatusChange(emp.id, e.target.value)}
-                                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold border-none outline-none cursor-pointer
+                                                    disabled={!isAdmin && currentUser?.id !== emp.id}
+                                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold border-none outline-none cursor-pointer disabled:opacity-50
                                                         ${emp.attendanceStatus === 'Present' ? 'bg-green-100 text-green-700' :
                                                             emp.attendanceStatus === 'Absent' || !emp.attendanceStatus ? 'bg-red-100 text-red-700' :
                                                                 emp.attendanceStatus === 'On Field' ? 'bg-blue-100 text-blue-700' :
@@ -365,7 +414,14 @@ export const Operations: React.FC = () => {
                                                 </select>
                                             </td>
                                             <td className="px-6 py-4 text-sm font-mono text-slate-600 dark:text-slate-400">
-                                                {emp.checkInTime || '-'}
+                                                <div className="flex items-center gap-2">
+                                                    <span>{emp.checkInTime || '-'}</span>
+                                                    {emp.attendanceStatus && emp.attendanceStatus !== 'Absent' && emp.checkInTime && emp.checkInTime !== '-' && (isAdmin || currentUser?.id === emp.id) && (
+                                                        <button onClick={() => handleCheckOut(emp.id)} className="text-[10px] text-red-500 hover:text-red-700 font-bold flex items-center gap-0.5" title="Check Out">
+                                                            <LogOut size={10} /> Out
+                                                        </button>
+                                                    )}
+                                                </div>
                                             </td>
                                             <td className="px-6 py-4 text-sm font-medium text-slate-600 dark:text-slate-400">
                                                 <div className="flex items-center gap-2">
@@ -374,7 +430,8 @@ export const Operations: React.FC = () => {
                                                         type="text"
                                                         defaultValue={emp.currentLocation || (emp.attendanceStatus === 'Present' ? 'Office' : '')}
                                                         onBlur={(e) => handleLocationChange(emp.id, e.target.value)}
-                                                        className="bg-transparent border-b border-transparent hover:border-slate-300 focus:border-blue-500 outline-none w-32 transition-colors text-xs"
+                                                        disabled={!isAdmin && currentUser?.id !== emp.id}
+                                                        className="bg-transparent border-b border-transparent hover:border-slate-300 focus:border-blue-500 outline-none w-32 transition-colors text-xs disabled:opacity-50"
                                                         placeholder="Set Location..."
                                                     />
                                                 </div>
@@ -421,15 +478,31 @@ export const Operations: React.FC = () => {
                                 )}
                             </div>
 
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Driver Name</label>
+                                    <input type="text" value={driverName} onChange={(e) => setDriverName(e.target.value)} placeholder="e.g. Raju Kumar" className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border-none rounded-xl outline-none focus:ring-2 ring-blue-500/20 text-sm" />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Driver Phone</label>
+                                    <input type="tel" value={driverPhone} onChange={(e) => setDriverPhone(e.target.value)} placeholder="+91 99999 00000" className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border-none rounded-xl outline-none focus:ring-2 ring-blue-500/20 text-sm" />
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Vehicle Number</label>
+                                    <input type="text" value={vehicleNumber} onChange={(e) => setVehicleNumber(e.target.value)} placeholder="MH 01 AB 1234" className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border-none rounded-xl outline-none focus:ring-2 ring-blue-500/20 text-sm" />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Cost (₹)</label>
+                                    <input type="number" value={driverCost} onChange={(e) => setDriverCost(e.target.value)} placeholder="0" className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border-none rounded-xl outline-none focus:ring-2 ring-blue-500/20 text-sm" />
+                                </div>
+                            </div>
+
                             <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Estimated Cost</label>
-                                <input
-                                    type="number"
-                                    value={driverCost}
-                                    onChange={(e) => setDriverCost(e.target.value)}
-                                    placeholder="0.00"
-                                    className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border-none rounded-xl outline-none focus:ring-2 ring-blue-500/20"
-                                />
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">WhatsApp Group Link</label>
+                                <input type="url" value={whatsappGroupUrl} onChange={(e) => setWhatsappGroupUrl(e.target.value)} placeholder="https://chat.whatsapp.com/..." className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border-none rounded-xl outline-none focus:ring-2 ring-blue-500/20 text-sm" />
                             </div>
 
                             <button

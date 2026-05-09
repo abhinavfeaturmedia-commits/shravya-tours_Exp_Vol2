@@ -18,7 +18,7 @@ export const generateItinerary = async (destination: string, days: number, trave
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" }); // Using latest 2.5 flash model
 
     const prompt = `
-    You are an expert travel planner for Shravya Tours.
+    You are an expert travel planner for SHRAWELLO Travel Hub.
     Create a detailed ${days}-day itinerary for a trip to ${destination} for ${travelers}.
     The trip starts on ${startDate}.
 
@@ -63,7 +63,7 @@ export const analyzeLead = async (lead: any) => {
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
     const prompt = `
-    Analyze this travel lead for Shravya Tours and provide a "Conversion Score" (0-100) and a "Strategic Summary".
+    Analyze this travel lead for SHRAWELLO Travel Hub and provide a "Conversion Score" (0-100) and a "Strategic Summary".
     
     Lead Details:
     Name: ${lead.name}

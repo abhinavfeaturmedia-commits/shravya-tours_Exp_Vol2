@@ -1,21 +1,12 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useData } from '../../context/DataContext';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Package, MasterLocation } from '../../types';
+import { Package } from '../../types';
 import { ImageUpload } from '../../components/ui/ImageUpload';
 import { SuggestPopup, isDismissed, isSnoozed } from '../../components/ui/SuggestPopup';
 import { useBookings } from '../../src/hooks/useBookings';
 import { ActionMenu } from '../../components/ui/ActionMenu';
-
-// Helper to resolve location ID to name
-const getLocationName = (locationValue: string, masterLocations: MasterLocation[]): string => {
-    // Check if it looks like a UUID
-    if (locationValue && locationValue.includes('-') && locationValue.length > 20) {
-        const found = masterLocations.find(l => l.id === locationValue);
-        return found ? found.name : locationValue;
-    }
-    return locationValue || '';
-};
+import { getLocationName } from '../../utils/packageUtils';
 
 // Extracted Component with React.memo to prevent unnecessary re-renders of the entire list when Edit Modal opens
 const PackageCard = React.memo(({
@@ -24,14 +15,20 @@ const PackageCard = React.memo(({
     onToggleStatus,
     onDelete,
     onPreview,
-    masterLocations
+    onCopyLink,
+    masterLocations,
+    bookingCount,
+    revenue
 }: {
     pkg: Package,
     onEdit: (pkg: Package) => void,
     onToggleStatus: (pkg: Package) => void,
     onDelete: (id: string) => void,
     onPreview: (id: string) => void,
-    masterLocations: MasterLocation[]
+    onCopyLink: (id: string) => void,
+    masterLocations: any[],
+    bookingCount: number,
+    revenue: number
 }) => {
     return (
         <div className="group bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-800 rounded-2xl p-4 flex flex-col md:flex-row items-start md:items-center gap-6 hover:shadow-lg transition-all hover:border-primary/30">
@@ -51,14 +48,46 @@ const PackageCard = React.memo(({
                     <span className="flex items-center gap-1"><span className="material-symbols-outlined text-[16px]">schedule</span> {pkg.days} Days</span>
                     <span className="flex items-center gap-1"><span className="material-symbols-outlined text-[16px]">group</span> {pkg.groupSize}</span>
                 </div>
+                {/* Proposal Status Badge */}
+                {pkg.proposalStatus && (() => {
+                    const statusStyles: Record<string, string> = {
+                        'Draft':             'bg-slate-100 text-slate-500',
+                        'Sent':              'bg-sky-100 text-sky-700',
+                        'Viewed':            'bg-amber-100 text-amber-700',
+                        'Approved':          'bg-emerald-100 text-emerald-700',
+                        'Changes Requested': 'bg-rose-100 text-rose-700',
+                    };
+                    const statusIcons: Record<string, string> = {
+                        'Draft': '📝', 'Sent': '📤', 'Viewed': '👁️', 'Approved': '✅', 'Changes Requested': '💬',
+                    };
+                    return (
+                        <span className={`mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider w-fit ${statusStyles[pkg.proposalStatus] || 'bg-slate-100 text-slate-500'}`}>
+                            {statusIcons[pkg.proposalStatus]} Proposal: {pkg.proposalStatus}
+                        </span>
+                    );
+                })()}
             </div>
 
             {/* Metrics */}
-            <div className="w-full md:w-auto flex items-center justify-between md:justify-end gap-8 md:pr-4 md:border-r border-slate-100 dark:border-slate-700">
+            <div className="w-full md:w-auto flex items-center justify-between md:justify-end gap-6 md:pr-4 md:border-r border-slate-100 dark:border-slate-700">
                 <div className="text-center md:text-right">
                     <p className="text-xs font-bold text-slate-400 uppercase">Price</p>
-                    <p className="font-black text-slate-900 dark:text-white">â‚¹{(pkg.price / 1000).toFixed(0)}k</p>
+                    <p className="font-black text-slate-900 dark:text-white">₹{(pkg.price / 1000).toFixed(0)}k</p>
                 </div>
+                <div className="text-center md:text-right">
+                    <p className="text-xs font-bold text-slate-400 uppercase">Bookings</p>
+                    <p className="font-black text-slate-900 dark:text-white">{bookingCount}</p>
+                </div>
+                <div className="text-center md:text-right">
+                    <p className="text-xs font-bold text-slate-400 uppercase">Revenue</p>
+                    <p className="font-black text-emerald-600 dark:text-emerald-400">₹{(revenue / 1000).toFixed(0)}k</p>
+                </div>
+                {pkg.remainingSeats !== undefined && pkg.remainingSeats < 10 && (
+                    <div className="text-center md:text-right">
+                        <p className="text-xs font-bold text-red-400 uppercase">Seats Left</p>
+                        <p className="font-black text-red-600 dark:text-red-400">{pkg.remainingSeats}</p>
+                    </div>
+                )}
             </div>
 
             {/* Actions */}
@@ -78,6 +107,9 @@ const PackageCard = React.memo(({
                 <ActionMenu>
                     <button onClick={() => onEdit(pkg)} className="flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors w-full text-left">
                         <span className="material-symbols-outlined text-[18px] text-primary">edit</span> Edit Package
+                    </button>
+                    <button onClick={() => onCopyLink(pkg.id)} className="flex items-center gap-3 px-4 py-2.5 text-sm text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/10 transition-colors w-full text-left">
+                        <span className="material-symbols-outlined text-[18px]">link</span> Copy Web Link
                     </button>
                     <div className="my-1 border-t border-slate-100 dark:border-slate-700" />
                     <button onClick={() => onDelete(pkg.id)} className="flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/10 transition-colors w-full text-left">
@@ -124,7 +156,10 @@ export const AdminPackages: React.FC = () => {
         tagColor: 'bg-blue-500 text-white',
         theme: '',
         groupSize: '',
-        status: 'Active' as 'Active' | 'Inactive'
+        status: 'Active' as 'Active' | 'Inactive',
+        remainingSeats: '' as string | number,
+        offerEndTime: '',
+        addons: [] as { id: string; label: string; price: number }[]
     });
 
     // Derived Stats (Memoized to prevent recalculation on every render)
@@ -152,7 +187,10 @@ export const AdminPackages: React.FC = () => {
             tagColor: pkg.tagColor || 'bg-blue-500 text-white',
             theme: pkg.theme,
             groupSize: pkg.groupSize,
-            status: pkg.status || 'Active'
+            status: pkg.status || 'Active',
+            remainingSeats: pkg.remainingSeats ?? '',
+            offerEndTime: pkg.offerEndTime || '',
+            addons: pkg.addons || []
         });
         setIsEditModalOpen(true);
     }, []);
@@ -161,7 +199,10 @@ export const AdminPackages: React.FC = () => {
         e.preventDefault();
         if (editingPackageId) {
             updatePackage(editingPackageId, {
-                ...editForm
+                ...editForm,
+                remainingSeats: editForm.remainingSeats === '' ? undefined : Number(editForm.remainingSeats),
+                offerEndTime: editForm.offerEndTime || undefined,
+                addons: editForm.addons.length > 0 ? editForm.addons : undefined
             });
             setIsEditModalOpen(false);
             setEditingPackageId(null);
@@ -183,6 +224,15 @@ export const AdminPackages: React.FC = () => {
         navigate(`/packages/${id}`);
     }, [navigate]);
 
+    const handleCopyLink = useCallback((id: string) => {
+        // Fix: use /packages/:id not /itinerary/:id
+        const url = `${window.location.origin}/#/packages/${id}`;
+        navigator.clipboard.writeText(url);
+        import('sonner').then(({ toast }) => {
+            toast.success('Web Link copied to clipboard!');
+        });
+    }, []);
+
     const filteredPackages = useMemo(() => {
         if (search === 'no-bookings') {
             const packageBookingCounts = packages.reduce((acc, pkg) => {
@@ -193,11 +243,26 @@ export const AdminPackages: React.FC = () => {
         } else if (search === 'Hidden') {
             return packages.filter(p => p.status === 'Inactive');
         }
+        const q = search.toLowerCase();
         return packages.filter(p =>
-            p.title.toLowerCase().includes(search.toLowerCase()) ||
-            p.location.toLowerCase().includes(search.toLowerCase())
+            p.title.toLowerCase().includes(q) ||
+            getLocationName(p.location, masterLocations).toLowerCase().includes(q) ||
+            p.location.toLowerCase().includes(q)
         );
-    }, [packages, search, bookings]);
+    }, [packages, search, bookings, masterLocations]);
+
+    // Per-package booking stats
+    const pkgStats = useMemo(() => {
+        const map: Record<string, { count: number; revenue: number }> = {};
+        for (const pkg of packages) {
+            const pkgBookings = bookings.filter(b => b.packageId === pkg.id);
+            map[pkg.id] = {
+                count: pkgBookings.length,
+                revenue: pkgBookings.reduce((s, b) => s + (b.amount || 0), 0)
+            };
+        }
+        return map;
+    }, [packages, bookings]);
 
     return (
         <div className="flex flex-col h-full admin-page-bg">
@@ -231,7 +296,7 @@ export const AdminPackages: React.FC = () => {
                                         </select>
                                     </div>
                                     <div>
-                                        <label className="text-xs font-bold text-slate-500 mb-1 block">Price (â‚¹)</label>
+                                        <label className="text-xs font-bold text-slate-500 mb-1 block">Price (₹)</label>
                                         <input required value={editForm.price} onChange={e => setEditForm({ ...editForm, price: parseInt(e.target.value) || 0 })} type="number" className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
                                     </div>
                                     <div className="grid grid-cols-2 gap-4">
@@ -304,6 +369,38 @@ export const AdminPackages: React.FC = () => {
                                         <label className="text-xs font-bold text-slate-500 mb-1 block">Full Overview</label>
                                         <textarea value={editForm.overview} onChange={e => setEditForm({ ...editForm, overview: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none h-24 resize-none" />
                                     </div>
+                                </div>
+                            </div>
+
+                            {/* Section: Inventory & Offer */}
+                            <div>
+                                <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-3 border-b border-slate-100 dark:border-slate-700 pb-2">Inventory &amp; Offer</h3>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-500 mb-1 block">Remaining Seats (blank = unlimited)</label>
+                                        <input value={editForm.remainingSeats} onChange={e => setEditForm({ ...editForm, remainingSeats: e.target.value })} type="number" min="0" placeholder="e.g. 15" className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-500 mb-1 block">Offer End Date &amp; Time</label>
+                                        <input value={editForm.offerEndTime} onChange={e => setEditForm({ ...editForm, offerEndTime: e.target.value })} type="datetime-local" className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Section: Add-ons */}
+                            <div>
+                                <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-3 border-b border-slate-100 dark:border-slate-700 pb-2">Package Add-ons</h3>
+                                <div className="space-y-2">
+                                    {editForm.addons.map((addon, idx) => (
+                                        <div key={addon.id} className="flex items-center gap-2">
+                                            <input value={addon.label} onChange={e => { const u = [...editForm.addons]; u[idx] = { ...addon, label: e.target.value }; setEditForm({ ...editForm, addons: u }); }} placeholder="Add-on name" className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                                            <input value={addon.price} onChange={e => { const u = [...editForm.addons]; u[idx] = { ...addon, price: parseInt(e.target.value) || 0 }; setEditForm({ ...editForm, addons: u }); }} type="number" placeholder="Price" className="w-28 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                                            <button type="button" onClick={() => setEditForm({ ...editForm, addons: editForm.addons.filter((_, i) => i !== idx) })} className="text-red-400 hover:text-red-600 p-1"><span className="material-symbols-outlined text-[18px]">delete</span></button>
+                                        </div>
+                                    ))}
+                                    <button type="button" onClick={() => setEditForm({ ...editForm, addons: [...editForm.addons, { id: `addon-${Date.now()}`, label: '', price: 0 }] })} className="text-xs font-bold text-primary flex items-center gap-1 mt-1">
+                                        <span className="material-symbols-outlined text-[16px]">add_circle</span> Add Add-on
+                                    </button>
                                 </div>
                             </div>
 
@@ -437,7 +534,10 @@ export const AdminPackages: React.FC = () => {
                                 onToggleStatus={handleToggleStatus}
                                 onDelete={handleDelete}
                                 onPreview={handlePreview}
+                                onCopyLink={handleCopyLink}
                                 masterLocations={masterLocations}
+                                bookingCount={pkgStats[pkg.id]?.count ?? 0}
+                                revenue={pkgStats[pkg.id]?.revenue ?? 0}
                             />
                         ))
                     ) : (

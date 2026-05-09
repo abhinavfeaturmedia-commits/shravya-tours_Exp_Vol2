@@ -6,6 +6,7 @@ import { AdminLayout } from './components/layouts/AdminLayout';
 import { DataProvider } from './context/DataContext';
 import { AuthProvider } from './context/AuthContext';
 import { MasterDataProvider } from './context/MasterDataContext';
+import { SettingsProvider } from './context/SettingsContext';
 import { ToastProvider } from './components/ui/Toast';
 
 // Lazy load pages to reduce initial bundle size
@@ -20,6 +21,7 @@ const Terms = lazy(() => import('./pages/Terms').then(module => ({ default: modu
 const Privacy = lazy(() => import('./pages/Privacy').then(module => ({ default: module.Privacy })));
 const Cancellation = lazy(() => import('./pages/Cancellation').then(module => ({ default: module.Cancellation })));
 const Careers = lazy(() => import('./pages/Careers').then(module => ({ default: module.Careers })));
+const InteractiveItinerary = lazy(() => import('./pages/InteractiveItinerary').then(module => ({ default: module.InteractiveItinerary })));
 
 
 
@@ -44,6 +46,9 @@ const Masters = lazy(() => import('./pages/admin/Masters').then(module => ({ def
 const AuditLogs = lazy(() => import('./pages/admin/AuditLogs').then(module => ({ default: module.AuditLogs })));
 const Productivity = lazy(() => import('./pages/admin/Productivity').then(module => ({ default: module.Productivity })));
 const FinanceVerification = lazy(() => import('./pages/admin/FinanceVerification').then(module => ({ default: module.FinanceVerification })));
+const InvoicesDashboard = lazy(() => import('./pages/admin/InvoicesDashboard').then(module => ({ default: module.InvoicesDashboard })));
+const DocumentEditor = lazy(() => import('./pages/admin/DocumentEditor').then(module => ({ default: module.DocumentEditor })));
+const AdminSettings = lazy(() => import('./pages/admin/Settings').then(module => ({ default: module.Settings })));
 
 
 // Loading Fallback
@@ -60,6 +65,7 @@ const App: React.FC = () => {
   return (
     <AuthProvider>
       <MasterDataProvider>
+        <SettingsProvider>
         <DataProvider>
           <ToastProvider />
           <HashRouter>
@@ -70,6 +76,7 @@ const App: React.FC = () => {
                   <Route index element={<Home />} />
                   <Route path="packages" element={<Packages />} />
                   <Route path="packages/:id" element={<PackageDetail />} />
+                  <Route path="itinerary/:id" element={<InteractiveItinerary />} />
                   <Route path="tours" element={<Navigate to="/packages" replace />} />
                   <Route path="about" element={<About />} />
                   <Route path="contact" element={<Contact />} />
@@ -97,6 +104,9 @@ const App: React.FC = () => {
                   <Route path="finance-verification" element={<FinanceVerification />} />
                   <Route path="proposals" element={<AdminProposals />} />
                   <Route path="proposals/:id" element={<ProposalBuilder />} />
+                  <Route path="invoices" element={<InvoicesDashboard />} />
+                  <Route path="invoices/new" element={<DocumentEditor />} />
+                  <Route path="invoices/edit/:id" element={<DocumentEditor />} />
 
                   <Route path="customers" element={<AdminCustomers />} />
                   <Route path="leads" element={<AdminLeads />} />
@@ -106,6 +116,7 @@ const App: React.FC = () => {
                   <Route path="team-performance" element={<TeamPerformance />} />
                   <Route path="packages" element={<AdminPackages />} />
                   <Route path="masters" element={<Masters />} />
+                  <Route path="settings" element={<AdminSettings />} />
                   <Route path="*" element={<div className="p-10">Page Under Construction</div>} />
                 </Route>
 
@@ -115,6 +126,7 @@ const App: React.FC = () => {
             </Suspense>
           </HashRouter>
         </DataProvider>
+        </SettingsProvider>
       </MasterDataProvider>
     </AuthProvider>
   );

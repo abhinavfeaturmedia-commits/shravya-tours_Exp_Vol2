@@ -1,5 +1,5 @@
 import imageCompression from 'browser-image-compression';
-import { Package, Booking, Lead, BookingStatus, StaffMember, Customer, MasterRoomType, MasterMealPlan, MasterActivity, MasterTransport, MasterPlan, MasterLeadSource, MasterTermsTemplate, CMSBanner, CMSTestimonial, CMSGalleryImage, CMSPost, FollowUp, Proposal, DailyTarget, TimeSession, AssignmentRule, UserActivity, Campaign, MasterHotel, Task, AuditLog, Expense } from '../../types';
+import { Package, Booking, Lead, BookingStatus, StaffMember, Customer, MasterRoomType, MasterMealPlan, MasterActivity, MasterTransport, MasterPlan, MasterLeadSource, MasterTermsTemplate, CMSBanner, CMSTestimonial, CMSGalleryImage, CMSPost, FollowUp, Proposal, DailyTarget, TimeSession, AssignmentRule, UserActivity, Campaign, MasterHotel, Task, AuditLog, Expense, AttendanceLog } from '../../types';
 
 // ─── BASE API URL ───
 // In dev mode, use Vite proxy (empty string) so request goes to the same origin.
@@ -167,13 +167,13 @@ export const api = {
         return `${prefix}-${timestamp}`;
     },
 
-    bookInventorySlot: async (dateStr: string, paxCount: number): Promise<void> => {
+    bookInventorySlot: async (dateStr: string, assetId: string, paxCount: number): Promise<void> => {
         // Fetch current inventory, update booked count
         try {
-            const { data } = await crud.getAll('daily_inventory', { filters: { date: dateStr } });
+            const { data } = await crud.getAll('daily_inventory', { filters: { date: dateStr, asset_id: assetId } });
             if (data && data.length > 0) {
                 const slot = data[0];
-                if (slot.booked + paxCount > slot.capacity) throw new Error('Not enough capacity');
+                if (slot.capacity > 0 && slot.booked + paxCount > slot.capacity) throw new Error('Not enough capacity');
                 await crud.update('daily_inventory', slot.id, { booked: slot.booked + paxCount });
             }
         } catch (err: any) {
@@ -181,9 +181,9 @@ export const api = {
         }
     },
 
-    unlockInventorySlot: async (dateStr: string, paxCount: number): Promise<void> => {
+    unlockInventorySlot: async (dateStr: string, assetId: string, paxCount: number): Promise<void> => {
         try {
-            const { data } = await crud.getAll('daily_inventory', { filters: { date: dateStr } });
+            const { data } = await crud.getAll('daily_inventory', { filters: { date: dateStr, asset_id: assetId } });
             if (data && data.length > 0) {
                 const slot = data[0];
                 await crud.update('daily_inventory', slot.id, { booked: Math.max(0, slot.booked - paxCount) });
@@ -304,7 +304,11 @@ export const api = {
                 paymentStatus: sb.payment_status,
                 bookingStatus: sb.booking_status,
                 paymentDueDate: sb.payment_due_date,
-                notes: sb.notes
+                notes: sb.notes,
+                // Live Operations transport fields
+                driverName: sb.driver_name || null,
+                driverPhone: sb.driver_phone || null,
+                vehicleNumber: sb.vehicle_number || null
             }));
 
             // Format dates strictly to YYYY-MM-DD using local time parts for <input type="date">
@@ -321,6 +325,7 @@ export const api = {
 
             return {
                 id: row.id,
+                bookingNumber: row.booking_number || undefined,
                 type: row.type || 'Tour',
                 customer: row.customer_name,
                 email: row.customer_email || row.email,
@@ -337,7 +342,12 @@ export const api = {
                 invoiceNo: row.invoice_no || `INV-${row.id}`,
                 transactions: txs,
                 supplierBookings: sbs,
-                notes: parseJsonFieldSafe(row.booking_notes, [])
+                notes: parseJsonFieldSafe(row.booking_notes, []),
+                // Live Operations fields from MySQL
+                durationDays: row.duration_days ? Number(row.duration_days) : undefined,
+                paxCount: row.pax_count ? Number(row.pax_count) : undefined,
+                whatsappGroupUrl: row.whatsapp_group_url || undefined,
+                liveStatus: row.live_status as any || 'Live'
             };
         });
     },
@@ -354,7 +364,11 @@ export const api = {
             payment_status: sb.paymentStatus,
             booking_status: sb.bookingStatus,
             payment_due_date: sb.paymentDueDate ? sb.paymentDueDate : null,
-            notes: sb.notes || null
+            notes: sb.notes || null,
+            // Transport-specific fields for Live Operations
+            driver_name: sb.driverName || null,
+            driver_phone: sb.driverPhone || null,
+            vehicle_number: sb.vehicleNumber || null
         });
     },
 
@@ -378,6 +392,7 @@ export const api = {
 
     createBooking: async (booking: Partial<Booking>) => {
         // Map to Hostinger DB schema
+        // Note: Do NOT pass `id` — backend auto-generates UUID + booking_number
         const dbBooking: any = {
             customer_name: booking.customer,
             customer_email: booking.email || '',
@@ -436,6 +451,12 @@ export const api = {
         if (updates.notes !== undefined) {
             dbUpdates.booking_notes = JSON.stringify(updates.notes);
         }
+        if ((updates as any).liveStatus !== undefined) {
+            dbUpdates.live_status = (updates as any).liveStatus;
+        }
+        if ((updates as any).whatsappGroupUrl !== undefined) {
+            dbUpdates.whatsapp_group_url = (updates as any).whatsappGroupUrl || null;
+        }
         
         await crud.update('bookings', id, dbUpdates);
     },
@@ -466,6 +487,7 @@ export const api = {
         const { data } = await fetchApi('/api/leads-with-logs');
         return (data || []).map((row: any) => ({
             id: row.id,
+            leadNumber: row.lead_number || undefined,
             name: row.name,
             email: row.email,
             phone: row.phone,
@@ -504,8 +526,8 @@ export const api = {
     },
 
     createLead: async (lead: Partial<Lead>) => {
+        // Note: Do NOT pass `id` — backend auto-generates UUID + lead_number
         await crud.create('leads', {
-            id: lead.id,
             name: lead.name,
             email: lead.email,
             phone: lead.phone,
@@ -595,13 +617,16 @@ export const api = {
     },
 
     // --- INVENTORY ---
-    getInventory: async (): Promise<Record<number, any>> => {
+    getInventory: async (): Promise<Record<string, any>> => {
         const { data } = await crud.getAll('daily_inventory');
-        const inventoryMap: Record<number, any> = {};
+        const inventoryMap: Record<string, any> = {};
         (data || []).forEach((slot: any) => {
-            const day = new Date(slot.date).getDate();
-            inventoryMap[day] = {
-                date: day,
+            const key = `${slot.date}_${slot.asset_id}`;
+            inventoryMap[key] = {
+                id: slot.id,
+                date: slot.date,
+                assetId: slot.asset_id,
+                assetType: slot.asset_type,
                 capacity: slot.capacity,
                 booked: slot.booked,
                 price: slot.price,
@@ -611,8 +636,19 @@ export const api = {
         return inventoryMap;
     },
 
-    updateInventory: async (dateStr: string, updates: any) => {
-        await crud.upsert('daily_inventory', { date: dateStr, ...updates });
+    updateInventory: async (dateStr: string, assetId: string, assetType: string, updates: any) => {
+        // Build a clean snake_case payload — only include columns that exist in the DB schema.
+        // Do NOT spread the full DailySlot object (it contains camelCase keys that break MySQL INSERT).
+        // Do NOT include `booked` — that is a derived/live count from actual bookings, not a stored value.
+        const payload: Record<string, any> = {
+            date: dateStr,
+            asset_id: assetId,
+            asset_type: assetType,
+            capacity: updates.capacity ?? 0,
+            price: updates.price ?? 0,
+            is_blocked: updates.isBlocked ?? updates.is_blocked ?? false,
+        };
+        await crud.upsert('daily_inventory', payload);
     },
 
     // --- VENDORS ---
@@ -764,7 +800,8 @@ export const api = {
             role: s.role || 'Agent',
             userType: s.user_type || 'Staff',
             department: s.department || 'General',
-            status: s.status || 'Active',
+            // Fix: use null/undefined check only — don't coerce 'Inactive' to 'Active'
+            status: s.status != null ? s.status : 'Active',
             initials: s.initials || (s.name ? s.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().substring(0, 2) : 'XX'),
             color: s.color || 'slate',
             permissions: typeof s.permissions === 'string' ? JSON.parse(s.permissions) : (s.permissions || {}),
@@ -786,7 +823,8 @@ export const api = {
             role: s.role,
             userType: s.user_type,
             department: s.department,
-            status: s.status,
+            // Fix: same safe null check for status
+            status: s.status != null ? s.status : 'Active',
             initials: s.initials,
             color: s.color,
             permissions: typeof s.permissions === 'string' ? JSON.parse(s.permissions) : s.permissions,
@@ -879,14 +917,99 @@ export const api = {
 
     updateStaff: async (id: number, updates: Partial<StaffMember>) => {
         const dbUpdates: any = {};
-        if (updates.name) dbUpdates.name = updates.name;
-        if (updates.role) dbUpdates.role = updates.role;
-        if (updates.permissions) dbUpdates.permissions = updates.permissions;
+        if (updates.name !== undefined) dbUpdates.name = updates.name;
+        if (updates.role !== undefined) dbUpdates.role = updates.role;
+        if (updates.userType !== undefined) dbUpdates.user_type = updates.userType;
+        if (updates.department !== undefined) dbUpdates.department = updates.department;
+        if (updates.status !== undefined) dbUpdates.status = updates.status;
+        if (updates.initials !== undefined) dbUpdates.initials = updates.initials;
+        if (updates.color !== undefined) dbUpdates.color = updates.color;
+        if (updates.queryScope !== undefined) dbUpdates.query_scope = updates.queryScope;
+        if (updates.whatsappScope !== undefined) dbUpdates.whatsapp_scope = updates.whatsappScope;
+        if ((updates as any).phone !== undefined) dbUpdates.phone = (updates as any).phone;
+        if (updates.permissions !== undefined) dbUpdates.permissions = JSON.stringify(updates.permissions);
         await crud.update('staff_members', id, dbUpdates);
     },
 
     deleteStaff: async (id: number) => {
-        await crud.remove('staff_members', id);
+        // Fix #3: Uses dedicated endpoint that also removes the auth user from `users` table
+        await fetchApi(`/api/staff/${id}`, { method: 'DELETE' });
+    },
+
+    resetStaffPassword: async (id: number, newPassword: string) => {
+        // Fix #1: Resets password in the `users` auth table
+        return fetchApi(`/api/staff/${id}/reset-password`, {
+            method: 'POST',
+            body: JSON.stringify({ newPassword })
+        });
+    },
+
+    // Heartbeat: updates last_active for the current user on app startup
+    heartbeat: async (): Promise<{ staff: any } | null> => {
+        try {
+            const result = await fetchApi('/api/auth/me');
+            return result || null;
+        } catch {
+            return null;
+        }
+    },
+
+    // --- ATTENDANCE LOGS (Live Operations) ---
+    // Fetches all attendance logs for a given date (YYYY-MM-DD)
+    getAttendanceLogs: async (date: string): Promise<AttendanceLog[]> => {
+        const { data } = await crud.getAll('attendance_logs', { filters: { date } });
+        return (data || []).map((row: any) => ({
+            id: row.id,
+            staffId: Number(row.staff_id),
+            date: row.date,
+            status: row.status as any,
+            checkInTime: row.check_in_time || undefined,
+            checkOutTime: row.check_out_time || undefined,
+            location: row.location || undefined,
+            notes: row.notes || undefined
+        }));
+    },
+
+    // Creates a new attendance log entry for a staff member for today
+    createAttendanceLog: async (log: Omit<AttendanceLog, 'id'>): Promise<AttendanceLog> => {
+        const crypto = { randomUUID: () => `ATL-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` };
+        const id = crypto.randomUUID();
+        const { data } = await crud.create('attendance_logs', {
+            id,
+            staff_id: log.staffId,
+            date: log.date,
+            status: log.status,
+            check_in_time: log.checkInTime || null,
+            check_out_time: log.checkOutTime || null,
+            location: log.location || null,
+            notes: log.notes || null
+        });
+        return { ...log, id: data?.id || id };
+    },
+
+    // Updates an existing attendance log (e.g. to set check_out_time or change status)
+    updateAttendanceLog: async (id: string, updates: Partial<AttendanceLog>): Promise<void> => {
+        const dbUpdates: any = {};
+        if (updates.status !== undefined) dbUpdates.status = updates.status;
+        if (updates.checkInTime !== undefined) dbUpdates.check_in_time = updates.checkInTime || null;
+        if (updates.checkOutTime !== undefined) dbUpdates.check_out_time = updates.checkOutTime || null;
+        if (updates.location !== undefined) dbUpdates.location = updates.location || null;
+        if (updates.notes !== undefined) dbUpdates.notes = updates.notes || null;
+        await crud.update('attendance_logs', id, dbUpdates);
+    },
+
+    // Upserts today's attendance log for a staff member using MySQL's ON DUPLICATE KEY UPDATE
+    upsertAttendanceLog: async (log: AttendanceLog): Promise<void> => {
+        await crud.upsert('attendance_logs', {
+            id: log.id,
+            staff_id: log.staffId,
+            date: log.date,
+            status: log.status,
+            check_in_time: log.checkInTime || null,
+            check_out_time: log.checkOutTime || null,
+            location: log.location || null,
+            notes: log.notes || null
+        });
     },
 
     // --- CUSTOMERS ---
@@ -1594,5 +1717,13 @@ export const api = {
     },
     rejectDeletionRequest: async (id: string) => {
         return fetchApi(`/api/deletion-requests/${id}/reject`, { method: 'POST' });
-    }
+    },
+
+    // ─── SETTINGS ───
+    getSettings: async () => {
+        return crud.getAll('settings', { order: 'updated_at', asc: false });
+    },
+    upsertSetting: async (key: string, value: string) => {
+        return crud.upsert('settings', { id: key, key, value, updated_at: new Date().toISOString() });
+    },
 };

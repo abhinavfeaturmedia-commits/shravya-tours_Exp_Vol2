@@ -10,7 +10,7 @@ interface SEOProps {
     type?: 'website' | 'article';
 }
 
-const DEFAULT_TITLE = 'Shravya Tours - Premium Travel Experiences';
+const DEFAULT_TITLE = 'SHRAWELLO Travel Hub - Premium Travel Experiences';
 const DEFAULT_DESCRIPTION = 'Book handpicked hotels, seamless flights, and immersive tours. Join 50,000+ travelers for unforgettable experiences across India and beyond.';
 const DEFAULT_IMAGE = 'https://lh3.googleusercontent.com/aida-public/AB6AXuDe8BDAUta_Sad0sbfFPp3eGFuTDne-kjCHaSbEmPIsw2A35eYa_4cmO0qQIrrAUnyuBkmJYYx5BswvQ8xoNvi-V48GV78qtY2osp3mRT5dAgVv31-tcAdYZIYq5VwnghdHN-xLMZHlH8DhevC9MvU-RUVOzTxENfRuR9CornjT44jfRzEHiuwDi6on6RQISv-Sa7xPzXf6U61FblGpi9Ou2aXfsR5_PoyNJhX-aCt1zuv1ogRgtmIOXqYjfcAQ79z48VNTNX3nLemm';
 
@@ -22,7 +22,7 @@ export const SEO: React.FC<SEOProps> = ({
     url,
     type = 'website',
 }) => {
-    const fullTitle = title ? `${title} | Shravya Tours` : DEFAULT_TITLE;
+    const fullTitle = title ? `${title} | SHRAWELLO Travel Hub` : DEFAULT_TITLE;
 
     return (
         <Helmet>
@@ -49,7 +49,7 @@ export const SEO: React.FC<SEOProps> = ({
             {/* Additional */}
             <meta name="robots" content="index, follow" />
             <meta name="language" content="English" />
-            <meta name="author" content="Shravya Tours" />
+            <meta name="author" content="SHRAWELLO Travel Hub" />
         </Helmet>
     );
 };

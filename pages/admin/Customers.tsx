@@ -10,6 +10,7 @@ import * as z from 'zod';
 import { exportToExcel, ExportColumn } from '../../src/lib/exportUtils';
 import { DataImportModal, ColumnMapping } from '../../src/components/admin/DataImportModal';
 import { ActionMenu } from '../../components/ui/ActionMenu';
+import { useNavigate } from 'react-router-dom';
 
 // --- Sort & Filter Types ---
 type SortField = 'name' | 'totalSpent' | 'bookingsCount' | 'joinedDate' | 'lastActive';
@@ -18,6 +19,28 @@ type SortOrder = 'asc' | 'desc';
 export const Customers: React.FC = () => {
     const { customers, bookings, leads, addCustomer, updateCustomer, deleteCustomer, importCustomers } = useData();
     const { hasPermission } = useAuth();
+
+    // Compute live booking stats (count and spent) from actual bookings (avoids stale DB counters)
+    const liveBookingStats = useMemo(() => {
+        const stats: Record<string, { count: number; spent: number }> = {};
+        bookings.forEach(b => {
+            const matchedCustomer = customers.find(c =>
+                (b.customerId && c.id === b.customerId) ||
+                (b.customer && c.id === b.customer) ||
+                (b.email && c.email && b.email.toLowerCase() === c.email.toLowerCase()) ||
+                (b.phone && c.phone && b.phone === c.phone)
+            );
+            if (matchedCustomer) {
+                if (!stats[matchedCustomer.id]) {
+                    stats[matchedCustomer.id] = { count: 0, spent: 0 };
+                }
+                stats[matchedCustomer.id].count += 1;
+                stats[matchedCustomer.id].spent += (Number(b.amount) || 0);
+            }
+        });
+        return stats;
+    }, [bookings, customers]);
+
     const [search, setSearch] = useState('');
     const [sortField, setSortField] = useState<SortField>('lastActive');
     const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
@@ -86,7 +109,7 @@ export const Customers: React.FC = () => {
         exportToExcel(processedCustomers, columns, {
             filename: `Customers_Export_${new Date().toISOString().split('T')[0]}`,
             sheetName: 'Customers',
-            title: 'Shravya Tours - Customers Report',
+            title: 'SHRAWELLO Travel Hub - Customers Report',
             subtitle: `Generated on: ${new Date().toLocaleDateString('en-IN')}`
         });
         toast.success('Customers exported successfully!');
@@ -176,8 +199,20 @@ export const Customers: React.FC = () => {
                                                 </div>
                                                 <div>
                                                     <p className="font-bold text-slate-900 dark:text-white text-sm group-hover:text-primary transition-colors">{customer.name}</p>
-                                                    {customer.type === 'VIP' && <span className="text-[10px] uppercase font-bold text-amber-600 bg-amber-50 dark:bg-amber-900/20 px-1.5 py-0.5 rounded">VIP Member</span>}
-                                                    {customer.type === 'New' && <span className="text-[10px] uppercase font-bold text-green-600 bg-green-50 dark:bg-green-900/20 px-1.5 py-0.5 rounded">New</span>}
+                                                    {(() => {
+                                                        const stats = liveBookingStats[customer.id];
+                                                        const isReturning = stats && stats.count > 1;
+                                                        const totalSpent = stats?.spent ?? customer.totalSpent ?? 0;
+                                                        const isVIP = customer.type === 'VIP' || totalSpent >= 500000; // Auto VIP threshold
+                                                        
+                                                        return (
+                                                            <div className="flex gap-1 mt-1">
+                                                                {isVIP && <span className="text-[10px] uppercase font-bold text-amber-600 bg-amber-50 dark:bg-amber-900/20 px-1.5 py-0.5 rounded">VIP Member</span>}
+                                                                {!isVIP && isReturning && <span className="text-[10px] uppercase font-bold text-blue-600 bg-blue-50 dark:bg-blue-900/20 px-1.5 py-0.5 rounded border border-blue-100 dark:border-blue-800">Repeat Client</span>}
+                                                                {!isVIP && !isReturning && customer.type === 'New' && <span className="text-[10px] uppercase font-bold text-green-600 bg-green-50 dark:bg-green-900/20 px-1.5 py-0.5 rounded">New</span>}
+                                                            </div>
+                                                        );
+                                                    })()}
                                                 </div>
                                             </div>
                                         </td>
@@ -190,11 +225,11 @@ export const Customers: React.FC = () => {
                                         <td className="p-4 text-sm font-bold text-slate-600 dark:text-slate-400">
                                             <span className="flex items-center gap-1.5">
                                                 <span className="material-symbols-outlined text-[16px] text-slate-300">flight</span>
-                                                {customer.bookingsCount} trips
+                                                {liveBookingStats[customer.id]?.count ?? customer.bookingsCount ?? 0} trips
                                             </span>
                                         </td>
                                         <td className="p-4 text-sm font-bold text-slate-900 dark:text-white">
-                                            ₹{customer.totalSpent.toLocaleString()}
+                                            ₹{(liveBookingStats[customer.id]?.spent ?? customer.totalSpent ?? 0).toLocaleString()}
                                         </td>
                                         <td className="p-4 text-sm text-slate-500">
                                             {customer.lastActive ? new Date(customer.lastActive).toLocaleDateString() : new Date(customer.joinedDate).toLocaleDateString()}
@@ -426,7 +461,7 @@ const CustomerDetailsDrawer: React.FC<{
                         </div>
                         <div className="flex-1 bg-white dark:bg-slate-800 p-4 rounded-xl border border-emerald-100 dark:border-emerald-900/30 shadow-sm">
                             <div className="text-xs font-bold text-emerald-500 uppercase flex items-center gap-1 mb-1">Total Spent</div>
-                            <div className="text-xl font-black text-slate-900 dark:text-white">₹{(customer.totalSpent / 1000).toFixed(1)}k</div>
+                            <div className="text-xl font-black text-slate-900 dark:text-white">₹{((bookings.filter(b => (b.customerId && b.customerId === customer.id) || (b.customer && b.customer === customer.id) || (b.email && customer.email && b.email.toLowerCase() === customer.email.toLowerCase()) || (b.phone && customer.phone && b.phone === customer.phone)).reduce((sum, b) => sum + (Number(b.amount) || 0), 0) || customer.totalSpent || 0) / 1000).toFixed(1)}k</div>
                         </div>
                     </div>
                     <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
@@ -450,7 +485,91 @@ const CustomerDetailsDrawer: React.FC<{
                             </div>
                         </div>
                     </div>
-                    <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
+                                                            <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
+                        <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider mb-4">Purchases & Bookings</h3>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left border-collapse">
+                                <thead>
+                                    <tr className="bg-slate-50/50 dark:bg-slate-900/50 text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400 font-extrabold border-b border-slate-100 dark:border-slate-800">
+                                        <th className="p-3">Booking ID</th>
+                                        <th className="p-3">Trip / Package</th>
+                                        <th className="p-3">Date</th>
+                                        <th className="p-3">Amount</th>
+                                        <th className="p-3">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-50 dark:divide-slate-800/50">
+                                    {(() => {
+                                        const customerBookings = bookings.filter(b => (b.customerId && b.customerId === customer.id) || (b.customer && b.customer === customer.id) || (b.email && customer.email && b.email.toLowerCase() === customer.email.toLowerCase()) || (b.phone && customer.phone && b.phone === customer.phone))
+                                            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+                                            
+                                        if (customerBookings.length === 0) {
+                                            return <tr><td colSpan={5} className="p-4 text-center text-sm text-slate-400 italic">No purchases found.</td></tr>;
+                                        }
+                                        
+                                        return customerBookings.map(b => (
+                                            <tr key={b.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition-colors">
+                                                <td className="p-3 text-sm font-bold text-slate-900 dark:text-white">{b.bookingNumber ? `BK-${b.bookingNumber.toString().padStart(4, '0')}` : b.invoiceNo || 'N/A'}</td>
+                                                <td className="p-3 text-sm text-slate-600 dark:text-slate-300 font-medium">{b.title || 'Custom Trip'}</td>
+                                                <td className="p-3 text-sm text-slate-500">{new Date(b.date).toLocaleDateString()}</td>
+                                                <td className="p-3 text-sm font-bold text-slate-900 dark:text-white">₹{b.amount.toLocaleString()}</td>
+                                                <td className="p-3">
+                                                    <span className={`text-[10px] uppercase font-bold px-2 py-1 rounded ${
+                                                        b.status === 'Confirmed' ? 'bg-green-50 text-green-600 dark:bg-green-900/20 dark:text-green-400' : 
+                                                        b.status === 'Pending' ? 'bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400' : 
+                                                        'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400'
+                                                    }`}>
+                                                        {b.status}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        ));
+                                    })()}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+<div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
+                        <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider mb-4">Activity Timeline</h3>
+                        <div className="space-y-6 pl-4 border-l border-slate-100 dark:border-slate-700">
+                            {(() => {
+                                const customerBookings = bookings.filter(b => (b.customerId && b.customerId === customer.id) || (b.customer && b.customer === customer.id) || (b.email && customer.email && b.email.toLowerCase() === customer.email.toLowerCase()) || (b.phone && customer.phone && b.phone === customer.phone));
+                                // @ts-ignore
+                                const customerLeads = leads.filter(l => (l.customerId && l.customerId === customer.id) || (l.email && customer.email && l.email.toLowerCase() === customer.email.toLowerCase()) || (l.phone && customer.phone && l.phone === customer.phone));
+                                
+                                const timelineItems = [
+                                    ...customerBookings.map(b => ({ type: 'Booking', date: b.date, title: b.title || 'Trip booked', amount: b.amount, status: b.status, id: b.id })),
+                                    ...customerLeads.map(l => ({ type: 'Enquiry', date: l.addedOn, title: `Enquiry for ${l.destination}`, status: l.status, id: l.id }))
+                                ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+                                if (timelineItems.length === 0) {
+                                    return <p className="text-sm text-slate-400 italic">No activity yet.</p>;
+                                }
+
+                                return timelineItems.map((item, idx) => (
+                                    <div key={item.id + idx} className="relative group">
+                                        <div className={`absolute -left-[21px] top-1 size-2.5 rounded-full border-2 border-white dark:border-slate-800 ${item.type === 'Booking' ? 'bg-primary' : 'bg-amber-400'}`}></div>
+                                        <div className="flex justify-between items-start mb-1 flex-wrap gap-1">
+                                            <div>
+                                                <span className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                                                    {item.type === 'Booking' ? <span className="material-symbols-outlined text-[14px] text-primary">flight_takeoff</span> : <span className="material-symbols-outlined text-[14px] text-amber-500">contact_support</span>}
+                                                    {item.type}
+                                                </span>
+                                                <span className="text-[10px] text-slate-400 ml-2">{new Date(item.date).toLocaleDateString()}</span>
+                                            </div>
+                                            <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${item.type === 'Booking' ? 'bg-green-50 text-green-600 dark:bg-green-900/20 dark:text-green-400' : 'bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400'}`}>
+                                                {item.status}
+                                            </span>
+                                        </div>
+                                        <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed font-medium">{item.title} {item.amount ? `• ₹${item.amount.toLocaleString()}` : ''}</p>
+                                    </div>
+                                ));
+                            })()}
+                        </div>
+                    </div>
+
+<div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
                         <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider mb-4">Internal Notes</h3>
                         <form onSubmit={handleAddNote} className="mb-6">
                             <textarea
@@ -499,9 +618,10 @@ const CustomerDetailsDrawer: React.FC<{
                         </div>
                     </div>
                 </div>
-                <div className="p-4 bg-white dark:bg-[#0B1116] border-t border-slate-100 dark:border-slate-800 flex gap-4 sticky bottom-0">
-                    <button className="flex-1 py-3 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-300 font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">Log Call</button>
-                    <button onClick={onEdit} className="flex-1 py-3 bg-primary text-white rounded-xl font-bold text-sm hover:bg-primary-dark transition-colors shadow-lg shadow-primary/20">Edit Profile</button>
+                <div className="p-4 bg-white dark:bg-[#0B1116] border-t border-slate-100 dark:border-slate-800 grid grid-cols-3 gap-2 sticky bottom-0">
+                    <button className="py-3 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-300 font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">Log Call</button>
+                    <button onClick={onEdit} className="py-3 bg-primary text-white rounded-xl font-bold text-sm hover:bg-primary-dark transition-colors shadow-lg shadow-primary/20">Edit Profile</button>
+                    <button onClick={() => window.location.href = `/admin/invoices/new?customer_id=${customer.id}&type=Invoice`} className="py-3 bg-slate-900 text-white rounded-xl font-bold text-sm hover:bg-slate-800 transition-colors shadow-lg">Create Invoice</button>
                 </div>
             </div>
         </>
@@ -598,3 +718,4 @@ const AddEditCustomerModal: React.FC<{
 
 // --- Import Modal Removed ---
 // (Replaced by generic DataImportModal)
+

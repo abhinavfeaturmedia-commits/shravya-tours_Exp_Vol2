@@ -51,7 +51,7 @@ export const Login: React.FC = () => {
                 {/* Brand mark */}
                 <div className="relative z-10 flex items-center gap-3">
                     <div className="h-12 w-auto bg-white/90 p-1.5 rounded-xl shadow-lg backdrop-blur-sm">
-                        <img src="/logo.png" alt="Shravya Tours Logo" className="h-full object-contain" />
+                        <img src="/logo.png" alt="SHRAWELLO Travel Hub Logo" className="h-full object-contain" />
                     </div>
                 </div>
 
@@ -90,7 +90,7 @@ export const Login: React.FC = () => {
                 {/* Mobile brand mark */}
                 <div className="lg:hidden flex justify-center mb-10 pt-8">
                     <div className="h-14 w-auto drop-shadow-md">
-                        <img src="/logo.png" alt="Shravya Tours Logo" className="h-full object-contain" />
+                        <img src="/logo.png" alt="SHRAWELLO Travel Hub Logo" className="h-full object-contain" />
                     </div>
                 </div>
 
@@ -182,7 +182,7 @@ export const Login: React.FC = () => {
 
                 {/* Bottom watermark */}
                 <p className="absolute bottom-6 left-0 right-0 text-center text-[10px] text-slate-300 dark:text-slate-700 tracking-widest uppercase font-light">
-                    © 2025 Shravya Tours · All rights reserved
+                    © 2025 SHRAWELLO Travel Hub · All rights reserved
                 </p>
             </div>
         </div>

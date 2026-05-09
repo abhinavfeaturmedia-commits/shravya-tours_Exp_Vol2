@@ -67,7 +67,7 @@ export const WhatsAppModal: React.FC<WhatsAppModalProps> = ({ isOpen, onClose })
 
         // Small delay to allow toast to show and state to update
         setTimeout(() => {
-            window.open(`https://wa.me/${COMPANY_WHATSAPP}?text=Hi, I am interested in Shravya Tours services. My name is ${data.name}.`, '_blank');
+            window.open(`https://wa.me/${COMPANY_WHATSAPP}?text=Hi, I am interested in SHRAWELLO Travel Hub services. My name is ${data.name}.`, '_blank');
             onClose();
             setIsSubmitting(false);
         }, 1500);

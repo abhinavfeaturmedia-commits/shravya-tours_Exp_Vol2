@@ -7,11 +7,12 @@ import { OptimizedImage } from '../components/ui/OptimizedImage';
 import { toast } from '../components/ui/Toast';
 import { TravelerSelector } from '../components/ui/TravelerSelector';
 import { PhoneInput } from '../components/ui/PhoneInput';
+import { getLocationName, formatPrice, formatPriceCompact } from '../utils/packageUtils';
 
 export const PackageDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { packages, addLead } = useData();
+  const { packages, masterLocations, addLead, updatePackage } = useData();
 
   const [guests, setGuests] = useState('2 Adults');
   const [bookingModal, setBookingModal] = useState(false);
@@ -35,23 +36,11 @@ export const PackageDetail: React.FC = () => {
   const [carouselIndex, setCarouselIndex] = useState(0);
   const [carouselAnimating, setCarouselAnimating] = useState(false);
 
-  // Urgency State
-  const [viewers, setViewers] = useState(12);
+  // Offer countdown
   const [timeLeft, setTimeLeft] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 });
+  const [offerExpired, setOfferExpired] = useState(false);
 
   const tour = packages.find(p => p.id === id);
-  const today = new Date().toISOString().split('T')[0];
-
-  useEffect(() => {
-    // Simulate viewer count fluctuation
-    const interval = setInterval(() => {
-      setViewers(prev => {
-        const change = Math.random() > 0.5 ? 1 : -1;
-        return Math.max(5, Math.min(30, prev + change));
-      });
-    }, 5000);
-    return () => clearInterval(interval);
-  }, []);
 
   // Auto-advance carousel
   useEffect(() => {
@@ -91,6 +80,7 @@ export const PackageDetail: React.FC = () => {
     const calculateTimeLeft = () => {
       const difference = +new Date(tour.offerEndTime!) - +new Date();
       if (difference > 0) {
+        setOfferExpired(false);
         return {
           days: Math.floor(difference / (1000 * 60 * 60 * 24)),
           hours: Math.floor((difference / (1000 * 60 * 60)) % 24),
@@ -98,14 +88,12 @@ export const PackageDetail: React.FC = () => {
           seconds: Math.floor((difference / 1000) % 60),
         };
       }
+      setOfferExpired(true);
       return { days: 0, hours: 0, minutes: 0, seconds: 0 };
     };
 
-    setTimeLeft(calculateTimeLeft()); // Initial call
-    const timer = setInterval(() => {
-      setTimeLeft(calculateTimeLeft());
-    }, 1000);
-
+    setTimeLeft(calculateTimeLeft());
+    const timer = setInterval(() => setTimeLeft(calculateTimeLeft()), 1000);
     return () => clearInterval(timer);
   }, [tour]);
 
@@ -142,12 +130,14 @@ export const PackageDetail: React.FC = () => {
 
   // --- Logic ---
 
-  const addonsList = [
+  // Use per-package addons if configured, fall back to sensible defaults
+  const DEFAULT_ADDONS = [
     { id: 'flight', label: 'Include Flights', price: 15000 },
     { id: 'visa', label: 'Visa Assistance', price: 5000 },
     { id: 'insurance', label: 'Travel Insurance', price: 2000 },
     { id: 'photo', label: 'Pro Photography', price: 8000 }
   ];
+  const addonsList = (tour.addons && tour.addons.length > 0) ? tour.addons : DEFAULT_ADDONS;
 
   const toggleAddon = (id: string) => {
     if (selectedAddons.includes(id)) {
@@ -171,19 +161,19 @@ export const PackageDetail: React.FC = () => {
   };
 
   const calculateTotal = () => {
-    // tour.price is the total package price as set in admin — use it directly
     const addonsTotal = selectedAddons.reduce((acc, curr) => {
       const addon = addonsList.find(a => a.id === curr);
       return acc + (addon ? addon.price : 0);
     }, 0);
-    return Math.round(tour.price + addonsTotal);
+    // Apply guest multiplier so price updates with traveler count
+    return Math.round(tour.price * getGuestMultiplier() + addonsTotal);
   };
 
   const confirmBooking = (e: React.FormEvent) => {
     e.preventDefault();
 
     const addonNames = selectedAddons.map(id => addonsList.find(a => a.id === id)?.label).join(', ');
-    const preferenceString = `Interested in ${tour.title}. Date: ${bookingData.date}. Add-ons: ${addonNames || 'None'}. Guests: ${guests}. Estimated Quote: ₹${calculateTotal().toLocaleString()}`;
+    const preferenceString = `Interested in ${tour.title}. Date: ${bookingData.date}. Add-ons: ${addonNames || 'None'}. Guests: ${guests}. Estimated Quote: ${formatPrice(calculateTotal())}`;
 
     const referenceId = `LD-${Date.now()}`;
     const newLead: Lead = {
@@ -195,13 +185,13 @@ export const PackageDetail: React.FC = () => {
       isWhatsappSame: bookingData.isWhatsappSame,
       destination: tour.title,
       startDate: bookingData.date,
-      type: 'Tour Package',
+      type: 'Tour',
       status: 'New',
       priority: 'High',
       potentialValue: calculateTotal(),
       addedOn: new Date().toISOString(),
       travelers: guests,
-      budget: `~ ₹${calculateTotal()}`,
+      budget: `~ ${formatPrice(calculateTotal())}`,
       source: 'Website',
       preferences: preferenceString,
       avatarColor: 'bg-green-100 text-green-600',
@@ -211,6 +201,12 @@ export const PackageDetail: React.FC = () => {
     };
 
     addLead(newLead);
+
+    // Decrement remainingSeats in DB so inventory stays accurate
+    if (tour.remainingSeats !== undefined && tour.remainingSeats > 0) {
+      updatePackage(tour.id, { remainingSeats: tour.remainingSeats - 1 });
+    }
+
     setBookingModal(false);
 
     // Navigate to confirmation page with booking details
@@ -339,12 +335,12 @@ export const PackageDetail: React.FC = () => {
 
                 <div className="space-y-1">
                   <label className="block text-xs font-bold uppercase text-slate-500 pl-1">Travel Date</label>
-                  <input required type="date" min={today} className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all" value={bookingData.date} onChange={e => setBookingData({ ...bookingData, date: e.target.value })} />
+                  <input required type="date" className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all" value={bookingData.date} onChange={e => setBookingData({ ...bookingData, date: e.target.value })} />
                 </div>
                 <div className="p-4 bg-primary/5 rounded-2xl border border-primary/10 mt-2">
                   <div className="flex justify-between items-center text-sm font-bold text-slate-900 dark:text-white">
                     <span>Estimated Total</span>
-                    <span className="text-lg">₹{calculateTotal().toLocaleString()}</span>
+                    <span className="text-lg">{formatPrice(calculateTotal())}</span>
                   </div>
                   <p className="text-xs text-slate-500 mt-1 font-medium opacity-80">Based on {guests} and {selectedAddons.length} add-ons.</p>
                   <p className="text-[10px] text-green-600 dark:text-green-400 mt-2 font-bold flex items-center gap-1">
@@ -384,30 +380,18 @@ export const PackageDetail: React.FC = () => {
               <div className="flex flex-wrap items-center gap-4 md:gap-8">
                 <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300 font-bold bg-slate-100 dark:bg-slate-800/50 px-4 py-2 rounded-full">
                   <span className="material-symbols-outlined text-primary">location_on</span>
-                  {tour.location}
+                  {getLocationName(tour.location, masterLocations)}
                 </div>
                 <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300 font-bold bg-slate-100 dark:bg-slate-800/50 px-4 py-2 rounded-full">
                   <span className="material-symbols-outlined text-primary">calendar_month</span>
                   {tour.days} Days / {tour.days - 1} Nights
                 </div>
-                <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300 font-bold bg-slate-100 dark:bg-slate-800/50 px-4 py-2 rounded-full">
-                  <span className="material-symbols-outlined text-primary">calendar_month</span>
-                  {tour.days} Days / {tour.days - 1} Nights
-                </div>
-
-                {/* High Demand Badge */}
-                {viewers > 8 && (
-                  <div className="flex items-center gap-1.5 px-3 py-1 bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 rounded-full text-xs font-bold border border-orange-200 dark:border-orange-900/50 animate-in zoom-in-50 duration-300">
-                    <span className="material-symbols-outlined text-[14px]">trending_up</span>
-                    High Demand
+                {tour.groupSize && (
+                  <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300 font-bold bg-slate-100 dark:bg-slate-800/50 px-4 py-2 rounded-full">
+                    <span className="material-symbols-outlined text-primary">group</span>
+                    {tour.groupSize}
                   </div>
                 )}
-              </div>
-
-              {/* Urgency Badge (Viewers) */}
-              <div className="flex items-center gap-2 mt-6 text-red-500 dark:text-red-400 font-bold text-sm animate-pulse">
-                <span className="material-symbols-outlined text-lg">visibility</span>
-                {viewers} people are viewing this package right now
               </div>
             </div>
           </div>
@@ -503,11 +487,13 @@ export const PackageDetail: React.FC = () => {
                 {/* Right: 2×2 thumbnail grid — 40% width, desktop only */}
                 <div className="hidden md:flex flex-[2] flex-col gap-3">
                   {[0, 1, 2, 3].map((gridPos) => {
-                    // Show the 4 images that are NOT the current main image
+                    // Use stable index-based approach to avoid URL duplicate bugs
                     const skipIdx = carouselIndex;
-                    const otherImages = tour.gallery.filter((_, i) => i !== skipIdx);
-                    const imgSrc = otherImages[gridPos];
-                    const realIdx = imgSrc ? tour.gallery.indexOf(imgSrc) : -1;
+                    const otherIndices = tour.gallery
+                      .map((_, i) => i)
+                      .filter(i => i !== skipIdx);
+                    const realIdx = otherIndices[gridPos];
+                    const imgSrc = realIdx !== undefined ? tour.gallery[realIdx] : undefined;
                     const isLast = gridPos === 3 && tour.gallery.length > 5;
 
                     if (!imgSrc) return null;
@@ -648,7 +634,7 @@ export const PackageDetail: React.FC = () => {
                   <div className="p-8 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/20">
                     <p className="text-xs font-black uppercase tracking-widest text-slate-400 mb-1">Package Price</p>
                     <div className="flex items-baseline gap-1 mb-2">
-                      <span className="text-4xl font-black text-slate-900 dark:text-white tracking-tight">₹{calculateTotal().toLocaleString()}</span>
+                      <span className="text-4xl font-black text-slate-900 dark:text-white tracking-tight">{formatPrice(calculateTotal())}</span>
                       <span className="text-sm font-bold text-slate-500">/ total</span>
                     </div>
 
@@ -661,25 +647,22 @@ export const PackageDetail: React.FC = () => {
                     )}
 
                     {/* Countdown Timer */}
-                    {tour.offerEndTime && (
+                    {tour.offerEndTime && !offerExpired && (
                       <div className="mt-4 p-4 bg-gradient-to-r from-primary/10 to-primary/5 rounded-xl border border-primary/10">
                         <p className="text-xs font-bold text-primary uppercase tracking-wider mb-2">Special Offer Ends In</p>
                         <div className="flex gap-2 text-center">
-                          {['Days', 'Hours', 'Mins', 'Secs'].map((label, i) => {
-                            let val = 0;
-                            if (label === 'Days') val = timeLeft.days;
-                            if (label === 'Hours') val = timeLeft.hours;
-                            if (label === 'Mins') val = timeLeft.minutes;
-                            if (label === 'Secs') val = timeLeft.seconds;
-
-                            return (
-                              <div key={label} className="flex-1 bg-white dark:bg-slate-900 rounded-lg p-1.5 shadow-sm border border-slate-100 dark:border-slate-800">
-                                <div className="text-lg font-black text-slate-900 dark:text-white leading-none">{val}</div>
-                                <div className="text-[9px] font-bold text-slate-400 uppercase mt-1">{label}</div>
-                              </div>
-                            );
-                          })}
+                          {[['Days', timeLeft.days], ['Hours', timeLeft.hours], ['Mins', timeLeft.minutes], ['Secs', timeLeft.seconds]].map(([label, val]) => (
+                            <div key={label as string} className="flex-1 bg-white dark:bg-slate-900 rounded-lg p-1.5 shadow-sm border border-slate-100 dark:border-slate-800">
+                              <div className="text-lg font-black text-slate-900 dark:text-white leading-none">{val}</div>
+                              <div className="text-[9px] font-bold text-slate-400 uppercase mt-1">{label}</div>
+                            </div>
+                          ))}
                         </div>
+                      </div>
+                    )}
+                    {tour.offerEndTime && offerExpired && (
+                      <div className="mt-4 p-3 bg-slate-100 dark:bg-slate-800 rounded-xl text-center">
+                        <p className="text-xs font-bold text-slate-500">Special offer has ended</p>
                       </div>
                     )}
                   </div>
@@ -712,7 +695,7 @@ export const PackageDetail: React.FC = () => {
                               </div>
                               <span className={`text-sm font-bold ${selectedAddons.includes(addon.id) ? 'text-primary' : 'text-slate-700 dark:text-slate-300'}`}>{addon.label}</span>
                             </div>
-                            <span className="text-xs font-bold text-slate-500">+₹{(addon.price / 1000).toFixed(0)}k</span>
+                            <span className="text-xs font-bold text-slate-500">+{formatPriceCompact(addon.price)}</span>
                           </div>
                         ))}
                       </div>
@@ -722,6 +705,17 @@ export const PackageDetail: React.FC = () => {
                       Book Now
                     </button>
 
+                    {/* WhatsApp Share */}
+                    <a
+                      href={`https://wa.me/?text=${encodeURIComponent(`Check out this tour: ${tour.title}\n${window.location.href}`)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-2 w-full py-3 rounded-2xl border border-green-300 dark:border-green-800 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 font-bold text-sm hover:bg-green-100 dark:hover:bg-green-900/30 transition-all"
+                    >
+                      <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                      Share on WhatsApp
+                    </a>
+
                     <p className="text-[10px] text-center text-slate-400 font-medium">No payment required today. Free cancellation options available.</p>
                   </div>
                 </div>
@@ -730,12 +724,56 @@ export const PackageDetail: React.FC = () => {
           </div>
         </div>
 
+        {/* Related Packages */}
+        {(() => {
+          const related = packages
+            .filter(p =>
+              p.id !== tour.id &&
+              p.status !== 'Inactive' &&
+              (p.theme === tour.theme || p.location === tour.location)
+            )
+            .slice(0, 3);
+          if (related.length === 0) return null;
+          return (
+            <div className="max-w-[1440px] mx-auto px-4 md:px-8 pb-16">
+              <h2 className="text-2xl font-black text-slate-900 dark:text-white mb-8">You Might Also Like</h2>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {related.map(p => (
+                  <Link
+                    key={p.id}
+                    to={`/packages/${p.id}`}
+                    className="group block bg-white dark:bg-[#151d29] rounded-2xl overflow-hidden shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 border border-slate-100 dark:border-slate-800"
+                  >
+                    <div className="relative h-48 overflow-hidden">
+                      <img src={p.image} alt={p.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
+                      <div className="absolute top-3 right-3 bg-white/90 dark:bg-slate-900/90 backdrop-blur px-2.5 py-1 rounded-full text-xs font-bold text-slate-900 dark:text-white">
+                        {p.days} Days
+                      </div>
+                    </div>
+                    <div className="p-5">
+                      <h3 className="font-bold text-slate-900 dark:text-white mb-1 group-hover:text-primary transition-colors line-clamp-2">{p.title}</h3>
+                      <p className="text-xs text-slate-500 mb-3 flex items-center gap-1">
+                        <span className="material-symbols-outlined text-[14px]">location_on</span>
+                        {getLocationName(p.location, masterLocations)}
+                      </p>
+                      <div className="flex items-center justify-between">
+                        <span className="text-lg font-black text-slate-900 dark:text-white">{formatPrice(p.price)}</span>
+                        <span className="text-xs font-bold text-primary flex items-center gap-1">View <span className="material-symbols-outlined text-[14px]">arrow_forward</span></span>
+                      </div>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Mobile Sticky Bottom Bar */}
         <div className="fixed bottom-0 left-0 right-0 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-t border-slate-200 dark:border-slate-800 p-4 z-40 lg:hidden shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.1)] pb-safe-area-bottom">
           <div className="flex items-center justify-between max-w-lg mx-auto">
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Package Price</p>
-              <p className="text-2xl font-black text-slate-900 dark:text-white">₹{calculateTotal().toLocaleString()}</p>
+              <p className="text-2xl font-black text-slate-900 dark:text-white">{formatPrice(calculateTotal())}</p>
             </div>
             <button
               onClick={() => setBookingModal(true)}

@@ -1,3 +1,4 @@
+// @refresh reset
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { StaffMember, StaffPermissions } from '../types';
 import { api } from '../src/lib/api';
@@ -29,15 +30,19 @@ const DEFAULT_PERMISSIONS: StaffPermissions = {
     leads: { view: false, manage: false },
     customers: { view: false, manage: false },
     bookings: { view: false, manage: false },
+    operations: { view: false, manage: false },
     itinerary: { view: false, manage: false },
     inventory: { view: false, manage: false },
     masters: { view: false, manage: false },
     vendors: { view: false, manage: false },
     finance: { view: false, manage: false },
+    invoices: { view: false, manage: false },
+    proposals: { view: false, manage: false },
     marketing: { view: false, manage: false },
     staff: { view: false, manage: false },
     reports: { view: false, manage: false },
     audit: { view: false, manage: false },
+    settings: { view: false, manage: false },
 };
 
 const ADMIN_PERMISSIONS: StaffPermissions = {
@@ -45,15 +50,19 @@ const ADMIN_PERMISSIONS: StaffPermissions = {
     leads: { view: true, manage: true },
     customers: { view: true, manage: true },
     bookings: { view: true, manage: true },
+    operations: { view: true, manage: true },
     itinerary: { view: true, manage: true },
     inventory: { view: true, manage: true },
     masters: { view: true, manage: true },
     vendors: { view: true, manage: true },
     finance: { view: true, manage: true },
+    invoices: { view: true, manage: true },
+    proposals: { view: true, manage: true },
     marketing: { view: true, manage: true },
     staff: { view: true, manage: true },
     reports: { view: true, manage: true },
     audit: { view: true, manage: true },
+    settings: { view: true, manage: true },
 };
 
 const INITIAL_STAFF: StaffMember[] = [];
@@ -73,6 +82,7 @@ interface AuthContextType {
     stopMasquerading: () => void;
     isMasquerading: boolean;
     realUser: StaffMember | null;
+    refreshStaff: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -102,15 +112,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         permissions: ADMIN_PERMISSIONS,
     };
 
+    // Ensures loaded permissions always have all keys — fills in new keys with defaults
+    // if a staff record was created before new permissions were added.
+    const mergePermissions = useCallback((stored: Partial<StaffPermissions> | null | undefined): StaffPermissions => {
+        const merged = { ...DEFAULT_PERMISSIONS };
+        if (stored && typeof stored === 'object') {
+            for (const key of Object.keys(DEFAULT_PERMISSIONS) as Array<keyof StaffPermissions>) {
+                if (key in stored && stored[key] !== undefined) {
+                    merged[key] = stored[key] as any;
+                }
+            }
+        }
+        return merged;
+    }, []);
+
     // Unified User Loading Logic
     const loadUserProfile = useCallback(async (email: string) => {
         try {
             // 1. Try single fetch first
             const me = await api.getStaffByEmail(email);
             if (me) {
-                setCurrentUser(me);
+                setCurrentUser({ ...me, permissions: mergePermissions(me.permissions) });
                 // Background fetch full list
-                api.getStaff().then(setStaff).catch(console.warn);
+                api.getStaff().then(all => setStaff(all.map(s => ({ ...s, permissions: mergePermissions(s.permissions) })))).catch(console.warn);
                 return;
             }
 
@@ -120,8 +144,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const found = allStaff.find(s => s.email.toLowerCase() === email.toLowerCase());
 
             if (found) {
-                setCurrentUser(found);
-                setStaff(allStaff);
+                setCurrentUser({ ...found, permissions: mergePermissions(found.permissions) });
+                setStaff(allStaff.map(s => ({ ...s, permissions: mergePermissions(s.permissions) })));
             } else {
                 // No auto-create: use basic profile from email. Admins should create staff profiles explicitly.
                 console.warn(`No staff profile found for ${email}. Using basic profile.`);
@@ -140,13 +164,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     whatsappScope: 'All Messages',
                     permissions: DEFAULT_PERMISSIONS,
                 });
-                setStaff(allStaff);
+                setStaff(allStaff.map(s => ({ ...s, permissions: mergePermissions(s.permissions) })));
             }
         } catch (e) {
             console.error("Error loading user profile:", e);
             throw e;
         }
-    }, []);
+    }, [mergePermissions]);
 
     // Consolidated Initialization
     const initializeAuth = useCallback(async () => {
@@ -167,6 +191,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     }
 
                     if (payload.email) {
+                        // Heartbeat: update last_active for this user on every app load
+                        // (fire-and-forget — don't block auth init)
+                        api.heartbeat().then(hb => {
+                            if (hb?.staff) {
+                                // After heartbeat, refresh the full staff list so Last Active is current
+                                api.getStaff().then(all => setStaff(all.map(s => ({ ...s, permissions: mergePermissions(s.permissions) })))).catch(console.warn);
+                            }
+                        }).catch(console.warn);
+
                         // Admin bypass user — use mock admin directly, no DB needed
                         if (payload.id === 999) {
                             setCurrentUser(MOCK_ADMIN_USER);
@@ -313,6 +346,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
             await api.updateStaff(id, member);
             setStaff(prev => prev.map(s => s.id === id ? { ...s, ...member } : s));
+            // Fix #2: If editing self, update currentUser immediately so changes reflect without re-login
+            setCurrentUser(prev => prev && prev.id === id ? { ...prev, ...member } : prev);
             logAuthAction('Update', 'Staff', `Updated staff member: ${member.name || `ID ${id}`}`).catch(console.error);
         } catch (e) {
             console.error(e);
@@ -339,15 +374,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (target) {
             if (!realUser) setRealUser(currentUser);
             setCurrentUser(target);
+            // Fix #10: Audit log for masquerade
+            logAuthAction('Masquerade', 'Staff', `Admin ${currentUser?.name} is now viewing as ${target.name} (ID: ${staffId})`, currentUser?.email).catch(console.error);
         }
-    }, [currentUser, staff, realUser]);
+    }, [currentUser, staff, realUser, logAuthAction]);
 
     const stopMasquerading = useCallback(() => {
         if (realUser) {
+            // Fix #10: Audit log for ending masquerade
+            logAuthAction('StopMasquerade', 'Staff', `Admin ${realUser.name} stopped viewing as ${currentUser?.name}`, realUser.email).catch(console.error);
             setCurrentUser(realUser);
             setRealUser(null);
         }
-    }, [realUser]);
+    }, [realUser, currentUser, logAuthAction]);
 
     const hasPermission = useCallback(
         (module: keyof StaffPermissions, action: 'view' | 'manage'): boolean => {
@@ -357,6 +396,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         },
         [currentUser]
     );
+
+    const refreshStaff = useCallback(async () => {
+        try {
+            const all = await api.getStaff();
+            setStaff(all.map(s => ({ ...s, permissions: mergePermissions(s.permissions) })));
+        } catch (e) {
+            console.warn('refreshStaff failed:', e);
+        }
+    }, [mergePermissions]);
 
     const value = useMemo(
         () => ({
@@ -374,8 +422,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             stopMasquerading,
             isMasquerading: !!realUser,
             realUser,
+            refreshStaff,
         }),
-        [staff, currentUser, loading, login, logout, addStaff, updateStaff, deleteStaff, hasPermission, masqueradeAs, stopMasquerading, realUser]
+        [staff, currentUser, loading, login, logout, addStaff, updateStaff, deleteStaff, hasPermission, masqueradeAs, stopMasquerading, realUser, refreshStaff]
     );
 
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

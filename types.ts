@@ -44,10 +44,13 @@ export interface Package {
   included?: string[];
   notIncluded?: string[];
   builderData?: any; // To store raw Itinerary Builder state for editing
+  proposalStatus?: 'Draft' | 'Sent' | 'Viewed' | 'Approved' | 'Changes Requested';
+  addons?: { id: string; label: string; price: number }[]; // Per-package configurable add-ons
 }
 
 export interface Booking {
-  id: string; // Internal ID
+  id: string; // Internal UUID from DB
+  bookingNumber?: number; // DB AUTO_INCREMENT number → displayed as BK-0001
   invoiceNo?: string; // Custom Invoice Number (e.g. BU-2602-0001)
   type: BookingType;
   customerId?: string; // Link to Customer Profile
@@ -68,6 +71,11 @@ export interface Booking {
   supplierBookings?: SupplierBooking[];
   transactions?: BookingTransaction[];
   notes?: BookingNote[];
+  // Live Operations fields (synced with MySQL)
+  durationDays?: number;       // Explicit trip duration — avoids fragile package lookup
+  paxCount?: number;           // Explicit passenger count — avoids regex on guests string
+  whatsappGroupUrl?: string;   // WhatsApp group link for the tour group
+  liveStatus?: 'Live' | 'Completed' | 'Cancelled' | 'Issue'; // Operational status
 }
 
 export interface BookingNote {
@@ -106,6 +114,22 @@ export interface SupplierBooking {
   bookingStatus: SupplierBookingStatus;
   paymentDueDate?: string; // ISO String
   notes?: string;
+  // Transport-specific fields (Live Operations)
+  driverName?: string;    // Actual driver name
+  driverPhone?: string;   // Driver contact number
+  vehicleNumber?: string; // Vehicle registration number
+}
+
+// Attendance log entry persisted per-day per-staff in MySQL attendance_logs table
+export interface AttendanceLog {
+  id: string;
+  staffId: number;
+  date: string;           // YYYY-MM-DD
+  status: 'Present' | 'Absent' | 'On Field' | 'Remote' | 'On Leave';
+  checkInTime?: string;   // ISO DateTime string
+  checkOutTime?: string;  // ISO DateTime string
+  location?: string;
+  notes?: string;
 }
 
 export interface LeadLog {
@@ -140,7 +164,9 @@ export interface AuditLog {
 }
 
 export interface Lead {
-  id: string;
+  id: string; // Internal UUID from DB
+  customerId?: string; // Link to Customer Profile
+  leadNumber?: number; // DB AUTO_INCREMENT number → displayed as LD-0001
   name: string;
   email: string;
   phone: string;
@@ -216,15 +242,19 @@ export interface StaffPermissions {
   leads: StaffModulePermissions;
   customers: StaffModulePermissions;
   bookings: StaffModulePermissions;
+  operations: StaffModulePermissions;  // Live Operations (separate from bookings)
   itinerary: StaffModulePermissions;
-  inventory: StaffModulePermissions; // Packages
+  inventory: StaffModulePermissions;   // Packages
   masters: StaffModulePermissions;
   vendors: StaffModulePermissions;
-  finance: StaffModulePermissions;
+  finance: StaffModulePermissions;     // Accounts & Expenses
+  invoices: StaffModulePermissions;    // Invoices & Payment Approvals
+  proposals: StaffModulePermissions;   // Proposals (separate from leads)
   marketing: StaffModulePermissions;
   staff: StaffModulePermissions;
-  reports: StaffModulePermissions;
-  audit: StaffModulePermissions;
+  reports: StaffModulePermissions;     // Analytics
+  audit: StaffModulePermissions;       // Audit Logs only
+  settings: StaffModulePermissions;    // Settings (was incorrectly under audit)
 }
 
 export interface StaffMember {
@@ -250,7 +280,10 @@ export interface StaffMember {
 }
 
 export interface DailySlot {
-  date: number;
+  id?: string;
+  date: string; // YYYY-MM-DD
+  assetId: string;
+  assetType: 'Tour' | 'Car' | 'Bus';
   capacity: number;
   booked: number;
   price: number;

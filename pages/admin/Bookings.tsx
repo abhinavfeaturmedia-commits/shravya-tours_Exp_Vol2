@@ -14,6 +14,7 @@ import { Pagination, usePagination } from '../../components/ui/Pagination';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { exportToExcel, ExportColumn } from '../../src/lib/exportUtils';
+import { formatPrice } from '../../utils/packageUtils';
 
 export const Bookings: React.FC = () => {
     const { packages, customers } = useData();
@@ -298,7 +299,7 @@ export const Bookings: React.FC = () => {
             updateBooking(formData.id, bookingData);
         } else {
             const newBooking: Booking = {
-                id: `BK-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+                id: '', // Will be set by DB (UUID auto-generated)
                 assignedTo: currentUser?.id,
                 ...bookingData as any // safely cast for new object
             };
@@ -326,7 +327,7 @@ export const Bookings: React.FC = () => {
         exportToExcel(filteredBookings, columns, {
             filename: `Bookings_Export_${today}`,
             sheetName: 'Bookings',
-            title: 'Shravya Tours - Bookings Report',
+            title: 'SHRAWELLO Travel Hub - Bookings Report',
             subtitle: `Generated on: ${new Date().toLocaleDateString('en-IN')}`
         });
     };
@@ -347,146 +348,7 @@ export const Bookings: React.FC = () => {
     };
 
     const handleGenerateInvoice = (booking: Booking) => {
-        // Derive amount paid from actual transaction records (same logic as LedgerManagementModal)
-        const txs = booking.transactions || [];
-        const totalReceived = txs.filter(t => t.type === 'Payment').reduce((sum, t) => sum + t.amount, 0);
-        const totalRefunded = txs.filter(t => t.type === 'Refund').reduce((sum, t) => sum + t.amount, 0);
-        const amountPaid = totalReceived - totalRefunded;
-        const balanceDue = booking.amount - amountPaid;
-        const invoiceDate = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-        const dueDate = new Date(booking.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-
-        const doc = new jsPDF();
-
-        // Header
-        doc.setFontSize(22);
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(55, 65, 81);
-        doc.text('SHRAVYA TOURS', 14, 25);
-
-        doc.setFontSize(10);
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(107, 114, 128);
-        doc.text('Your Dream Destination', 14, 31);
-
-        doc.setFontSize(24);
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(17, 24, 39);
-        doc.text('INVOICE', 196, 25, { align: 'right' });
-
-        doc.setFontSize(10);
-        doc.setFont('helvetica', 'bold');
-        doc.text(`Invoice No:`, 140, 33);
-        doc.setFont('helvetica', 'normal');
-        doc.text(`${booking.invoiceNo || booking.id.replace('#', '')}`, 165, 33);
-
-        doc.setFont('helvetica', 'bold');
-        doc.text(`Invoice Date:`, 140, 39);
-        doc.setFont('helvetica', 'normal');
-        doc.text(`${invoiceDate}`, 165, 39);
-
-        doc.setFont('helvetica', 'bold');
-        doc.text(`Due Date:`, 140, 45);
-        doc.setFont('helvetica', 'normal');
-        doc.text(`${dueDate}`, 165, 45);
-
-        // Separator line
-        doc.setDrawColor(229, 231, 235);
-        doc.line(14, 50, 196, 50);
-
-        // Addresses
-        doc.setFontSize(10);
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(17, 24, 39);
-        doc.text('BILLED FROM', 14, 60);
-        doc.text('BILLED TO', 110, 60);
-
-        doc.setFontSize(12);
-        doc.text('Shravya Tours', 14, 66);
-        doc.text(`${booking.customer}`, 110, 66);
-
-        doc.setFontSize(10);
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(55, 65, 81);
-        doc.text('A508, Wisteria, Patil Nagar', 14, 72);
-        doc.text('Pune, Maharashtra - 411062', 14, 77);
-        doc.text('shravyatours23@gmail.com', 14, 85);
-        doc.text('+91 80109 55675', 14, 90);
-
-        doc.text(`${booking.email}`, 110, 72);
-        doc.text(`${booking.phone || ''}`, 110, 77);
-
-        // Service Summary Table
-        doc.setFontSize(10);
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(55, 65, 81);
-        doc.text('SERVICE SUMMARY', 14, 105);
-
-        autoTable(doc, {
-            startY: 110,
-            head: [['Item Description', 'Duration', 'Service Dates', 'Rate', 'Amount']],
-            body: [
-                [`${booking.title}\n(${booking.type} Package)`, 'As per itinerary', dueDate, `Rs. ${booking.amount.toLocaleString()}.00`, `Rs. ${booking.amount.toLocaleString()}.00`]
-            ],
-            theme: 'grid',
-            headStyles: { fillColor: [229, 231, 235], textColor: [17, 24, 39] },
-            columnStyles: {
-                3: { halign: 'right' },
-                4: { halign: 'right', fontStyle: 'bold' }
-            }
-        });
-
-        const finalY = (doc as any).lastAutoTable.finalY || 135;
-
-        // Financial Breakdown
-        doc.setFontSize(10);
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(55, 65, 81);
-        doc.text('FINANCIAL BREAKDOWN', 100, finalY + 15);
-
-        autoTable(doc, {
-            startY: finalY + 20,
-            margin: { left: 100 },
-            body: [
-                ['Gross Total', `Rs. ${booking.amount.toLocaleString()}.00`],
-                ['(-) Advance Received', `(Rs. ${amountPaid.toLocaleString()}.00)`],
-                ['TOTAL DUE (INR)', `Rs. ${balanceDue.toLocaleString()}.00`]
-            ],
-            theme: 'plain',
-            styles: { fontSize: 10 },
-            columnStyles: {
-                1: { halign: 'right', fontStyle: 'bold' }
-            },
-            didParseCell: function (data) {
-                if (data.row.index === 2) {
-                    data.cell.styles.textColor = [255, 255, 255];
-                    data.cell.styles.fillColor = [75, 85, 99];
-                }
-            }
-        });
-
-        // Payment Details
-        doc.setFontSize(10);
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(55, 65, 81);
-        doc.text('PAYMENT DETAILS', 14, finalY + 15);
-
-        doc.setFontSize(9);
-        doc.text('Bank Transfer', 14, finalY + 22);
-        doc.setFont('helvetica', 'normal');
-        doc.text('Bank: Federal Bank\nAccount Name: Shravya Tours and Travels\nAccount Type: Current\nAccount No: 14960200014487\nIFSC: FDRL0001496', 14, finalY + 28);
-
-        doc.setFont('helvetica', 'bold');
-        doc.text('UPI Payment', 14, finalY + 54);
-        doc.setFont('helvetica', 'normal');
-        doc.text('UPI ID: shravyatours23@okicici', 14, finalY + 60);
-
-        // Footer terms
-        doc.setFontSize(8);
-        doc.setTextColor(107, 114, 128);
-        doc.text('This is a system-generated invoice. Thank you for choosing Shravya Tours!', 105, 280, { align: 'center' });
-
-        doc.save(`Invoice_${booking.invoiceNo || booking.id.replace('#', '')}.pdf`);
+        navigate(`/admin/invoices/new?booking_id=${booking.id}&type=Invoice`);
     };
 
     // --- Filters ---
@@ -499,6 +361,7 @@ export const Bookings: React.FC = () => {
                          
         const matchesSearch = b.customer.toLowerCase().includes(search.toLowerCase()) ||
             b.id.toLowerCase().includes(search.toLowerCase()) ||
+            (b.bookingNumber ? `BK-${String(b.bookingNumber).padStart(4, '0')}`.toLowerCase().includes(search.toLowerCase()) : false) ||
             b.title.toLowerCase().includes(search.toLowerCase()) ||
             (b.payment && b.payment.toLowerCase() === search.toLowerCase());
 
@@ -635,7 +498,7 @@ export const Bookings: React.FC = () => {
                                 </div>
                                 <div>
                                     <div className="flex items-center gap-2 flex-wrap">
-                                        <p className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-widest">{viewingBooking.id}</p>
+                                        <p className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-widest">{viewingBooking.bookingNumber ? `BK-${String(viewingBooking.bookingNumber).padStart(4, '0')}` : viewingBooking.id.substring(0, 12)}</p>
                                         {viewingBooking.invoiceNo && (
                                             <span className="text-[10px] font-mono bg-slate-100 dark:bg-slate-700 text-slate-500 px-1.5 py-0.5 rounded">INV# {viewingBooking.invoiceNo}</span>
                                         )}
@@ -679,7 +542,7 @@ export const Bookings: React.FC = () => {
                             </div>
                             <div className="px-4 py-3 text-center">
                                 <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">Amount</p>
-                                <p className="text-sm font-bold text-slate-700 dark:text-slate-300">₹{Number(viewingBooking.amount).toLocaleString()}</p>
+                                <p className="text-sm font-bold text-slate-700 dark:text-slate-300">{formatPrice(Number(viewingBooking.amount))}</p>
                             </div>
                         </div>
 
@@ -737,18 +600,18 @@ export const Bookings: React.FC = () => {
                                 <div className="rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
                                     <div className="flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-slate-800/50">
                                         <p className="text-sm text-slate-600 dark:text-slate-300 font-medium">Total Package Amount</p>
-                                        <p className="text-sm font-bold text-slate-800 dark:text-white">₹{Number(viewingBooking.amount).toLocaleString()}</p>
+                                        <p className="text-sm font-bold text-slate-800 dark:text-white">{formatPrice(Number(viewingBooking.amount))}</p>
                                     </div>
                                     <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 dark:border-slate-700">
                                         <p className="text-sm text-slate-600 dark:text-slate-300 font-medium">Amount Received</p>
-                                        <p className="text-sm font-bold text-green-600">₹{amountPaid.toLocaleString()}</p>
+                                        <p className="text-sm font-bold text-green-600">{formatPrice(amountPaid)}</p>
                                     </div>
                                     <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 dark:border-slate-700 bg-slate-900 dark:bg-slate-950">
                                         <div className="flex items-center gap-2">
                                             <p className="text-sm text-white font-bold">Balance Due</p>
                                             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${viewingBooking.payment === 'Paid' ? 'bg-green-500/20 text-green-400' : viewingBooking.payment === 'Deposit' ? 'bg-yellow-500/20 text-yellow-400' : viewingBooking.payment === 'Refunded' ? 'bg-purple-500/20 text-purple-300' : 'bg-red-500/20 text-red-400'}`}>{viewingBooking.payment}</span>
                                         </div>
-                                        <p className={`text-sm font-black ${balanceDue <= 0 ? 'text-green-400' : 'text-red-400'}`}>₹{Math.abs(balanceDue).toLocaleString()}</p>
+                                        <p className={`text-sm font-black ${balanceDue <= 0 ? 'text-green-400' : 'text-red-400'}`}>{formatPrice(Math.abs(balanceDue))}</p>
                                     </div>
                                 </div>
                             </div>
@@ -849,7 +712,13 @@ export const Bookings: React.FC = () => {
                                     onClick={() => { handleGenerateInvoice(viewingBooking); }}
                                     className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-bold text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 transition-colors"
                                 >
-                                    <span className="material-symbols-outlined text-[17px]">receipt_long</span> Invoice
+                                    <span className="material-symbols-outlined text-[17px]">add</span> New Invoice
+                                </button>
+                                <button
+                                    onClick={() => { navigate(`/admin/invoices?booking_id=${viewingBooking.id}`); }}
+                                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-bold text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 transition-colors"
+                                >
+                                    <span className="material-symbols-outlined text-[17px]">receipt_long</span> Invoices
                                 </button>
                                 <button
                                     onClick={() => { setViewingBooking(null); setBookingForLedger(viewingBooking); }}
@@ -951,7 +820,7 @@ export const Bookings: React.FC = () => {
                                     </div>
                                     <div className="space-y-1">
                                         <label className="text-xs font-bold text-slate-500">Start Date</label>
-                                        <input type="date" min={today} value={formData.date} onChange={e => {
+                                        <input type="date" value={formData.date} onChange={e => {
                                             const newStartDate = e.target.value;
                                             // Try to keep the duration same if existing end date
                                             setFormData(prev => {
@@ -1124,7 +993,7 @@ export const Bookings: React.FC = () => {
                                                 <tr key={booking.id} onClick={() => setViewingBooking(booking)} className="group hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer">
                                                     <td className="px-6 py-4">
                                                         <div className="flex flex-col">
-                                                            <span className="text-xs font-bold font-mono text-primary">{booking.id}</span>
+                                                            <span className="text-xs font-bold font-mono text-primary">{booking.bookingNumber ? `BK-${String(booking.bookingNumber).padStart(4, '0')}` : booking.id.substring(0, 8)}</span>
                                                             <div className="flex items-center gap-1 text-slate-500 mt-1">
                                                                 <span className="material-symbols-outlined text-[14px]">{getTypeIcon(booking.type)}</span>
                                                                 <span className="text-[10px] font-bold uppercase">{booking.type}</span>
@@ -1156,7 +1025,7 @@ export const Bookings: React.FC = () => {
                                                     </td>
                                                     <td className="px-6 py-4">
                                                         <div className="flex flex-col gap-1">
-                                                            <span className="text-sm kpi-number text-slate-900 dark:text-white">₹{booking.amount.toLocaleString()}</span>
+                                                            <span className="text-sm kpi-number text-slate-900 dark:text-white">{formatPrice(booking.amount)}</span>
                                                             <span className={`text-[10px] px-1.5 py-0.5 rounded w-fit font-bold uppercase ${booking.payment === 'Paid' ? 'bg-green-100 text-green-700' : booking.payment === 'Deposit' ? 'bg-blue-100 text-blue-700' : booking.payment === 'Refunded' ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-600'}`}>
                                                                 {booking.payment}
                                                             </span>
@@ -1273,7 +1142,7 @@ export const Bookings: React.FC = () => {
                                                     className="bg-white dark:bg-[#1A2633] p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm hover:shadow-md hover:border-primary/50 transition-all cursor-pointer group"
                                                 >
                                                     <div className="flex justify-between items-start mb-2">
-                                                        <span className="text-[10px] font-mono font-bold text-slate-400">{booking.id}</span>
+                                                        <span className="text-[10px] font-mono font-bold text-slate-400">{booking.bookingNumber ? `BK-${String(booking.bookingNumber).padStart(4, '0')}` : booking.id.substring(0, 8)}</span>
                                                         <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${booking.payment === 'Paid' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>{booking.payment}</span>
                                                     </div>
                                                     <h4 className="font-bold text-slate-900 dark:text-white text-sm mb-1">{booking.customer}</h4>

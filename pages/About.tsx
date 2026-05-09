@@ -21,7 +21,7 @@ export const About: React.FC = () => {
         {
             title: "Brand Recognition",
             icon: "verified",
-            description: "Establish Shravya Tours & Travels as a trusted and preferred travel brand, recognized for quality, reliability, and customer-centric services."
+            description: "Establish SHRAWELLO Travel Hub as a trusted and preferred travel brand, recognized for quality, reliability, and customer-centric services."
         },
         {
             title: "Partnership Development",
@@ -33,8 +33,8 @@ export const About: React.FC = () => {
     return (
         <>
             <SEO
-                title="About Us | Shravya Tours & Travels"
-                description="Shravya Tours & Travels is a trusted travel company dedicated to creating memorable and personalized travel experiences."
+                title="About Us | SHRAWELLO Travel Hub"
+                description="SHRAWELLO Travel Hub is a trusted travel company dedicated to creating memorable and personalized travel experiences."
             />
 
             <div className="bg-slate-50 dark:bg-slate-900 min-h-screen pb-20">
@@ -43,12 +43,12 @@ export const About: React.FC = () => {
                     <div className="absolute inset-0 bg-slate-900">
                         <OptimizedImage
                             src="https://lh3.googleusercontent.com/aida-public/AB6AXuARvjLJnqBIV09joV5MO4NCFRzmlZ-bbKPc1eoo9A-7TudM37NfT7pwyGWL8SKJsQz3haG3HdOgcYWr0HVXVNhbu-XiaBbvV4rMCx3NcCaiO_eQ9LFJTA69YLnPbsJXp1whEaBMmP7FgfhDhOwfAv7ROqrGj1TfqED1pPb7-eTzxh__HuN-lLTZS3TO3mcaIG5lzHVZPM1aXZvTKyaczGqk0y5JxmYFFC_g3Cd0BZqrPEKe1q-DM-6kkxWzTfUU1rbC62qVacapPJrT"
-                            alt="About Shravya Tours"
+                            alt="About SHRAWELLO Travel Hub"
                             className="w-full h-full opacity-40 object-cover"
                         />
                     </div>
                     <div className="relative z-10 max-w-4xl">
-                        <h1 className="text-4xl md:text-6xl font-black text-white mb-6">About Shravya Tours & Travels</h1>
+                        <h1 className="text-4xl md:text-6xl font-black text-white mb-6">About SHRAWELLO Travel Hub</h1>
                         <p className="text-lg md:text-xl text-slate-200">Creating memorable and personalized travel experiences since 2023.</p>
                     </div>
                 </div>
@@ -60,13 +60,13 @@ export const About: React.FC = () => {
                         <h2 className="text-3xl font-black text-slate-900 dark:text-white mb-6">Who We Are</h2>
                         <div className="space-y-6 text-slate-600 dark:text-slate-300 leading-relaxed text-lg">
                             <p>
-                                Shravya Tours & Travels is a trusted travel company dedicated to creating memorable and personalized travel experiences. With a strong focus on comfort, safety, and customer satisfaction, we deliver seamless travel solutions tailored to every journey.
+                                SHRAWELLO Travel Hub is a trusted travel company dedicated to creating memorable and personalized travel experiences. With a strong focus on comfort, safety, and customer satisfaction, we deliver seamless travel solutions tailored to every journey.
                             </p>
                             <p>
                                 We offer Airline ticketing, Hotel bookings, Taxi/Cab services, and customized Tour Packages through our website, ensuring a smooth, reliable, and hassle-free booking experience for our customers.
                             </p>
                             <p>
-                                Established in 2023, Shravya Tours & Travels has quickly earned a reputation for providing best-in-class travel and tour services, backed by professional standards and dependable operations.
+                                Established in 2023, SHRAWELLO Travel Hub has quickly earned a reputation for providing best-in-class travel and tour services, backed by professional standards and dependable operations.
                             </p>
                             <div className="bg-primary/5 p-6 rounded-xl border-l-4 border-primary mt-8">
                                 <p className="font-medium text-slate-800 dark:text-slate-200">

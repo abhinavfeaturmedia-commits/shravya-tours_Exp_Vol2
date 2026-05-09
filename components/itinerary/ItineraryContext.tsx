@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, ReactNode, useMemo, useCallback } from 'react';
+import React, { createContext, useContext, useState, ReactNode, useMemo, useCallback, useEffect } from 'react';
 import { MasterHotel, MasterActivity, MasterTransport, CurrencyCode, TaxConfig, DEFAULT_TAX_CONFIG } from '../../types';
 
 // --- Types ---
@@ -23,12 +23,18 @@ export interface ItineraryItem {
     time?: string;
     duration?: string;
 
-    // Master Data Link
+    // Master Data Link (masterData NOT persisted — re-fetched at runtime)
     masterId?: string;
     masterData?: MasterHotel | MasterActivity | MasterTransport | any;
     roomTypeId?: string;
     mealPlanId?: string;
-    order?: number; // For manual sorting
+    order?: number;
+
+    // Flight specifics
+    fromLocation?: string;
+    toLocation?: string;
+    airline?: string;
+    flightNumber?: string;
 }
 
 export interface DayMeta {
@@ -42,13 +48,21 @@ export const calculateSellPrice = (netCost: number, baseMarkupPercent: number, e
     return Math.round(markedUp * quantity * 100) / 100;
 };
 
-interface TripDetails {
+export interface TripDestination {
+    locationId: string;
+    nights: number;
+    order: number;
+}
+
+export interface TripDetails {
     title: string;
     startDate: string;
     days: number;
     nights: number;
-    destination: string;
+    destination: string; // Legacy fallback / Primary destination
+    destinations?: TripDestination[]; // New Multi-Destination array
     coverImage: string;
+    gallery: string[];   // Additional package-level photo gallery
     adults: number;
     children: number;
     included: string[];
@@ -91,6 +105,7 @@ interface ItineraryContextType {
 
     // Derived
     editPackageId?: string;
+    setEditPackageId: (id: string) => void;
 
     // Actions
     setStep: (step: number) => void;
@@ -99,11 +114,12 @@ interface ItineraryContextType {
     updateItem: (id: string, updates: Partial<Omit<ItineraryItem, 'sellPrice'>>) => void;
     removeItem: (id: string) => void;
     replaceAllItems: (items: Omit<ItineraryItem, 'sellPrice'>[]) => void;
-    reorderItems: (destDay: number, newOrder: ItineraryItem[]) => void;
+    reorderItems: (destDay: number, sourceId: string, destIndex: number) => void;
     setCurrency: (currency: CurrencyCode) => void;
     updateTaxConfig: (config: Partial<TaxConfig>) => void;
     setPackageMarkup: (percent: number, flat: number) => void;
-    loadPackage: (pkg: any) => void; // any = Package type
+    loadPackage: (pkg: any, masterLocations?: any[]) => void;
+    clearDraft: () => void;
 
     // Helpers
     getItemsForDay: (day: number) => ItineraryItem[];
@@ -129,27 +145,45 @@ export const useItinerary = () => {
 // --- Provider ---
 
 export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-    const [step, setStep] = useState(1);
-    const [items, setItems] = useState<ItineraryItem[]>([]);
-    const [dayMeta, setDayMeta] = useState<Record<number, DayMeta>>({});
-    const [currency, setCurrency] = useState<CurrencyCode>('INR');
-    const [taxConfig, setTaxConfig] = useState<TaxConfig>(DEFAULT_TAX_CONFIG);
-    const [packageMarkupPercent, setPackageMarkupPercent] = useState<number>(0);
-    const [packageMarkupFlat, setPackageMarkupFlat] = useState<number>(0);
-    const [editPackageId, setEditPackageId] = useState<string | undefined>(undefined);
+    const savedDraft = useMemo(() => {
+        try {
+            const draft = localStorage.getItem('itinerary_draft');
+            return draft ? JSON.parse(draft) : null;
+        } catch {
+            return null;
+        }
+    }, []);
 
-    const [tripDetails, setTripDetails] = useState<TripDetails>({
+    const [step, setStep] = useState(savedDraft?.step || 1);
+    const [items, setItems] = useState<ItineraryItem[]>(savedDraft?.items || []);
+    const [dayMeta, setDayMeta] = useState<Record<number, DayMeta>>(savedDraft?.dayMeta || {});
+    const [currency, setCurrency] = useState<CurrencyCode>(savedDraft?.currency || 'INR');
+    const [taxConfig, setTaxConfig] = useState<TaxConfig>(savedDraft?.taxConfig || DEFAULT_TAX_CONFIG);
+    const [packageMarkupPercent, setPackageMarkupPercent] = useState<number>(savedDraft?.packageMarkupPercent || 0);
+    const [packageMarkupFlat, setPackageMarkupFlat] = useState<number>(savedDraft?.packageMarkupFlat || 0);
+    const [editPackageId, setEditPackageId] = useState<string | undefined>(savedDraft?.editPackageId || undefined);
+
+    const [tripDetails, setTripDetails] = useState<TripDetails>(savedDraft?.tripDetails || {
         title: '',
         startDate: new Date().toISOString().split('T')[0],
         days: 4,
         nights: 3,
         destination: '',
         coverImage: 'https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?q=80&w=2070&auto=format&fit=crop',
+        gallery: [],
         adults: 2,
         children: 0,
         included: ['Premium accommodation', 'Daily breakfast & dinner', 'Private transfers', 'Entry tickets', 'Expert guide'],
         notIncluded: ['Airfare (International)', 'Personal expenses', 'Camera fees', 'Optional activities', 'Insurance']
     });
+
+    // Auto-save to localStorage
+    useEffect(() => {
+        const draft = {
+            step, items, dayMeta, currency, taxConfig, packageMarkupPercent, packageMarkupFlat, editPackageId, tripDetails
+        };
+        localStorage.setItem('itinerary_draft', JSON.stringify(draft));
+    }, [step, items, dayMeta, currency, taxConfig, packageMarkupPercent, packageMarkupFlat, editPackageId, tripDetails]);
 
     // Currency helpers
     const convertCurrency = useCallback((amountInINR: number): number => {
@@ -175,18 +209,18 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
 
     const taxAmount = useMemo(() => {
         const { cgstPercent, sgstPercent, igstPercent, tcsPercent, gstOnTotal } = taxConfig;
-        const taxableAmount = gstOnTotal ? preTaxTotal : items.filter(i => i.type !== 'note' && i.type !== 'other').reduce((sum, item) => {
-            const markup = item.sellPrice - (item.netCost * item.quantity);
-            return sum + markup;
-        }, 0) + packageMarkupAmount;
 
-        const cgst = taxableAmount * (cgstPercent / 100);
-        const sgst = taxableAmount * (sgstPercent / 100);
-        const igst = taxableAmount * (igstPercent / 100);
-        const tcs = preTaxTotal * (tcsPercent / 100);
+        // When the "Apply GST" checkbox is off, no tax applies at all
+        if (!gstOnTotal) return 0;
+
+        const taxableBase = preTaxTotal; // GST on the full pre-tax total
+        const cgst = taxableBase * (cgstPercent / 100);
+        const sgst = taxableBase * (sgstPercent / 100);
+        const igst = taxableBase * (igstPercent / 100);
+        const tcs  = taxableBase * (tcsPercent  / 100);
 
         return Math.round((cgst + sgst + igst + tcs) * 100) / 100;
-    }, [preTaxTotal, taxConfig, items, packageMarkupAmount]);
+    }, [preTaxTotal, taxConfig]);
 
     const grandTotal = useMemo(() => preTaxTotal + taxAmount, [preTaxTotal, taxAmount]);
 
@@ -196,15 +230,32 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
     }, []);
 
     const updateTripDetails = useCallback((details: Partial<TripDetails>) => {
-        setTripDetails(prev => ({ ...prev, ...details }));
+        setTripDetails(prev => {
+            const next = { ...prev, ...details };
+            // Auto-derive nights from days and vice versa (Fix 1.3)
+            if (details.days !== undefined && details.nights === undefined) next.nights = Math.max(0, next.days - 1);
+            if (details.nights !== undefined && details.days === undefined) next.days = next.nights + 1;
+            return next;
+        });
     }, []);
 
     const addItem = useCallback((item: Omit<ItineraryItem, 'sellPrice'>) => {
-        const sellPrice = calculateSellPrice(item.netCost, item.baseMarkupPercent, item.extraMarkupFlat, item.quantity);
+        const netCost = Number(item.netCost) || 0;
+        const quantity = Number(item.quantity) || 1;
+        const baseMarkupPercent = Number(item.baseMarkupPercent) || 0;
+        const extraMarkupFlat = Number(item.extraMarkupFlat) || 0;
+        
+        const sellPrice = calculateSellPrice(netCost, baseMarkupPercent, extraMarkupFlat, quantity);
+        // Strip masterData from stored item to prevent JSON bloat (Fix 3.3)
+        const { masterData, ...safeItem } = item as any;
+        safeItem.netCost = netCost;
+        safeItem.quantity = quantity;
+        safeItem.baseMarkupPercent = baseMarkupPercent;
+        safeItem.extraMarkupFlat = extraMarkupFlat;
+
         setItems(prev => {
-            // Assign explicit order based on how many items already exist in this day
             const dayItemCount = prev.filter(i => i.day === item.day).length;
-            return [...prev, { ...item, sellPrice, order: item.order ?? dayItemCount }];
+            return [...prev, { ...safeItem, sellPrice, order: item.order ?? dayItemCount }];
         });
     }, []);
 
@@ -212,6 +263,10 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
         setItems(prev => prev.map(item => {
             if (item.id !== id) return item;
             const updated = { ...item, ...updates };
+            updated.netCost = Number(updated.netCost) || 0;
+            updated.quantity = Number(updated.quantity) || 1;
+            updated.baseMarkupPercent = Number(updated.baseMarkupPercent) || 0;
+            updated.extraMarkupFlat = Number(updated.extraMarkupFlat) || 0;
             updated.sellPrice = calculateSellPrice(updated.netCost, updated.baseMarkupPercent, updated.extraMarkupFlat, updated.quantity);
             return updated;
         }));
@@ -222,14 +277,38 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
     }, []);
 
     const replaceAllItems = useCallback((newItems: Omit<ItineraryItem, 'sellPrice'>[]) => {
-        setItems(newItems.map(item => ({
-            ...item,
-            sellPrice: calculateSellPrice(item.netCost, item.baseMarkupPercent, item.extraMarkupFlat, item.quantity)
-        })));
+        setItems(newItems.map(item => {
+            // Strip masterData to keep builderData JSON lean (Fix 3.3)
+            const { masterData, ...safeItem } = item as any;
+            return {
+                ...safeItem,
+                sellPrice: calculateSellPrice(item.netCost, item.baseMarkupPercent, item.extraMarkupFlat, item.quantity)
+            };
+        }));
     }, []);
 
-    const reorderItems = useCallback((destDay: number, _newOrder: ItineraryItem[]) => {
-        console.log("Reorder requested for day", destDay);
+    const reorderItems = useCallback((destDay: number, sourceId: string, destIndex: number) => {
+        setItems(prev => {
+            const newItems = [...prev];
+            const sourceIndex = newItems.findIndex(i => i.id === sourceId);
+            if (sourceIndex === -1) return prev;
+
+            const [movedItem] = newItems.splice(sourceIndex, 1);
+            const sourceDay = movedItem.day; // Fix 1.2: save BEFORE reassigning
+            movedItem.day = destDay;
+
+            const destDayItems = newItems.filter(i => i.day === destDay).sort((a, b) => (a.order || 0) - (b.order || 0));
+            destDayItems.splice(destIndex, 0, movedItem);
+            destDayItems.forEach((item, idx) => { item.order = idx; });
+
+            // Re-normalize source day only if it was different (Fix 1.2: was always false before)
+            if (sourceDay !== destDay) {
+                const sourceDayItems = newItems.filter(i => i.day === sourceDay).sort((a, b) => (a.order || 0) - (b.order || 0));
+                sourceDayItems.forEach((item, idx) => { item.order = idx; });
+            }
+
+            return newItems;
+        });
     }, []);
 
     const getItemsForDay = useCallback((day: number) => {
@@ -299,20 +378,37 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
         setTaxConfig(prev => ({ ...prev, ...config }));
     }, []);
 
-    const loadPackage = useCallback((pkg: any) => {
+    const loadPackage = useCallback((pkg: any, masterLocations?: any[]) => {
         setEditPackageId(pkg.id);
         if (pkg.builderData) {
-            // Restore exact state if available
-            setTripDetails(pkg.builderData.tripDetails);
-            setItems(pkg.builderData.items || []);
+            // Fix 1.4: ensure gallery is always an array
+            setTripDetails({
+                ...pkg.builderData.tripDetails,
+                gallery: pkg.builderData.tripDetails?.gallery ?? [],
+            });
+            // Fix 1.1: recalculate sellPrice — master prices may have changed since last save
+            setItems((pkg.builderData.items || []).map((item: any) => ({
+                ...item,
+                sellPrice: calculateSellPrice(
+                    Number(item.netCost) || 0,
+                    Number(item.baseMarkupPercent) || 0,
+                    Number(item.extraMarkupFlat) || 0,
+                    Number(item.quantity) || 1
+                )
+            })));
             setDayMeta(pkg.builderData.dayMeta || {});
-            setCurrency(pkg.builderData.currency);
-            setTaxConfig(pkg.builderData.taxConfig);
-            setPackageMarkupPercent(pkg.builderData.packageMarkupPercent);
-            setPackageMarkupFlat(pkg.builderData.packageMarkupFlat);
+            setCurrency(pkg.builderData.currency || 'INR');
+            setTaxConfig(pkg.builderData.taxConfig || DEFAULT_TAX_CONFIG);
+            setPackageMarkupPercent(pkg.builderData.packageMarkupPercent || 0);
+            setPackageMarkupFlat(pkg.builderData.packageMarkupFlat || 0);
         } else {
-            // Best effort migration
-            const guestsMatch = pkg.groupSize.match(/(\d+)/);
+            // Legacy migration — best effort
+            // Fix 2.5: resolve location name → ID (pkg.location is a name string in legacy packages)
+            const resolvedDestId = masterLocations?.find(
+                (l: any) => l.name === pkg.location
+            )?.id || pkg.location || '';
+
+            const guestsMatch = pkg.groupSize?.match(/(\d+)/);
             const guests = guestsMatch ? parseInt(guestsMatch[1]) : 2;
 
             setTripDetails({
@@ -320,42 +416,58 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
                 startDate: new Date().toISOString().split('T')[0],
                 days: pkg.days,
                 nights: Math.max(0, pkg.days - 1),
-                destination: pkg.location,
+                destination: resolvedDestId,
                 coverImage: pkg.image || 'https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?q=80&w=2070&auto=format&fit=crop',
+                gallery: Array.isArray(pkg.gallery) ? pkg.gallery.filter((u: string) => u && u !== pkg.image) : [],
                 adults: guests,
                 children: 0,
                 included: pkg.included || ['Premium accommodation', 'Daily breakfast & dinner', 'Private transfers', 'Entry tickets', 'Expert guide'],
                 notIncluded: pkg.notIncluded || ['Airfare (International)', 'Personal expenses', 'Camera fees', 'Optional activities', 'Insurance']
             });
 
-            // Map basic itinerary items
-            const newItems: ItineraryItem[] = [];
-            pkg.itinerary?.forEach((dayObj: any) => {
-                newItems.push({
-                    id: `mig-${Date.now()}-${dayObj.day}`,
-                    type: 'activity',
-                    day: dayObj.day,
-                    title: dayObj.title,
-                    description: dayObj.desc,
-                    netCost: 0,
-                    baseMarkupPercent: 0,
-                    extraMarkupFlat: 0,
-                    sellPrice: 0, // Needs re-calculation
-                    quantity: guests,
-                    order: 0
-                });
-            });
+            const newItems: ItineraryItem[] = (pkg.itinerary || []).map((dayObj: any) => ({
+                id: `mig-${Date.now()}-${dayObj.day}-${Math.random().toString(36).slice(2,5)}`,
+                type: 'activity',
+                day: dayObj.day,
+                title: dayObj.title || `Day ${dayObj.day}`,
+                description: dayObj.desc,
+                netCost: 0,
+                baseMarkupPercent: 0,
+                extraMarkupFlat: 0,
+                sellPrice: 0,
+                quantity: guests,
+                order: 0
+            }));
             setItems(newItems);
-
-            // Set a flat markup to roughly match the desired price
-            // This is a naive heuristic since we don't know the net costs of legacy packages
-            setPackageMarkupFlat(pkg.price);
+            setPackageMarkupFlat(pkg.price || 0);
         }
+    }, []);
+
+    const clearDraft = useCallback(() => {
+        localStorage.removeItem('itinerary_draft');
+        setStep(1);
+        setItems([]);
+        setDayMeta({});
+        setEditPackageId(undefined);
+        setTripDetails({
+            title: '',
+            startDate: new Date().toISOString().split('T')[0],
+            days: 4,
+            nights: 3,
+            destination: '',
+            coverImage: 'https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?q=80&w=2070&auto=format&fit=crop',
+            gallery: [],
+            adults: 2,
+            children: 0,
+            included: ['Premium accommodation', 'Daily breakfast & dinner', 'Private transfers', 'Entry tickets', 'Expert guide'],
+            notIncluded: ['Airfare (International)', 'Personal expenses', 'Camera fees', 'Optional activities', 'Insurance']
+        });
     }, []);
 
     const value = useMemo(() => ({
         step,
         setStep,
+        setEditPackageId,
         tripDetails,
         items,
         currency,
@@ -381,13 +493,14 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
         updateTaxConfig,
         setPackageMarkup,
         loadPackage,
+        clearDraft,
         formatCurrency,
         convertCurrency,
         dayMeta
     }), [step, tripDetails, items, currency, taxConfig, packageMarkupPercent, packageMarkupFlat,
         subtotal, packageMarkupAmount, taxAmount, grandTotal, editPackageId,
         updateTripDetails, addItem, updateItem, removeItem, replaceAllItems, reorderItems,
-        getItemsForDay, updateTaxConfig, setPackageMarkup, loadPackage, formatCurrency, convertCurrency, dayMeta]);
+        getItemsForDay, updateTaxConfig, setPackageMarkup, loadPackage, clearDraft, formatCurrency, convertCurrency, dayMeta, setEditPackageId]);
 
     return (
         <ItineraryContext.Provider value={value}>

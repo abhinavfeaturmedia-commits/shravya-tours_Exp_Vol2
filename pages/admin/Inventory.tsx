@@ -28,9 +28,33 @@ export const Inventory: React.FC = () => {
     const [selectedAssetId, setSelectedAssetId] = useState<string>('');
     const [selectedDate, setSelectedDate] = useState<number | null>(null);
     const [viewDate, setViewDate] = useState(new Date());
+    const [isSaving, setIsSaving] = useState(false);
 
-    // Edit Form (Only for Tours currently)
+    // Edit Form — used for Tours AND Car/Bus block overrides
     const [editForm, setEditForm] = useState({ capacity: 20, price: 0, isBlocked: false });
+
+    // Today's date for past-date guard
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // PRE-COMPUTE booking index keyed by "YYYY-MM-DD_assetId" for O(1) lookup
+    const bookingIndex = useMemo(() => {
+        const index: Record<string, number> = {};
+        bookings.forEach(b => {
+            if (b.status === 'Cancelled') return;
+            const key = b.packageId ? `${b.date}_${b.packageId}` : `${b.date}_${b.type}`;
+            // Count pax from guests string safely
+            let pax = 0;
+            if (b.guests) {
+                b.guests.split(',').forEach(p => {
+                    const num = parseInt(p.trim(), 10);
+                    if (!isNaN(num)) pax += num;
+                });
+            }
+            index[key] = (index[key] || 0) + (pax || 1);
+        });
+        return index;
+    }, [bookings]);
 
     // Derived Date Logic
     const currentYear = viewDate.getFullYear();
@@ -52,85 +76,53 @@ export const Inventory: React.FC = () => {
         }
     }, [inventoryType, packages, carAssets, busAssets]);
 
-    // CORE LOGIC: Get Slot Data
+    // CORE LOGIC: Get Slot Data — uses pre-computed bookingIndex for O(1) lookup
     const getSlot = (day: number): DailySlot => {
-        // Construct date string YYYY-MM-DD
         const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const slotKey = `${dateStr}_${selectedAssetId}`;
 
-        // 1. TOUR LOGIC (Dynamic Calculation + Manual Settings)
+        // 1. TOUR LOGIC
         if (inventoryType === 'Tour') {
-            const defaultSlot = { date: day, capacity: 0, booked: 0, price: 35000, isBlocked: false };
-            const slotSettings = inventory[day] || defaultSlot;
+            const defaultSlot: DailySlot = { date: dateStr, assetId: selectedAssetId, assetType: 'Tour', capacity: 20, booked: 0, price: 35000, isBlocked: false };
+            const slotSettings = inventory[slotKey] || defaultSlot;
+            // Use pre-computed index: key = date_packageId
+            const booked = bookingIndex[`${dateStr}_${selectedAssetId}`] || 0;
+            return { ...slotSettings, booked };
+        }
 
-            // Calculate booked count from meaningful bookings
-            const matchingBookings = bookings.filter(b =>
-                b.type === 'Tour' &&
+        // 2. CAR LOGIC
+        if (inventoryType === 'Car') {
+            const asset = carAssets.find(c => c.id === selectedAssetId) || carAssets[0];
+            if (!asset) return { date: dateStr, assetId: selectedAssetId, assetType: 'Car', capacity: 1, booked: 0, price: 0, isBlocked: false };
+            // Check for manual block override stored in inventory
+            const manualOverride = inventory[slotKey];
+            // Count bookings where packageId matches the asset id (explicit link)
+            const booked = bookings.filter(b =>
+                b.type === 'Car' &&
                 b.date === dateStr &&
+                b.packageId === asset.id &&
                 b.status !== 'Cancelled'
-            ).reduce((acc, curr) => {
-                // Try to parse "2 Adults, 1 Child" -> 3 guests
-                // Or default to 1 if parsing fails
-                let count = 0;
-                if (curr.guests) {
-                    const parts = curr.guests.split(',');
-                    parts.forEach(p => {
-                        const num = parseInt(p.trim().split(' ')[0] || '0');
-                        if (!isNaN(num)) count += num;
-                    });
-                }
-                return acc + (count || 1);
-            }, 0);
-
+            ).length;
             return {
-                ...slotSettings,
-                capacity: 0, // Enforce unlimited (0) for Tours
-                booked: matchingBookings
+                date: dateStr, assetId: asset.id, assetType: 'Car',
+                capacity: asset.capacity || 1,
+                booked,
+                price: manualOverride?.price ?? asset.baseRate,
+                isBlocked: manualOverride?.isBlocked ?? false,
             };
         }
 
-        // 2. CAR & BUS LOGIC (Dynamic Calculation from Bookings)
-
-        let asset;
-        let matchingBookings = 0;
-
-        if (inventoryType === 'Car') {
-            asset = carAssets.find(c => c.id === selectedAssetId) || carAssets[0];
-            if (!asset) return { date: day, capacity: 0, booked: 0, price: 0, isBlocked: false };
-
-            // Find bookings that match the date, type='Car', and contain the car name/type in title/details
-            matchingBookings = bookings.filter(b =>
-                b.type === 'Car' &&
-                b.date === dateStr &&
-                (b.title.includes(asset!.name) || (b.details && b.details.includes(asset!.name)))
-            ).length;
-        } else {
-            asset = busAssets.find(b => b.id === selectedAssetId) || busAssets[0];
-            if (!asset) return { date: day, capacity: 0, booked: 0, price: 0, isBlocked: false };
-
-            // For buses, we count 'guests' or 'seats' usually
-            matchingBookings = bookings.filter(b =>
-                b.type === 'Bus' &&
-                b.date === dateStr
-            ).reduce((acc, curr) => {
-                // Parse guests string "2 Adults" -> 2
-                let count = 0;
-                if (curr.guests) {
-                    const parts = curr.guests.split(',');
-                    parts.forEach(p => {
-                        const num = parseInt(p.trim().split(' ')[0] || '0');
-                        count += isNaN(num) ? 0 : num;
-                    });
-                }
-                return acc + (count || 1);
-            }, 0);
-        }
-
+        // 3. BUS LOGIC
+        const asset = busAssets.find(b => b.id === selectedAssetId) || busAssets[0];
+        if (!asset) return { date: dateStr, assetId: selectedAssetId, assetType: 'Bus', capacity: 40, booked: 0, price: 0, isBlocked: false };
+        const manualOverride = inventory[slotKey];
+        const booked = bookingIndex[`${dateStr}_Bus`] || 0;
         return {
-            date: day,
-            capacity: asset.capacity,
-            booked: matchingBookings,
-            price: asset.baseRate,
-            isBlocked: false
+            date: dateStr, assetId: asset.id, assetType: 'Bus',
+            capacity: asset.capacity || 40,
+            booked,
+            price: manualOverride?.price ?? asset.baseRate,
+            isBlocked: manualOverride?.isBlocked ?? false,
         };
     };
 
@@ -146,21 +138,31 @@ export const Inventory: React.FC = () => {
         }
     }, [selectedDate, inventoryType, selectedAssetId]); // Re-run if context changes
 
-    const handleUpdate = () => {
-        if (inventoryType !== 'Tour') {
-            alert("Dynamic inventory (Cars/Buses) is calculated based on bookings. To adjust availability, manage your bookings or fleet settings.");
+    const isPastDate = (day: number): boolean => {
+        const d = new Date(currentYear, currentMonth, day);
+        return d < today;
+    };
+
+    const handleUpdate = async () => {
+        if (!selectedDate) return;
+        // Prevent editing past dates
+        if (isPastDate(selectedDate)) {
+            alert('Cannot modify availability for past dates.');
             return;
         }
-        if (selectedDate) {
-            // Update the global inventory context (only supports Tour slots currently)
-            updateInventory(selectedDate, {
-                date: selectedDate,
-                capacity: editForm.capacity,
-                price: editForm.price,
-                isBlocked: editForm.isBlocked,
-                booked: editForm.isBlocked ? 0 : (inventory[selectedDate]?.booked || 0)
-            });
-        }
+        const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(selectedDate).padStart(2, '0')}`;
+        const slotKey = `${dateStr}_${selectedAssetId}`;
+        setIsSaving(true);
+        await updateInventory(dateStr, {
+            date: dateStr,
+            assetId: selectedAssetId,
+            assetType: inventoryType,
+            capacity: editForm.capacity,
+            price: editForm.price,
+            isBlocked: editForm.isBlocked,
+            booked: editForm.isBlocked ? 0 : (inventory[slotKey]?.booked || 0)
+        });
+        setIsSaving(false);
     };
 
     const handleExport = () => {
@@ -415,29 +417,54 @@ export const Inventory: React.FC = () => {
                             </div>
 
                             {/* Type specific notice */}
-                            {inventoryType !== 'Tour' && (
-                                <div className="p-4 bg-orange-50 dark:bg-orange-900/20 border border-orange-100 dark:border-orange-900/30 rounded-xl text-sm text-orange-800 dark:text-orange-200">
-                                    <p className="font-bold mb-1">Automated Inventory</p>
-                                    <p className="opacity-90">Availability for Cars and Buses is calculated automatically based on active bookings. To free up slots, cancel or reschedule existing bookings in the Bookings tab.</p>
+                            {/* Past-date warning */}
+                            {selectedDate && isPastDate(selectedDate) && (
+                                <div className="p-4 bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-600 dark:text-slate-400">
+                                    <p className="font-bold mb-1 flex items-center gap-2"><span className="material-symbols-outlined text-[18px]">lock</span>Past Date</p>
+                                    <p className="opacity-90">Availability for past dates cannot be modified.</p>
                                 </div>
                             )}
 
-                            {/* Manual Override Form (Tours Only) */}
-                            <div className={`space-y-4 ${inventoryType !== 'Tour' ? 'opacity-50 pointer-events-none grayscale' : ''}`}>
+                            {/* Manual Override Form — available for all asset types */}
+                            <div className={`space-y-4 ${selectedDate && isPastDate(selectedDate) ? 'opacity-40 pointer-events-none' : ''}`}>
                                 <h3 className="text-sm font-semibold text-slate-900 dark:text-white pb-2 border-b border-slate-100 dark:border-slate-800">
-                                    Overrides {inventoryType !== 'Tour' && '(Disabled)'}
+                                    Overrides
                                 </h3>
+
+                                {/* Capacity (Tours only, hidden for Car/Bus since it comes from asset) */}
+                                {inventoryType === 'Tour' && (
+                                    <div className="flex items-center justify-between p-3 rounded-lg border border-border-light dark:border-border-dark bg-white dark:bg-[#1A2633]">
+                                        <div className="flex items-center gap-3">
+                                            <div className="p-2 rounded-lg bg-blue-50 dark:bg-blue-900/20 text-blue-600"><span className="material-symbols-outlined text-[20px]">groups</span></div>
+                                            <div className="flex flex-col"><span className="text-sm font-medium text-slate-900 dark:text-white">Capacity</span><span className="text-xs text-slate-500">Max seats per day</span></div>
+                                        </div>
+                                        <input
+                                            type="number" min={0} value={editForm.capacity}
+                                            onChange={e => setEditForm({ ...editForm, capacity: parseInt(e.target.value) || 0 })}
+                                            className="w-20 text-right bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-sm font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/50"
+                                        />
+                                    </div>
+                                )}
 
                                 <div className="flex items-center justify-between p-3 rounded-lg border border-border-light dark:border-border-dark bg-white dark:bg-[#1A2633]">
                                     <div className="flex items-center gap-3">
                                         <div className="p-2 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-600"><span className="material-symbols-outlined text-[20px]">block</span></div>
-                                        <div className="flex flex-col"><span className="text-sm font-medium text-slate-900 dark:text-white">Stop Sell</span><span className="text-xs text-slate-500">Block bookings</span></div>
+                                        <div className="flex flex-col">
+                                            <span className="text-sm font-medium text-slate-900 dark:text-white">Stop Sell</span>
+                                            <span className="text-xs text-slate-500">{inventoryType !== 'Tour' ? 'Mark vehicle under maintenance' : 'Block all bookings'}</span>
+                                        </div>
                                     </div>
                                     <input type="checkbox" checked={editForm.isBlocked} onChange={e => setEditForm({ ...editForm, isBlocked: e.target.checked })} className="w-11 h-6 rounded-full text-primary focus:ring-primary/20 cursor-pointer" />
                                 </div>
 
-                                <button onClick={handleUpdate} className="w-full py-3 bg-primary text-white text-sm font-bold rounded-lg shadow-sm hover:bg-primary/90 transition-colors mt-2">
-                                    Update Availability
+                                <button
+                                    onClick={handleUpdate}
+                                    disabled={isSaving || (!!selectedDate && isPastDate(selectedDate))}
+                                    className="w-full py-3 bg-primary text-white text-sm font-bold rounded-lg shadow-sm hover:bg-primary/90 transition-colors mt-2 flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                                >
+                                    {isSaving ? (
+                                        <><span className="material-symbols-outlined text-[18px] animate-spin">progress_activity</span>Saving...</>
+                                    ) : 'Update Availability'}
                                 </button>
                             </div>
                         </div>

@@ -2,7 +2,7 @@
     "name": "shravya-tours-backend",
     "version": "1.0.0",
     "type": "module",
-    "description": "Backend API for Shravya Tours",
+    "description": "Backend API for SHRAWELLO Travel Hub",
     "main": "index.js",
     "scripts": {
         "start": "node index.js",

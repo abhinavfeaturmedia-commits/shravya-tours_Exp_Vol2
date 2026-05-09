@@ -14,6 +14,7 @@ import {
     ChevronDown, ChevronUp
 } from 'lucide-react';
 import { TravelerSelector } from '../../components/ui/TravelerSelector';
+import { formatPrice, formatPriceCompact } from '../../utils/packageUtils';
 import { exportToExcel, ExportColumn } from '../../src/lib/exportUtils';
 import { DataImportModal, ColumnMapping } from '../../src/components/admin/DataImportModal';
 // import { BulkImportLeadsModal } from '../../components/admin/BulkImportLeadsModal'; // Commented out unused
@@ -174,7 +175,7 @@ export const Leads: React.FC = () => {
         const now = new Date().toISOString();
         if (modalMode === 'add') {
             const newLead: Lead = {
-                id: `LD-${Date.now()}`, // More robust ID matching other components
+                id: '', // Will be set by DB (UUID auto-generated + lead_number)
                 addedOn: now,
                 logs: [],
                 avatarColor: 'bg-slate-100 text-slate-600',
@@ -223,10 +224,6 @@ export const Leads: React.FC = () => {
             toast.error('Please set a start date before converting this lead.');
             return;
         }
-        if (new Date(selectedLead.startDate) < new Date(new Date().toDateString())) {
-            toast.error('Start date is in the past. Please update it before converting.');
-            return;
-        }
 
         // 1. Deep Logic: Check for existing Customer
         let targetCustomerId: string | undefined;
@@ -257,7 +254,7 @@ export const Leads: React.FC = () => {
 
         try {
             await addBooking({
-                id: `BK-${Date.now()}`,
+                id: '', // Will be set by DB (UUID auto-generated)
                 type: 'Tour',
                 customer: selectedLead.name,
                 customerId: targetCustomerId, // Linked Customer
@@ -270,7 +267,7 @@ export const Leads: React.FC = () => {
                 status: BookingStatus.PENDING,
                 payment: 'Unpaid',
                 guests: selectedLead.travelers,
-                details: `Converted from Lead. Destination: ${selectedLead.destination}. Budget: ₹${selectedLead.potentialValue?.toLocaleString()}.`
+                details: `Converted from Lead. Destination: ${selectedLead.destination}. Budget: ${formatPrice(selectedLead.potentialValue || 0)}.`
             });
 
             // Only mark lead as converted AFTER booking is saved successfully
@@ -285,6 +282,11 @@ export const Leads: React.FC = () => {
         } catch (err: any) {
             toast.error(err.message || 'Failed to convert lead to booking.');
         }
+    };
+
+    const handleCreateQuotation = () => {
+        if (!selectedLead) return;
+        navigate(`/admin/invoices/new?lead_id=${selectedLead.id}&type=Quotation`);
     };
 
     const openAddModal = () => {
@@ -311,7 +313,7 @@ export const Leads: React.FC = () => {
         exportToExcel(filteredLeads, columns, {
             filename: `Leads_Export_${new Date().toISOString().split('T')[0]}`,
             sheetName: 'Leads',
-            title: 'Shravya Tours - Leads Report',
+            title: 'SHRAWELLO Travel Hub - Leads Report',
             subtitle: `Generated on: ${new Date().toLocaleDateString('en-IN')}`
         });
         toast.success('Leads exported successfully!');
@@ -409,7 +411,7 @@ export const Leads: React.FC = () => {
                         <div className="bg-white dark:bg-[#1A2633] p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
                             <p className="text-xs font-bold text-slate-400 uppercase mb-1">Pipeline Value</p>
                             <div className="flex items-center gap-3">
-                                <span className="text-4xl kpi-number text-slate-900 dark:text-white">₹{(stats.value / 1000).toFixed(0)}k</span>
+                                <span className="text-4xl kpi-number text-slate-900 dark:text-white">{formatPriceCompact(stats.value)}</span>
                             </div>
                         </div>
                         <div className="bg-white dark:bg-[#1A2633] p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
@@ -588,7 +590,10 @@ export const Leads: React.FC = () => {
                                             </div>
                                             <div className="min-w-0">
                                                 <h3 className="font-bold text-slate-900 dark:text-white truncate">{lead.name}</h3>
-                                                <p className="text-xs text-slate-500 truncate">Added {new Date(lead.addedOn).toLocaleDateString()}</p>
+                                                <p className="text-xs text-slate-500 truncate">
+                                                    {lead.leadNumber ? <span className="font-mono font-bold text-primary mr-1">LD-{String(lead.leadNumber).padStart(4, '0')}</span> : null}
+                                                    Added {new Date(lead.addedOn).toLocaleDateString()}
+                                                </p>
                                             </div>
                                         </div>
                                         <div className="col-span-3 overflow-hidden pr-4">
@@ -599,7 +604,7 @@ export const Leads: React.FC = () => {
                                             <p className="text-xs text-slate-500 ml-6 truncate">{lead.type}</p>
                                         </div>
                                         <div className="col-span-2 font-bold text-slate-900 dark:text-white truncate">
-                                            ₹{(lead.potentialValue || 0).toLocaleString()}
+                                            {formatPrice(lead.potentialValue || 0)}
                                         </div>
                                         <div className="col-span-2 text-xs font-medium text-slate-600 dark:text-slate-400 truncate">
                                             {lead.assignedTo ? staff.find(s => s.id === lead.assignedTo)?.name || 'Unknown' : 'Unassigned'}
@@ -618,7 +623,7 @@ export const Leads: React.FC = () => {
                                             <p className="text-xs text-slate-500 truncate">{lead.destination}</p>
                                         </div>
                                         <div className="text-right shrink-0">
-                                            <p className="text-xs font-bold text-slate-900 dark:text-white">₹{((lead.potentialValue || 0) / 1000).toFixed(0)}k</p>
+                                            <p className="text-xs font-bold text-slate-900 dark:text-white">{formatPriceCompact(lead.potentialValue || 0)}</p>
                                             <div className="mt-1">
                                                 <StatusBadge status={lead.status} />
                                             </div>
@@ -651,6 +656,9 @@ export const Leads: React.FC = () => {
                                 <div>
                                     <h2 className="text-xl font-black text-slate-900 dark:text-white leading-tight">{selectedLead.name}</h2>
                                     <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
+                                        {selectedLead.leadNumber && (
+                                            <span className="font-mono font-bold text-primary">LD-{String(selectedLead.leadNumber).padStart(4, '0')}</span>
+                                        )}
                                         <MapPin size={12} /> {selectedLead.destination}
                                     </p>
                                 </div>
@@ -700,7 +708,7 @@ export const Leads: React.FC = () => {
                                 </div>
                                 <div>
                                     <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Budget</p>
-                                    <p className="text-sm font-bold text-slate-900 dark:text-white text-green-600">₹{(selectedLead.potentialValue || 0).toLocaleString()}</p>
+                                    <p className="text-sm font-bold text-slate-900 dark:text-white text-green-600">{formatPrice(selectedLead.potentialValue || 0)}</p>
                                 </div>
                                 <div>
                                     <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Source</p>
@@ -761,7 +769,7 @@ export const Leads: React.FC = () => {
                             >
                                 <CheckCircle2 size={16} /> Convert to Booking
                             </button>
-                        </div>
+                        <button onClick={handleCreateQuotation} className="w-full py-3 mt-3 rounded-xl bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200 font-bold text-sm hover:bg-slate-200 dark:hover:bg-slate-700 flex items-center justify-center gap-2 transition-all border border-slate-200 dark:border-slate-700"><FileText size={16} /> Create Quotation</button></div>
 
                         {/* Follow Up Log */}
                         <div>
@@ -1006,3 +1014,5 @@ export const Leads: React.FC = () => {
         </div>
     );
 };
+
+

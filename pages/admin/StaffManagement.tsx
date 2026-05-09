@@ -1,15 +1,60 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useAuth, DEFAULT_PERMISSIONS } from '../../context/AuthContext';
 import { toast } from '../../components/ui/Toast';
 import { StaffMember, StaffPermissions } from '../../types';
 import { api } from '../../src/lib/api';
 
+// Module descriptions for the permissions table
+const PERMISSION_DESCRIPTIONS: Record<string, string> = {
+    dashboard: 'View analytics overview and KPI summaries',
+    leads: 'Access and manage lead records and pipeline',
+    bookings: 'View and manage booking records',
+    customers: 'Access customer profiles and history',
+    packages: 'View and edit travel packages catalog',
+    vendors: 'Manage vendor profiles and contracts',
+    accounts: 'Access financial accounts and transactions',
+    expenses: 'View and record business expenses',
+    productivity: 'Access productivity tracker and time logs',
+    teamPerformance: 'View team performance reports',
+    marketing: 'Manage campaigns and marketing content',
+    masters: 'Edit master data (locations, hotels, etc.)',
+    cms: 'Manage website content (banners, gallery, posts)',
+    audit: 'Access audit logs and activity history',
+    operations: 'Access live operations and booking execution',
+    invoices: 'Create and manage invoices and documents',
+    proposals: 'Build and send client proposals',
+    settings: 'Access admin settings and integrations',
+};
+
+// Format last_active ISO timestamp into human-readable relative time
+const formatLastActive = (value: string | null | undefined): string => {
+    if (!value || value === 'Never') return 'Never';
+    try {
+        const date = new Date(value);
+        if (isNaN(date.getTime())) return 'Never';
+        const now = new Date();
+        const diffMs = now.getTime() - date.getTime();
+        const diffMins = Math.floor(diffMs / 60000);
+        const diffHours = Math.floor(diffMins / 60);
+        const diffDays = Math.floor(diffHours / 24);
+        if (diffMins < 2) return 'Just now';
+        if (diffMins < 60) return `${diffMins}m ago`;
+        if (diffHours < 24) return `${diffHours}h ago`;
+        if (diffDays === 1) return 'Yesterday';
+        if (diffDays < 7) return `${diffDays} days ago`;
+        return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: diffDays > 365 ? 'numeric' : undefined });
+    } catch {
+        return 'Never';
+    }
+};
+
 export const StaffManagement: React.FC = () => {
-    const { staff, addStaff, updateStaff, deleteStaff, currentUser, masqueradeAs } = useAuth();
+    const { staff, addStaff, updateStaff, deleteStaff, currentUser, masqueradeAs, refreshStaff } = useAuth();
     const [search, setSearch] = useState('');
     const [selectedStaffId, setSelectedStaffId] = useState<number | string | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [activeTab, setActiveTab] = useState('All');
+    const [sortBy, setSortBy] = useState<'name' | 'role' | 'department' | 'joined'>('name');
 
     // Edit Mode State
     const [isEditing, setIsEditing] = useState(false);
@@ -18,6 +63,11 @@ export const StaffManagement: React.FC = () => {
     const [confirmPassword, setConfirmPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+    // Fix #1: Reset password in edit mode
+    const [showResetPassword, setShowResetPassword] = useState(false);
+    const [resetPassword, setResetPassword] = useState('');
+    const [resetConfirmPassword, setResetConfirmPassword] = useState('');
+    const [isResettingPassword, setIsResettingPassword] = useState(false);
 
     const [formData, setFormData] = useState<{
         name: string;
@@ -45,10 +95,30 @@ export const StaffManagement: React.FC = () => {
 
     const selectedMember = staff.find(s => String(s.id) === String(selectedStaffId));
 
+    // Refresh staff list on page mount so last_active values are always current from DB
+    useEffect(() => {
+        refreshStaff();
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
     // Stats
     const activeStaff = staff.filter(s => s.status === 'Active').length;
-    // Calculate unique departments from actual staff list
     const uniqueDepartments = Array.from(new Set(staff.map(s => s.department))).length;
+    // Fix #6: New Joiners This Month — use created_at from DB
+    const newJoinersThisMonth = useMemo(() => {
+        const now = new Date();
+        return staff.filter(s => {
+            const joined = s.joinedDate || (s as any).createdAt || (s as any).created_at;
+            if (!joined || joined === 'Never') return false;
+            const d = new Date(joined);
+            return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+        }).length;
+    }, [staff]);
+
+    // Fix #7: Dynamic department tabs from actual staff
+    const departmentTabs = useMemo(() => {
+        const depts = Array.from(new Set(staff.map(s => s.department).filter(Boolean)));
+        return ['All', ...depts.sort()];
+    }, [staff]);
 
     const handleOpenAdd = () => {
         setIsEditing(false);
@@ -87,20 +157,25 @@ export const StaffManagement: React.FC = () => {
             whatsappScope: member.whatsappScope || 'Assigned Queries Messages',
             permissions: member.permissions ? JSON.parse(JSON.stringify(member.permissions)) : JSON.parse(JSON.stringify(DEFAULT_PERMISSIONS))
         });
+        // Reset password section state when opening edit modal
+        setShowResetPassword(false);
+        setResetPassword('');
+        setResetConfirmPassword('');
         setIsModalOpen(true);
     };
 
+    // Fix #11: manage implies view; unchecking view also unchecks manage
     const handlePermissionChange = (module: keyof StaffPermissions, type: 'view' | 'manage', checked: boolean) => {
-        setFormData(prev => ({
-            ...prev,
-            permissions: {
-                ...prev.permissions,
-                [module]: {
-                    ...prev.permissions[module],
-                    [type]: checked
-                }
-            }
-        }));
+        setFormData(prev => {
+            const current = prev.permissions[module];
+            let updated = { ...current, [type]: checked };
+            if (type === 'manage' && checked) updated.view = true;  // manage requires view
+            if (type === 'view' && !checked) updated.manage = false; // revoking view also revokes manage
+            return {
+                ...prev,
+                permissions: { ...prev.permissions, [module]: updated }
+            };
+        });
     };
 
     const toggleAllPermissions = (type: 'view' | 'manage', checked: boolean) => {
@@ -109,7 +184,11 @@ export const StaffManagement: React.FC = () => {
             Object.keys(newPermissions).forEach(key => {
                 newPermissions[key] = {
                     ...newPermissions[key],
-                    [type]: checked
+                    [type]: checked,
+                    // Fix #11: toggling manage on also enables view
+                    ...(type === 'manage' && checked ? { view: true } : {}),
+                    // Fix #11: toggling view off also disables manage
+                    ...(type === 'view' && !checked ? { manage: false } : {}),
                 };
             });
             return { ...prev, permissions: newPermissions };
@@ -139,18 +218,49 @@ export const StaffManagement: React.FC = () => {
 
         const initials = formData.name.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2);
         const colorMap: Record<string, string> = {
-            'Super Admin': 'purple',
+            // ─── Ownership / Admin Tier ───
             'Owner': 'violet',
+            'Co-Owner': 'violet',
+            'Super Admin': 'purple',
             'Administrator': 'purple',
+            // ─── Leadership Tier ───
             'Branch Head': 'indigo',
+            'Operations Head': 'indigo',
+            'Sales Head': 'indigo',
+            'Finance Head': 'indigo',
+            // ─── Manager Tier ───
             'Manager': 'blue',
+            'Sales Manager': 'blue',
+            'Operations Manager': 'blue',
+            'Marketing Manager': 'blue',
+            'Account Manager': 'blue',
+            'Product Manager': 'blue',
+            // ─── Specialist / Senior Tier ───
+            'Senior Tour Consultant': 'sky',
+            'Tour Consultant': 'sky',
+            'Tour Coordinator': 'sky',
+            'Visa Executive': 'teal',
+            'Visa Consultant': 'teal',
+            'Senior Agent': 'cyan',
+            // ─── Agent / Executive Tier ───
             'Agent': 'cyan',
+            'Travel Agent': 'cyan',
+            'Sales Executive': 'cyan',
+            'Booking Executive': 'cyan',
+            'Field Agent': 'emerald',
+            // ─── Support / Content Tier ───
             'Editor': 'green',
-            'Support': 'orange'
+            'Content Writer': 'green',
+            'Support': 'orange',
+            'Customer Support': 'orange',
+            'Finance Executive': 'amber',
+            'Accountant': 'amber',
+            'Intern': 'slate',
         };
 
-        // Logic: specific roles enforce specific userTypes
-        const derivedUserType = (formData.role === 'Administrator' || formData.role === 'Owner' || formData.role === 'Super Admin') ? 'Admin' : formData.userType;
+        // Logic: specific roles enforce specific userTypes (admin-tier roles auto-become Admin)
+        const ADMIN_ROLES = new Set(['Owner', 'Co-Owner', 'Super Admin', 'Administrator']);
+        const derivedUserType = ADMIN_ROLES.has(formData.role) ? 'Admin' : formData.userType;
 
         // Logic: If Admin, FORCE all permissions to true
         let finalPermissions = formData.permissions;
@@ -196,13 +306,12 @@ export const StaffManagement: React.FC = () => {
         }
     };
 
-    const handleDelete = (id: number) => {
+    const handleDelete = async (id: number) => {
         // Logic: Prevent deleting Yourself
         if (currentUser?.id === id) {
             toast.error("You cannot delete your own account.");
             return;
         }
-
         // Logic: Prevent deleting the LAST Admin
         const member = staff.find(s => s.id === id);
         if (member?.userType === 'Admin') {
@@ -212,11 +321,16 @@ export const StaffManagement: React.FC = () => {
                 return;
             }
         }
-
-        if (confirm('Are you sure you want to remove this staff member? This will revoke their access immediately.')) {
-            deleteStaff(id);
-            if (String(selectedStaffId) === String(id)) setSelectedStaffId(null);
-            toast.success('Staff member removed');
+        // Fix #15: Offboarding warning — warn about orphaned leads
+        const warningMsg = `Remove ${member?.name}? This will permanently delete their login and staff profile. Their assigned leads and follow-ups will become unassigned.`;
+        if (confirm(warningMsg)) {
+            try {
+                await deleteStaff(id);
+                if (String(selectedStaffId) === String(id)) setSelectedStaffId(null);
+                toast.success('Staff member and login account removed');
+            } catch (err: any) {
+                toast.error(err.message || 'Failed to delete staff member');
+            }
         }
     };
 
@@ -237,19 +351,39 @@ export const StaffManagement: React.FC = () => {
         }
     };
 
-    const filteredStaff = staff.filter(s => {
-        const matchesSearch = (s.name || '').toLowerCase().includes(search.toLowerCase()) || (s.email || '').toLowerCase().includes(search.toLowerCase());
-        const matchesTab = activeTab === 'All' || s.department === activeTab;
-        return matchesSearch && matchesTab;
-    });
+    // Fix #19: Sort logic
+    const filteredStaff = useMemo(() => {
+        const filtered = staff.filter(s => {
+            const matchesSearch = (s.name || '').toLowerCase().includes(search.toLowerCase()) || (s.email || '').toLowerCase().includes(search.toLowerCase());
+            const matchesTab = activeTab === 'All' || s.department === activeTab;
+            return matchesSearch && matchesTab;
+        });
+        return [...filtered].sort((a, b) => {
+            if (sortBy === 'name') return a.name.localeCompare(b.name);
+            if (sortBy === 'role') return a.role.localeCompare(b.role);
+            if (sortBy === 'department') return a.department.localeCompare(b.department);
+            if (sortBy === 'joined') {
+                const dateA = new Date((a as any).createdAt || (a as any).joinedDate || 0).getTime();
+                const dateB = new Date((b as any).createdAt || (b as any).joinedDate || 0).getTime();
+                return dateB - dateA; // newest first
+            }
+            return 0;
+        });
+    }, [staff, search, activeTab, sortBy]);
 
     const getRoleBadge = (role: string) => {
-        if (role === 'Owner' || role === 'Super Admin') return 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400';
-        if (role.includes('Admin') || role === 'Administrator') return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400';
-        if (role === 'Branch Head') return 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400';
+        if (role === 'Owner' || role === 'Co-Owner') return 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400';
+        if (role === 'Super Admin' || role === 'Administrator') return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400';
+        if (role.includes('Head') || role.includes('Admin')) return 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400';
         if (role.includes('Manager')) return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400';
-        if (role === 'Agent') return 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400';
-        if (role.includes('Support')) return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400';
+        if (role.includes('Consultant') || role.includes('Coordinator')) return 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400';
+        if (role.includes('Visa')) return 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400';
+        if (role === 'Agent' || role === 'Travel Agent' || role === 'Senior Agent') return 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400';
+        if (role.includes('Executive') || role.includes('Field')) return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400';
+        if (role.includes('Support') || role.includes('Customer')) return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400';
+        if (role === 'Accountant' || role.includes('Finance')) return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400';
+        if (role === 'Editor' || role.includes('Content')) return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400';
+        if (role === 'Intern') return 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400';
         return 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-400';
     };
 
@@ -280,7 +414,12 @@ export const StaffManagement: React.FC = () => {
                                             <option>Sales</option>
                                             <option>Operations</option>
                                             <option>Marketing</option>
-                                            <option>Support</option>
+                                            <option>Finance</option>
+                                            <option>Customer Support</option>
+                                            <option>Visa & Documentation</option>
+                                            <option>Technology</option>
+                                            <option>Human Resources</option>
+                                            <option>Content & Design</option>
                                         </select>
                                     </div>
                                 </div>
@@ -334,13 +473,44 @@ export const StaffManagement: React.FC = () => {
                                             placeholder="e.g. Senior Tour Manager"
                                         />
                                         <datalist id="roles">
+                                            {/* ─── Ownership / Admin Tier ─── */}
                                             <option value="Owner" />
-                                            <option value="Branch Head" />
+                                            <option value="Co-Owner" />
+                                            <option value="Super Admin" />
                                             <option value="Administrator" />
+                                            {/* ─── Leadership Tier ─── */}
+                                            <option value="Branch Head" />
+                                            <option value="Operations Head" />
+                                            <option value="Sales Head" />
+                                            <option value="Finance Head" />
+                                            {/* ─── Manager Tier ─── */}
                                             <option value="Manager" />
+                                            <option value="Sales Manager" />
+                                            <option value="Operations Manager" />
+                                            <option value="Marketing Manager" />
+                                            <option value="Account Manager" />
+                                            <option value="Product Manager" />
+                                            {/* ─── Specialist Tier ─── */}
+                                            <option value="Senior Tour Consultant" />
+                                            <option value="Tour Consultant" />
+                                            <option value="Tour Coordinator" />
+                                            <option value="Visa Executive" />
+                                            <option value="Visa Consultant" />
+                                            <option value="Senior Agent" />
+                                            {/* ─── Agent / Executive Tier ─── */}
                                             <option value="Agent" />
+                                            <option value="Travel Agent" />
+                                            <option value="Sales Executive" />
+                                            <option value="Booking Executive" />
+                                            <option value="Field Agent" />
+                                            {/* ─── Support / Back-office Tier ─── */}
                                             <option value="Editor" />
+                                            <option value="Content Writer" />
                                             <option value="Support" />
+                                            <option value="Customer Support" />
+                                            <option value="Finance Executive" />
+                                            <option value="Accountant" />
+                                            <option value="Intern" />
                                         </datalist>
                                     </div>
                                     <div>
@@ -413,13 +583,16 @@ export const StaffManagement: React.FC = () => {
                                             </thead>
                                             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                                                 {Object.entries(formData.permissions).map(([key, value]) => {
-                                                    // Format camelCase to Title Case
                                                     const label = key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
                                                     const typedKey = key as keyof StaffPermissions;
-
+                                                    const desc = PERMISSION_DESCRIPTIONS[key] || '';
                                                     return (
                                                         <tr key={key} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                                                            <td className="px-4 py-3 text-slate-700 dark:text-slate-300 font-medium">{label}</td>
+                                                            {/* Fix #16: Permission description */}
+                                                            <td className="px-4 py-3">
+                                                                <p className="text-slate-700 dark:text-slate-300 font-medium text-sm">{label}</p>
+                                                                {desc && <p className="text-[10px] text-slate-400 mt-0.5">{desc}</p>}
+                                                            </td>
                                                             <td className="px-4 py-3 text-center">
                                                                 <input
                                                                     type="checkbox"
@@ -444,6 +617,73 @@ export const StaffManagement: React.FC = () => {
                                     </div>
                                 </div>
 
+                                {/* Fix #1: Reset Password in Edit Mode */}
+                                {isEditing && editingId && (
+                                    <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowResetPassword(p => !p)}
+                                            className="w-full flex items-center justify-between px-4 py-3 text-sm font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                                        >
+                                            <span className="flex items-center gap-2">
+                                                <span className="material-symbols-outlined text-[18px] text-amber-500">lock_reset</span>
+                                                Reset Login Password
+                                            </span>
+                                            <span className="material-symbols-outlined text-[18px] text-slate-400">{showResetPassword ? 'expand_less' : 'expand_more'}</span>
+                                        </button>
+                                        {showResetPassword && (
+                                            <div className="px-4 pb-4 pt-2 space-y-3 border-t border-slate-100 dark:border-slate-700 bg-amber-50/30 dark:bg-amber-900/10">
+                                                <p className="text-xs text-amber-700 dark:text-amber-400 font-medium">This will immediately update the login password for this staff member.</p>
+                                                <div className="grid grid-cols-2 gap-3">
+                                                    <div>
+                                                        <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">New Password</label>
+                                                        <input
+                                                            type="password"
+                                                            value={resetPassword}
+                                                            onChange={e => setResetPassword(e.target.value)}
+                                                            className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none"
+                                                            placeholder="Min 6 chars"
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">Confirm</label>
+                                                        <input
+                                                            type="password"
+                                                            value={resetConfirmPassword}
+                                                            onChange={e => setResetConfirmPassword(e.target.value)}
+                                                            className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none"
+                                                            placeholder="Repeat password"
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    disabled={isResettingPassword}
+                                                    onClick={async () => {
+                                                        if (resetPassword.length < 6) { toast.error('Password must be at least 6 characters'); return; }
+                                                        if (resetPassword !== resetConfirmPassword) { toast.error('Passwords do not match'); return; }
+                                                        setIsResettingPassword(true);
+                                                        try {
+                                                            await api.resetStaffPassword(editingId, resetPassword);
+                                                            toast.success('Password updated successfully');
+                                                            setShowResetPassword(false);
+                                                            setResetPassword('');
+                                                            setResetConfirmPassword('');
+                                                        } catch (err: any) {
+                                                            toast.error(err.message || 'Failed to reset password');
+                                                        } finally {
+                                                            setIsResettingPassword(false);
+                                                        }
+                                                    }}
+                                                    className="w-full py-2 bg-amber-500 hover:bg-amber-600 text-white text-sm font-bold rounded-lg transition-colors disabled:opacity-60"
+                                                >
+                                                    {isResettingPassword ? 'Updating...' : 'Update Password'}
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
                                 <div className="flex items-center gap-2 mt-2">
                                     <input
                                         type="checkbox"
@@ -459,18 +699,22 @@ export const StaffManagement: React.FC = () => {
                         </div>
 
                         <div className="p-6 border-t border-slate-100 dark:border-slate-800 flex justify-between">
-                            <div className="flex items-center gap-2">
-                                <input type="checkbox" id="sendMail" className="size-4 rounded border-gray-300" />
-                                <label htmlFor="sendMail" className="text-xs text-slate-500">Reset and send temporary password to mail</label>
-                            </div>
+                            {/* Fix #17: Warn about active session changes */}
+                            <p className="text-[10px] text-slate-400 italic self-center max-w-[200px]">Permission changes apply on the staff member's next login.</p>
                             <div className="flex gap-3">
-                                {currentUser?.userType === 'Admin' && (
+                                {currentUser?.userType === 'Admin' && !isEditing && (
                                     <button
                                         type="button"
                                         onClick={async () => {
                                             try {
                                                 const res = await api.syncStaffAuth();
-                                                toast.success(res.message || 'Sync successful');
+                                                // Fix #13: Show per-user temp passwords
+                                                if (res.created && res.created.length > 0) {
+                                                    const list = res.created.map((c: any) => `${c.name}: ${c.tempPassword}`).join('\n');
+                                                    alert(`Sync complete! New accounts created:\n\n${list}\n\nPlease share these passwords securely.`);
+                                                } else {
+                                                    toast.success(res.message || 'All accounts already synced');
+                                                }
                                             } catch (err: any) {
                                                 toast.error(err.message || 'Sync failed');
                                             }
@@ -483,7 +727,7 @@ export const StaffManagement: React.FC = () => {
                                     </button>
                                 )}
                                 <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-slate-500 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">Cancel</button>
-                                <button type="submit" form="staffForm" className="px-6 py-2 bg-primary text-white font-bold rounded-lg shadow-lg shadow-primary/20 hover:bg-primary-dark transition-colors">{isEditing ? 'Save' : 'Save'}</button>
+                                <button type="submit" form="staffForm" className="px-6 py-2 bg-primary text-white font-bold rounded-lg shadow-lg shadow-primary/20 hover:bg-primary-dark transition-colors">{isEditing ? 'Save Changes' : 'Add Member'}</button>
                             </div>
                         </div>
                     </div>
@@ -500,13 +744,16 @@ export const StaffManagement: React.FC = () => {
                                 <h1 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight"><span className="font-display text-4xl">Staff Management</span></h1>
                                 <p className="text-slate-500 dark:text-slate-400 mt-1 font-medium">Manage your team, roles, and department access.</p>
                             </div>
-                            <button
-                                onClick={handleOpenAdd}
-                                className="flex items-center justify-center gap-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-6 py-3 rounded-xl font-bold shadow-xl hover:shadow-2xl hover:-translate-y-0.5 active:translate-y-0 transition-all duration-300"
-                            >
-                                <span className="material-symbols-outlined text-[20px]">person_add</span>
-                                Add Member
-                            </button>
+                            {/* Fix #18: Only Admins can add staff */}
+                            {currentUser?.userType === 'Admin' && (
+                                <button
+                                    onClick={handleOpenAdd}
+                                    className="flex items-center justify-center gap-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-6 py-3 rounded-xl font-bold shadow-xl hover:shadow-2xl hover:-translate-y-0.5 active:translate-y-0 transition-all duration-300"
+                                >
+                                    <span className="material-symbols-outlined text-[20px]">person_add</span>
+                                    Add Member
+                                </button>
+                            )}
                         </div>
 
                         {/* Quick Stats Cards */}
@@ -518,14 +765,12 @@ export const StaffManagement: React.FC = () => {
                                     <span className="text-xs font-bold text-slate-400">members</span>
                                 </div>
                             </div>
+                            {/* Fix #8: Renamed to Active Accounts, removed misleading pulsing dot */}
                             <div className="bg-white dark:bg-[#1A2633] p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-shadow">
-                                <p className="text-slate-500 text-[10px] font-bold uppercase tracking-widest mb-2">Active Now</p>
-                                <div className="flex items-center gap-3">
-                                    <div className="relative flex h-3 w-3">
-                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                                        <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
-                                    </div>
+                                <p className="text-slate-500 text-[10px] font-bold uppercase tracking-widest mb-2">Active Accounts</p>
+                                <div className="flex items-baseline gap-1">
                                     <p className="text-3xl font-black text-slate-900 dark:text-white">{activeStaff}</p>
+                                    <span className="text-xs font-bold text-slate-400">of {staff.length}</span>
                                 </div>
                             </div>
                             <div className="bg-white dark:bg-[#1A2633] p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-shadow">
@@ -535,20 +780,22 @@ export const StaffManagement: React.FC = () => {
                                     <span className="text-xs font-bold text-slate-400">active</span>
                                 </div>
                             </div>
+                            {/* Fix #6: Real new joiners this month */}
                             <div className="bg-gradient-to-br from-indigo-600 to-violet-600 p-5 rounded-2xl shadow-lg shadow-indigo-500/20 text-white relative overflow-hidden group">
                                 <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:scale-110 transition-transform duration-700">
                                     <span className="material-symbols-outlined text-6xl">trending_up</span>
                                 </div>
                                 <p className="text-indigo-100 text-[10px] font-bold uppercase tracking-widest mb-2">New Joiners</p>
-                                <p className="text-3xl font-black relative z-10">0</p>
+                                <p className="text-3xl font-black relative z-10">{newJoinersThisMonth}</p>
                                 <p className="text-[10px] text-indigo-200 font-bold mt-1">This Month</p>
                             </div>
                         </div>
 
                         {/* Controls Toolbar */}
                         <div className="flex flex-col md:flex-row gap-4 justify-between items-end md:items-center bg-white dark:bg-[#1A2633] p-2 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                            {/* Fix #7: Dynamic department tabs */}
                             <div className="flex items-center gap-1 overflow-x-auto w-full md:w-auto pb-2 md:pb-0 no-scrollbar">
-                                {['All', 'Executive', 'Sales', 'Operations', 'Marketing', 'Support'].map(tab => (
+                                {departmentTabs.map(tab => (
                                     <button
                                         key={tab}
                                         onClick={() => setActiveTab(tab)}
@@ -558,14 +805,27 @@ export const StaffManagement: React.FC = () => {
                                     </button>
                                 ))}
                             </div>
-                            <div className="relative w-full md:w-72">
-                                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 material-symbols-outlined text-[20px]">search</span>
-                                <input
-                                    className="w-full bg-slate-50 dark:bg-slate-900 border-none rounded-xl pl-12 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-primary/20 outline-none transition-all placeholder:text-slate-400"
-                                    placeholder="Search by name or email..."
-                                    value={search}
-                                    onChange={e => setSearch(e.target.value)}
-                                />
+                            <div className="flex items-center gap-2 w-full md:w-auto">
+                                {/* Fix #19: Sort dropdown */}
+                                <select
+                                    value={sortBy}
+                                    onChange={e => setSortBy(e.target.value as any)}
+                                    className="bg-slate-50 dark:bg-slate-900 border-none rounded-xl px-3 py-3 text-xs font-bold text-slate-600 dark:text-slate-300 focus:ring-2 focus:ring-primary/20 outline-none"
+                                >
+                                    <option value="name">Sort: Name A–Z</option>
+                                    <option value="role">Sort: Role</option>
+                                    <option value="department">Sort: Department</option>
+                                    <option value="joined">Sort: Newest First</option>
+                                </select>
+                                <div className="relative w-full md:w-60">
+                                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 material-symbols-outlined text-[20px]">search</span>
+                                    <input
+                                        className="w-full bg-slate-50 dark:bg-slate-900 border-none rounded-xl pl-12 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-primary/20 outline-none transition-all placeholder:text-slate-400"
+                                        placeholder="Search by name or email..."
+                                        value={search}
+                                        onChange={e => setSearch(e.target.value)}
+                                    />
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -618,8 +878,14 @@ export const StaffManagement: React.FC = () => {
                                                     </span>
                                                 </div>
 
-                                                <div className="hidden md:block w-1/6 text-right text-xs text-slate-500 font-medium">
-                                                    {member.lastActive}
+                                                <div className="hidden md:block w-1/6 text-right">
+                                                    <span className={`text-xs font-medium ${
+                                                        !member.lastActive || member.lastActive === 'Never'
+                                                            ? 'text-slate-300 dark:text-slate-600'
+                                                            : 'text-slate-500 dark:text-slate-400'
+                                                    }`}>
+                                                        {formatLastActive(member.lastActive)}
+                                                    </span>
                                                 </div>
                                             </div>
                                         ))}
@@ -705,6 +971,15 @@ export const StaffManagement: React.FC = () => {
                                                         <p className="text-sm font-bold text-slate-900 dark:text-white">{selectedMember.phone || 'N/A'}</p>
                                                     </div>
                                                 </div>
+                                                <div className="flex items-center gap-3 p-3 bg-white dark:bg-[#1A2633] border border-slate-100 dark:border-slate-800 rounded-xl">
+                                                    <div className="size-8 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 flex items-center justify-center"><span className="material-symbols-outlined text-[18px]">schedule</span></div>
+                                                    <div>
+                                                        <p className="text-[10px] uppercase text-slate-400 font-bold">Last Active</p>
+                                                        <p className={`text-sm font-bold ${!selectedMember.lastActive || selectedMember.lastActive === 'Never' ? 'text-slate-400 dark:text-slate-600' : 'text-slate-900 dark:text-white'}`}>
+                                                            {formatLastActive(selectedMember.lastActive)}
+                                                        </p>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
 
@@ -713,26 +988,37 @@ export const StaffManagement: React.FC = () => {
                                             <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4 flex items-center gap-2">
                                                 <span className="material-symbols-outlined text-[14px]">lock_person</span> Access Rights
                                             </h3>
-                                            <div className="flex flex-wrap gap-2">
-                                                {selectedMember.permissions && Object.entries(selectedMember.permissions).map(([key, value]) => {
-                                                    const val = value as { manage: boolean; view: boolean };
-                                                    if (val.manage || val.view) {
-                                                        const label = key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
-                                                        return (
-                                                            <span key={key} className={`px-3 py-1.5 text-[10px] font-bold rounded-lg border flex items-center gap-1.5 ${val.manage ? 'bg-purple-50 text-purple-700 border-purple-100 dark:bg-purple-900/20 dark:border-purple-800 dark:text-purple-300' : 'bg-slate-50 text-slate-600 border-slate-100 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400'}`}>
-                                                                {val.manage ? <span className="material-symbols-outlined text-[14px] text-purple-500">edit_square</span> : <span className="material-symbols-outlined text-[14px] text-slate-400">visibility</span>}
-                                                                {label}
-                                                            </span>
-                                                        );
-                                                    }
-                                                    return null;
-                                                })}
-                                                {(!selectedMember.permissions || !Object.values(selectedMember.permissions).some((p: any) => p.view || p.manage)) && (
-                                                    <div className="w-full text-center py-4 border border-dashed border-slate-200 rounded-xl">
-                                                        <p className="text-xs text-slate-400 italic">No specific permissions assigned.</p>
+                                            {/* Fix #20: Admin users get Full Access badge instead of empty state */}
+                                            {selectedMember.userType === 'Admin' ? (
+                                                <div className="flex items-center gap-3 p-4 bg-gradient-to-r from-violet-50 to-purple-50 dark:from-violet-900/20 dark:to-purple-900/20 border border-violet-200 dark:border-violet-800 rounded-xl">
+                                                    <span className="material-symbols-outlined text-violet-600 text-[22px]">verified_user</span>
+                                                    <div>
+                                                        <p className="text-sm font-black text-violet-800 dark:text-violet-300">Full System Access</p>
+                                                        <p className="text-[10px] text-violet-600 dark:text-violet-400">Admins have unrestricted access to all modules.</p>
                                                     </div>
-                                                )}
-                                            </div>
+                                                </div>
+                                            ) : (
+                                                <div className="flex flex-wrap gap-2">
+                                                    {selectedMember.permissions && Object.entries(selectedMember.permissions).map(([key, value]) => {
+                                                        const val = value as { manage: boolean; view: boolean };
+                                                        if (val.manage || val.view) {
+                                                            const label = key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
+                                                            return (
+                                                                <span key={key} className={`px-3 py-1.5 text-[10px] font-bold rounded-lg border flex items-center gap-1.5 ${val.manage ? 'bg-purple-50 text-purple-700 border-purple-100 dark:bg-purple-900/20 dark:border-purple-800 dark:text-purple-300' : 'bg-slate-50 text-slate-600 border-slate-100 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400'}`}>
+                                                                    {val.manage ? <span className="material-symbols-outlined text-[14px] text-purple-500">edit_square</span> : <span className="material-symbols-outlined text-[14px] text-slate-400">visibility</span>}
+                                                                    {label}
+                                                                </span>
+                                                            );
+                                                        }
+                                                        return null;
+                                                    })}
+                                                    {(!selectedMember.permissions || !Object.values(selectedMember.permissions).some((p: any) => p.view || p.manage)) && (
+                                                        <div className="w-full text-center py-4 border border-dashed border-slate-200 rounded-xl">
+                                                            <p className="text-xs text-slate-400 italic">No permissions assigned yet. Edit profile to configure.</p>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 </div>

@@ -3,29 +3,31 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import { SEO } from '../components/ui/SEO';
 import { OptimizedImage } from '../components/ui/OptimizedImage';
-import { MasterLocation } from '../types';
-
-// Helper to resolve location ID to name
-const getLocationName = (locationValue: string, masterLocations: MasterLocation[]): string => {
-  if (locationValue && locationValue.includes('-') && locationValue.length > 20) {
-    const found = masterLocations.find(l => l.id === locationValue);
-    return found ? found.name : locationValue;
-  }
-  return locationValue || '';
-};
+import { getLocationName, formatPriceCompact } from '../utils/packageUtils';
 
 export const Packages: React.FC = () => {
   const { packages, masterLocations } = useData();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const initialSearch = searchParams.get('search') || '';
+
+  // Derive max duration dynamically from actual package data
+  const maxDuration = useMemo(() => {
+    if (packages.length === 0) return 15;
+    return Math.max(15, ...packages.map(p => p.days || 0));
+  }, [packages]);
 
   const [searchQuery, setSearchQuery] = useState(initialSearch);
   const [debouncedSearch, setDebouncedSearch] = useState(initialSearch);
   const [priceRange, setPriceRange] = useState(200000);
-  const [duration, setDuration] = useState(15);
+  const [duration, setDuration] = useState<number | null>(null); // null = all
   const [selectedThemes, setSelectedThemes] = useState<string[]>([]);
   const [sortOption, setSortOption] = useState('Recommended');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+
+  // Derive themes dynamically from live package data
+  const availableThemes = useMemo(() =>
+    [...new Set(packages.map(p => p.theme).filter((t): t is string => !!t))].sort()
+  , [packages]);
 
   useEffect(() => {
     setSearchQuery(searchParams.get('search') || '');
@@ -50,43 +52,53 @@ export const Packages: React.FC = () => {
 
   const handleReset = () => {
     setPriceRange(200000);
-    setDuration(15);
+    setDuration(null);
     setSelectedThemes([]);
     setSortOption('Recommended');
     setSearchQuery('');
     setDebouncedSearch('');
+    setSearchParams({}); // clear URL ?search= param
   };
 
   // Filter + sort — memoized so they only recompute when inputs actually change
   const filteredPackages = useMemo(() => packages.filter(pkg => {
     if (pkg.status && pkg.status !== 'Active') return false;
 
-    const matchesPrice = pkg.price <= priceRange;
-    const matchesDuration = pkg.days <= duration;
+    // Price: bypass filter entirely when slider is at max
+    const matchesPrice = priceRange >= 200000 || pkg.price <= priceRange;
+    // Duration: bypass when slider is at max (or null = all)
+    const effectiveDuration = duration ?? maxDuration;
+    const matchesDuration = effectiveDuration >= maxDuration || pkg.days <= effectiveDuration;
     const matchesTheme = selectedThemes.length === 0 || (pkg.theme && selectedThemes.includes(pkg.theme));
 
     const terms = debouncedSearch.toLowerCase().trim().split(/\s+/).filter(Boolean);
     const matchesSearch = terms.length === 0 || terms.every(term => {
+      const resolvedLocation = getLocationName(pkg.location, masterLocations);
       const searchableContent = [
         pkg.title,
-        pkg.location,
+        resolvedLocation,
+        pkg.location, // keep raw too for fallback
         pkg.description,
         pkg.theme,
         pkg.tag,
         pkg.overview,
-        ...pkg.highlights.map(h => h.label)
+        ...(pkg.highlights?.map(h => h.label) ?? [])
       ].join(' ').toLowerCase();
       return searchableContent.includes(term);
     });
 
     return matchesPrice && matchesDuration && matchesTheme && matchesSearch;
-  }), [packages, priceRange, duration, selectedThemes, debouncedSearch]);
+  }), [packages, priceRange, duration, maxDuration, selectedThemes, debouncedSearch, masterLocations]);
 
   const sortedPackages = useMemo(() => [...filteredPackages].sort((a, b) => {
     if (sortOption === 'Price: Low to High') return a.price - b.price;
     if (sortOption === 'Price: High to Low') return b.price - a.price;
     if (sortOption === 'Duration') return a.days - b.days;
-    return 0;
+    // Recommended: prefer Active status, then sort by remainingSeats desc (scarcity)
+    const activeA = a.status === 'Active' ? 0 : 1;
+    const activeB = b.status === 'Active' ? 0 : 1;
+    if (activeA !== activeB) return activeA - activeB;
+    return (b.remainingSeats ?? 999) - (a.remainingSeats ?? 999);
   }), [filteredPackages, sortOption]);
 
   return (
@@ -191,7 +203,7 @@ export const Packages: React.FC = () => {
                   <div className="space-y-4">
                     <div className="flex justify-between items-center">
                       <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Max Budget</label>
-                      <span className="text-sm font-bold text-slate-900 dark:text-white bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded">₹{(priceRange / 1000).toFixed(0)}k</span>
+                      <span className="text-sm font-bold text-slate-900 dark:text-white bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded">{formatPriceCompact(priceRange)}</span>
                     </div>
                     <input
                       type="range"
@@ -212,23 +224,28 @@ export const Packages: React.FC = () => {
                   <div className="space-y-4">
                     <div className="flex justify-between items-center">
                       <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Duration</label>
-                      <span className="text-sm font-bold text-slate-900 dark:text-white bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded">Up to {duration} Days</span>
+                      <span className="text-sm font-bold text-slate-900 dark:text-white bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded">
+                        {duration === null || duration >= maxDuration ? 'All Durations' : `Up to ${duration} Days`}
+                      </span>
                     </div>
                     <input
                       type="range"
                       min="1"
-                      max="15"
-                      value={duration}
-                      onChange={(e) => setDuration(parseInt(e.target.value))}
+                      max={maxDuration}
+                      value={duration ?? maxDuration}
+                      onChange={(e) => {
+                        const v = parseInt(e.target.value);
+                        setDuration(v >= maxDuration ? null : v);
+                      }}
                       className="w-full h-1.5 bg-slate-200 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-primary"
                     />
                   </div>
 
-                  {/* Themes */}
+                  {/* Themes — dynamically derived from live package data */}
                   <div className="space-y-4">
                     <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Experience Type</p>
                     <div className="flex flex-wrap gap-2">
-                      {['Adventure', 'Honeymoon', 'Family', 'Pilgrim Yatra', 'Religious', 'Wildlife', 'Luxury'].map((theme) => (
+                      {availableThemes.map((theme) => (
                         <button
                           key={theme}
                           onClick={() => toggleTheme(theme)}
@@ -237,6 +254,9 @@ export const Packages: React.FC = () => {
                           {theme}
                         </button>
                       ))}
+                      {availableThemes.length === 0 && (
+                        <p className="text-xs text-slate-400">No themes available yet.</p>
+                      )}
                     </div>
                   </div>
 
@@ -305,7 +325,7 @@ export const Packages: React.FC = () => {
                               </p>
                               <div className="flex items-center gap-1 text-white font-black text-sm">
                                 <span className="text-[10px] text-white/60 font-medium mr-1 italic">from</span>
-                                ₹{(pkg.price / 1000).toFixed(0)}k
+                                {formatPriceCompact(pkg.price)}
                               </div>
                             </div>
                           </div>

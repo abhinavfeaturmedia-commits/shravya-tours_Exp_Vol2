@@ -1,4 +1,5 @@
 
+// @refresh reset
 import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 import { api } from '../src/lib/api';
 import { toast } from 'sonner';
@@ -147,7 +148,7 @@ const INITIAL_CMS_TESTIMONIALS: CMSTestimonial[] = [
     customerName: 'Anjali Menon',
     location: 'Bangalore',
     rating: 5,
-    text: 'Shravya Tours made our honeymoon absolutely magical! The hotels were stunning and the service was impeccable.',
+    text: 'SHRAWELLO Travel Hub made our honeymoon absolutely magical! The hotels were stunning and the service was impeccable.',
     isActive: true
   },
   {
@@ -233,7 +234,7 @@ interface DataContextType {
   bookings: Booking[];
   leads: Lead[];
   customers: Customer[];
-  inventory: Record<number, DailySlot>;
+  inventory: Record<string, DailySlot>;
   auditLogs: AuditLog[];
   logAction: (action: string, module: string, details: string, severity?: 'Info' | 'Warning' | 'Critical', performedBy?: string) => void;
 
@@ -291,7 +292,7 @@ interface DataContextType {
   importCustomers: (customers: Customer[]) => void;
 
   // Inventory
-  updateInventory: (date: number, slot: DailySlot) => void;
+  updateInventory: (dateStr: string, slot: DailySlot) => void;
   getRevenue: () => number;
 
   // Vendor Functions
@@ -448,29 +449,17 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [cmsPosts, setCmsPosts] = useState<CMSPost[]>(() => loadFromStorage(`${STORAGE_KEY}_cms_posts`, INITIAL_CMS_POSTS));
 
   // Inventory
-  const [inventory, setInventory] = useState<Record<number, DailySlot>>(() => {
-    const saved = loadFromStorage<Record<number, DailySlot> | null>(`${STORAGE_KEY}_inventory_v2`, null);
+  const [inventory, setInventory] = useState<Record<string, DailySlot>>(() => {
+    const saved = loadFromStorage<Record<string, DailySlot> | null>(`${STORAGE_KEY}_inventory_v2`, null);
     if (saved) return saved;
-    const initialInv: Record<number, DailySlot> = {};
-    const now = new Date();
-    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-    for (let i = 1; i <= daysInMonth; i++) {
-      initialInv[i] = { date: i, capacity: 20, booked: 0, price: 35000, isBlocked: false };
-    }
-    return initialInv;
+    return {};
   });
 
   // Load Real Data
   const refreshData = useCallback(async () => {
     try {
-      const pkgs = await api.getPackages();
-      setPackages(pkgs);
-    } catch (e) {
-      console.error("Failed to load packages", e);
-    }
-
-    try {
-      const [b, l, v, a, c, locs, cam, htl, tsk, fups] = await Promise.all([
+      const [pkgs, b, l, v, a, c, locs, cam, htl, tsk, fups, inv] = await Promise.all([
+        api.getPackages().catch(() => []),
         api.getBookings().catch(() => []),
         api.getLeads().catch(() => []),
         api.getVendors().catch(() => []),
@@ -480,8 +469,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         api.getCampaigns().catch(() => []),
         api.getMasterHotels().catch(() => []),
         api.getTasks().catch(() => []),
-        api.getFollowUps().catch(() => [])
+        api.getFollowUps().catch(() => []),
+        api.getInventory().catch(() => ({}))
       ]);
+      setPackages(pkgs);
       setBookings(b);
       setLeads(l);
       setVendors(v as Vendor[]);
@@ -492,6 +483,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (htl.length > 0) setMasterHotels(htl);
       setTasks(tsk);
       if (fups.length > 0) setFollowUps(fups);
+      if (inv && Object.keys(inv).length > 0) setInventory(inv);
 
       // After loading both bookings and customers, silently sync any missing customers
       // from bookings (non-blocking — runs in background, re-fetches customers on success)
@@ -623,33 +615,33 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Package
   const addPackage = useCallback(async (pkg: Package) => {
-    setPackages(p => [pkg, ...p]);
     try {
-      await api.createPackage(pkg);
+      const savedPkg = await api.createPackage(pkg);
+      setPackages(p => [savedPkg || pkg, ...p]);
       logAction('Create', 'Packages', `Created Package: ${pkg.title}`);
       toast.success("Package created successfully");
+      return savedPkg || pkg;
     } catch (e: any) {
-      // Keep the package in local state even if DB save fails (offline-first)
-      // so the user can still see and use it. Show a warning instead.
-      toast.warning(e.message?.includes('fetch') || e.message?.includes('network')
-        ? "Package saved locally (offline). Will sync when backend is available."
-        : "Package saved locally but failed to persist to database."
-      );
+      toast.error(e.message || "Failed to persist package to database.");
+      throw e;
     }
   }, [logAction]);
 
   const updatePackage = useCallback(async (id: string, pkg: Partial<Package>) => {
-    const previousState = packages;
-    setPackages(p => p.map(x => x.id === id ? { ...x, ...pkg } : x));
     try {
       await api.updatePackage(id, pkg);
+      setPackages(prev => {
+        const target = prev.find(x => x.id === id);
+        if (!target) return prev;
+        return prev.map(x => x.id === id ? { ...x, ...pkg } : x);
+      });
       logAction('Update', 'Packages', `Updated Package: ${pkg.title || id}`);
       toast.success("Package updated");
     } catch (e: any) {
-      setPackages(previousState);
       toast.error(e.message || "Failed to update package");
+      throw e;
     }
-  }, [packages]);
+  }, [logAction]);
 
   const deletePackage = useCallback(async (id: string) => {
     if (isStaffContext()) {
@@ -675,7 +667,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       // 1. Lock Inventory (non-blocking — don't fail booking if inventory table is empty)
       try {
-        await api.bookInventorySlot(booking.date, 1);
+        if (booking.packageId) {
+          await api.bookInventorySlot(booking.date, booking.packageId, 1);
+        }
       } catch (invErr) {
         console.warn("Inventory slot lock skipped (table may not exist or no matching date):", invErr);
       }
@@ -741,17 +735,19 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
           logAction('Create', 'Customers', `Auto-created Customer: ${booking.customer} from Booking`);
         } else {
-          // Update existing customer spend & count
+          // Update existing customer spend & count & lastActive
           const updatedTotalSpent = (existingCustomer.totalSpent || 0) + (booking.amount || 0);
           const updatedBookingsCount = (existingCustomer.bookingsCount || 0) + 1;
+          const currentIsoDate = new Date().toISOString();
           setCustomers(p => p.map(c =>
             c.id === existingCustomer.id
-              ? { ...c, totalSpent: updatedTotalSpent, bookingsCount: updatedBookingsCount }
+              ? { ...c, totalSpent: updatedTotalSpent, bookingsCount: updatedBookingsCount, lastActive: currentIsoDate }
               : c
           ));
           await api.updateCustomer(existingCustomer.id, {
             totalSpent: updatedTotalSpent,
-            bookingsCount: updatedBookingsCount
+            bookingsCount: updatedBookingsCount,
+            lastActive: currentIsoDate
           });
           logAction('Update', 'Customers', `Updated Customer stats for: ${existingCustomer.name} from new Booking`);
         }
@@ -1007,16 +1003,51 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Lead
   const addLead = useCallback(async (lead: Lead) => {
-    setLeads(l => [lead, ...l]);
     try {
-      await api.createLead(lead);
-      logAction('Create', 'Leads', `Created Lead: ${lead.name}`);
+      // Deduplication: Match by email or phone
+      const existingCustomer = customers.find(c => 
+        (lead.email && c.email?.toLowerCase() === lead.email.toLowerCase()) ||
+        (!lead.email && lead.phone && c.phone === lead.phone)
+      );
+
+      let finalLead = { ...lead };
+      
+      if (existingCustomer) {
+        finalLead.customerId = existingCustomer.id;
+        // Update customer lastActive
+        setCustomers(p => p.map(c => c.id === existingCustomer.id ? { ...c, lastActive: new Date().toISOString() } : c));
+        await api.updateCustomer(existingCustomer.id, { lastActive: new Date().toISOString() });
+        logAction('Update', 'Customers', `Updated lastActive for ${existingCustomer.name} from new Lead`);
+      } else {
+        // Create new customer
+        const newCustomer: Customer = {
+          id: `CUST-${Date.now()}`,
+          name: lead.name,
+          email: lead.email || '',
+          phone: lead.phone || '',
+          location: lead.location || '',
+          type: 'New',
+          status: 'Active',
+          totalSpent: 0,
+          bookingsCount: 0,
+          joinedDate: new Date().toISOString().split('T')[0],
+          lastActive: new Date().toISOString()
+        };
+        finalLead.customerId = newCustomer.id;
+        setCustomers(p => [newCustomer, ...p]);
+        await api.createCustomer(newCustomer);
+        logAction('Create', 'Customers', `Auto-created Customer: ${newCustomer.name} from new Lead`);
+      }
+
+      setLeads(l => [finalLead, ...l]);
+      await api.createLead(finalLead);
+      logAction('Create', 'Leads', `Created Lead: ${finalLead.name}`);
       toast.success("Lead created");
     } catch (e: any) {
       setLeads(l => l.filter(x => x.id !== lead.id));
       toast.error(e.message || "Failed to create lead");
     }
-  }, []);
+  }, [customers, logAction]);
 
   const updateLead = useCallback(async (id: string, lead: Partial<Lead>) => {
     const previousState = leads;
@@ -1110,7 +1141,25 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const importCustomers = useCallback((newCustomers: Customer[]) => setCustomers(p => [...newCustomers, ...p]), []);
 
   // Inventory
-  const updateInventory = useCallback((date: number, slot: DailySlot) => { setInventory(i => ({ ...i, [date]: slot })); }, []);
+  const updateInventory = useCallback(async (dateStr: string, slot: DailySlot) => {
+    const key = `${dateStr}_${slot.assetId}`;
+    // Optimistic UI update first
+    setInventory(i => ({ ...i, [key]: slot }));
+    // Persist to backend database — show toast on result
+    try {
+      await api.updateInventory(dateStr, slot.assetId, slot.assetType, slot);
+      toast.success('Availability updated successfully');
+    } catch (err: any) {
+      // Revert optimistic update on failure so UI stays consistent with DB
+      setInventory(i => {
+        const reverted = { ...i };
+        delete reverted[key];
+        return reverted;
+      });
+      console.error('Failed to update inventory:', err);
+      toast.error(err?.message || 'Failed to save availability. Please try again.');
+    }
+  }, []);
   const getRevenue = useCallback(() => bookings.reduce((acc, b) => b.payment === 'Paid' ? acc + b.amount : acc, 0), [bookings]);
 
   // Vendor

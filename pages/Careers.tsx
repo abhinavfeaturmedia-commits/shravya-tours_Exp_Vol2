@@ -8,13 +8,13 @@ export const Careers: React.FC = () => {
 
     return (
         <>
-            <SEO title="Careers | Shravya Tours & Travels" description="Join our team at Shravya Tours & Travels and help us deliver unforgettable travel experiences." />
+            <SEO title="Careers | SHRAWELLO Travel Hub" description="Join our team at SHRAWELLO Travel Hub and help us deliver unforgettable travel experiences." />
             <div className="bg-slate-50 dark:bg-slate-900 min-h-screen py-24">
                 <div className="container mx-auto px-6 max-w-4xl">
                     <div className="text-center mb-16 animate-in slide-in-from-bottom-5">
                         <span className="inline-block py-1 px-3 rounded-full bg-primary/10 text-primary font-bold text-sm tracking-wide uppercase mb-4">Join Us</span>
                         <h1 className="text-4xl md:text-5xl font-black text-slate-900 dark:text-white mb-6">Build the Future of Travel</h1>
-                        <p className="text-lg text-slate-600 dark:text-slate-400">At Shravya Tours & Travels, we are always looking for passionate individuals to join our team.</p>
+                        <p className="text-lg text-slate-600 dark:text-slate-400">At SHRAWELLO Travel Hub, we are always looking for passionate individuals to join our team.</p>
                     </div>
 
                     {/* Open Positions */}
@@ -45,7 +45,7 @@ export const Careers: React.FC = () => {
                     <div className="bg-gradient-to-br from-primary/90 to-primary p-10 rounded-3xl text-center text-white shadow-xl relative overflow-hidden animate-in slide-in-from-bottom-5 delay-200">
                         <div className="absolute top-0 right-0 -mr-16 -mt-16 bg-white/10 w-64 h-64 rounded-full blur-3xl"></div>
                         <h2 className="text-3xl font-black mb-4 relative z-10">Don't see a perfect fit?</h2>
-                        <p className="text-lg text-white/90 mb-8 relative z-10">We are always eager to meet talented professionals. Send us your resume and tell us how you can contribute to Shravya Tours.</p>
+                        <p className="text-lg text-white/90 mb-8 relative z-10">We are always eager to meet talented professionals. Send us your resume and tell us how you can contribute to SHRAWELLO Travel Hub.</p>
                         <a href="mailto:toursshravya@gmail.com?subject=General%20Application" className="inline-flex items-center gap-2 px-8 py-4 bg-white text-primary font-black shadow-lg rounded-xl hover:bg-slate-50 hover:-translate-y-1 transition-all relative z-10">
                             <span className="material-symbols-outlined">mail</span> Send Open Application
                         </a>

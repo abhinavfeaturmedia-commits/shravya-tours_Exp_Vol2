@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
+import { useSettings } from '../../context/SettingsContext';
 import { toast } from 'sonner';
 import { SuggestPopup, isDismissed, isSnoozed, dismissSuggestion, snoozeSuggestion } from '../../components/ui/SuggestPopup';
 import { getPaymentDueBookings } from '../../src/hooks/useSuggestions';
@@ -22,7 +23,7 @@ const NAV_GROUPS = [
       { name: 'Inventory', path: '/admin/inventory', icon: 'calendar_month', module: 'inventory' },
       { name: 'Vendors', path: '/admin/vendors', icon: 'storefront', module: 'vendors' },
       { name: 'Itinerary Builder', path: '/admin/itinerary-builder', icon: 'map', module: 'itinerary' },
-      { name: 'Live Operations', path: '/admin/operations', icon: 'traffic', module: 'bookings' },
+      { name: 'Live Operations', path: '/admin/operations', icon: 'traffic', module: 'operations' },
       { name: 'Masters', path: '/admin/masters', icon: 'dataset', module: 'masters' },
     ]
   },
@@ -33,8 +34,9 @@ const NAV_GROUPS = [
       { name: 'Customers', path: '/admin/customers', icon: 'face', module: 'customers' },
       { name: 'Accounts', path: '/admin/accounts', icon: 'account_balance', module: 'finance' },
       { name: 'Expenses', path: '/admin/expenses', icon: 'receipt_long', module: 'finance' },
-      { name: 'Payment Approvals', path: '/admin/finance-verification', icon: 'fact_check', module: 'finance' },
-      { name: 'Proposals', path: '/admin/proposals', icon: 'description', module: 'leads' },
+      { name: 'Payment Approvals', path: '/admin/finance-verification', icon: 'fact_check', module: 'invoices' },
+      { name: 'Proposals', path: '/admin/proposals', icon: 'description', module: 'proposals' },
+      { name: 'Invoices', path: '/admin/invoices', icon: 'receipt', module: 'invoices' },
     ]
   },
   {
@@ -50,13 +52,15 @@ const NAV_GROUPS = [
     items: [
       { name: 'Audit Logs', path: '/admin/audit', icon: 'history', module: 'audit' },
       { name: 'Productivity', path: '/admin/productivity', icon: 'insights', module: 'staff' },
+      { name: 'Settings', path: '/admin/settings', icon: 'settings', module: 'settings' },
     ]
   }
 ];
 
 export const AdminLayout: React.FC = () => {
   const { currentUser, logout, isAuthenticated, isLoading, isMasquerading, stopMasquerading, realUser, hasPermission } = useAuth();
-  const { bookings, leads, followUps, updateFollowUp, packages, vendors } = useData(); // Connect to real data
+  const { bookings, leads, followUps, updateFollowUp, packages, vendors } = useData();
+  const { settings } = useSettings();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isFabOpen, setIsFabOpen] = useState(false);
@@ -130,7 +134,7 @@ export const AdminLayout: React.FC = () => {
     const resetIdle = () => {
       setIsUserIdle(false);
       clearTimeout(idleTimer);
-      idleTimer = setTimeout(() => setIsUserIdle(true), 20 * 60 * 1000); // 20 minutes
+      idleTimer = setTimeout(() => setIsUserIdle(true), (settings.staffRoles.idleTimeoutMinutes || 20) * 60 * 1000);
     };
     const events = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
     events.forEach(e => window.addEventListener(e, resetIdle, { passive: true }));
@@ -284,7 +288,7 @@ export const AdminLayout: React.FC = () => {
   if (!isAuthenticated || !currentUser) return null;
 
   return (
-    <div className="bg-slate-50 dark:bg-[#0B1116] text-slate-900 dark:text-slate-100 flex h-screen overflow-hidden font-sans relative">
+    <div className="bg-slate-50 dark:bg-[#0B1116] text-slate-900 dark:text-slate-100 flex h-screen print:h-auto overflow-hidden print:overflow-visible font-sans relative">
       {/* Masquerade Banner */}
       {isMasquerading && (
         <div className="fixed top-0 left-0 right-0 h-8 bg-amber-400 text-amber-900 z-[200] flex items-center justify-center text-xs font-bold gap-4 shadow-sm animate-in slide-in-from-top">
@@ -306,7 +310,7 @@ export const AdminLayout: React.FC = () => {
       )}
 
       {/* Side Navigation - Modernized */}
-      <aside className={`
+      <aside className={`print:hidden
         fixed lg:static inset-y-0 left-0 w-[280px] bg-white/95 dark:bg-[#0F172A]/95 backdrop-blur-xl border-r border-slate-200/50 dark:border-slate-800/50 
         transform transition-transform duration-300 ease-[cubic-bezier(0.25,0.1,0.25,1.0)] z-[110] flex flex-col
         ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
@@ -315,10 +319,10 @@ export const AdminLayout: React.FC = () => {
         <div className="h-20 flex items-center justify-between px-6 shrink-0">
           <Link to="/" className="flex items-center gap-3 group">
             <div className="h-12 w-auto flex items-center justify-center transition-transform hover:scale-105">
-              <img src="/logo.png" alt="Shravya Tours Logo" className="h-full object-contain drop-shadow-sm" />
+              <img src="/logo.png" alt="SHRAWELLO Travel Hub Logo" className="h-full object-contain drop-shadow-sm" />
             </div>
             <div className="flex flex-col">
-              <span className="font-black text-xl tracking-tight leading-none text-slate-900 dark:text-white">Shravya</span>
+              <span className="font-black text-xl tracking-tight leading-none text-slate-900 dark:text-white">SHRAWELLO</span>
               <span className="text-[10px] font-bold text-transparent bg-clip-text bg-gradient-to-r from-indigo-500 to-purple-500 uppercase tracking-[0.2em] mt-0.5">Admin Panel</span>
             </div>
           </Link>
@@ -395,10 +399,10 @@ export const AdminLayout: React.FC = () => {
       </aside>
 
       {/* Main Content Wrapper */}
-      <div className="flex-1 flex flex-col h-screen overflow-hidden relative bg-slate-50 dark:bg-[#0B1116]">
+      <div className="flex-1 flex flex-col h-screen print:h-auto overflow-hidden print:overflow-visible relative bg-slate-50 dark:bg-[#0B1116] print:bg-white">
 
         {/* Sticky Top Header */}
-        <header className="h-20 flex items-center justify-between px-6 lg:px-8 border-b border-slate-200/60 dark:border-slate-800 bg-white/80 dark:bg-[#151d29]/80 backdrop-blur-xl z-20 shrink-0 sticky top-0">
+        <header className="print:hidden h-20 flex items-center justify-between px-6 lg:px-8 border-b border-slate-200/60 dark:border-slate-800 bg-white/80 dark:bg-[#151d29]/80 backdrop-blur-xl z-20 shrink-0 sticky top-0">
           <div className="flex items-center gap-4">
             <button
               className="lg:hidden p-2 -ml-2 text-slate-500 hover:bg-slate-100 rounded-xl transition-colors"
@@ -708,7 +712,7 @@ export const AdminLayout: React.FC = () => {
         })()}
 
         {/* Scrollable Content Area */}
-        <div className="flex-1 overflow-y-auto scroll-smooth">
+        <div className="flex-1 overflow-y-auto print:overflow-visible scroll-smooth">
           <Outlet />
         </div>
 

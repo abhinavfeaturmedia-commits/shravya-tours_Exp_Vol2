@@ -11,6 +11,221 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
+// ─── Interactive SVG Area Chart ────────────────────────────────────────────────
+interface TrendPoint { month: string; revenue: number; profit: number; }
+const TrendChart: React.FC<{ pts: TrendPoint[]; fmt: (n: number) => string }> = ({ pts, fmt }) => {
+   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+   const [activeMetric, setActiveMetric] = useState<'both' | 'revenue' | 'profit'>('both');
+
+   const W = 900, H = 270, PAD = { top: 28, right: 24, bottom: 42, left: 64 };
+   const innerW = W - PAD.left - PAD.right;
+   const innerH = H - PAD.top - PAD.bottom;
+   const maxVal = Math.max(...pts.map(d => Math.max(d.revenue, d.profit)), 1);
+   const yTicks = 5;
+   const colW = pts.length > 1 ? innerW / (pts.length - 1) : innerW;
+
+   const xOf = (i: number) => PAD.left + (pts.length > 1 ? (i / (pts.length - 1)) * innerW : innerW / 2);
+   const yOf = (v: number) => PAD.top + innerH - (v / maxVal) * innerH;
+
+   const bezierPath = (values: number[]) => {
+      if (values.length < 2) return '';
+      let d = `M ${xOf(0)} ${yOf(values[0])}`;
+      for (let i = 0; i < values.length - 1; i++) {
+         const cx = colW / 2.5;
+         d += ` C ${xOf(i) + cx} ${yOf(values[i])}, ${xOf(i + 1) - cx} ${yOf(values[i + 1])}, ${xOf(i + 1)} ${yOf(values[i + 1])}`;
+      }
+      return d;
+   };
+
+   const areaPath = (values: number[]) => {
+      const line = bezierPath(values);
+      if (!line) return '';
+      return `${line} L ${xOf(pts.length - 1)} ${PAD.top + innerH} L ${xOf(0)} ${PAD.top + innerH} Z`;
+   };
+
+   const revPath  = bezierPath(pts.map(d => d.revenue));
+   const profPath = bezierPath(pts.map(d => d.profit));
+   const revArea  = areaPath(pts.map(d => d.revenue));
+   const profArea = areaPath(pts.map(d => d.profit));
+   const hovered  = hoveredIdx !== null ? pts[hoveredIdx] : null;
+
+   const fmtTip = (v: number) =>
+      v >= 10000000 ? `₹${(v / 10000000).toFixed(1)}Cr`
+      : v >= 100000 ? `₹${(v / 100000).toFixed(1)}L`
+      : v >= 1000   ? `₹${(v / 1000).toFixed(1)}K`
+      : `₹${v.toFixed(0)}`;
+
+   const fmtY = (v: number) =>
+      v >= 100000 ? `₹${(v / 100000).toFixed(0)}L`
+      : v >= 1000 ? `₹${(v / 1000).toFixed(0)}K`
+      : `₹${v.toFixed(0)}`;
+
+   const showRev  = activeMetric === 'both' || activeMetric === 'revenue';
+   const showProf = activeMetric === 'both' || activeMetric === 'profit';
+
+   return (
+      <div className="bg-white dark:bg-[#1A2633] p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
+         {/* Header */}
+         <div className="flex flex-wrap justify-between items-center mb-5 gap-3">
+            <h4 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2 section-heading-accent">
+               <TrendingUp size={20} className="text-primary" /> Year-to-Date Performance Trend
+            </h4>
+            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
+               {(['both', 'revenue', 'profit'] as const).map(m => (
+                  <button key={m} onClick={() => setActiveMetric(m)}
+                     className={`px-3 py-1.5 rounded-md text-xs font-bold capitalize transition-all ${
+                        activeMetric === m
+                           ? m === 'profit' ? 'bg-white dark:bg-slate-700 text-emerald-600 shadow-sm'
+                           : m === 'revenue' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm'
+                           : 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-sm'
+                           : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                     }`}>
+                     {m === 'both' ? 'Both' : m === 'revenue' ? 'Revenue' : 'Profit'}
+                  </button>
+               ))}
+            </div>
+         </div>
+
+         {/* SVG Chart */}
+         <div className="w-full overflow-x-auto">
+            <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ minWidth: 520 }}
+               onMouseLeave={() => setHoveredIdx(null)}>
+               <defs>
+                  <linearGradient id="ytd-gradRev" x1="0" y1="0" x2="0" y2="1">
+                     <stop offset="0%"   stopColor="#6366f1" stopOpacity="0.32" />
+                     <stop offset="100%" stopColor="#6366f1" stopOpacity="0.01" />
+                  </linearGradient>
+                  <linearGradient id="ytd-gradProf" x1="0" y1="0" x2="0" y2="1">
+                     <stop offset="0%"   stopColor="#34d399" stopOpacity="0.28" />
+                     <stop offset="100%" stopColor="#34d399" stopOpacity="0.01" />
+                  </linearGradient>
+               </defs>
+
+               {/* Grid + Y labels */}
+               {Array.from({ length: yTicks + 1 }, (_, i) => {
+                  const v = (maxVal / yTicks) * i;
+                  const y = yOf(v);
+                  return (
+                     <g key={i}>
+                        <line x1={PAD.left} y1={y} x2={W - PAD.right} y2={y}
+                           stroke="currentColor" strokeOpacity="0.07" strokeWidth="1" strokeDasharray="4 4" />
+                        <text x={PAD.left - 8} y={y + 4} textAnchor="end"
+                           fill="currentColor" fillOpacity="0.38" fontSize="10" fontWeight="600">
+                           {fmtY(v)}
+                        </text>
+                     </g>
+                  );
+               })}
+
+               {/* Area fills */}
+               {showRev  && pts.length > 1 && <path d={revArea}  fill="url(#ytd-gradRev)"  />}
+               {showProf && pts.length > 1 && <path d={profArea} fill="url(#ytd-gradProf)" />}
+
+               {/* Lines */}
+               {showRev  && pts.length > 1 && <path d={revPath}  fill="none" stroke="#6366f1" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />}
+               {showProf && pts.length > 1 && <path d={profPath} fill="none" stroke="#34d399" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />}
+
+               {/* Per-month interaction */}
+               {pts.map((d, i) => (
+                  <g key={i}>
+                     {/* Month label */}
+                     <text x={xOf(i)} y={H - 8} textAnchor="middle"
+                        fill="currentColor" fillOpacity={hoveredIdx === i ? 0.9 : 0.45}
+                        fontSize="10" fontWeight="700">
+                        {d.month}
+                     </text>
+
+                     {/* Invisible wide hit rect */}
+                     <rect
+                        x={xOf(i) - colW / 2} y={PAD.top}
+                        width={colW} height={innerH + 14}
+                        fill="transparent" style={{ cursor: 'crosshair' }}
+                        onMouseEnter={() => setHoveredIdx(i)}
+                     />
+
+                     {/* Vertical crosshair */}
+                     {hoveredIdx === i && (
+                        <line x1={xOf(i)} y1={PAD.top} x2={xOf(i)} y2={PAD.top + innerH}
+                           stroke="currentColor" strokeOpacity="0.18" strokeWidth="1" strokeDasharray="4 3" />
+                     )}
+
+                     {/* Revenue dot */}
+                     {showRev && d.revenue > 0 && (
+                        <circle cx={xOf(i)} cy={yOf(d.revenue)} r={hoveredIdx === i ? 6 : 3.5}
+                           fill="#6366f1" stroke="white" strokeWidth="2"
+                           style={{ transition: 'r 0.12s ease' }} />
+                     )}
+                     {/* Profit dot */}
+                     {showProf && d.profit > 0 && (
+                        <circle cx={xOf(i)} cy={yOf(d.profit)} r={hoveredIdx === i ? 6 : 3.5}
+                           fill="#34d399" stroke="white" strokeWidth="2"
+                           style={{ transition: 'r 0.12s ease' }} />
+                     )}
+                  </g>
+               ))}
+
+               {/* Floating tooltip inside SVG */}
+               {hovered && hoveredIdx !== null && (() => {
+                  const lines = (showRev && showProf) ? 2 : 1;
+                  const tipH = 22 + lines * 18 + 8;
+                  const tipW = 152;
+                  const tx = Math.min(Math.max(xOf(hoveredIdx) - tipW / 2, PAD.left), W - PAD.right - tipW);
+                  const ty = PAD.top + 4;
+                  return (
+                     <g>
+                        {/* Shadow */}
+                        <rect x={tx + 2} y={ty + 2} width={tipW} height={tipH} rx="8" fill="black" fillOpacity="0.18" />
+                        <rect x={tx} y={ty} width={tipW} height={tipH} rx="8" fill="#0f172a" fillOpacity="0.94" />
+                        {/* Month name */}
+                        <text x={tx + 12} y={ty + 16} fill="white" fontSize="11" fontWeight="800">{hovered.month}</text>
+                        {/* Divider */}
+                        <line x1={tx + 8} y1={ty + 21} x2={tx + tipW - 8} y2={ty + 21} stroke="white" strokeOpacity="0.12" strokeWidth="1" />
+                        {/* Revenue row */}
+                        {showRev && (
+                           <>
+                              <circle cx={tx + 16} cy={ty + 32} r="4" fill="#818cf8" />
+                              <text x={tx + 26} y={ty + 36} fill="#a5b4fc" fontSize="10">Revenue</text>
+                              <text x={tx + tipW - 10} y={ty + 36} textAnchor="end" fill="#c7d2fe" fontSize="10" fontWeight="700">
+                                 {fmtTip(hovered.revenue)}
+                              </text>
+                           </>
+                        )}
+                        {/* Profit row */}
+                        {showProf && (
+                           <>
+                              <circle cx={tx + 16} cy={ty + (showRev ? 50 : 32)} r="4" fill="#34d399" />
+                              <text x={tx + 26} y={ty + (showRev ? 54 : 36)} fill="#6ee7b7" fontSize="10">Net Profit</text>
+                              <text x={tx + tipW - 10} y={ty + (showRev ? 54 : 36)} textAnchor="end" fill="#a7f3d0" fontSize="10" fontWeight="700">
+                                 {fmtTip(hovered.profit)}
+                              </text>
+                           </>
+                        )}
+                     </g>
+                  );
+               })()}
+            </svg>
+         </div>
+
+         {/* Legend */}
+         <div className="flex justify-center gap-6 mt-2">
+            {showRev && (
+               <div className="flex items-center gap-2">
+                  <div className="w-6 h-0.5 bg-indigo-500 rounded-full"></div>
+                  <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Gross Revenue</span>
+               </div>
+            )}
+            {showProf && (
+               <div className="flex items-center gap-2">
+                  <div className="w-6 h-0.5 bg-emerald-400 rounded-full"></div>
+                  <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Net Profit</span>
+               </div>
+            )}
+         </div>
+      </div>
+   );
+};
+// ── end TrendChart ──────────────────────────────────────────────────────────────
+
 export const Analytics: React.FC = () => {
    const { bookings: globalBookings, vendors, leads: globalLeads, customers: globalCustomers, followUps: globalFollowUps, refreshData } = useData();
    const { staff, currentUser } = useAuth();
@@ -572,65 +787,8 @@ export const Analytics: React.FC = () => {
                </div>
             </div>
 
-            {/* NEW 1. Monthly Revenue & Profit Trend Chart */}
-            <div className="bg-white dark:bg-[#1A2633] p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
-               <div className="flex justify-between items-center mb-6">
-                  <h4 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2 section-heading-accent">
-                     <TrendingUp size={20} className="text-primary" /> Year-to-Date Performance Trend
-                  </h4>
-               </div>
-
-               {/* Visual Chart Area */}
-               <div className="w-full overflow-x-auto pb-4">
-                  <div className="min-w-[800px] h-64 flex items-end gap-2 px-4 relative">
-                     {/* Y-Axis Grid Lines */}
-                     <div className="absolute inset-0 flex flex-col justify-between pointer-events-none opacity-20 dark:opacity-10 z-0">
-                        <div className="border-t border-slate-400 w-full h-0"></div>
-                        <div className="border-t border-slate-400 w-full h-0"></div>
-                        <div className="border-t border-slate-400 w-full h-0"></div>
-                        <div className="border-t border-slate-400 w-full h-0"></div>
-                     </div>
-
-                     {/* Bars */}
-                     {monthlyTrends.map((data, i) => {
-                        // Find max revenue for scaling
-                        const maxRev = Math.max(...monthlyTrends.map(m => m.revenue), 100000);
-
-                        const heightRev = Math.max((data.revenue / maxRev) * 100, 2); // % of container height
-                        const heightProfit = Math.max((data.profit / maxRev) * 100, 2);
-
-                        return (
-                           <div key={i} className="flex-1 flex flex-col justify-end items-center group relative z-10">
-                              {/* Tooltip on hover */}
-                              <div className="absolute -top-16 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900 text-white text-xs p-2 rounded whitespace-nowrap z-20 pointer-events-none shadow-xl border border-white/10">
-                                 <p className="font-bold">{data.month}</p>
-                                 <p className="text-indigo-300">Rev: {fmt(data.revenue)}</p>
-                                 <p className="text-emerald-400">Profit: {fmt(data.profit)}</p>
-                              </div>
-
-                              {/* Double Bar Construction */}
-                              <div className="flex items-end gap-1 w-full max-w-[40px] h-[200px]">
-                                 <div
-                                    className="w-1/2 bg-indigo-500 dark:bg-indigo-600 rounded-t-sm opacity-90 group-hover:opacity-100 transition-all"
-                                    style={{ height: `${heightRev}%` }}
-                                 />
-                                 <div
-                                    className="w-1/2 bg-emerald-400 dark:bg-emerald-500 rounded-t-sm opacity-90 group-hover:opacity-100 transition-all"
-                                    style={{ height: `${heightProfit}%` }}
-                                 />
-                              </div>
-                              <span className="text-[11px] font-bold text-slate-500 mt-3 uppercase">{data.month}</span>
-                           </div>
-                        );
-                     })}
-                  </div>
-                  {/* Chart Legend */}
-                  <div className="flex justify-center gap-6 mt-2 pb-2">
-                     <div className="flex items-center gap-2"><div className="size-3 rounded-full bg-indigo-500"></div><span className="text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">Gross Revenue</span></div>
-                     <div className="flex items-center gap-2"><div className="size-3 rounded-full bg-emerald-400"></div><span className="text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">Net Profit</span></div>
-                  </div>
-               </div>
-            </div>
+            {/* 1. Monthly Revenue & Profit Trend — Interactive SVG Area Chart */}
+            <TrendChart pts={monthlyTrends} fmt={fmt} />
 
             {/* 2. Outstanding Balance Report */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

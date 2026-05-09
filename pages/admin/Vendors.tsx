@@ -7,6 +7,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { VendorBulkEmailModal } from '../../components/admin/VendorBulkEmailModal';
 import { SuggestPopup, isDismissed, isSnoozed } from '../../components/ui/SuggestPopup';
 import { ActionMenu } from '../../components/ui/ActionMenu';
+import { formatPrice, formatPriceCompact } from '../../utils/packageUtils';
 
 // Internal Toast Component
 const Toast = ({ message, type, onClose }: { message: string, type: 'success' | 'error', onClose: () => void }) => (
@@ -55,6 +56,8 @@ export const Vendors: React.FC = () => {
     const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
     const [isDocModalOpen, setIsDocModalOpen] = useState(false);
     const [isBulkEmailModalOpen, setIsBulkEmailModalOpen] = useState(false);
+    const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+    const [exportFormat, setExportFormat] = useState<'basic' | 'detailed' | 'json'>('detailed');
 
     // Bulk Selection & Sorting State
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -181,7 +184,7 @@ export const Vendors: React.FC = () => {
         }
     };
 
-    const handleBulkAction = (action: 'export' | 'delete' | 'deactivate' | 'email') => {
+    const handleBulkAction = (action: 'delete' | 'deactivate' | 'email') => {
         if (selectedIds.size === 0) return;
 
         if (action === 'email') {
@@ -201,20 +204,74 @@ export const Vendors: React.FC = () => {
                 setSelectedIds(new Set());
                 showToast(`${selectedIds.size} vendors deactivated.`);
             }
-        } else {
-            // Mock Export
-            const csvContent = "data:text/csv;charset=utf-8," +
-                ["ID,Name,Category,Balance"].join(",") + "\n" +
-                vendors.filter(v => selectedIds.has(v.id)).map(v => `${v.id},${v.name},${v.category},${v.balanceDue}`).join("\n");
-            const encodedUri = encodeURI(csvContent);
+        }
+    };
+
+    const handleExportData = () => {
+        const vendorsToExport = selectedIds.size > 0 
+            ? vendors.filter(v => selectedIds.has(v.id)) 
+            : filteredVendors;
+
+        if (exportFormat === 'json') {
+            const jsonString = JSON.stringify(vendorsToExport, null, 2);
+            const blob = new Blob([jsonString], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
             const link = document.createElement("a");
-            link.setAttribute("href", encodedUri);
-            link.setAttribute("download", "vendors_export.csv");
+            link.href = url;
+            link.download = `vendors_full_backup_${new Date().toISOString().split('T')[0]}.json`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
-            showToast("Export download started.");
+            URL.revokeObjectURL(url);
+            showToast("JSON Export downloaded successfully.");
+        } else if (exportFormat === 'detailed') {
+            const headers = ["ID", "Name", "Category", "Sub Category", "Location", "Contact Name", "Contact Phone", "Contact Email", "Rating", "Contract Status", "Total Sales", "Total Commission", "Balance Due", "Bank Name", "Account Number", "IFSC", "UPI", "Services Count"];
+            
+            const rows = vendorsToExport.map(v => [
+                v.id,
+                `"${(v.name || '').replace(/"/g, '""')}"`,
+                v.category,
+                v.subCategory || '',
+                `"${(v.location || '').replace(/"/g, '""')}"`,
+                `"${(v.contactName || '').replace(/"/g, '""')}"`,
+                v.contactPhone || '',
+                v.contactEmail || '',
+                v.rating || 0,
+                v.contractStatus || '',
+                v.totalSales || 0,
+                v.totalCommission || 0,
+                v.balanceDue || 0,
+                `"${(v.bankDetails?.bankName || '').replace(/"/g, '""')}"`,
+                `"${(v.bankDetails?.accountNumber || '').replace(/"/g, '""')}"`,
+                v.bankDetails?.ifsc || '',
+                v.bankDetails?.upiId || '',
+                v.services?.length || 0
+            ].join(','));
+            
+            const csvContent = "data:text/csv;charset=utf-8," + headers.join(",") + "\n" + rows.join("\n");
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `vendors_detailed_${new Date().toISOString().split('T')[0]}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            showToast("Detailed CSV Export downloaded.");
+        } else {
+            const csvContent = "data:text/csv;charset=utf-8," +
+                ["ID,Name,Category,Balance"].join(",") + "\n" +
+                vendorsToExport.map(v => `${v.id},"${(v.name || '').replace(/"/g, '""')}",${v.category},${v.balanceDue || 0}`).join("\n");
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `vendors_basic_${new Date().toISOString().split('T')[0]}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            showToast("Basic CSV Export downloaded.");
         }
+        
+        setIsExportModalOpen(false);
     };
 
     const handleSendBulkEmail = (subject: string, message: string) => {
@@ -256,8 +313,9 @@ export const Vendors: React.FC = () => {
                 contactName: vendorForm.contactName || '',
                 contactPhone: vendorForm.contactPhone || '',
                 contactEmail: vendorForm.contactEmail || '',
-                rating: 0,
-                contractStatus: 'Active',
+                rating: vendorForm.rating || 0,
+                contractStatus: vendorForm.contractStatus || 'Active',
+                contractExpiryDate: vendorForm.contractExpiryDate,
                 logo: vendorForm.logo || `https://placehold.co/100x100/random/ffffff?text=${(vendorForm.name || 'N').charAt(0)}`,
                 totalSales: 0,
                 totalCommission: 0,
@@ -565,7 +623,7 @@ export const Vendors: React.FC = () => {
                     <span className="font-bold text-sm">{selectedIds.size} Selected</span>
                     <div className="h-4 w-px bg-slate-700"></div>
                     <div className="flex gap-2">
-                        <button onClick={() => handleBulkAction('export')} className="p-2 hover:bg-slate-800 rounded-full transition-colors tooltip" title="Export Selected"><span className="material-symbols-outlined text-[20px]">download</span></button>
+                        <button onClick={() => setIsExportModalOpen(true)} className="p-2 hover:bg-slate-800 rounded-full transition-colors tooltip" title="Export Selected"><span className="material-symbols-outlined text-[20px]">download</span></button>
                         <button onClick={() => handleBulkAction('email')} className="p-2 hover:bg-slate-800 rounded-full transition-colors text-sky-400" title="Email Selected"><span className="material-symbols-outlined text-[20px]">mail</span></button>
                         <button onClick={() => handleBulkAction('deactivate')} className="p-2 hover:bg-slate-800 rounded-full transition-colors text-orange-400" title="Deactivate"><span className="material-symbols-outlined text-[20px]">block</span></button>
                         <button onClick={() => handleBulkAction('delete')} className="p-2 hover:bg-slate-800 rounded-full transition-colors text-red-400" title="Delete"><span className="material-symbols-outlined text-[20px]">delete</span></button>
@@ -585,7 +643,7 @@ export const Vendors: React.FC = () => {
                             <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">Audit performance, manage pricing models, and handle payouts.</p>
                         </div>
                         <div className="flex gap-3">
-                            <button onClick={() => handleBulkAction('export')} className="hidden md:flex items-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 px-4 py-2.5 rounded-xl font-bold hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-sm">
+                            <button onClick={() => setIsExportModalOpen(true)} className="hidden md:flex items-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 px-4 py-2.5 rounded-xl font-bold hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-sm">
                                 <span className="material-symbols-outlined text-[18px]">download</span> Export List
                             </button>
                             <button onClick={handleOpenCreate} className="flex items-center gap-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-5 py-2.5 rounded-xl font-bold shadow-lg hover:opacity-90 transition-all active:scale-95 text-sm btn-glow">
@@ -607,7 +665,7 @@ export const Vendors: React.FC = () => {
                                     <span className="material-symbols-outlined text-sm">payments</span>
                                     <span className="text-xs font-bold uppercase tracking-wider">Net Commission</span>
                                 </div>
-                                <p className="text-4xl kpi-number">₹{(stats.totalCommission / 100000).toFixed(2)}L</p>
+                                <p className="text-4xl kpi-number">{formatPriceCompact(stats.totalCommission)}</p>
                                 <div className="mt-2 flex items-center gap-1 text-xs font-medium bg-white/20 w-fit px-2 py-0.5 rounded-full border border-white/10">
                                     <span className="material-symbols-outlined text-[14px]">trending_up</span> +12.5% Profit
                                 </div>
@@ -635,7 +693,7 @@ export const Vendors: React.FC = () => {
                                 <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Pending Payouts</span>
                                 <div className="p-1.5 bg-orange-100 dark:bg-orange-900/30 text-orange-600 rounded-lg"><span className="material-symbols-outlined text-lg">pending_actions</span></div>
                             </div>
-                            <p className="text-3xl kpi-number text-slate-900 dark:text-white">₹{(stats.totalPayables / 1000).toFixed(1)}k</p>
+                            <p className="text-3xl kpi-number text-slate-900 dark:text-white">{formatPriceCompact(stats.totalPayables)}</p>
                             <p className="text-xs text-orange-600 font-bold mt-1 tracking-tight">Requires settlement</p>
                         </div>
 
@@ -698,7 +756,7 @@ export const Vendors: React.FC = () => {
                                             <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800">
                                                 <div className="flex flex-col">
                                                     <span className="text-[10px] text-slate-400 font-bold uppercase">Balance</span>
-                                                    <span className="font-bold text-slate-900 dark:text-white">₹{(vendor.balanceDue / 1000).toFixed(1)}k</span>
+                                                    <span className="font-bold text-slate-900 dark:text-white">{formatPriceCompact(vendor.balanceDue)}</span>
                                                 </div>
                                                 <div className="flex flex-col text-right">
                                                     <span className="text-[10px] text-slate-400 font-bold uppercase">Rating</span>
@@ -764,7 +822,7 @@ export const Vendors: React.FC = () => {
                                                             {vendor.contractStatus}
                                                         </span>
                                                     </td>
-                                                    <td className="px-6 py-4 font-medium text-slate-900 dark:text-white" onClick={() => setSelectedVendorId(vendor.id)}>₹{(vendor.balanceDue / 1000).toFixed(1)}k</td>
+                                                    <td className="px-6 py-4 font-medium text-slate-900 dark:text-white" onClick={() => setSelectedVendorId(vendor.id)}>{formatPriceCompact(vendor.balanceDue)}</td>
                                                     <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
                                                         <div className="flex items-center justify-end gap-1">
                                                             <button onClick={(e) => { e.stopPropagation(); setSelectedVendorId(vendor.id); }} className="p-1.5 text-slate-400 hover:text-primary hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">
@@ -1392,6 +1450,29 @@ export const Vendors: React.FC = () => {
                                 </div>
                             </div>
 
+                            {/* Contract & Rating Section */}
+                            <div className="space-y-4 pt-4 border-t border-slate-100 dark:border-slate-700">
+                                <h3 className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Contract & Rating</h3>
+                                <div className="grid grid-cols-3 gap-4">
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">Rating (0-5)</label>
+                                        <input type="number" step="0.1" min="0" max="5" placeholder="e.g. 4.5" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-primary" value={vendorForm.rating || ''} onChange={e => setVendorForm({ ...vendorForm, rating: parseFloat(e.target.value) || 0 })} />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">Contract Status</label>
+                                        <select className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-primary" value={vendorForm.contractStatus || 'Active'} onChange={e => setVendorForm({ ...vendorForm, contractStatus: e.target.value as any })}>
+                                            <option value="Active">Active</option>
+                                            <option value="Inactive">Inactive</option>
+                                            <option value="Blacklisted">Blacklisted</option>
+                                        </select>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">Contract Expiry</label>
+                                        <input type="date" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-primary" value={vendorForm.contractExpiryDate || ''} onChange={e => setVendorForm({ ...vendorForm, contractExpiryDate: e.target.value })} />
+                                    </div>
+                                </div>
+                            </div>
+
                             {/* Bank Details Section */}
                             <div className="space-y-4 pt-4 border-t border-slate-100 dark:border-slate-700">
                                 <h3 className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Settlement & Banking</h3>
@@ -1526,6 +1607,52 @@ export const Vendors: React.FC = () => {
                 selectedVendorCount={selectedIds.size}
                 onSend={handleSendBulkEmail}
             />
+
+            {/* Export Modal */}
+            {isExportModalOpen && (
+                <div className="fixed inset-0 z-[210] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+                    <div className="bg-white dark:bg-[#1A2633] w-full max-w-sm rounded-2xl shadow-2xl animate-in zoom-in-95">
+                        <div className="p-6">
+                            <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-1">Export Vendors</h3>
+                            <p className="text-xs text-slate-400 mb-4">
+                                {selectedIds.size > 0 ? `Exporting ${selectedIds.size} selected vendors` : `Exporting ${filteredVendors.length} filtered vendors`}
+                            </p>
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">Format</label>
+                                    <div className="space-y-2">
+                                        <label className={`flex items-center gap-3 p-3 border rounded-xl cursor-pointer transition-colors ${exportFormat === 'detailed' ? 'border-primary bg-primary/5' : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+                                            <input type="radio" name="exportFormat" value="detailed" checked={exportFormat === 'detailed'} onChange={() => setExportFormat('detailed')} className="text-primary focus:ring-primary h-4 w-4" />
+                                            <div>
+                                                <div className="text-sm font-bold text-slate-900 dark:text-white">Detailed CSV</div>
+                                                <div className="text-xs text-slate-500">Includes contact info, bank details & totals</div>
+                                            </div>
+                                        </label>
+                                        <label className={`flex items-center gap-3 p-3 border rounded-xl cursor-pointer transition-colors ${exportFormat === 'json' ? 'border-primary bg-primary/5' : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+                                            <input type="radio" name="exportFormat" value="json" checked={exportFormat === 'json'} onChange={() => setExportFormat('json')} className="text-primary focus:ring-primary h-4 w-4" />
+                                            <div>
+                                                <div className="text-sm font-bold text-slate-900 dark:text-white">Full Backup (JSON)</div>
+                                                <div className="text-xs text-slate-500">Includes services, documents, notes, etc.</div>
+                                            </div>
+                                        </label>
+                                        <label className={`flex items-center gap-3 p-3 border rounded-xl cursor-pointer transition-colors ${exportFormat === 'basic' ? 'border-primary bg-primary/5' : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+                                            <input type="radio" name="exportFormat" value="basic" checked={exportFormat === 'basic'} onChange={() => setExportFormat('basic')} className="text-primary focus:ring-primary h-4 w-4" />
+                                            <div>
+                                                <div className="text-sm font-bold text-slate-900 dark:text-white">Basic List (CSV)</div>
+                                                <div className="text-xs text-slate-500">Only ID, Name, Category and Balance</div>
+                                            </div>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div className="pt-2 flex justify-end gap-2">
+                                    <button onClick={() => setIsExportModalOpen(false)} className="px-4 py-2 text-slate-500 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg">Cancel</button>
+                                    <button onClick={handleExportData} className="px-5 py-2 bg-primary text-white font-bold rounded-lg hover:bg-primary-dark transition-all">Download</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

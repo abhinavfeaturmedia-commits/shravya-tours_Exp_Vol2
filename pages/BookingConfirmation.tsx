@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useLocation, Navigate, useNavigate } from 'react-router-dom';
 import { SEO } from '../components/ui/SEO';
 import { SuggestPopup, isDismissed, isSnoozed } from '../components/ui/SuggestPopup';
+import { formatPrice } from '../utils/packageUtils';
 
 interface BookingConfirmationState {
     referenceId: string;
@@ -105,7 +106,7 @@ export const BookingConfirmation: React.FC = () => {
                             <div className="p-4 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800 rounded-xl">
                                 <p className="text-xs font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wide mb-1">Estimated Quote</p>
                                 <p className="text-2xl font-black text-emerald-700 dark:text-emerald-400">
-                                    ₹{estimatedTotal.toLocaleString('en-IN')}
+                                    {formatPrice(estimatedTotal)}
                                 </p>
                                 <p className="text-xs text-emerald-600 dark:text-emerald-500 mt-1">*Final pricing will be confirmed by our expert</p>
                             </div>

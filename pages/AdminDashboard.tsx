@@ -4,6 +4,8 @@ import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
 import { api } from '../src/lib/api';
 import { toast } from 'sonner';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { formatPrice, formatPriceCompact } from '../utils/packageUtils';
 
 export const AdminDashboard: React.FC = () => {
     const navigate = useNavigate();
@@ -162,7 +164,7 @@ export const AdminDashboard: React.FC = () => {
                 id: b.id,
                 type: 'Booking',
                 title: `Booking: ${b.customer}`,
-                desc: `${b.title} - ₹${b.amount.toLocaleString()}`,
+                desc: `${b.title} - ${formatPrice(b.amount)}`,
                 time: b.date,
                 displayTime: getRelativeTime(b.date),
                 icon: 'airplane_ticket',
@@ -371,6 +373,61 @@ export const AdminDashboard: React.FC = () => {
             .slice(0, 4);
     }, [leads]);
 
+    // --- 7. Revenue Chart Data ---
+    const revenueData = useMemo(() => {
+        const yearOffset = selectedYear === 'This Year' ? 0 : 1;
+        const targetYear = new Date().getFullYear() - yearOffset;
+        
+        const monthlyData = [
+            { name: 'Jan', revenue: 0, bookings: 0 },
+            { name: 'Feb', revenue: 0, bookings: 0 },
+            { name: 'Mar', revenue: 0, bookings: 0 },
+            { name: 'Apr', revenue: 0, bookings: 0 },
+            { name: 'May', revenue: 0, bookings: 0 },
+            { name: 'Jun', revenue: 0, bookings: 0 },
+            { name: 'Jul', revenue: 0, bookings: 0 },
+            { name: 'Aug', revenue: 0, bookings: 0 },
+            { name: 'Sep', revenue: 0, bookings: 0 },
+            { name: 'Oct', revenue: 0, bookings: 0 },
+            { name: 'Nov', revenue: 0, bookings: 0 },
+            { name: 'Dec', revenue: 0, bookings: 0 },
+        ];
+
+        bookings.forEach(b => {
+            if (b.status === 'Cancelled') return;
+            const d = new Date(b.date);
+            if (d.getFullYear() === targetYear) {
+                const month = d.getMonth();
+                monthlyData[month].revenue += b.amount || 0;
+                monthlyData[month].bookings += 1;
+            }
+        });
+
+        return monthlyData;
+    }, [bookings, selectedYear]);
+
+    const CustomTooltip = ({ active, payload, label }: any) => {
+        if (active && payload && payload.length) {
+            return (
+                <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 shadow-xl z-50">
+                    <p className="font-bold text-slate-900 dark:text-white mb-2">{label}</p>
+                    <div className="space-y-1">
+                        <p className="text-sm flex items-center gap-2">
+                            <span className="w-3 h-3 rounded-full bg-indigo-500"></span>
+                            <span className="text-slate-500 dark:text-slate-400">Revenue:</span>
+                            <span className="font-bold text-slate-900 dark:text-white">{formatPrice(payload[0].value)}</span>
+                        </p>
+                        <p className="text-sm flex items-center gap-2">
+                            <span className="w-3 h-3 rounded-full bg-emerald-500"></span>
+                            <span className="text-slate-500 dark:text-slate-400">Bookings:</span>
+                            <span className="font-bold text-slate-900 dark:text-white">{payload[0].payload.bookings}</span>
+                        </p>
+                    </div>
+                </div>
+            );
+        }
+        return null;
+    };
 
     useEffect(() => {
         const hour = new Date().getHours();
@@ -422,9 +479,9 @@ export const AdminDashboard: React.FC = () => {
             {/* 2. Key Performance Indicators - Premium Gradient Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                 {[
-                    { label: 'Total Revenue', value: `₹${(totalRevenue / 100000).toFixed(2)}L`, icon: 'payments', gradient: 'from-emerald-500 to-teal-600', shadowColor: 'shadow-emerald-500/20', trend: thisWeekBookings > 0 ? `${thisWeekBookings} this week` : 'No bookings', trendUp: thisWeekBookings > 0 },
+                    { label: 'Total Revenue', value: formatPriceCompact(totalRevenue), icon: 'payments', gradient: 'from-emerald-500 to-teal-600', shadowColor: 'shadow-emerald-500/20', trend: thisWeekBookings > 0 ? `${thisWeekBookings} this week` : 'No bookings', trendUp: thisWeekBookings > 0 },
                     { label: 'Conversion Rate', value: `${conversionRate}%`, icon: 'trending_up', gradient: 'from-blue-500 to-indigo-600', shadowColor: 'shadow-blue-500/20', trend: conversionRate > 20 ? 'Above avg' : 'Needs focus', trendUp: conversionRate > 20 },
-                    { label: 'Pipeline Value', value: `₹${(totalLeadsValue / 100000).toFixed(1)}L`, icon: 'account_balance', gradient: 'from-violet-500 to-purple-600', shadowColor: 'shadow-violet-500/20', trend: `${hotLeadsCount} hot leads`, trendUp: hotLeadsCount > 0 },
+                    { label: 'Pipeline Value', value: formatPriceCompact(totalLeadsValue), icon: 'account_balance', gradient: 'from-violet-500 to-purple-600', shadowColor: 'shadow-violet-500/20', trend: `${hotLeadsCount} hot leads`, trendUp: hotLeadsCount > 0 },
                     { label: 'Active Packages', value: activePackages, icon: 'travel_explore', gradient: 'from-orange-500 to-rose-500', shadowColor: 'shadow-orange-500/20', trend: `${masterDataStats.locations} destinations`, trendUp: null },
                 ].map((kpi, idx) => (
                     <div key={idx} className="group relative bg-white dark:bg-slate-900/50 rounded-3xl border border-slate-100 dark:border-slate-800 overflow-hidden card-lift">
@@ -495,7 +552,7 @@ export const AdminDashboard: React.FC = () => {
                 <div className="bg-gradient-to-r from-emerald-500 to-teal-600 rounded-2xl p-6 text-white flex items-center justify-between shadow-lg shadow-emerald-500/20">
                     <div>
                         <p className="text-emerald-100 text-sm font-bold uppercase tracking-wider mb-1">To Collect (Receivables)</p>
-                        <h4 className="text-3xl font-black">₹{(financialHealth.receivables / 100000).toFixed(2)}L</h4>
+                        <h4 className="text-3xl font-black">{formatPriceCompact(financialHealth.receivables)}</h4>
                         <p className="text-xs text-emerald-100 mt-2 font-medium">Pending payments from customers</p>
                     </div>
                     <div className="size-16 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-md border border-white/20">
@@ -505,7 +562,7 @@ export const AdminDashboard: React.FC = () => {
                 <div className="bg-gradient-to-r from-rose-500 to-orange-600 rounded-2xl p-6 text-white flex items-center justify-between shadow-lg shadow-rose-500/20">
                     <div>
                         <p className="text-rose-100 text-sm font-bold uppercase tracking-wider mb-1">To Pay (Payables)</p>
-                        <h4 className="text-3xl font-black">₹{(financialHealth.payables / 100000).toFixed(2)}L</h4>
+                        <h4 className="text-3xl font-black">{formatPriceCompact(financialHealth.payables)}</h4>
                         <p className="text-xs text-rose-100 mt-2 font-medium">Pending dues to vendors & hotels</p>
                     </div>
                     <div className="size-16 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-md border border-white/20">
@@ -536,61 +593,43 @@ export const AdminDashboard: React.FC = () => {
                             </select>
                         </div>
 
-                        {/* SVG Chart Visualization */}
-                        <div className="relative h-[280px] w-full">
-                            <svg className="w-full h-full overflow-visible" viewBox="0 0 1000 300" preserveAspectRatio="none">
-                                <defs>
-                                    <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="0%" stopColor="#4F46E5" stopOpacity="0.15" />
-                                        <stop offset="100%" stopColor="#4F46E5" stopOpacity="0" />
-                                    </linearGradient>
-                                </defs>
-                                {/* Grid Lines */}
-                                {[0, 75, 150, 225, 300].map((y, i) => (
-                                    <line key={i} x1="0" y1={300 - y} x2="1000" y2={300 - y} stroke="currentColor" className="text-slate-100 dark:text-slate-800" strokeWidth="1" strokeDasharray="4 4" />
-                                ))}
-                                {/* Smooth Curve Data: Example */}
-                                {selectedYear === 'This Year' ? (
-                                    <>
-                                        <path
-                                            d="M0,250 C100,280 200,100 300,150 C400,200 500,80 600,120 C700,160 800,40 900,80 L1000,60"
-                                            fill="none"
-                                            stroke="#6366f1"
-                                            strokeWidth="4"
-                                            strokeLinecap="round"
-                                            className="drop-shadow-lg"
-                                        />
-                                        <path
-                                            d="M0,250 C100,280 200,100 300,150 C400,200 500,80 600,120 C700,160 800,40 900,80 L1000,60 L1000,300 L0,300 Z"
-                                            fill="url(#chartGradient)"
-                                        />
-                                    </>
-                                ) : (
-                                    <>
-                                        <path
-                                            d="M0,220 C100,240 200,180 300,200 C400,220 500,140 600,160 C700,190 800,90 900,110 L1000,100"
-                                            fill="none"
-                                            stroke="#818cf8"
-                                            strokeWidth="4"
-                                            strokeLinecap="round" // Dashed line for last year comparison if overlaid, but here just swapping
-                                            strokeDasharray="8 4"
-                                            className="drop-shadow-lg opacity-60"
-                                        />
-                                        <path
-                                            d="M0,220 C100,240 200,180 300,200 C400,220 500,140 600,160 C700,190 800,90 900,110 L1000,100 L1000,300 L0,300 Z"
-                                            fill="url(#chartGradient)"
-                                            opacity="0.3"
-                                        />
-                                    </>
-                                )}
-                            </svg>
-
-                            {/* X-Axis Labels */}
-                            <div className="flex justify-between mt-4 text-xs font-bold text-slate-400 uppercase tracking-widest">
-                                {['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].map(m => (
-                                    <span key={m}>{m}</span>
-                                ))}
-                            </div>
+                        {/* Interactive Recharts Visualization */}
+                        <div className="relative h-[300px] w-full mt-4">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <AreaChart data={revenueData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                                    <defs>
+                                        <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
+                                            <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                                        </linearGradient>
+                                    </defs>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" className="dark:stroke-slate-800" />
+                                    <XAxis 
+                                        dataKey="name" 
+                                        axisLine={false} 
+                                        tickLine={false} 
+                                        tick={{ fill: '#94a3b8', fontSize: 12, fontWeight: 600 }}
+                                        dy={10}
+                                    />
+                                    <YAxis 
+                                        axisLine={false} 
+                                        tickLine={false} 
+                                        tick={{ fill: '#94a3b8', fontSize: 12, fontWeight: 600 }}
+                                        tickFormatter={(value) => formatPriceCompact(value)}
+                                        dx={-10}
+                                    />
+                                    <Tooltip content={<CustomTooltip />} />
+                                    <Area 
+                                        type="monotone" 
+                                        dataKey="revenue" 
+                                        stroke="#6366f1" 
+                                        strokeWidth={4}
+                                        fillOpacity={1} 
+                                        fill="url(#colorRevenue)" 
+                                        activeDot={{ r: 8, strokeWidth: 0, fill: '#6366f1' }}
+                                    />
+                                </AreaChart>
+                            </ResponsiveContainer>
                         </div>
                     </div>
 
@@ -634,7 +673,7 @@ export const AdminDashboard: React.FC = () => {
                                                 {new Date(row.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
                                             </td>
                                             <td className="px-8 py-5 font-bold text-slate-900 dark:text-white">
-                                                ₹{row.amount.toLocaleString()}
+                                                {formatPrice(row.amount)}
                                             </td>
                                             <td className="px-8 py-5 text-right">
                                                 <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${row.payment === 'Paid' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
@@ -819,7 +858,7 @@ export const AdminDashboard: React.FC = () => {
                                         </div>
                                     </div>
                                     <div className="text-right">
-                                        <p className="text-sm font-black text-indigo-600 dark:text-indigo-400">₹{user.revenue.toLocaleString()}</p>
+                                        <p className="text-sm font-black text-indigo-600 dark:text-indigo-400">{formatPriceCompact(user.revenue)}</p>
                                     </div>
                                 </div>
                             )) : (

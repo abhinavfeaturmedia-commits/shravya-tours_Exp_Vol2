@@ -1,140 +1,290 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useItinerary } from './ItineraryContext';
 import { useData } from '../../context/DataContext';
-import { StepTripDetails } from './steps/StepTripDetails';
 import { StepDayPlanner } from './steps/StepDayPlanner';
+import { StepTripDetails } from './steps/StepTripDetails';
 import { StepPricing } from './steps/StepPricing';
 import { StepReview } from './steps/StepReview';
-import { gsap } from 'gsap';
-import { Check, Map, Calendar, FileCheck, Calculator } from 'lucide-react';
+import {
+    MapPin, Hotel, Car, Zap, DollarSign, Send,
+    Save, ChevronLeft, ChevronRight, Sparkles, CalendarDays, Users, Tag
+} from 'lucide-react';
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+type ActivePanel = 'board' | 'details' | 'pricing' | 'review';
+
+interface SidebarItem {
+    id: ActivePanel | string;
+    label: string;
+    icon: React.ReactNode;
+    panel?: ActivePanel;
+}
+
+// ─── Sidebar Nav Items ────────────────────────────────────────────────────────
+const NAV_ITEMS: SidebarItem[] = [
+    { id: 'details',   label: 'Destinations', icon: <MapPin size={18} />,    panel: 'details'  },
+    { id: 'hotels',    label: 'Hotels',        icon: <Hotel size={18} />,     panel: 'board'    },
+    { id: 'transport', label: 'Transport',     icon: <Car size={18} />,       panel: 'board'    },
+    { id: 'activities',label: 'Activities',   icon: <Zap size={18} />,       panel: 'board'    },
+    { id: 'pricing',   label: 'Pricing',       icon: <DollarSign size={18} />,panel: 'pricing'  },
+    { id: 'publish',   label: 'Publish',       icon: <Send size={18} />,      panel: 'review'   },
+];
+
+// ─── Tier Badge ───────────────────────────────────────────────────────────────
+function getTier(grandTotal: number): { label: string; cls: string } {
+    if (grandTotal > 200000) return { label: 'HIGH-END TIER',  cls: 'bg-amber-50 text-amber-700 border border-amber-300' };
+    if (grandTotal > 50000)  return { label: 'MID-RANGE TIER', cls: 'bg-blue-50 text-blue-700 border border-blue-300'   };
+    return                          { label: 'BUDGET TIER',    cls: 'bg-emerald-50 text-emerald-700 border border-emerald-300' };
+}
+
+// ─── Main Wizard Shell ────────────────────────────────────────────────────────
 const WizardContent: React.FC = () => {
-    const { step } = useItinerary();
-    const containerRef = useRef<HTMLDivElement>(null);
-    const contentRef = useRef<HTMLDivElement>(null);
+    const { tripDetails, updateTripDetails, grandTotal, editPackageId, setStep, items, clearDraft } = useItinerary();
+    const { masterLocations } = useData();
 
-    // Animation when step changes
+    // Resolve location ID → name
+    const destinationName = masterLocations?.find(l => String(l.id) === String(tripDetails.destination))?.name || tripDetails.destination || '';
+    const [activePanel, setActivePanel] = useState<ActivePanel>('board');
+    const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+    const [editingTitle, setEditingTitle] = useState(false);
+    const titleRef = useRef<HTMLInputElement>(null);
+
     useEffect(() => {
-        if (contentRef.current) {
-            gsap.fromTo(contentRef.current,
-                { opacity: 0, y: 10, scale: 0.99 },
-                { opacity: 1, y: 0, scale: 1, duration: 0.3, ease: "power2.out" }
-            );
-        }
-    }, [step]);
+        if (editingTitle && titleRef.current) titleRef.current.focus();
+    }, [editingTitle]);
+
+    const tier = getTier(grandTotal);
+
+    const handleNavClick = (item: SidebarItem) => {
+        if (item.panel) setActivePanel(item.panel);
+    };
+
+    // Format date range for top bar
+    const formatDateRange = () => {
+        if (!tripDetails.startDate) return '─';
+        const start = new Date(tripDetails.startDate);
+        const end = new Date(start);
+        end.setDate(end.getDate() + tripDetails.days - 1);
+        const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase();
+        return `${fmt(start)} – ${fmt(end)}`;
+    };
+
+    // Warn on navigate away with unsaved changes (Fix 2.7)
+    useEffect(() => {
+        const hasContent = items.length > 0 || !!tripDetails.title?.trim();
+        if (!hasContent) return;
+        const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+            e.preventDefault();
+            e.returnValue = '';
+        };
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    }, [items.length, tripDetails.title]);
+
+    // Sync setStep for panels that read the wizard step
+    useEffect(() => {
+        if (activePanel === 'details')  setStep(1);
+        if (activePanel === 'board')    setStep(2);
+        if (activePanel === 'pricing')  setStep(3);
+        if (activePanel === 'review')   setStep(4);
+    }, [activePanel, setStep]);
 
     return (
-        <div className="h-[calc(100vh-64px)] overflow-hidden flex flex-col admin-page-bg font-sans">
-            {/* Header & Steps */}
-            <header className="bg-white dark:bg-[#0F172A] border-b border-slate-200 dark:border-slate-800 px-4 py-3 shadow-sm z-20 shrink-0">
-                <div className="max-w-6xl mx-auto">
-                    <div className="flex flex-col md:flex-row items-center justify-between gap-2 mb-1">
-                        <div className="text-center md:text-left">
-                            <h1 className="text-lg font-black text-slate-900 dark:text-white tracking-tight leading-none">Itinerary Builder</h1>
-                            <p className="text-[10px] text-slate-500 font-medium hidden md:block mt-0.5">Create premium travel experiences</p>
-                        </div>
-
-                        {/* Progress Steps - 4 Steps */}
-                        <div className="flex items-center gap-1 md:gap-2 bg-slate-100 dark:bg-slate-900 p-1 rounded-lg scale-90 md:scale-100 origin-center">
-                            <StepIndicator
-                                number={1}
-                                label="Details"
-                                current={step}
-                                icon={<Map size={12} />}
-                            />
-                            <div className={`w-2 md:w-4 h-0.5 rounded-full transition-colors duration-500 ${step > 1 ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-700'}`} />
-                            <StepIndicator
-                                number={2}
-                                label="Planner"
-                                current={step}
-                                icon={<Calendar size={12} />}
-                            />
-                            <div className={`w-2 md:w-4 h-0.5 rounded-full transition-colors duration-500 ${step > 2 ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-700'}`} />
-                            <StepIndicator
-                                number={3}
-                                label="Pricing"
-                                current={step}
-                                icon={<Calculator size={12} />}
-                            />
-                            <div className={`w-2 md:w-4 h-0.5 rounded-full transition-colors duration-500 ${step > 3 ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-700'}`} />
-                            <StepIndicator
-                                number={4}
-                                label="Review"
-                                current={step}
-                                icon={<FileCheck size={12} />}
-                            />
-                        </div>
+        <div className="h-[calc(100vh-64px)] flex flex-col overflow-hidden bg-[#F5F0E8] font-sans select-none">
+            {/* ── TOP BAR ──────────────────────────────────────────────── */}
+            <header className="shrink-0 flex items-center gap-4 px-6 py-3 bg-white border-b border-stone-200 shadow-sm z-20">
+                {/* Left: Logo + Project */}
+                <div className="flex items-center gap-3 min-w-0">
+                    <div className="size-8 rounded-lg bg-amber-500 flex items-center justify-center shrink-0 shadow">
+                        <Sparkles size={16} className="text-white" />
                     </div>
+                    <div className="min-w-0">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400 leading-none mb-0.5">
+                            Active Project
+                        </p>
+                        {editingTitle ? (
+                            <input
+                                ref={titleRef}
+                                value={tripDetails.title}
+                                onChange={e => updateTripDetails({ title: e.target.value })}
+                                onBlur={() => setEditingTitle(false)}
+                                onKeyDown={e => e.key === 'Enter' && setEditingTitle(false)}
+                                className="text-lg font-black text-stone-900 bg-transparent border-none outline-none w-64 border-b-2 border-amber-400"
+                            />
+                        ) : (
+                            <h1
+                                className="text-lg font-black text-stone-900 truncate max-w-xs cursor-pointer hover:text-amber-600 transition-colors"
+                                onClick={() => setEditingTitle(true)}
+                                title="Click to edit title"
+                            >
+                                {tripDetails.title || 'Untitled Itinerary'}
+                            </h1>
+                        )}
+                    </div>
+                </div>
+
+                {/* Center: Meta pills */}
+                <div className="flex items-center gap-2 ml-4 flex-wrap">
+                    {tripDetails.startDate && (
+                        <span className="flex items-center gap-1.5 text-[11px] font-bold text-stone-500 bg-stone-100 px-3 py-1.5 rounded-lg border border-stone-200">
+                            <CalendarDays size={12} className="text-amber-500" />
+                            {formatDateRange()}
+                        </span>
+                    )}
+                    {destinationName && (
+                        <span className="flex items-center gap-1.5 text-[11px] font-bold text-stone-500 bg-stone-100 px-3 py-1.5 rounded-lg border border-stone-200">
+                            <MapPin size={12} className="text-rose-500" />
+                            {destinationName}
+                        </span>
+                    )}
+                    <span className="flex items-center gap-1.5 text-[11px] font-bold text-stone-500 bg-stone-100 px-3 py-1.5 rounded-lg border border-stone-200">
+                        <Users size={12} className="text-indigo-500" />
+                        {(tripDetails.adults || 0) + (tripDetails.children || 0)} Guests
+                    </span>
+                    <span className={`flex items-center gap-1.5 text-[11px] font-bold px-3 py-1.5 rounded-lg ${tier.cls}`}>
+                        <Tag size={12} />
+                        {tier.label}
+                    </span>
+                </div>
+
+                {/* Right: Actions */}
+                <div className="ml-auto flex items-center gap-2 shrink-0">
+                    <button
+                        onClick={() => {
+                            if (window.confirm("Are you sure you want to start a new itinerary? This will clear all current unsaved data.")) {
+                                clearDraft();
+                            }
+                        }}
+                        className="text-xs font-bold px-3 py-2 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 transition-all mr-2"
+                        title="Clear draft and start fresh"
+                    >
+                        Start Fresh
+                    </button>
+                    <button
+                        onClick={() => setActivePanel('board')}
+                        className={`text-xs font-bold px-4 py-2 rounded-lg transition-all ${
+                            activePanel === 'board'
+                                ? 'bg-stone-900 text-white shadow'
+                                : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+                        }`}
+                    >
+                        Board
+                    </button>
+                    <button
+                        onClick={() => setActivePanel('review')}
+                        className="flex items-center gap-1.5 text-xs font-bold px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white shadow transition-all active:scale-95"
+                    >
+                        <Save size={14} />
+                        {editPackageId ? 'Update Package' : 'Save Draft'}
+                    </button>
                 </div>
             </header>
 
-            {/* Step Content */}
-            <div ref={containerRef} className="flex-1 overflow-hidden relative bg-slate-100 dark:bg-slate-950">
-                <div ref={contentRef} className="h-full w-full">
-                    {step === 1 && <StepTripDetails />}
-                    {step === 2 && <StepDayPlanner />}
-                    {step === 3 && <StepPricing />}
-                    {step === 4 && <StepReview />}
-                </div>
+            {/* ── BODY (sidebar + main) ─────────────────────────────── */}
+            <div className="flex flex-1 overflow-hidden">
+
+                {/* ── LEFT SIDEBAR ──────────────────────────────────── */}
+                <aside className={`
+                    flex flex-col bg-white border-r border-stone-200 shrink-0 transition-all duration-300 overflow-hidden
+                    ${sidebarCollapsed ? 'w-14' : 'w-52'}
+                `}>
+                    {/* Collapse toggle */}
+                    <button
+                        onClick={() => setSidebarCollapsed(v => !v)}
+                        className="w-full flex items-center justify-end px-3 py-2.5 border-b border-stone-100 text-stone-400 hover:text-stone-700 hover:bg-stone-50 transition-colors text-[10px] font-bold gap-1"
+                    >
+                        {sidebarCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+                        {!sidebarCollapsed && <span>Collapse</span>}
+                    </button>
+
+                    {/* Nav Items */}
+                    <nav className="flex-1 py-2 overflow-y-auto">
+                        {NAV_ITEMS.map(item => {
+                            const isActive = activePanel === item.panel;
+                            return (
+                                <button
+                                    key={item.id}
+                                    onClick={() => handleNavClick(item)}
+                                    title={sidebarCollapsed ? item.label : undefined}
+                                    className={`
+                                        w-full flex items-center gap-3 px-3 py-2.5 text-sm font-bold transition-all
+                                        ${isActive
+                                            ? 'bg-stone-900 text-white'
+                                            : 'text-stone-500 hover:bg-stone-50 hover:text-stone-800'
+                                        }
+                                        ${sidebarCollapsed ? 'justify-center' : ''}
+                                    `}
+                                >
+                                    <span className="shrink-0">{item.icon}</span>
+                                    {!sidebarCollapsed && <span className="truncate">{item.label}</span>}
+                                </button>
+                            );
+                        })}
+                    </nav>
+
+                    {/* Bottom save button */}
+                    {!sidebarCollapsed && (
+                        <div className="p-3 border-t border-stone-100">
+                            <button
+                                onClick={() => setActivePanel('review')}
+                                className="w-full py-2.5 bg-stone-900 hover:bg-stone-800 text-white text-xs font-black rounded-xl transition-all active:scale-95 flex items-center justify-center gap-2"
+                            >
+                                <Save size={14} /> Save Draft
+                            </button>
+                        </div>
+                    )}
+                </aside>
+
+                {/* ── MAIN CONTENT AREA ─────────────────────────────── */}
+                <main className="flex-1 overflow-hidden relative">
+                    {/* Board / Day Planner — always mounted, shown based on panel */}
+                    <div className={`absolute inset-0 transition-opacity duration-200 ${activePanel === 'board' ? 'opacity-100 z-10 pointer-events-auto' : 'opacity-0 z-0 pointer-events-none'}`}>
+                        <StepDayPlanner onOpenPricing={() => setActivePanel('pricing')} onOpenTripDetails={() => setActivePanel('details')} />
+                    </div>
+
+                    {/* Trip Details Panel */}
+                    {activePanel === 'details' && (
+                        <div className="absolute inset-0 z-20 bg-[#F5F0E8] overflow-y-auto">
+                            <StepTripDetails onDone={() => setActivePanel('board')} />
+                        </div>
+                    )}
+
+                    {/* Pricing Panel */}
+                    {activePanel === 'pricing' && (
+                        <div className="absolute inset-0 z-20 bg-[#F5F0E8] overflow-y-auto">
+                            <StepPricing onBack={() => setActivePanel('board')} onDone={() => setActivePanel('review')} />
+                        </div>
+                    )}
+
+                    {/* Review / Publish Panel */}
+                    {activePanel === 'review' && (
+                        <div className="absolute inset-0 z-20 bg-[#F5F0E8] overflow-y-auto">
+                            <StepReview onBack={() => setActivePanel('pricing')} onSaved={() => setActivePanel('board')} />
+                        </div>
+                    )}
+                </main>
             </div>
         </div>
     );
 };
 
-const StepIndicator: React.FC<{
-    number: number;
-    label: string;
-    current: number;
-    icon: React.ReactNode
-}> = ({ number, label, current, icon }) => {
-    const isActive = current === number;
-    const isCompleted = current > number;
-
-    return (
-        <div className={`
-            flex items-center gap-1.5 px-2 py-1 md:px-3 md:py-1.5 rounded-md md:rounded-lg transition-all duration-300
-            ${isActive
-                ? 'bg-white dark:bg-slate-800 text-indigo-600 shadow-sm'
-                : isCompleted
-                    ? 'text-emerald-600'
-                    : 'text-slate-400'}
-        `}>
-            <div className={`
-                size-4 md:size-5 rounded-full flex items-center justify-center text-[10px] font-bold transition-all
-                ${isActive ? 'bg-indigo-600 text-white' : ''}
-                ${isCompleted ? 'bg-emerald-500 text-white' : ''}
-                ${!isActive && !isCompleted ? 'bg-slate-200 dark:bg-slate-700 text-slate-500' : ''}
-            `}>
-                {isCompleted ? <Check size={10} strokeWidth={3} /> : icon}
-            </div>
-            <span className={`text-[10px] font-bold uppercase tracking-wide ${isActive ? 'block' : 'hidden'} md:block`}>
-                {label}
-            </span>
-        </div>
-    );
-};
-
+// ─── Named export wrapper (handles edit-mode loading) ─────────────────────────
 export const ItineraryWizard: React.FC = () => {
-    const [searchParams, setSearchParams] = useSearchParams();
-    const { packages } = useData();
+    const [searchParams] = useSearchParams();
+    const { packages, masterLocations } = useData();
     const { loadPackage } = useItinerary();
-    const [isLoaded, setIsLoaded] = React.useState(false);
+    const [isLoaded, setIsLoaded] = useState(false);
 
     useEffect(() => {
         const editId = searchParams.get('edit');
         if (editId && !isLoaded) {
             const pkgToEdit = packages.find(p => p.id === editId);
-            if (pkgToEdit) {
-                loadPackage(pkgToEdit);
-                // Remove the query param so refreshing doesn't overwrite any new edits
-                // Optional: setSearchParams({});  
-            }
+            // Fix 2.5: pass masterLocations so legacy destination names can be resolved to IDs
+            if (pkgToEdit) loadPackage(pkgToEdit, masterLocations || []);
             setIsLoaded(true);
         }
-    }, [searchParams, packages, loadPackage, isLoaded, setSearchParams]);
+    }, [searchParams, packages, loadPackage, isLoaded]);
 
-    return (
-        <WizardContent />
-    );
+    return <WizardContent />;
 };

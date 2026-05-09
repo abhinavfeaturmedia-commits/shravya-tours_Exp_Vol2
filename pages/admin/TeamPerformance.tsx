@@ -8,6 +8,7 @@ import {
     Calendar, Activity, BarChart2, Award, Zap, PieChart, RefreshCw
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { formatPriceCompact } from '../../utils/packageUtils';
 
 // ── Types & helpers ──────────────────────────────────────────────────────────
 
@@ -164,11 +165,11 @@ const DrillDownModal: React.FC<{ member: any; onClose: () => void }> = ({ member
                     <div className="grid grid-cols-2 gap-3">
                         <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl p-4">
                             <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider">Active Pipeline</p>
-                            <p className="text-2xl font-black text-indigo-600 dark:text-indigo-300 mt-1">₹{(member.pipelineValue / 1000).toFixed(0)}k</p>
+                            <p className="text-2xl font-black text-indigo-600 dark:text-indigo-300 mt-1">{formatPriceCompact(member.pipelineValue)}</p>
                         </div>
                         <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-2xl p-4">
                             <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider">Actual Revenue</p>
-                            <p className="text-2xl font-black text-emerald-600 dark:text-emerald-300 mt-1">₹{(member.actualRevenue / 1000).toFixed(0)}k</p>
+                            <p className="text-2xl font-black text-emerald-600 dark:text-emerald-300 mt-1">{formatPriceCompact(member.actualRevenue)}</p>
                         </div>
                     </div>
 
@@ -409,7 +410,7 @@ export const TeamPerformance: React.FC = () => {
                         { emoji: '✅', label: 'Conversions', value: overallConverted, sub: PERIOD_LABELS[period], gradient: 'from-emerald-500 to-emerald-600' },
                         { emoji: '⏳', label: 'Pending Tasks', value: overallPendingTasks, sub: 'open across team', gradient: 'from-amber-500 to-orange-500' },
                         { emoji: '🚨', label: 'Stalled Leads', value: totalStalledAlerts, sub: 'idle > 7 days', gradient: totalStalledAlerts > 0 ? 'from-red-500 to-rose-600' : 'from-slate-400 to-slate-500' },
-                        { emoji: '💰', label: 'Revenue', value: `₹${(overallRevenue / 1000).toFixed(0)}k`, sub: `Pipeline ₹${(overallPipeline / 1000).toFixed(0)}k`, gradient: 'from-indigo-500 to-violet-600' },
+                        { emoji: '💰', label: 'Revenue', value: formatPriceCompact(overallRevenue), sub: `Pipeline ${formatPriceCompact(overallPipeline)}`, gradient: 'from-indigo-500 to-violet-600' },
                     ].map((card, i) => (
                         <div key={i} className="bg-white dark:bg-[#1A2633] rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden group hover:shadow-md transition-shadow">
                             <div className={`h-1 bg-gradient-to-r ${card.gradient}`} />
@@ -483,7 +484,7 @@ export const TeamPerformance: React.FC = () => {
                                                 <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">Converted</p>
                                             </div>
                                             <div className="text-center bg-slate-50 dark:bg-slate-800/60 rounded-xl p-2.5">
-                                                <p className="text-xl font-black text-indigo-600 dark:text-indigo-400">₹{(member.pipelineValue / 1000).toFixed(0)}k</p>
+                                                <p className="text-xl font-black text-indigo-600 dark:text-indigo-400">{formatPriceCompact(member.pipelineValue)}</p>
                                                 <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">Pipeline</p>
                                             </div>
                                         </div>
@@ -615,7 +616,7 @@ export const TeamPerformance: React.FC = () => {
                                                 {m.name}
                                                 {m.badge && <span className="text-[9px] text-amber-600">{m.badge.split(' ')[0]}</span>}
                                             </span>
-                                            <span className="text-emerald-600 dark:text-emerald-400">₹{(m.actualRevenue / 1000).toFixed(0)}k</span>
+                                            <span className="text-emerald-600 dark:text-emerald-400">{formatPriceCompact(m.actualRevenue)}</span>
                                         </div>
                                         <ProgressBar percent={(m.actualRevenue / maxRevenue) * 100} color={i === 0 ? 'bg-gradient-to-r from-amber-400 to-amber-500' : 'bg-emerald-500'} height="h-2" />
                                     </div>
