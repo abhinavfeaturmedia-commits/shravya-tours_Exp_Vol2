@@ -91,9 +91,9 @@ const WizardContent: React.FC = () => {
     }, [activePanel, setStep]);
 
     return (
-        <div className="h-[calc(100vh-64px)] flex flex-col overflow-hidden bg-[#F5F0E8] font-sans select-none">
+        <div className="h-[calc(100vh-64px)] md:h-[calc(100vh-64px)] flex flex-col overflow-hidden bg-[#F5F0E8] font-sans select-none pb-20 md:pb-0">
             {/* ── TOP BAR ──────────────────────────────────────────────── */}
-            <header className="shrink-0 flex items-center gap-4 px-6 py-3 bg-white border-b border-stone-200 shadow-sm z-20">
+            <header className="shrink-0 flex flex-wrap items-center justify-between gap-4 px-4 md:px-6 py-3 bg-white border-b border-stone-200 shadow-sm z-20">
                 {/* Left: Logo + Project */}
                 <div className="flex items-center gap-3 min-w-0">
                     <div className="size-8 rounded-lg bg-amber-500 flex items-center justify-center shrink-0 shadow">
@@ -110,11 +110,11 @@ const WizardContent: React.FC = () => {
                                 onChange={e => updateTripDetails({ title: e.target.value })}
                                 onBlur={() => setEditingTitle(false)}
                                 onKeyDown={e => e.key === 'Enter' && setEditingTitle(false)}
-                                className="text-lg font-black text-stone-900 bg-transparent border-none outline-none w-64 border-b-2 border-amber-400"
+                                className="text-sm md:text-lg font-black text-stone-900 bg-transparent border-none outline-none w-48 md:w-64 border-b-2 border-amber-400"
                             />
                         ) : (
                             <h1
-                                className="text-lg font-black text-stone-900 truncate max-w-xs cursor-pointer hover:text-amber-600 transition-colors"
+                                className="text-sm md:text-lg font-black text-stone-900 truncate max-w-[200px] md:max-w-xs cursor-pointer hover:text-amber-600 transition-colors"
                                 onClick={() => setEditingTitle(true)}
                                 title="Click to edit title"
                             >
@@ -124,8 +124,8 @@ const WizardContent: React.FC = () => {
                     </div>
                 </div>
 
-                {/* Center: Meta pills */}
-                <div className="flex items-center gap-2 ml-4 flex-wrap">
+                {/* Center: Meta pills (Hidden on small mobile to save space) */}
+                <div className="hidden sm:flex items-center gap-2 ml-4 flex-wrap">
                     {tripDetails.startDate && (
                         <span className="flex items-center gap-1.5 text-[11px] font-bold text-stone-500 bg-stone-100 px-3 py-1.5 rounded-lg border border-stone-200">
                             <CalendarDays size={12} className="text-amber-500" />
@@ -156,14 +156,15 @@ const WizardContent: React.FC = () => {
                                 clearDraft();
                             }
                         }}
-                        className="text-xs font-bold px-3 py-2 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 transition-all mr-2"
+                        className="text-xs font-bold px-2 md:px-3 py-2 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 transition-all mr-1 md:mr-2"
                         title="Clear draft and start fresh"
                     >
-                        Start Fresh
+                        <span className="md:hidden"><span className="material-symbols-outlined text-[16px] mt-0.5">delete_sweep</span></span>
+                        <span className="hidden md:inline">Start Fresh</span>
                     </button>
                     <button
                         onClick={() => setActivePanel('board')}
-                        className={`text-xs font-bold px-4 py-2 rounded-lg transition-all ${
+                        className={`text-xs font-bold px-3 md:px-4 py-2 rounded-lg transition-all ${
                             activePanel === 'board'
                                 ? 'bg-stone-900 text-white shadow'
                                 : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
@@ -173,33 +174,34 @@ const WizardContent: React.FC = () => {
                     </button>
                     <button
                         onClick={() => setActivePanel('review')}
-                        className="flex items-center gap-1.5 text-xs font-bold px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white shadow transition-all active:scale-95"
+                        className="flex items-center gap-1.5 text-xs font-bold px-3 md:px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white shadow transition-all active:scale-95"
                     >
                         <Save size={14} />
-                        {editPackageId ? 'Update Package' : 'Save Draft'}
+                        <span className="hidden md:inline">{editPackageId ? 'Update Package' : 'Save Draft'}</span>
+                        <span className="md:hidden">Save</span>
                     </button>
                 </div>
             </header>
 
             {/* ── BODY (sidebar + main) ─────────────────────────────── */}
-            <div className="flex flex-1 overflow-hidden">
+            <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
 
-                {/* ── LEFT SIDEBAR ──────────────────────────────────── */}
+                {/* ── SIDEBAR / TAB BAR ──────────────────────────────────── */}
                 <aside className={`
-                    flex flex-col bg-white border-r border-stone-200 shrink-0 transition-all duration-300 overflow-hidden
-                    ${sidebarCollapsed ? 'w-14' : 'w-52'}
+                    flex md:flex-col bg-white border-b md:border-b-0 md:border-r border-stone-200 shrink-0 transition-all duration-300 overflow-x-auto md:overflow-x-hidden hide-scrollbar
+                    ${sidebarCollapsed ? 'md:w-14' : 'md:w-52'} w-full md:w-auto
                 `}>
-                    {/* Collapse toggle */}
+                    {/* Collapse toggle (Desktop only) */}
                     <button
                         onClick={() => setSidebarCollapsed(v => !v)}
-                        className="w-full flex items-center justify-end px-3 py-2.5 border-b border-stone-100 text-stone-400 hover:text-stone-700 hover:bg-stone-50 transition-colors text-[10px] font-bold gap-1"
+                        className="hidden md:flex w-full items-center justify-end px-3 py-2.5 border-b border-stone-100 text-stone-400 hover:text-stone-700 hover:bg-stone-50 transition-colors text-[10px] font-bold gap-1"
                     >
                         {sidebarCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
                         {!sidebarCollapsed && <span>Collapse</span>}
                     </button>
 
                     {/* Nav Items */}
-                    <nav className="flex-1 py-2 overflow-y-auto">
+                    <nav className="flex md:flex-col flex-1 py-2 md:overflow-y-auto px-2 md:px-0">
                         {NAV_ITEMS.map(item => {
                             const isActive = activePanel === item.panel;
                             return (
@@ -208,24 +210,24 @@ const WizardContent: React.FC = () => {
                                     onClick={() => handleNavClick(item)}
                                     title={sidebarCollapsed ? item.label : undefined}
                                     className={`
-                                        w-full flex items-center gap-3 px-3 py-2.5 text-sm font-bold transition-all
+                                        w-auto md:w-full flex items-center gap-2 md:gap-3 px-3 md:px-4 py-2 md:py-2.5 text-xs md:text-sm font-bold transition-all whitespace-nowrap
                                         ${isActive
-                                            ? 'bg-stone-900 text-white'
-                                            : 'text-stone-500 hover:bg-stone-50 hover:text-stone-800'
+                                            ? 'bg-stone-900 text-white rounded-lg md:rounded-none mx-1 md:mx-0'
+                                            : 'text-stone-500 hover:bg-stone-50 hover:text-stone-800 rounded-lg md:rounded-none mx-1 md:mx-0'
                                         }
-                                        ${sidebarCollapsed ? 'justify-center' : ''}
+                                        ${sidebarCollapsed ? 'md:justify-center' : ''}
                                     `}
                                 >
                                     <span className="shrink-0">{item.icon}</span>
-                                    {!sidebarCollapsed && <span className="truncate">{item.label}</span>}
+                                    <span className={`truncate ${sidebarCollapsed ? 'hidden md:hidden' : 'inline-block'}`}>{item.label}</span>
                                 </button>
                             );
                         })}
                     </nav>
 
-                    {/* Bottom save button */}
+                    {/* Bottom save button (Desktop only) */}
                     {!sidebarCollapsed && (
-                        <div className="p-3 border-t border-stone-100">
+                        <div className="hidden md:block p-3 border-t border-stone-100">
                             <button
                                 onClick={() => setActivePanel('review')}
                                 className="w-full py-2.5 bg-stone-900 hover:bg-stone-800 text-white text-xs font-black rounded-xl transition-all active:scale-95 flex items-center justify-center gap-2"

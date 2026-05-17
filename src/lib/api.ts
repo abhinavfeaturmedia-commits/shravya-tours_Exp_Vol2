@@ -79,27 +79,97 @@ const parseJsonFieldSafe = (field: any, defaultValue: any) => {
     return field || defaultValue;
 };
 
-const mapPackage = (row: any): Package => ({
-    id: row.id,
-    title: row.title,
-    days: row.days,
-    groupSize: row.group_size || 'Family',
-    location: row.location || '',
-    description: row.description || '',
-    price: row.price,
-    image: row.image || '',
-    remainingSeats: row.remaining_seats,
-    highlights: parseJsonFieldSafe(row.features, []).map((f: string) => ({ icon: 'star', label: f })),
-    itinerary: [],
-    theme: row.theme || 'Tour',
-    overview: row.overview || row.description || '',
-    status: row.status as any || 'Active',
-    offerEndTime: row.offer_end_time,
-    included: parseJsonFieldSafe(row.included, []),
-    notIncluded: parseJsonFieldSafe(row.not_included, []),
-    gallery: parseJsonFieldSafe(row.gallery, []),
-    builderData: parseJsonFieldSafe(row.builder_data, null)
-});
+const mapPackage = (row: any): Package => {
+    // Extract itinerary: prefer dedicated itinerary JSON column, then extract from builder_data.days
+    let itinerary: { day: number; title: string; desc: string }[] = [];
+    const rawItinerary = parseJsonFieldSafe(row.itinerary, null);
+    if (rawItinerary && Array.isArray(rawItinerary) && rawItinerary.length > 0) {
+        itinerary = rawItinerary;
+    } else {
+        // Fall back: extract from builder_data.days (each day has title + activities)
+        const builderData = parseJsonFieldSafe(row.builder_data, null);
+        if (builderData?.days && Array.isArray(builderData.days)) {
+            itinerary = builderData.days.map((d: any, i: number) => ({
+                day: d.day ?? (i + 1),
+                title: d.title || `Day ${d.day ?? (i + 1)}`,
+                desc: [
+                    d.description || '',
+                    ...(Array.isArray(d.activities) ? d.activities.map((a: any) =>
+                        typeof a === 'string' ? a : (a.name || a.title || '')
+                    ) : [])
+                ].filter(Boolean).join('\n') || 'Day details not specified.'
+            }));
+        } else if (builderData?.items && Array.isArray(builderData.items)) {
+            // Reconstruct itinerary from new V2 builderData items array
+            const daysCount = builderData.tripDetails?.days || row.days || 4;
+            const days = Array.from({ length: daysCount }, (_, i) => i + 1);
+            itinerary = days.map(day => {
+                const dayItems = builderData.items.filter((i: any) => i.day === day);
+                const desc = dayItems.length === 0
+                    ? 'Leisure day for personal exploration.'
+                    : dayItems
+                        .sort((a: any, b: any) => (a.time || '').localeCompare(b.time || ''))
+                        .map((item: any) => `• ${item.time ? item.time + ': ' : ''}${item.title}${item.description ? ' - ' + item.description : ''}`)
+                        .join('\n');
+                
+                const dayTheme = (builderData.dayMeta?.[day] as any)?.theme
+                    || dayItems.find((i: any) => i.type === 'activity')?.title
+                    || (day === 1 ? 'Arrival & Welcome' : `Day ${day} Itinerary`);
+                
+                return { day, title: dayTheme, desc, items: dayItems };
+            });
+        }
+    }
+
+    // Extract highlights: prefer stored highlights JSON (with icons), fall back to features string[]
+    let highlights: { icon: string; label: string }[] = [];
+    const rawHighlights = parseJsonFieldSafe(row.highlights, null);
+    if (rawHighlights && Array.isArray(rawHighlights) && rawHighlights.length > 0) {
+        // Stored as {icon, label} objects
+        highlights = rawHighlights.map((h: any) => ({
+            icon: h.icon || 'star',
+            label: h.label || String(h)
+        }));
+    } else {
+        // Legacy: features stored as plain string[]
+        highlights = parseJsonFieldSafe(row.features, []).map((f: any) => ({
+            icon: typeof f === 'object' ? (f.icon || 'star') : 'star',
+            label: typeof f === 'object' ? (f.label || String(f)) : String(f)
+        }));
+    }
+
+    return {
+        id: row.id,
+        title: row.title,
+        days: row.days,
+        groupSize: row.group_size || 'Family',
+        location: row.location || '',
+        description: row.description || '',
+        price: row.price,
+        originalPrice: row.original_price ? Number(row.original_price) : undefined,
+        pricingMode: (row.pricing_mode as any) || 'group',
+        image: row.image || '',
+        tag: row.tag || undefined,
+        tagColor: row.tag_color || undefined,
+        remainingSeats: row.remaining_seats,
+        highlights,
+        itinerary,
+        theme: row.theme || 'Tour',
+        overview: row.overview || row.description || '',
+        status: row.status as any || 'Active',
+        offerEndTime: row.offer_end_time,
+        included: parseJsonFieldSafe(row.included, []),
+        notIncluded: parseJsonFieldSafe(row.not_included, []),
+        gallery: parseJsonFieldSafe(row.gallery, []),
+        addons: parseJsonFieldSafe(row.addons, undefined),
+        builderData: parseJsonFieldSafe(row.builder_data, null),
+        itinerary_status: row.itinerary_status,
+        client_name: row.client_name,
+        client_id: row.client_id,
+        validity_date: row.validity_date,
+        terms_and_conditions: row.terms_and_conditions
+    };
+};
 
 export const api = {
     // --- PACKAGES ---
@@ -114,10 +184,18 @@ export const api = {
             title: pkg.title,
             description: pkg.description,
             price: pkg.price,
+            original_price: pkg.originalPrice ?? null,
+            pricing_mode: pkg.pricingMode || 'group',
             location: pkg.location,
             days: pkg.days,
             image: pkg.image,
+            tag: pkg.tag || null,
+            tag_color: pkg.tagColor || null,
+            // Highlights: store full {icon, label}[] so icons are preserved
             features: JSON.stringify(pkg.highlights?.map(h => h.label) || []),
+            highlights: pkg.highlights ? JSON.stringify(pkg.highlights) : null,
+            // Itinerary: store as dedicated JSON column
+            itinerary: pkg.itinerary && pkg.itinerary.length > 0 ? JSON.stringify(pkg.itinerary) : null,
             remaining_seats: pkg.remainingSeats ?? 10,
             group_size: pkg.groupSize || 'Family',
             theme: pkg.theme || 'Tour',
@@ -127,7 +205,13 @@ export const api = {
             included: JSON.stringify(pkg.included || []),
             not_included: JSON.stringify(pkg.notIncluded || []),
             gallery: pkg.gallery ? JSON.stringify(pkg.gallery) : '[]',
-            builder_data: pkg.builderData ? JSON.stringify(pkg.builderData) : null
+            addons: pkg.addons ? JSON.stringify(pkg.addons) : null,
+            builder_data: pkg.builderData ? JSON.stringify(pkg.builderData) : null,
+            itinerary_status: (pkg as any).itinerary_status || (pkg as any).itineraryStatus || 'Draft',
+            client_name: (pkg as any).client_name || (pkg as any).clientName || null,
+            client_id: (pkg as any).client_id || (pkg as any).clientId || null,
+            validity_date: (pkg as any).validity_date || (pkg as any).validityDate || null,
+            terms_and_conditions: (pkg as any).terms_and_conditions || (pkg as any).termsAndConditions || null
         };
         const { data } = await crud.create('packages', dbPkg);
         return mapPackage(data);
@@ -138,10 +222,19 @@ export const api = {
         if (pkg.title !== undefined) dbPkg.title = pkg.title;
         if (pkg.description !== undefined) dbPkg.description = pkg.description;
         if (pkg.price !== undefined) dbPkg.price = pkg.price;
+        if (pkg.originalPrice !== undefined) dbPkg.original_price = pkg.originalPrice;
+        if (pkg.pricingMode !== undefined) dbPkg.pricing_mode = pkg.pricingMode;
         if (pkg.location !== undefined) dbPkg.location = pkg.location;
         if (pkg.days !== undefined) dbPkg.days = pkg.days;
         if (pkg.image !== undefined) dbPkg.image = pkg.image;
-        if (pkg.highlights !== undefined) dbPkg.features = JSON.stringify(pkg.highlights.map(h => h.label));
+        if (pkg.tag !== undefined) dbPkg.tag = pkg.tag;
+        if (pkg.tagColor !== undefined) dbPkg.tag_color = pkg.tagColor;
+        if (pkg.highlights !== undefined) {
+            // Store full {icon, label}[] for icons AND legacy label-only array
+            dbPkg.features = JSON.stringify(pkg.highlights.map(h => h.label));
+            dbPkg.highlights = JSON.stringify(pkg.highlights);
+        }
+        if (pkg.itinerary !== undefined) dbPkg.itinerary = JSON.stringify(pkg.itinerary);
         if (pkg.remainingSeats !== undefined) dbPkg.remaining_seats = pkg.remainingSeats;
         if (pkg.groupSize !== undefined) dbPkg.group_size = pkg.groupSize;
         if (pkg.theme !== undefined) dbPkg.theme = pkg.theme;
@@ -151,8 +244,25 @@ export const api = {
         if (pkg.included !== undefined) dbPkg.included = JSON.stringify(pkg.included);
         if (pkg.notIncluded !== undefined) dbPkg.not_included = JSON.stringify(pkg.notIncluded);
         if (pkg.gallery !== undefined) dbPkg.gallery = JSON.stringify(pkg.gallery);
+        if (pkg.addons !== undefined) dbPkg.addons = JSON.stringify(pkg.addons);
         if (pkg.builderData !== undefined) dbPkg.builder_data = JSON.stringify(pkg.builderData);
+        if ((pkg as any).itinerary_status !== undefined) dbPkg.itinerary_status = (pkg as any).itinerary_status;
+        if ((pkg as any).itineraryStatus !== undefined) dbPkg.itinerary_status = (pkg as any).itineraryStatus;
+        if ((pkg as any).client_name !== undefined) dbPkg.client_name = (pkg as any).client_name;
+        if ((pkg as any).clientName !== undefined) dbPkg.client_name = (pkg as any).clientName;
+        if ((pkg as any).client_id !== undefined) dbPkg.client_id = (pkg as any).client_id;
+        if ((pkg as any).clientId !== undefined) dbPkg.client_id = (pkg as any).clientId;
+        if ((pkg as any).validity_date !== undefined) dbPkg.validity_date = (pkg as any).validity_date;
+        if ((pkg as any).validityDate !== undefined) dbPkg.validity_date = (pkg as any).validityDate;
+        if ((pkg as any).terms_and_conditions !== undefined) dbPkg.terms_and_conditions = (pkg as any).terms_and_conditions;
+        if ((pkg as any).termsAndConditions !== undefined) dbPkg.terms_and_conditions = (pkg as any).termsAndConditions;
         await crud.update('packages', id, dbPkg);
+    },
+
+    // Atomically decrement remaining_seats by 1 (race-condition safe)
+    decrementSeats: async (id: string): Promise<number | undefined> => {
+        const res = await fetchApi(`/api/packages/${encodeURIComponent(id)}/decrement-seats`, { method: 'PATCH' });
+        return res.remainingSeats;
     },
 
     deletePackage: async (id: string) => {
@@ -202,9 +312,11 @@ export const api = {
             method: tx.method,
             reference: tx.reference,
             notes: tx.notes,
+            // New payments start as 'Pending' — must be approved on Payment Approvals page
+            // to count toward the booking's verified balance.
             status: tx.status || 'Pending',
             receipt_url: tx.receiptUrl,
-            recorded_by: tx.recordedBy || 'System'  // Persist the staff name who recorded this
+            recorded_by: tx.recordedBy || 'System'
         });
     },
 
@@ -221,21 +333,38 @@ export const api = {
             notes: t.notes,
             status: t.status || 'Pending',
             receiptUrl: t.receipt_url,
-            // Joined fields
+            // Joined fields from the backend join
             customer: t.customer,
             email: t.email,
             phone: t.phone,
             packageId: t.packageId,
+            bookingName: t.bookingName,
+            recordedBy: t.recordedByName || t.recorded_by || 'System',
             source: t.source // 'booking_payment' | 'expense'
         }));
     },
 
+    // After verifying a finance transaction, also re-sync the booking's payment_status in DB
     updateFinanceTransactionStatus: async (id: string, status: 'Pending' | 'Verified' | 'Rejected') => {
         // Expense IDs start with 'EXP-', otherwise it's a booking_transaction
         if (String(id).startsWith('EXP-')) {
             await crud.update('expenses', id, { status });
         } else {
             await crud.update('booking_transactions', id, { status });
+            // After a booking transaction is verified/rejected, re-sync the booking payment_status
+            // by fetching all verified txs for this booking and updating the bookings table.
+            // We do this via the backend endpoint so it stays server-authoritative.
+            try {
+                await fetchApi('/api/finance/sync-booking-payment', {
+                    method: 'POST',
+                    body: JSON.stringify({ transactionId: id }),
+                });
+            } catch (_e) {
+                // Non-critical: the getBookings API already recomputes dynamicPayment from txs
+                console.warn('[Payment Sync] Could not sync booking payment_status after approval:', _e);
+            }
+            // Notify the useBookings React Query cache to refetch live booking data
+            window.dispatchEvent(new CustomEvent('booking-transactions-changed', { detail: { transactionId: id } }));
         }
     },
 
@@ -271,16 +400,24 @@ export const api = {
                 method: t.method,
                 reference: t.reference,
                 notes: t.notes,
-                status: t.status || 'Verified',
+                status: t.status || 'Pending',
                 receiptUrl: t.receipt_url,
-                recordedBy: t.recorded_by || 'System'  // Map back from DB so it survives refresh
+                recordedBy: t.recorded_by || 'System'
             }));
 
             const totalAmount = Number(row.total_price) || Number(row.amount) || 0;
-            // Only consider 'Verified' transactions towards the netPaid amount
+            // netPaid = sum of Verified payments minus Verified refunds (Pending & Rejected excluded)
             const netPaid = txs.reduce((sum: number, t: any) => {
-                if (t.status !== 'Rejected' && t.status !== 'Pending') {
+                if (t.status === 'Verified') {
                    return sum + (t.type === 'Payment' ? t.amount : t.type === 'Refund' ? -t.amount : 0);
+                }
+                return sum;
+            }, 0);
+
+            // Also compute including-pending so we know if ANY payment exists
+            const grossPaid = txs.reduce((sum: number, t: any) => {
+                if (t.status !== 'Rejected') {
+                    return sum + (t.type === 'Payment' ? t.amount : t.type === 'Refund' ? -t.amount : 0);
                 }
                 return sum;
             }, 0);
@@ -292,6 +429,8 @@ export const api = {
             else if (netPaid >= totalAmount && totalAmount > 0) dynamicPayment = 'Paid';
             else if (netPaid > 0) dynamicPayment = 'Deposit';
             else if (netPaid < 0) dynamicPayment = 'Refunded';
+            // If no verified txs but pending ones exist, show Deposit so user knows payment is in-progress
+            else if (grossPaid > 0) dynamicPayment = 'Deposit';
 
             const sbs = (row.supplier_bookings || []).map((sb: any) => ({
                 id: sb.id,
@@ -521,7 +660,8 @@ export const api = {
             paxChild: row.pax_child,
             paxInfant: row.pax_infant,
             residentialAddress: row.residential_address,
-            officeAddress: row.office_address
+            officeAddress: row.office_address,
+            packageId: row.package_id || undefined        // Source package that generated this lead
         }));
     },
 
@@ -552,7 +692,8 @@ export const api = {
             pax_child: lead.paxChild,
             pax_infant: lead.paxInfant,
             residential_address: lead.residentialAddress,
-            office_address: lead.officeAddress
+            office_address: lead.officeAddress,
+            package_id: lead.packageId || null          // Link back to source package
         });
     },
 

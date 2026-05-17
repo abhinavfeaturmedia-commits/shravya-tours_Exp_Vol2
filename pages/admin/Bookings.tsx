@@ -29,8 +29,12 @@ export const Bookings: React.FC = () => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isEditMode, setIsEditMode] = useState(false);
     const [selectedBookingForSuppliers, setSelectedBookingForSuppliers] = useState<Booking | null>(null);
-    const [bookingForLedger, setBookingForLedger] = useState<Booking | null>(null);
-    const [viewingBooking, setViewingBooking] = useState<Booking | null>(null);
+    const [bookingForLedgerId, setBookingForLedgerId] = useState<string | null>(null);
+    const [viewingBookingId, setViewingBookingId] = useState<string | null>(null);
+
+    // Always derive from live bookings array so modal auto-refreshes after transactions
+    const bookingForLedger = bookingForLedgerId ? bookings.find(b => b.id === bookingForLedgerId) ?? null : null;
+    const viewingBooking = viewingBookingId ? bookings.find(b => b.id === viewingBookingId) ?? null : null;
 
     const [noteText, setNoteText] = useState('');
     const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
@@ -137,11 +141,6 @@ export const Bookings: React.FC = () => {
         };
         const existingNotes = booking.notes || [];
         updateBooking(bookingId, { notes: [newNote, ...existingNotes] }, true);
-        
-        if (viewingBooking && viewingBooking.id === bookingId) {
-            setViewingBooking({ ...viewingBooking, notes: [newNote, ...existingNotes] });
-        }
-
         setNoteText('');
         toast.success('Note added');
     };
@@ -153,10 +152,6 @@ export const Bookings: React.FC = () => {
 
         const updatedNotes = (booking.notes || []).filter(n => n.id !== noteId);
         updateBooking(bookingId, { notes: updatedNotes }, true);
-        
-        if (viewingBooking && viewingBooking.id === bookingId) {
-            setViewingBooking({ ...viewingBooking, notes: updatedNotes });
-        }
         toast.success('Note deleted');
     };
 
@@ -169,11 +164,6 @@ export const Bookings: React.FC = () => {
             n.id === noteId ? { ...n, text: editNoteText } : n
         );
         updateBooking(bookingId, { notes: updatedNotes }, true);
-        
-        if (viewingBooking && viewingBooking.id === bookingId) {
-            setViewingBooking({ ...viewingBooking, notes: updatedNotes });
-        }
-
         setEditingNoteId(null);
         setEditNoteText('');
         toast.success('Note updated');
@@ -479,16 +469,25 @@ export const Bookings: React.FC = () => {
                 const startD = viewingBooking.date ? new Date(viewingBooking.date) : null;
                 const endD = viewingBooking.endDate ? new Date(viewingBooking.endDate) : startD;
                 const durationDays = startD && endD ? Math.max(1, Math.round((endD.getTime() - startD.getTime()) / 86400000) + 1) : null;
-                // Derive payment totals from actual transaction records (same as LedgerManagementModal)
+                // Derive payment totals from actual transaction records — Verified txs only
+                // (same logic as LedgerManagementModal and api.getBookings dynamicPayment)
                 const viewTxs = viewingBooking.transactions || [];
-                const viewTotalPaid = viewTxs.filter(t => t.type === 'Payment').reduce((sum, t) => sum + t.amount, 0);
-                const viewTotalRefunded = viewTxs.filter(t => t.type === 'Refund').reduce((sum, t) => sum + t.amount, 0);
-                const amountPaid = viewTotalPaid - viewTotalRefunded;
-                const balanceDue = viewingBooking.amount - amountPaid;
+                const viewVerifiedPayments = viewTxs.filter(t => t.type === 'Payment' && t.status === 'Verified');
+                const viewVerifiedRefunds  = viewTxs.filter(t => t.type === 'Refund'  && t.status === 'Verified');
+                const viewPendingPayments  = viewTxs.filter(t => t.type === 'Payment' && t.status === 'Pending');
+                const amountPaid      = viewVerifiedPayments.reduce((s, t) => s + t.amount, 0) - viewVerifiedRefunds.reduce((s, t) => s + t.amount, 0);
+                const pendingAmount   = viewPendingPayments.reduce((s, t) => s + t.amount, 0);
+                const balanceDue      = viewingBooking.amount - amountPaid;
+                // Derive live payment status from verified amounts (don't trust stale DB value)
+                const livePaymentStatus =
+                    viewingBooking.amount > 0 && amountPaid >= viewingBooking.amount ? 'Paid'
+                    : amountPaid > 0 ? 'Deposit'
+                    : amountPaid < 0 ? 'Refunded'
+                    : 'Unpaid';
                 const linkedPkg = packages.find(p => p.id === viewingBooking.packageId);
                 return (
-                <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in" onClick={() => setViewingBooking(null)}>
-                    <div className="bg-white dark:bg-[#1A2633] w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 max-h-[92vh]" onClick={e => e.stopPropagation()}>
+                <div className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in" onClick={() => setViewingBookingId(null)}>
+                    <div className="bg-white dark:bg-[#1A2633] w-full max-w-2xl rounded-t-3xl sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 sm:zoom-in-95 h-[95vh] sm:h-auto sm:max-h-[92vh]" onClick={e => e.stopPropagation()}>
 
                         {/* ── Header ── */}
                         <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-start bg-gradient-to-r from-slate-50 to-white dark:from-slate-800/60 dark:to-[#1A2633]">
@@ -517,7 +516,7 @@ export const Bookings: React.FC = () => {
                                     <span className="size-1.5 rounded-full bg-current"></span>
                                     {viewingBooking.status}
                                 </span>
-                                <button onClick={() => setViewingBooking(null)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+                                <button onClick={() => setViewingBookingId(null)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
                                     <span className="material-symbols-outlined">close</span>
                                 </button>
                             </div>
@@ -594,7 +593,6 @@ export const Bookings: React.FC = () => {
                                 </div>
                             </div>
 
-                            {/* Financial Breakdown */}
                             <div>
                                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">Financial Breakdown</p>
                                 <div className="rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
@@ -603,13 +601,22 @@ export const Bookings: React.FC = () => {
                                         <p className="text-sm font-bold text-slate-800 dark:text-white">{formatPrice(Number(viewingBooking.amount))}</p>
                                     </div>
                                     <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 dark:border-slate-700">
-                                        <p className="text-sm text-slate-600 dark:text-slate-300 font-medium">Amount Received</p>
+                                        <p className="text-sm text-slate-600 dark:text-slate-300 font-medium">Verified Received</p>
                                         <p className="text-sm font-bold text-green-600">{formatPrice(amountPaid)}</p>
                                     </div>
+                                    {pendingAmount > 0 && (
+                                        <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 dark:border-slate-700 bg-amber-50 dark:bg-amber-900/10">
+                                            <p className="text-sm text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1.5">
+                                                <span className="material-symbols-outlined text-[14px]">pending_actions</span>
+                                                Pending Approval
+                                            </p>
+                                            <p className="text-sm font-bold text-amber-600 dark:text-amber-400">{formatPrice(pendingAmount)}</p>
+                                        </div>
+                                    )}
                                     <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 dark:border-slate-700 bg-slate-900 dark:bg-slate-950">
                                         <div className="flex items-center gap-2">
                                             <p className="text-sm text-white font-bold">Balance Due</p>
-                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${viewingBooking.payment === 'Paid' ? 'bg-green-500/20 text-green-400' : viewingBooking.payment === 'Deposit' ? 'bg-yellow-500/20 text-yellow-400' : viewingBooking.payment === 'Refunded' ? 'bg-purple-500/20 text-purple-300' : 'bg-red-500/20 text-red-400'}`}>{viewingBooking.payment}</span>
+                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${livePaymentStatus === 'Paid' ? 'bg-green-500/20 text-green-400' : livePaymentStatus === 'Deposit' ? 'bg-yellow-500/20 text-yellow-400' : livePaymentStatus === 'Refunded' ? 'bg-purple-500/20 text-purple-300' : 'bg-red-500/20 text-red-400'}`}>{livePaymentStatus}</span>
                                         </div>
                                         <p className={`text-sm font-black ${balanceDue <= 0 ? 'text-green-400' : 'text-red-400'}`}>{formatPrice(Math.abs(balanceDue))}</p>
                                     </div>
@@ -706,31 +713,31 @@ export const Bookings: React.FC = () => {
                         </div>
 
                         {/* ── Footer Actions ── */}
-                        <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 flex justify-between items-center gap-3">
-                            <div className="flex gap-2">
+                        <div className="px-4 sm:px-6 py-4 border-t border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 flex flex-col-reverse sm:flex-row justify-between items-stretch sm:items-center gap-3">
+                            <div className="flex overflow-x-auto hide-scrollbar gap-2 pb-1 sm:pb-0">
                                 <button
                                     onClick={() => { handleGenerateInvoice(viewingBooking); }}
-                                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-bold text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 transition-colors"
+                                    className="flex whitespace-nowrap items-center gap-1.5 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-bold text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 transition-colors"
                                 >
                                     <span className="material-symbols-outlined text-[17px]">add</span> New Invoice
                                 </button>
                                 <button
                                     onClick={() => { navigate(`/admin/invoices?booking_id=${viewingBooking.id}`); }}
-                                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-bold text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 transition-colors"
+                                    className="flex whitespace-nowrap items-center gap-1.5 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-bold text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 transition-colors"
                                 >
                                     <span className="material-symbols-outlined text-[17px]">receipt_long</span> Invoices
                                 </button>
                                 <button
-                                    onClick={() => { setViewingBooking(null); setBookingForLedger(viewingBooking); }}
-                                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-bold text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 transition-colors"
+                                    onClick={() => { setViewingBookingId(null); setBookingForLedgerId(viewingBooking?.id ?? null); }}
+                                    className="flex whitespace-nowrap items-center gap-1.5 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-bold text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 transition-colors"
                                 >
                                     <span className="material-symbols-outlined text-[17px]">account_balance_wallet</span> Ledger
                                 </button>
                             </div>
                             {hasPermission('bookings', 'manage') && (
                                 <button
-                                    onClick={() => { setViewingBooking(null); openEditModal(viewingBooking); }}
-                                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-white text-sm font-bold shadow-lg shadow-primary/20 hover:bg-primary-dark transition-colors"
+                                    onClick={() => { setViewingBookingId(null); openEditModal(viewingBooking!); }}
+                                    className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-white text-sm font-bold shadow-lg shadow-primary/20 hover:bg-primary-dark transition-colors w-full sm:w-auto"
                                 >
                                     <span className="material-symbols-outlined text-[18px]">edit</span> Edit Booking
                                 </button>
@@ -743,8 +750,8 @@ export const Bookings: React.FC = () => {
 
             {/* Create/Edit Modal */}
             {isModalOpen && (
-                <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
-                    <div className="bg-white dark:bg-[#1A2633] w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 max-h-[90vh]">
+                <div className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+                    <div className="bg-white dark:bg-[#1A2633] w-full max-w-2xl rounded-t-3xl sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 sm:zoom-in-95 h-[95vh] sm:h-auto sm:max-h-[90vh]">
                         <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-800/50">
                             <h2 className="text-xl font-bold text-slate-900 dark:text-white">{isEditMode ? 'Edit Booking' : 'Create New Booking'}</h2>
                             <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><span className="material-symbols-outlined">close</span></button>
@@ -923,7 +930,7 @@ export const Bookings: React.FC = () => {
 
                 {/* Toolbar */}
                 <div className="mt-6 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
-                    <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl w-full sm:w-auto overflow-x-auto">
+                    <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl w-full sm:w-auto overflow-x-auto hide-scrollbar">
                         {['All', 'Ongoing', BookingStatus.PENDING, BookingStatus.CONFIRMED, BookingStatus.COMPLETED, BookingStatus.CANCELLED].map((tab) => (
                             <button
                                 key={tab}
@@ -974,7 +981,7 @@ export const Bookings: React.FC = () => {
                 {viewMode === 'list' && (
                     <div className="h-full overflow-y-auto p-4 md:p-8">
                         <div className="bg-white dark:bg-[#1A2633] rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
-                            <div className="overflow-x-auto">
+                            <div className="overflow-x-auto hidden md:block">
                                 <table className="w-full text-left border-collapse">
                                     <thead className="bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
                                         <tr>
@@ -990,7 +997,7 @@ export const Bookings: React.FC = () => {
                                     <tbody className="divide-y divide-slate-100 dark:divide-slate-700 cursor-pointer">
                                         {paginatedBookings.length > 0 ? (
                                             paginatedBookings.map((booking) => (
-                                                <tr key={booking.id} onClick={() => setViewingBooking(booking)} className="group hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer">
+                                                <tr key={booking.id} onClick={() => setViewingBookingId(booking.id)} className="group hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer">
                                                     <td className="px-6 py-4">
                                                         <div className="flex flex-col">
                                                             <span className="text-xs font-bold font-mono text-primary">{booking.bookingNumber ? `BK-${String(booking.bookingNumber).padStart(4, '0')}` : booking.id.substring(0, 8)}</span>
@@ -1026,9 +1033,23 @@ export const Bookings: React.FC = () => {
                                                     <td className="px-6 py-4">
                                                         <div className="flex flex-col gap-1">
                                                             <span className="text-sm kpi-number text-slate-900 dark:text-white">{formatPrice(booking.amount)}</span>
-                                                            <span className={`text-[10px] px-1.5 py-0.5 rounded w-fit font-bold uppercase ${booking.payment === 'Paid' ? 'bg-green-100 text-green-700' : booking.payment === 'Deposit' ? 'bg-blue-100 text-blue-700' : booking.payment === 'Refunded' ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-600'}`}>
-                                                                {booking.payment}
-                                                            </span>
+                                                            {(() => {
+                                                                // Compute live payment status from Verified transactions only
+                                                                const bTxs = booking.transactions || [];
+                                                                const vPaid = bTxs.filter(t => t.type === 'Payment' && t.status === 'Verified').reduce((s, t) => s + t.amount, 0);
+                                                                const vRefunded = bTxs.filter(t => t.type === 'Refund' && t.status === 'Verified').reduce((s, t) => s + t.amount, 0);
+                                                                const hasPending = bTxs.some(t => t.status === 'Pending');
+                                                                const net = vPaid - vRefunded;
+                                                                const liveP = booking.amount > 0 && net >= booking.amount ? 'Paid' : net > 0 ? 'Deposit' : net < 0 ? 'Refunded' : 'Unpaid';
+                                                                return (
+                                                                    <div className="flex items-center gap-1">
+                                                                        <span className={`text-[10px] px-1.5 py-0.5 rounded w-fit font-bold uppercase ${liveP === 'Paid' ? 'bg-green-100 text-green-700' : liveP === 'Deposit' ? 'bg-blue-100 text-blue-700' : liveP === 'Refunded' ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-600'}`}>
+                                                                            {liveP}
+                                                                        </span>
+                                                                        {hasPending && <span className="text-[9px] px-1 py-0.5 rounded bg-amber-100 text-amber-600 font-bold uppercase" title="Has pending payment(s) awaiting approval">⏳</span>}
+                                                                    </div>
+                                                                );
+                                                            })()}
                                                         </div>
                                                     </td>
                                                     <td className="px-6 py-4 text-center">
@@ -1042,7 +1063,7 @@ export const Bookings: React.FC = () => {
                                                             <button onClick={() => handleGenerateInvoice(booking)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors">
                                                                 <span className="material-symbols-outlined text-[18px] text-blue-500">receipt_long</span> Invoice
                                                             </button>
-                                                            <button onClick={() => setBookingForLedger(booking)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors">
+                                                            <button onClick={() => setBookingForLedgerId(booking.id)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors">
                                                                 <span className="material-symbols-outlined text-[18px] text-indigo-500">account_balance_wallet</span> Billing Ledger
                                                             </button>
                                                             <button onClick={() => setSelectedBookingForSuppliers(booking)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors">
@@ -1101,6 +1122,83 @@ export const Bookings: React.FC = () => {
                                         )}
                                     </tbody>
                                 </table>
+                            </div>
+
+                            {/* Mobile Cards View */}
+                            <div className="md:hidden divide-y divide-slate-100 dark:divide-slate-700">
+                                {paginatedBookings.length > 0 ? (
+                                    paginatedBookings.map((booking) => {
+                                        const bTxs = booking.transactions || [];
+                                        const vPaid = bTxs.filter(t => t.type === 'Payment' && t.status === 'Verified').reduce((s, t) => s + t.amount, 0);
+                                        const vRefunded = bTxs.filter(t => t.type === 'Refund' && t.status === 'Verified').reduce((s, t) => s + t.amount, 0);
+                                        const hasPending = bTxs.some(t => t.status === 'Pending');
+                                        const net = vPaid - vRefunded;
+                                        const liveP = booking.amount > 0 && net >= booking.amount ? 'Paid' : net > 0 ? 'Deposit' : net < 0 ? 'Refunded' : 'Unpaid';
+                                        
+                                        return (
+                                            <div key={booking.id} onClick={() => setViewingBookingId(booking.id)} className="p-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors active:bg-slate-100 dark:active:bg-slate-800">
+                                                <div className="flex justify-between items-start mb-3">
+                                                    <div>
+                                                        <div className="flex items-center gap-2 mb-1">
+                                                            <span className="text-xs font-bold font-mono text-primary">{booking.bookingNumber ? `BK-${String(booking.bookingNumber).padStart(4, '0')}` : booking.id.substring(0, 8)}</span>
+                                                            <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold border ${getStatusColor(booking.status)}`}>
+                                                                {booking.status}
+                                                            </span>
+                                                        </div>
+                                                        <div className="flex items-center gap-1.5 text-slate-500">
+                                                            <span className="material-symbols-outlined text-[14px]">{getTypeIcon(booking.type)}</span>
+                                                            <span className="text-[10px] font-bold uppercase tracking-wider">{booking.type}</span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-right flex flex-col items-end gap-1">
+                                                        <span className="text-sm font-bold text-slate-900 dark:text-white">{formatPrice(booking.amount)}</span>
+                                                        <div className="flex items-center gap-1">
+                                                            <span className={`text-[10px] px-1.5 py-0.5 rounded w-fit font-bold uppercase ${liveP === 'Paid' ? 'bg-green-100 text-green-700' : liveP === 'Deposit' ? 'bg-blue-100 text-blue-700' : liveP === 'Refunded' ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-600'}`}>
+                                                                {liveP}
+                                                            </span>
+                                                            {hasPending && <span className="text-[9px] px-1 py-0.5 rounded bg-amber-100 text-amber-600 font-bold uppercase">⏳</span>}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                
+                                                <div className="flex items-center gap-3 mb-3 bg-slate-50 dark:bg-slate-900/50 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
+                                                    <div className="size-8 rounded-full bg-primary/10 flex items-center justify-center font-bold text-xs text-primary shrink-0">
+                                                        {booking.customer.charAt(0)}
+                                                    </div>
+                                                    <div className="min-w-0 flex-1">
+                                                        <p className="text-sm font-bold text-slate-900 dark:text-white truncate">{booking.customer}</p>
+                                                        <p className="text-xs text-slate-500 truncate">{booking.title}</p>
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex items-center justify-between text-xs text-slate-500 pt-1">
+                                                    <div className="flex items-center gap-1.5">
+                                                        <span className="material-symbols-outlined text-[14px]">calendar_today</span>
+                                                        <span>{new Date(booking.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+                                                    </div>
+                                                    <ActionMenu>
+                                                        <button onClick={(e) => { e.stopPropagation(); handleGenerateInvoice(booking); }} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                                                            <span className="material-symbols-outlined text-[18px] text-blue-500">receipt_long</span> Invoice
+                                                        </button>
+                                                        <button onClick={(e) => { e.stopPropagation(); setBookingForLedgerId(booking.id); }} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                                                            <span className="material-symbols-outlined text-[18px] text-indigo-500">account_balance_wallet</span> Billing Ledger
+                                                        </button>
+                                                        {hasPermission('bookings', 'manage') && (
+                                                            <button onClick={(e) => { e.stopPropagation(); openEditModal(booking); }} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                                                                <span className="material-symbols-outlined text-[18px] text-primary">edit</span> Edit
+                                                            </button>
+                                                        )}
+                                                    </ActionMenu>
+                                                </div>
+                                            </div>
+                                        );
+                                    })
+                                ) : (
+                                    <div className="p-12 text-center text-slate-500">
+                                        <span className="material-symbols-outlined text-4xl opacity-20 mb-2">search_off</span>
+                                        <p className="text-sm">No bookings found.</p>
+                                    </div>
+                                )}
                             </div>
 
                             {/* Pagination */}
@@ -1176,11 +1274,11 @@ export const Bookings: React.FC = () => {
                     />
                 )}
 
-            {/* Ledger Management Modal */}
+            {/* Ledger Management Modal — booking derived live from bookings[] so it auto-refreshes */}
             {bookingForLedger && (
                 <LedgerManagementModal
                     isOpen={!!bookingForLedger}
-                    onClose={() => setBookingForLedger(null)}
+                    onClose={() => setBookingForLedgerId(null)}
                     booking={bookingForLedger}
                 />
             )}

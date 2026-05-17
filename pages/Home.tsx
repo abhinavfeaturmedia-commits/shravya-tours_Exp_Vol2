@@ -9,10 +9,14 @@ import {
   TourBookingForm,
   CarBookingForm,
   BusBookingForm,
+  TrainBookingForm,
+  FlightBookingForm,
   QuickBookingModal,
   HotelBookingData,
   CarBookingData,
   BusBookingData,
+  TrainBookingData,
+  FlightBookingData,
 } from '../components/booking';
 
 export const Home: React.FC = () => {
@@ -48,7 +52,7 @@ export const Home: React.FC = () => {
 
   // Quick Booking Modal State
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
-  const [bookingType, setBookingType] = useState<'Car' | 'Bus' | 'Hotel' | 'Tour'>('Car');
+  const [bookingType, setBookingType] = useState<'Car' | 'Bus' | 'Hotel' | 'Tour' | 'Train' | 'Flight'>('Car');
   const [bookingDetails, setBookingDetails] = useState('');
 
   // Form handlers
@@ -72,7 +76,19 @@ export const Home: React.FC = () => {
 
   const handleBusSubmit = (data: BusBookingData) => {
     setBookingType('Bus');
-    setBookingDetails(`Bus from ${data.from} to ${data.to}, ${data.seats} Seat(s)`);
+    setBookingDetails(`Bus from ${data.from} to ${data.to}, ${data.seats} Seat(s), ${data.acType}, ${data.busType}`);
+    setIsBookingModalOpen(true);
+  };
+
+  const handleTrainSubmit = (data: TrainBookingData) => {
+    setBookingType('Train');
+    setBookingDetails(`Train from ${data.from} to ${data.to}, ${data.passengers} Passenger(s), Class: ${data.classType}`);
+    setIsBookingModalOpen(true);
+  };
+
+  const handleFlightSubmit = (data: FlightBookingData) => {
+    setBookingType('Flight');
+    setBookingDetails(`Flight from ${data.from} to ${data.to}, ${data.passengers} Passenger(s), Class: ${data.classType}`);
     setIsBookingModalOpen(true);
   };
 
@@ -82,7 +98,7 @@ export const Home: React.FC = () => {
   // Trending packages: active only, first 4
   const trendingPackages = packages.filter(p => p.status !== 'Inactive').slice(0, 4);
 
-  const actualReviews = [
+  const fallbackReviews = [
     {
       id: "r1",
       customerName: "Omkar Bhalerao",
@@ -157,6 +173,20 @@ export const Home: React.FC = () => {
     }
   ];
 
+  const activeCmsTestimonials = cmsTestimonials.filter(t => t.isActive);
+  const displayReviews = activeCmsTestimonials.length > 0 
+    ? activeCmsTestimonials.map(t => ({
+        id: t.id,
+        customerName: t.customerName,
+        platform: t.location || 'Website',
+        date: '',
+        text: t.text,
+        rating: t.rating,
+        avatarUrl: t.avatarUrl
+      }))
+    : fallbackReviews;
+
+
   return (
     <>
       <SEO
@@ -184,24 +214,26 @@ export const Home: React.FC = () => {
           <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/40 to-slate-900"></div>
         </div>
 
-        <div className="relative z-10 container mx-auto px-4 flex flex-col items-center gap-12 text-center pt-32 pb-24 lg:pt-40 lg:pb-32">
-          <div className="flex flex-col gap-6 max-w-5xl reveal">
+        <div className="relative z-10 container mx-auto px-4 flex flex-col items-center gap-8 md:gap-12 text-center pt-28 pb-20 lg:pt-32 lg:pb-24">
+          <div className="flex flex-col gap-4 md:gap-6 max-w-5xl reveal">
             <h1 className="font-display text-white text-5xl md:text-7xl font-bold leading-[1.05] tracking-tight drop-shadow-2xl italic">
               {heroBanner?.title || "Experience the World"}
             </h1>
-            <p className="text-slate-200 text-lg md:text-2xl font-light leading-relaxed max-w-3xl mx-auto drop-shadow-lg reveal reveal-delay-2">
+            <p className="text-slate-200 text-base md:text-xl font-light leading-relaxed max-w-3xl mx-auto drop-shadow-lg reveal reveal-delay-2">
               {heroBanner?.subtitle || "Premium tours, transparent pricing, and 24/7 expert support."}
             </p>
           </div>
 
           {/* Booking Widget */}
-          <div className="w-full max-w-6xl mt-4 animate-in slide-in-from-bottom-10 duration-1000 delay-200">
+          <div className="w-full max-w-6xl mt-2 animate-in slide-in-from-bottom-10 duration-1000 delay-200">
             {/* Tabs */}
             <div className="flex justify-center mb-8 px-4 w-full overflow-hidden">
               <div className="bg-black/30 backdrop-blur-md p-1.5 rounded-full inline-flex flex-nowrap max-w-full overflow-x-auto [-ms-scrollbar-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden border border-white/10 shadow-xl touch-pan-x snap-x snap-mandatory">
                 {[
                   { id: 'hotel-booking', icon: 'hotel', label: 'Hotels' },
                   { id: 'tour-packages', icon: 'luggage', label: 'Tours' },
+                  { id: 'flight-booking', icon: 'flight', label: 'Flights' },
+                  { id: 'train-booking', icon: 'train', label: 'Trains' },
                   { id: 'car-booking', icon: 'directions_car', label: 'Cars' },
                   { id: 'bus-booking', icon: 'directions_bus', label: 'Buses' },
                 ].map((tab) => (
@@ -221,11 +253,13 @@ export const Home: React.FC = () => {
             </div>
 
             {/* Form Container */}
-            <div className="bg-white/95 dark:bg-slate-900/90 backdrop-blur-md rounded-[2rem] shadow-2xl p-6 md:p-8 text-left border border-white/20 relative overflow-hidden transition-all duration-500">
+            <div className="bg-white/95 dark:bg-slate-900/90 backdrop-blur-md rounded-[2rem] shadow-2xl p-4 md:p-6 text-left border border-white/20 relative overflow-hidden transition-all duration-500">
               <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary via-amber-400 to-accent"></div>
 
               {activeTab === 'hotel-booking' && <HotelBookingForm onSubmit={handleHotelSubmit} />}
               {activeTab === 'tour-packages' && <TourBookingForm onSubmit={handleTourSubmit} />}
+              {activeTab === 'flight-booking' && <FlightBookingForm onSubmit={handleFlightSubmit} />}
+              {activeTab === 'train-booking' && <TrainBookingForm onSubmit={handleTrainSubmit} />}
               {activeTab === 'car-booking' && <CarBookingForm onSubmit={handleCarSubmit} />}
               {activeTab === 'bus-booking' && <BusBookingForm onSubmit={handleBusSubmit} />}
             </div>
@@ -266,7 +300,7 @@ export const Home: React.FC = () => {
           
           {/* Carousel Container */}
           <div ref={carouselRef} className="flex overflow-x-auto pb-8 gap-6 snap-x snap-mandatory [-ms-scrollbar-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden reveal">
-            {actualReviews.map((t, idx) => (
+            {displayReviews.map((t, idx) => (
               <div 
                 key={t.id} 
                 className="snap-center shrink-0 w-[85vw] sm:w-[350px] md:w-[400px] bg-white/90 dark:bg-white/5 backdrop-blur-sm p-8 rounded-[2rem] shadow-lg border border-white dark:border-white/10 relative flex flex-col justify-between"
@@ -292,9 +326,13 @@ export const Home: React.FC = () => {
                   </p>
                 </div>
                 <div className="flex items-center gap-4 mt-auto">
-                  <div className="size-12 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white font-bold text-lg shadow-inner">
-                    {t.customerName[0]}
-                  </div>
+                  {t.avatarUrl ? (
+                    <img src={t.avatarUrl} alt={t.customerName} className="size-12 rounded-full object-cover shadow-inner" />
+                  ) : (
+                    <div className="size-12 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white font-bold text-lg shadow-inner">
+                      {t.customerName[0]}
+                    </div>
+                  )}
                   <div>
                     <h4 className="font-bold text-slate-900 dark:text-white leading-none text-base">{t.customerName}</h4>
                     {t.date && <p className="text-xs text-slate-500 mt-1">{t.date}</p>}

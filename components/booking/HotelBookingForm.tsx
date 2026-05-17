@@ -71,53 +71,53 @@ export const HotelBookingForm: React.FC<HotelBookingFormProps> = ({ onSubmit }) 
 
     return (
         <form onSubmit={handleSubmit(onFormSubmit)}>
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <div className="md:col-span-4 relative group">
-                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block pl-1">Where to?</label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-12 gap-3 md:gap-4 items-end animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <div className="sm:col-span-2 md:col-span-4 relative group">
+                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 block pl-1">Where to?</label>
                     <div className="relative">
-                        <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors text-xl">search</span>
+                        <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors text-lg">search</span>
                         <input
                             {...register('destination')}
-                            className={`w-full pl-12 pr-4 py-4 bg-slate-100 dark:bg-slate-800 border-2 rounded-2xl focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white font-bold text-lg placeholder:text-slate-400/80 transition-all ${errors.destination ? 'border-red-400' : 'border-transparent'}`}
+                            className={`w-full pl-10 pr-3 py-3 bg-slate-100 dark:bg-slate-800 border-2 rounded-xl focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white font-bold text-sm placeholder:text-slate-400/80 transition-all ${errors.destination ? 'border-red-400' : 'border-transparent'}`}
                             placeholder="City, Hotel, or Landmark"
                             type="text"
                         />
                     </div>
-                    {errors.destination && <p className="text-red-500 text-xs mt-1 pl-1">{errors.destination.message}</p>}
+                    {errors.destination && <p className="text-red-500 text-[10px] mt-1 pl-1">{errors.destination.message}</p>}
                 </div>
 
-                <div className="md:col-span-3 grid grid-cols-2 gap-3">
+                <div className="sm:col-span-2 md:col-span-4 grid grid-cols-2 gap-3">
                     <div className="relative group">
-                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block pl-1">Check-in</label>
+                        <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 block pl-1">Check-in</label>
                         <input
                             {...register('checkIn')}
-                            className={`w-full px-4 py-4 bg-slate-100 dark:bg-slate-800 border-2 rounded-2xl focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white font-bold text-sm transition-all ${errors.checkIn ? 'border-red-400' : 'border-transparent'}`}
+                            className={`w-full px-3 py-3 bg-slate-100 dark:bg-slate-800 border-2 rounded-xl focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white font-bold text-sm transition-all ${errors.checkIn ? 'border-red-400' : 'border-transparent'}`}
                             type="date"
                             min={today}
                         />
-                        {errors.checkIn && <p className="text-red-500 text-xs mt-1 pl-1">{errors.checkIn.message}</p>}
+                        {errors.checkIn && <p className="text-red-500 text-[10px] mt-1 pl-1">{errors.checkIn.message}</p>}
                     </div>
                     <div className="relative group">
-                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block pl-1">Check-out</label>
+                        <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 block pl-1">Check-out</label>
                         <input
                             {...register('checkOut')}
-                            className={`w-full px-4 py-4 bg-slate-100 dark:bg-slate-800 border-2 rounded-2xl focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white font-bold text-sm transition-all ${errors.checkOut ? 'border-red-400' : 'border-transparent'}`}
+                            className={`w-full px-3 py-3 bg-slate-100 dark:bg-slate-800 border-2 rounded-xl focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white font-bold text-sm transition-all ${errors.checkOut ? 'border-red-400' : 'border-transparent'}`}
                             type="date"
                             min={checkIn || today}
                         />
-                        {errors.checkOut && <p className="text-red-500 text-xs mt-1 pl-1">{errors.checkOut.message}</p>}
+                        {errors.checkOut && <p className="text-red-500 text-[10px] mt-1 pl-1">{errors.checkOut.message}</p>}
                     </div>
                 </div>
 
-                <div className="md:col-span-3 relative" ref={guestMenuRef}>
-                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block pl-1">Guests</label>
+                <div className="sm:col-span-1 md:col-span-2 relative" ref={guestMenuRef}>
+                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 block pl-1">Guests</label>
                     <button
                         type="button"
                         onClick={() => setShowGuestMenu(!showGuestMenu)}
-                        className="w-full text-left pl-5 pr-10 py-4 bg-slate-100 dark:bg-slate-800 border-none rounded-2xl focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white font-bold text-lg flex items-center justify-between transition-all"
+                        className="w-full text-left pl-3 pr-8 py-3 bg-slate-100 dark:bg-slate-800 border-none rounded-xl focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white font-bold text-sm h-[52px] flex items-center justify-between transition-all"
                     >
-                        <span className="truncate text-base">{getGuestString()}</span>
-                        <span className="material-symbols-outlined text-slate-400 absolute right-4">expand_more</span>
+                        <span className="truncate text-sm">{getGuestString()}</span>
+                        <span className="material-symbols-outlined text-slate-400 absolute right-3">expand_more</span>
                     </button>
 
                     {showGuestMenu && (
@@ -156,11 +156,10 @@ export const HotelBookingForm: React.FC<HotelBookingFormProps> = ({ onSubmit }) 
                     )}
                 </div>
 
-                <div className="md:col-span-2">
-                    <label className="text-xs font-bold text-transparent uppercase tracking-wider mb-2 block select-none">Action</label>
+                <div className="sm:col-span-1 md:col-span-2">
                     <button
                         type="submit"
-                        className="w-full h-[60px] bg-primary hover:bg-blue-600 text-white rounded-2xl font-black text-lg flex items-center justify-center gap-2 transition-all shadow-xl shadow-primary/30 hover:shadow-primary/50 hover:-translate-y-1 active:scale-95"
+                        className="w-full h-[52px] bg-primary hover:bg-blue-600 text-white rounded-xl font-bold text-base flex items-center justify-center gap-2 transition-all shadow-lg shadow-primary/30 hover:shadow-primary/50 hover:-translate-y-0.5 active:scale-95"
                     >
                         Search
                     </button>

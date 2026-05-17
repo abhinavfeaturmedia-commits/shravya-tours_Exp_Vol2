@@ -8,6 +8,8 @@ export interface FinanceTransaction extends BookingTransaction {
     email?: string;
     phone?: string;
     packageId?: string;
+    bookingName?: string;
+    recordedBy?: string;
     source?: 'booking_payment' | 'expense';
 }
 

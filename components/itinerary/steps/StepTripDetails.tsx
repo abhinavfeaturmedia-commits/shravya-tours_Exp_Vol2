@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useItinerary } from '../ItineraryContext';
 import { useData } from '../../../context/DataContext';
-import { MapPin, Calendar, Users, Globe, Plus, X, ArrowRight, Check, Image, Upload } from 'lucide-react';
+import { MapPin, Calendar, Users, Globe, Plus, X, ArrowRight, Check, Image, Upload, FileText, Tag, Clock } from 'lucide-react';
 import { ImageUpload } from '../../ui/ImageUpload';
 import { api } from '../../../src/lib/api';
 import { toast } from 'sonner';
@@ -199,6 +199,65 @@ export const StepTripDetails: React.FC<Props> = ({ onDone }) => {
                             placeholder="Add exclusion…"
                             color="rose"
                         />
+                    </div>
+
+                    {/* Client & Itinerary Meta */}
+                    <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-4 space-y-4">
+                        <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest">Itinerary Settings</p>
+
+                        {/* Client Name */}
+                        <Field label="Client Name" icon={<Users size={13} />}>
+                            <input
+                                type="text"
+                                placeholder="e.g. Sharma Family, Mr. Ramesh"
+                                value={tripDetails.clientName || ''}
+                                onChange={e => updateTripDetails({ clientName: e.target.value })}
+                                className="w-full bg-white border border-blue-100 rounded-xl px-4 py-2.5 font-bold text-sm text-stone-900 focus:ring-2 focus:ring-blue-300 focus:border-transparent outline-none transition-all placeholder:font-normal placeholder:text-stone-400"
+                            />
+                        </Field>
+
+                        {/* Status + Validity row */}
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1.5">
+                                <label className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest text-stone-400">
+                                    <Tag size={11} /> Status
+                                </label>
+                                <select
+                                    value={tripDetails.itineraryStatus || 'Draft'}
+                                    onChange={e => updateTripDetails({ itineraryStatus: e.target.value })}
+                                    className="w-full bg-white border border-blue-100 rounded-xl px-3 py-2.5 font-bold text-sm text-stone-900 focus:ring-2 focus:ring-blue-300 outline-none transition-all"
+                                >
+                                    <option value="Draft">📝 Draft</option>
+                                    <option value="Sent">📤 Sent</option>
+                                    <option value="Confirmed">✅ Confirmed</option>
+                                    <option value="Cancelled">❌ Cancelled</option>
+                                </select>
+                            </div>
+                            <div className="space-y-1.5">
+                                <label className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest text-stone-400">
+                                    <Clock size={11} /> Valid For (Days)
+                                </label>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    placeholder="7"
+                                    value={tripDetails.validityDays ?? 7}
+                                    onChange={e => updateTripDetails({ validityDays: parseInt(e.target.value) || 0 })}
+                                    className="w-full bg-white border border-blue-100 rounded-xl px-3 py-2.5 font-bold text-sm text-stone-900 focus:ring-2 focus:ring-blue-300 outline-none transition-all"
+                                />
+                            </div>
+                        </div>
+
+                        {/* Terms & Conditions */}
+                        <Field label="Terms & Conditions" icon={<FileText size={13} />}>
+                            <textarea
+                                rows={4}
+                                placeholder="e.g. 30% advance required. No refund within 7 days. Prices valid for Indian nationals only..."
+                                value={tripDetails.termsAndConditions || ''}
+                                onChange={e => updateTripDetails({ termsAndConditions: e.target.value })}
+                                className="w-full bg-white border border-blue-100 rounded-xl px-4 py-3 font-medium text-sm text-stone-900 focus:ring-2 focus:ring-blue-300 focus:border-transparent outline-none transition-all placeholder:font-normal placeholder:text-stone-400 resize-none leading-relaxed"
+                            />
+                        </Field>
                     </div>
 
                     {/* CTA */}

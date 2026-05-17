@@ -15,21 +15,63 @@ export const InvoicesDashboard: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     const [filterStatus, setFilterStatus] = useState('All');
+    const [stats, setStats] = useState<any>({
+        totalRevenue: 0,
+        pendingAmount: 0,
+        overdueAmount: 0,
+        paidThisMonthCount: 0
+    });
+    const [page, setPage] = useState(1);
+    const [hasMore, setHasMore] = useState(true);
+    const limit = 25;
 
     useEffect(() => {
-        fetchInvoices();
+        fetchStats();
     }, []);
 
-    const fetchInvoices = async () => {
-        setLoading(true);
+    useEffect(() => {
+        fetchInvoices(page);
+    }, [page, filterStatus]);
+
+    const fetchStats = async () => {
         try {
             const token = (localStorage.getItem('shravya_jwt') || localStorage.getItem('token'));
-            const res = await fetch('/api/crud/invoices?order=created_at&asc=false', {
+            const res = await fetch('/api/invoices/stats', {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             if (res.ok) {
                 const data = await res.json();
-                setInvoices(data.data || []);
+                setStats({
+                    totalRevenue: Number(data.data.totalRevenue || 0),
+                    pendingAmount: Number(data.data.pendingAmount || 0),
+                    overdueAmount: Number(data.data.overdueAmount || 0),
+                    paidThisMonthCount: Number(data.data.paidThisMonthCount || 0)
+                });
+            }
+        } catch (error) {
+            console.error('Failed to fetch stats:', error);
+        }
+    };
+
+    const fetchInvoices = async (pageNum = 1) => {
+        setLoading(true);
+        try {
+            const token = (localStorage.getItem('shravya_jwt') || localStorage.getItem('token'));
+            let url = `/api/crud/invoices?order=created_at&asc=false&limit=${limit}&page=${pageNum}`;
+            if (filterStatus !== 'All') {
+                url += `&eq_status=${filterStatus}`;
+            }
+            const res = await fetch(url, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (res.ok) {
+                const data = await res.json();
+                if (pageNum === 1) {
+                    setInvoices(data.data || []);
+                } else {
+                    setInvoices(prev => [...prev, ...(data.data || [])]);
+                }
+                setHasMore((data.data || []).length === limit);
             }
         } catch (error) {
             console.error('Failed to fetch invoices:', error);
@@ -49,7 +91,9 @@ export const InvoicesDashboard: React.FC = () => {
             });
             if (res.ok) {
                 toast.success('Document deleted successfully');
-                fetchInvoices();
+                fetchStats();
+                fetchInvoices(1);
+                setPage(1);
             } else {
                 toast.error('Failed to delete document');
             }
@@ -67,13 +111,14 @@ export const InvoicesDashboard: React.FC = () => {
         return matchesSearch && matchesStatus && matchesBooking;
     });
 
-    // Calculate stats
-    const totalRevenue = invoices.filter(i => i.status === 'Paid').reduce((sum, i) => sum + Number(i.total_amount), 0);
-    const pendingAmount = invoices.filter(i => i.status === 'Sent' || i.status === 'Draft').reduce((sum, i) => sum + Number(i.total_amount), 0);
-    const overdueAmount = invoices.filter(i => i.status === 'Overdue').reduce((sum, i) => sum + Number(i.total_amount), 0);
-    const pendingCount = invoices.filter(i => i.status === 'Sent' || i.status === 'Draft').length;
-    const overdueCount = invoices.filter(i => i.status === 'Overdue').length;
-    const paidThisMonthCount = invoices.filter(i => i.status === 'Paid').length; // Simplify for now
+    // Calculate stats using backend fetched stats
+    const totalRevenue = stats.totalRevenue;
+    const pendingAmount = stats.pendingAmount;
+    const overdueAmount = stats.overdueAmount;
+    const paidThisMonthCount = stats.paidThisMonthCount;
+    // We can show dynamic counts or just hide them for now if backend doesn't provide them.
+    const pendingCount = 'Some';
+    const overdueCount = 'Some';
 
     return (
         <div className="flex flex-col h-full bg-[#f8f9fa] dark:bg-[#1A2633] admin-page-bg">
@@ -159,7 +204,10 @@ export const InvoicesDashboard: React.FC = () => {
                             {['All', 'Draft', 'Sent', 'Paid', 'Overdue'].map(status => (
                                 <button
                                     key={status}
-                                    onClick={() => setFilterStatus(status)}
+                                    onClick={() => {
+                                        setFilterStatus(status);
+                                        setPage(1);
+                                    }}
                                     className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${filterStatus === status 
                                         ? 'bg-orange-50 text-orange-600 dark:bg-orange-500/10 dark:text-orange-400' 
                                         : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700/50'}`}
@@ -189,6 +237,7 @@ export const InvoicesDashboard: React.FC = () => {
                                     <th className="py-4 px-6 text-xs font-bold text-slate-500 uppercase tracking-wider">Client</th>
                                     <th className="py-4 px-6 text-xs font-bold text-slate-500 uppercase tracking-wider">Type</th>
                                     <th className="py-4 px-6 text-xs font-bold text-slate-500 uppercase tracking-wider">Date</th>
+                                    <th className="py-4 px-6 text-xs font-bold text-slate-500 uppercase tracking-wider">Due Date</th>
                                     <th className="py-4 px-6 text-xs font-bold text-slate-500 uppercase tracking-wider">Amount</th>
                                     <th className="py-4 px-6 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
                                     <th className="py-4 px-6 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
@@ -208,6 +257,15 @@ export const InvoicesDashboard: React.FC = () => {
                                         </td>
                                         <td className="py-4 px-6 text-slate-500 text-sm">{inv.document_type || 'Invoice'}</td>
                                         <td className="py-4 px-6 text-slate-500 text-sm">{new Date(inv.issue_date || inv.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
+                                        <td className="py-4 px-6 text-sm">
+                                            {inv.due_date ? (
+                                                <span className={new Date(inv.due_date) < new Date() && inv.status !== 'Paid' ? 'text-red-600 font-bold' : 'text-slate-500'}>
+                                                    {new Date(inv.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                                </span>
+                                            ) : (
+                                                <span className="text-slate-400 italic">Not set</span>
+                                            )}
+                                        </td>
                                         <td className="py-4 px-6 font-bold text-slate-900 dark:text-white">₹{Number(inv.total_amount).toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
                                         <td className="py-4 px-6">
                                             <span className={`px-2.5 py-1 rounded-md text-xs font-bold ${
@@ -244,12 +302,12 @@ export const InvoicesDashboard: React.FC = () => {
                     
                     {/* Pagination */}
                     <div className="p-4 border-t border-slate-100 dark:border-slate-700 flex items-center justify-between text-sm text-slate-500">
-                        <span>Showing 1 to {filteredInvoices.length} of {filteredInvoices.length} entries</span>
+                        <span>Showing {invoices.length} entries</span>
                         <div className="flex gap-2">
-                            <button className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-50" disabled>
+                            <button onClick={() => setPage(p => Math.max(1, p - 1))} className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-50" disabled={page === 1}>
                                 <ChevronLeft size={16} />
                             </button>
-                            <button className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-50" disabled>
+                            <button onClick={() => setPage(p => p + 1)} className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-50" disabled={!hasMore}>
                                 <ChevronRight size={16} />
                             </button>
                         </div>

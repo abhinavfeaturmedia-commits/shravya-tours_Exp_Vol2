@@ -558,7 +558,7 @@ export const Analytics: React.FC = () => {
       const allBookings = bookings.filter(b => isWithinRange(b.date));
       const cancelled = allBookings.filter(b => b.status === 'Cancelled');
       const refundTotal = allBookings.reduce((s, b) =>
-         s + (b.transactions || []).filter(t => t.type === 'Refund').reduce((rs, t) => rs + t.amount, 0), 0);
+         s + (b.transactions || []).filter(t => t.type === 'Refund' && (t.status === 'Verified' || !t.status)).reduce((rs, t) => rs + t.amount, 0), 0);
       const rate = allBookings.length > 0 ? Math.round((cancelled.length / allBookings.length) * 100) : 0;
       return { count: cancelled.length, total: allBookings.length, rate, refundTotal };
    }, [bookings, isWithinRange]);
@@ -567,7 +567,7 @@ export const Analytics: React.FC = () => {
    const paymentLag = useMemo(() => {
       let total = 0, count = 0;
       filteredBookings.forEach(b => {
-         const fp = (b.transactions || []).filter(t => t.type === 'Payment')
+         const fp = (b.transactions || []).filter(t => t.type === 'Payment' && (t.status === 'Verified' || !t.status))
             .sort((a, x) => new Date(a.date).getTime() - new Date(x.date).getTime())[0];
          if (fp) {
             const d = Math.round((new Date(fp.date).getTime() - new Date(b.date).getTime()) / 86400000);

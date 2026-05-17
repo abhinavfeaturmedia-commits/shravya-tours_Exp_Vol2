@@ -84,30 +84,30 @@ export const CarBookingForm: React.FC<CarBookingFormProps> = ({ onSubmit }) => {
                     </button>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 md:gap-4 items-end">
                     {/* Pickup Location */}
-                    <div className="md:col-span-3 relative group">
-                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block pl-1">Pickup Location</label>
+                    <div className="sm:col-span-1 lg:col-span-3 relative group">
+                        <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 block pl-1">Pickup Location</label>
                         <div className="relative">
-                            <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors text-xl">my_location</span>
+                            <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors text-lg">my_location</span>
                             <input
                                 {...register('pickupLocation')}
-                                className={`w-full pl-12 pr-4 py-4 bg-slate-100 dark:bg-slate-800 border-2 rounded-2xl focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white font-bold text-base placeholder:text-slate-400/80 transition-all ${errors.pickupLocation ? 'border-red-400' : 'border-transparent'}`}
+                                className={`w-full pl-10 pr-3 py-3 bg-slate-100 dark:bg-slate-800 border-2 rounded-xl focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white font-bold text-sm placeholder:text-slate-400/80 transition-all ${errors.pickupLocation ? 'border-red-400' : 'border-transparent'}`}
                                 placeholder="City or Airport"
                                 type="text"
                             />
                         </div>
-                        {errors.pickupLocation && <p className="text-red-500 text-xs mt-1 pl-1">{errors.pickupLocation.message}</p>}
+                        {errors.pickupLocation && <p className="text-red-500 text-[10px] mt-1 pl-1">{errors.pickupLocation.message}</p>}
                     </div>
 
                     {/* Drop-off Location */}
-                    <div className="md:col-span-3 relative group">
-                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block pl-1">Drop-off Location</label>
+                    <div className="sm:col-span-1 lg:col-span-3 relative group">
+                        <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 block pl-1">Drop-off Location</label>
                         <div className="relative">
-                            <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors text-xl">location_on</span>
+                            <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors text-lg">location_on</span>
                             <input
                                 {...register('dropoffLocation')}
-                                className="w-full pl-12 pr-4 py-4 bg-slate-100 dark:bg-slate-800 border-2 border-transparent rounded-2xl focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white font-bold text-base placeholder:text-slate-400/80 transition-all"
+                                className="w-full pl-10 pr-3 py-3 bg-slate-100 dark:bg-slate-800 border-2 border-transparent rounded-xl focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white font-bold text-sm placeholder:text-slate-400/80 transition-all"
                                 placeholder={sameDropOff ? "Same as Pickup (Optional)" : "Destination"}
                                 type="text"
                             />
@@ -115,46 +115,48 @@ export const CarBookingForm: React.FC<CarBookingFormProps> = ({ onSubmit }) => {
                     </div>
 
                     {/* Date & Time */}
-                    <div className="md:col-span-2">
-                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block pl-1">Date</label>
+                    <div className="sm:col-span-1 lg:col-span-2">
+                        <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 block pl-1">Date</label>
                         <input
                             {...register('pickupDate')}
-                            className={`w-full px-4 py-4 bg-slate-100 dark:bg-slate-800 border-2 rounded-2xl focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white font-bold text-sm transition-all ${errors.pickupDate ? 'border-red-400' : 'border-transparent'}`}
+                            className={`w-full px-3 py-3 bg-slate-100 dark:bg-slate-800 border-2 rounded-xl focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white font-bold text-sm transition-all ${errors.pickupDate ? 'border-red-400' : 'border-transparent'}`}
                             type="date"
                             min={today}
                         />
-                        {errors.pickupDate && <p className="text-red-500 text-xs mt-1 pl-1">{errors.pickupDate.message}</p>}
+                        {errors.pickupDate && <p className="text-red-500 text-[10px] mt-1 pl-1">{errors.pickupDate.message}</p>}
                     </div>
 
-                    <div className="md:col-span-2">
-                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block pl-1">Time</label>
+                    <div className="sm:col-span-1 lg:col-span-2">
+                        <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 block pl-1">Time</label>
                         <input
                             {...register('pickupTime')}
-                            className={`w-full px-4 py-4 bg-slate-100 dark:bg-slate-800 border-2 rounded-2xl focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white font-bold text-sm transition-all ${errors.pickupTime ? 'border-red-400' : 'border-transparent'}`}
+                            className={`w-full px-3 py-3 bg-slate-100 dark:bg-slate-800 border-2 rounded-xl focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white font-bold text-sm transition-all ${errors.pickupTime ? 'border-red-400' : 'border-transparent'}`}
                             type="time"
                         />
-                        {errors.pickupTime && <p className="text-red-500 text-xs mt-1 pl-1">{errors.pickupTime.message}</p>}
+                        {errors.pickupTime && <p className="text-red-500 text-[10px] mt-1 pl-1">{errors.pickupTime.message}</p>}
                     </div>
 
                     {/* Vehicle Type */}
-                    <div className="md:col-span-2">
-                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block pl-1">Vehicle</label>
-                        <select
-                            {...register('vehicleType')}
-                            className="w-full px-4 py-4 bg-slate-100 dark:bg-slate-800 border-2 border-transparent rounded-2xl focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white font-bold text-sm transition-all appearance-none cursor-pointer"
-                        >
-                            {carTypes.map(type => (
-                                <option key={type} value={type}>{type}</option>
-                            ))}
-                        </select>
+                    <div className="sm:col-span-1 lg:col-span-2 relative group">
+                        <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 block pl-1">Vehicle</label>
+                        <div className="relative">
+                            <select
+                                {...register('vehicleType')}
+                                className="w-full px-3 py-3 h-[52px] bg-slate-100 dark:bg-slate-800 border-2 border-transparent rounded-xl focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white font-bold text-sm transition-all appearance-none cursor-pointer"
+                            >
+                                {carTypes.map(type => (
+                                    <option key={type} value={type}>{type}</option>
+                                ))}
+                            </select>
+                            <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">expand_more</span>
+                        </div>
                     </div>
 
                     {/* Submit */}
-                    <div className="md:col-span-2">
-                        <label className="text-xs font-bold text-transparent uppercase tracking-wider mb-2 block select-none">Action</label>
+                    <div className="sm:col-span-1 lg:col-span-12 mt-2">
                         <button
                             type="submit"
-                            className="w-full h-[60px] bg-primary hover:bg-blue-600 text-white rounded-2xl font-black text-lg flex items-center justify-center gap-2 transition-all shadow-xl shadow-primary/30 hover:shadow-primary/50 hover:-translate-y-1 active:scale-95"
+                            className="w-full md:w-auto md:min-w-[200px] h-[52px] bg-primary hover:bg-blue-600 text-white rounded-xl font-bold text-base flex items-center justify-center gap-2 transition-all shadow-lg shadow-primary/30 hover:shadow-primary/50 hover:-translate-y-0.5 active:scale-95 ml-auto"
                         >
                             Get Quote
                         </button>

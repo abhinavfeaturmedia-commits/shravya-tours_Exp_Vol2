@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { Booking, BookingStatus } from '../../types';
 import { toast } from 'sonner';
+import { useEffect } from 'react';
 
 export const useBookings = () => {
     const queryClient = useQueryClient();
@@ -12,6 +13,16 @@ export const useBookings = () => {
     });
 
     const bookings = (data as Booking[]) || [];
+
+    // Listen for transaction changes from DataContext and invalidate the bookings cache
+    // This bridges the gap between DataContext (addBookingTransaction) and React Query (useBookings)
+    useEffect(() => {
+        const handler = () => {
+            queryClient.invalidateQueries({ queryKey: ['bookings'] });
+        };
+        window.addEventListener('booking-transactions-changed', handler);
+        return () => window.removeEventListener('booking-transactions-changed', handler);
+    }, [queryClient]);
 
     const addBookingMutation = useMutation({
         mutationFn: (newBooking: Booking) => api.createBooking(newBooking),

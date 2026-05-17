@@ -7,7 +7,7 @@ import {
     AlertTriangle, ArrowRight, Phone
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { formatPrice } from '../utils/packageUtils';
+import { formatPrice, getLocationName } from '../utils/packageUtils';
 
 // ─── Print Styles (injected once) ────────────────────────────────────────────
 const PRINT_STYLES = `
@@ -98,7 +98,7 @@ const ApprovedBanner: React.FC = () => (
 // ─── Main Component ────────────────────────────────────────────────────────────
 export const InteractiveItinerary: React.FC = () => {
     const { id } = useParams<{ id: string }>();
-    const { packages, updatePackage } = useData();
+    const { packages, updatePackage, masterLocations } = useData();
 
     const [showSuccess, setShowSuccess] = useState(false);
     const [showFeedbackModal, setShowFeedbackModal] = useState(false);
@@ -215,7 +215,7 @@ export const InteractiveItinerary: React.FC = () => {
                     </span>
                     <h1 className="text-4xl md:text-5xl font-black text-white tracking-tight leading-tight mb-4">{pkg.title}</h1>
                     <div className="flex flex-wrap items-center gap-4 text-white/90 text-sm font-medium">
-                        <span className="flex items-center gap-1.5"><MapPin size={15} /> {pkg.location}</span>
+                        <span className="flex items-center gap-1.5"><MapPin size={15} /> {getLocationName(pkg.location, masterLocations)}</span>
                         {tripDetails?.startDate && (
                             <span className="flex items-center gap-1.5">
                                 <Calendar size={15} />

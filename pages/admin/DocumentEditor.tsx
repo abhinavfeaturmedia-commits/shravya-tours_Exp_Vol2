@@ -4,22 +4,37 @@ import { Save, ArrowLeft, Plus, Trash2, CheckCircle2, Printer, CreditCard, User,
 import { toast } from 'sonner';
 import { useSettings } from '../../context/SettingsContext';
 
+import { generateTrueInvoicePDF } from '../../utils/pdfGenerator';
+
 const ones = ['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen'];
 const tens = ['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
 function numberToWords(n: number): string {
-  if (!isFinite(n) || isNaN(n)) return '';
-  const num = Math.floor(n);
-  if (num === 0) return 'Zero';
-  const convert = (x: number): string => {
-    if (x < 20) return ones[x];
-    if (x < 100) return tens[Math.floor(x/10)] + (x%10 ? ' ' + ones[x%10] : '');
-    if (x < 1000) return ones[Math.floor(x/100)] + ' Hundred' + (x%100 ? ' ' + convert(x%100) : '');
-    if (x < 100000) return convert(Math.floor(x/1000)) + ' Thousand' + (x%1000 ? ' ' + convert(x%1000) : '');
-    if (x < 10000000) return convert(Math.floor(x/100000)) + ' Lakh' + (x%100000 ? ' ' + convert(x%100000) : '');
-    return convert(Math.floor(x/10000000)) + ' Crore' + (x%10000000 ? ' ' + convert(x%10000000) : '');
-  };
-  return convert(num);
+    if (!isFinite(n) || isNaN(n)) return '';
+    const num = Math.floor(n);
+    const paise = Math.round((n - num) * 100);
+    if (num === 0 && paise === 0) return 'Zero Rupees Only';
+    
+    const convert = (x: number): string => {
+        if (x < 20) return ones[x];
+        if (x < 100) return tens[Math.floor(x/10)] + (x%10 ? ' ' + ones[x%10] : '');
+        if (x < 1000) return ones[Math.floor(x/100)] + ' Hundred' + (x%100 ? ' ' + convert(x%100) : '');
+        if (x < 100000) return convert(Math.floor(x/1000)) + ' Thousand' + (x%1000 ? ' ' + convert(x%1000) : '');
+        if (x < 10000000) return convert(Math.floor(x/100000)) + ' Lakh' + (x%100000 ? ' ' + convert(x%100000) : '');
+        return convert(Math.floor(x/10000000)) + ' Crore' + (x%10000000 ? ' ' + convert(x%10000000) : '');
+    };
+    
+    let words = convert(num) + ' Rupees';
+    if (paise > 0) {
+        words += ' and ' + convert(paise) + ' Paise';
+    }
+    return words + ' Only';
 }
+const generateId = () => {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return crypto.randomUUID();
+    }
+    return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+};
 
 export const DocumentEditor: React.FC = () => {
     const { settings } = useSettings();
@@ -84,7 +99,7 @@ export const DocumentEditor: React.FC = () => {
 
     const addFromCatalog = (pkg: any) => {
         setItems([...items, {
-            id: 'temp-' + crypto.randomUUID(),
+            id: 'temp-' + generateId(),
             description: `${pkg.title}\nDestination: ${pkg.destination}\nDuration: ${pkg.days} Days / ${pkg.nights} Nights`,
             quantity: 1,
             unit_price: Number(pkg.price || 0),
@@ -95,11 +110,18 @@ export const DocumentEditor: React.FC = () => {
 
     const [deletedItemIds, setDeletedItemIds] = useState<string[]>([]);
     const [items, setItems] = useState<any[]>([
-        { id: crypto.randomUUID(), description: '', quantity: 1, unit_price: 0, tax_rate: 0 }
+        { id: generateId(), description: '', quantity: 1, unit_price: 0, tax_rate: 0 }
     ]);
     const [discount, setDiscount] = useState(0);
     const [loading, setLoading] = useState(isEdit);
     const [saving, setSaving] = useState(false);
+
+    // Record Payment modal
+    const [showPaymentModal, setShowPaymentModal] = useState(false);
+    const [paymentAmount, setPaymentAmount] = useState(0);
+    const [paymentMethod, setPaymentMethod] = useState('Bank Transfer');
+    const [paymentNote, setPaymentNote] = useState('');
+    const [recordingPayment, setRecordingPayment] = useState(false);
 
     useEffect(() => {
         setLoading(true);
@@ -109,7 +131,31 @@ export const DocumentEditor: React.FC = () => {
             if (paramBookingId) prefillFromBooking(paramBookingId);
             else if (paramLeadId) prefillFromLead(paramLeadId);
             else if (paramCustomerId) prefillFromCustomer(paramCustomerId);
-            else setLoading(false);
+            else {
+                // Fix #11 — Check for itinerary quick-create payload from StepReview
+                const itineraryPrefill = sessionStorage.getItem('invoice_quick_create');
+                if (itineraryPrefill) {
+                    try {
+                        const p = JSON.parse(itineraryPrefill);
+                        sessionStorage.removeItem('invoice_quick_create');
+                        setDocData(prev => ({
+                            ...prev,
+                            client_name: p.clientName || '',
+                            travel_dates: p.startDate || '',
+                            adults: p.adults || 2,
+                            children: p.children || 0,
+                        }));
+                        setItems([{
+                            id: generateId(),
+                            description: p.description || p.title || 'Travel Itinerary Package',
+                            quantity: 1,
+                            unit_price: Number(p.amount) || 0,
+                            tax_rate: 0
+                        }]);
+                    } catch { /* ignore parse error */ }
+                }
+                setLoading(false);
+            }
         }
     }, [id]);
 
@@ -127,7 +173,7 @@ export const DocumentEditor: React.FC = () => {
                     adults: data.number_of_people || data.travelers || 2
                 }));
                 if (data.total_price || data.amount) {
-                    setItems([{ id: crypto.randomUUID(), description: 'Tour Package', quantity: 1, unit_price: Number(data.total_price || data.amount), tax_rate: 0 }]);
+                    setItems([{ id: generateId(), description: 'Tour Package', quantity: 1, unit_price: Number(data.total_price || data.amount), tax_rate: 0 }]);
                 }
             }
         } catch (e) { console.error(e); } finally { setLoading(false); }
@@ -148,7 +194,7 @@ export const DocumentEditor: React.FC = () => {
                 }));
                 const budget = data.potential_value || data.budget;
                 if (budget) {
-                    setItems([{ id: crypto.randomUUID(), description: `Custom Tour: ${data.destination || 'Destination'}`, quantity: 1, unit_price: Number(budget), tax_rate: 0 }]);
+                    setItems([{ id: generateId(), description: `Custom Tour: ${data.destination || 'Destination'}`, quantity: 1, unit_price: Number(budget), tax_rate: 0 }]);
                 }
             }
         } catch (e) { console.error(e); } finally { setLoading(false); }
@@ -224,7 +270,7 @@ export const DocumentEditor: React.FC = () => {
                 adults: record.number_of_people || record.travelers || prev.adults
             }));
             if (record.total_price && items.length === 1 && items[0].unit_price === 0) {
-                setItems([{ id: crypto.randomUUID(), description: 'Tour Package', quantity: 1, unit_price: Number(record.total_price), tax_rate: 0 }]);
+                setItems([{ id: generateId(), description: 'Tour Package', quantity: 1, unit_price: Number(record.total_price), tax_rate: 0 }]);
             }
         } else {
             setDocData(prev => ({
@@ -238,7 +284,7 @@ export const DocumentEditor: React.FC = () => {
             }));
             const budget = record.budget || record.potential_value;
             if (budget && items.length === 1 && items[0].unit_price === 0) {
-                setItems([{ id: crypto.randomUUID(), description: `Custom Tour: ${record.destination || 'Destination'}`, quantity: 1, unit_price: Number(budget), tax_rate: 0 }]);
+                setItems([{ id: generateId(), description: `Custom Tour: ${record.destination || 'Destination'}`, quantity: 1, unit_price: Number(budget), tax_rate: 0 }]);
             }
         }
         setShowLinkPanel(false);
@@ -251,7 +297,7 @@ export const DocumentEditor: React.FC = () => {
     };
 
     const addItem = () => {
-        setItems([...items, { id: 'temp-' + crypto.randomUUID(), description: '', quantity: 1, unit_price: 0, tax_rate: 0 }]);
+        setItems([...items, { id: 'temp-' + generateId(), description: '', quantity: 1, unit_price: 0, tax_rate: 0 }]);
     };
 
     const removeItem = (index: number) => {
@@ -275,7 +321,7 @@ export const DocumentEditor: React.FC = () => {
         setSaving(true);
         try {
             const token = (localStorage.getItem('shravya_jwt') || localStorage.getItem('token'));
-            const newId = crypto.randomUUID();
+            const newId = generateId();
             const payload = {
                 ...docData,
                 id: newId,
@@ -297,7 +343,7 @@ export const DocumentEditor: React.FC = () => {
 
             for (const item of items) {
                 const itemPayload = {
-                    id: crypto.randomUUID(),
+                    id: generateId(),
                     invoice_id: newId,
                     description: item.description || '',
                     date_from: item.date_from || null,
@@ -375,7 +421,7 @@ export const DocumentEditor: React.FC = () => {
 
             for (const item of items) {
                 const isNew = String(item.id).startsWith('temp-') || !isEdit;
-                const finalId = isNew ? crypto.randomUUID() : item.id;
+                const finalId = isNew ? generateId() : item.id;
                 const itemPayload = {
                     id: finalId,
                     invoice_id: invoiceId,
@@ -418,7 +464,7 @@ export const DocumentEditor: React.FC = () => {
                             method: 'POST',
                             headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
                             body: JSON.stringify({
-                                id: crypto.randomUUID(),
+                                id: generateId(),
                                 booking_id: docData.booking_id,
                                 amount: amtPaid,
                                 type: 'Payment',
@@ -467,6 +513,57 @@ export const DocumentEditor: React.FC = () => {
             toast.error('Failed to save document');
         } finally {
             setSaving(false);
+        }
+    };
+
+    const handleRecordPayment = async () => {
+        if (!id) { toast.error('Save the invoice first before recording a payment.'); return; }
+        if (paymentAmount <= 0) { toast.error('Payment amount must be greater than zero.'); return; }
+        if (paymentAmount > (totalAmount - Number(docData.amount_paid || 0))) {
+            toast.error('Payment exceeds outstanding balance.'); return;
+        }
+        setRecordingPayment(true);
+        try {
+            const token = (localStorage.getItem('shravya_jwt') || localStorage.getItem('token'));
+            const newAmountPaid = Number(docData.amount_paid || 0) + paymentAmount;
+            const newStatus = newAmountPaid >= totalAmount ? 'Paid' : 'Partially Paid';
+
+            // 1. Update invoice amount_paid + payment_status
+            await fetch(`/api/crud/invoices/${id}`, {
+                method: 'PUT',
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ amount_paid: newAmountPaid, payment_status: newStatus })
+            });
+
+            // 2. Create a booking_transactions entry (for ledger, even if no booking_id)
+            const txPayload: any = {
+                id: generateId(),
+                amount: paymentAmount,
+                type: 'Payment',
+                method: paymentMethod,
+                reference: id,
+                notes: paymentNote || `Payment for Invoice #${id.slice(0, 6).toUpperCase()}`,
+                date: new Date().toISOString().split('T')[0]
+            };
+            if (docData.booking_id) txPayload.booking_id = docData.booking_id;
+
+            await fetch('/api/crud/booking_transactions', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify(txPayload)
+            });
+
+            // 3. Update local state
+            setDocData(prev => ({ ...prev, amount_paid: newAmountPaid, payment_status: newStatus }));
+            setShowPaymentModal(false);
+            setPaymentAmount(0);
+            setPaymentNote('');
+            toast.success(`Payment of ₹${paymentAmount.toLocaleString('en-IN')} recorded! Status: ${newStatus}`);
+        } catch (err) {
+            console.error('Payment record failed:', err);
+            toast.error('Failed to record payment.');
+        } finally {
+            setRecordingPayment(false);
         }
     };
 
@@ -652,6 +749,86 @@ export const DocumentEditor: React.FC = () => {
                 </div>
             )}
 
+            {/* Record Payment Modal */}
+            {showPaymentModal && (
+                <div className="fixed inset-0 z-[999] flex items-center justify-center p-4 print:hidden" onClick={() => setShowPaymentModal(false)}>
+                    <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+                    <div
+                        className="relative bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl w-full max-w-sm p-6"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="flex justify-between items-start mb-5">
+                            <div>
+                                <h4 className="text-base font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                                    <CreditCard size={16} className="text-violet-600" /> Record Payment
+                                </h4>
+                                <p className="text-xs text-slate-400 mt-0.5">
+                                    Outstanding: ₹{Math.max(0, totalAmount - Number(docData.amount_paid || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                </p>
+                            </div>
+                            <button onClick={() => setShowPaymentModal(false)} className="text-slate-400 hover:text-slate-700 p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">✕</button>
+                        </div>
+
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">Amount Received (₹)</label>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    step="1"
+                                    value={paymentAmount || ''}
+                                    onChange={e => setPaymentAmount(parseFloat(e.target.value) || 0)}
+                                    placeholder={`Max ₹${Math.max(0, totalAmount - Number(docData.amount_paid || 0)).toLocaleString('en-IN')}`}
+                                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm font-semibold outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 transition-all"
+                                    autoFocus
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">Payment Method</label>
+                                <select
+                                    value={paymentMethod}
+                                    onChange={e => setPaymentMethod(e.target.value)}
+                                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-violet-500 transition-all"
+                                >
+                                    <option>Bank Transfer</option>
+                                    <option>UPI</option>
+                                    <option>Cash</option>
+                                    <option>Cheque</option>
+                                    <option>Credit Card</option>
+                                    <option>Debit Card</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">Note (optional)</label>
+                                <input
+                                    type="text"
+                                    value={paymentNote}
+                                    onChange={e => setPaymentNote(e.target.value)}
+                                    placeholder="e.g. UTR12345 / Reference no."
+                                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-violet-500 transition-all"
+                                />
+                            </div>
+
+                            {paymentAmount > 0 && (
+                                <div className="bg-violet-50 dark:bg-violet-900/20 rounded-xl p-3 text-xs text-violet-700 dark:text-violet-300 space-y-1">
+                                    <div className="flex justify-between"><span>Amount paid after this:</span><span className="font-bold">₹{(Number(docData.amount_paid || 0) + paymentAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
+                                    <div className="flex justify-between"><span>Remaining balance:</span><span className="font-bold">₹{Math.max(0, totalAmount - Number(docData.amount_paid || 0) - paymentAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
+                                    <div className="flex justify-between"><span>New status:</span><span className="font-bold">{(Number(docData.amount_paid || 0) + paymentAmount) >= totalAmount ? '✅ Paid' : '🔶 Partially Paid'}</span></div>
+                                </div>
+                            )}
+
+                            <button
+                                onClick={handleRecordPayment}
+                                disabled={recordingPayment || paymentAmount <= 0}
+                                className="w-full h-10 bg-violet-700 hover:bg-violet-800 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-xl text-sm flex items-center justify-center gap-2 transition-all shadow-lg shadow-violet-500/20"
+                            >
+                                {recordingPayment ? <><Loader2 size={14} className="animate-spin" /> Recording…</> : <><CheckCircle2 size={14} /> Confirm Payment</>}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Top Bar */}
             <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-b border-slate-200/70 dark:border-slate-800 px-6 py-3 flex justify-between items-center sticky top-0 z-30 print:hidden">
                 <div className="flex items-center gap-3">
@@ -680,10 +857,26 @@ export const DocumentEditor: React.FC = () => {
                             WhatsApp
                         </button>
                     )}
-                    <button onClick={() => window.print()} className="h-9 px-3 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition-all">
+                    <button onClick={() => {
+                        const total = totalAmount.toLocaleString('en-IN');
+                        const subject = encodeURIComponent(`Your ${docData.document_type} from ${co.companyName || 'SHRAWELLO Travel Hub'}`);
+                        const body = encodeURIComponent(`Hi ${docData.client_name},\n\nPlease find the details for your ${docData.document_type} attached.\n\nTotal Amount: INR ${total}\nPayment Status: ${docData.payment_status}\n\nThank you for choosing ${co.companyName || 'SHRAWELLO Travel Hub'}!`);
+                        window.open(`mailto:${docData.email || ''}?subject=${subject}&body=${body}`);
+                    }} className="h-9 px-3 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition-all">
+                        <Mail size={13} /> Email
+                    </button>
+                    <button onClick={() => generateTrueInvoicePDF({ ...docData, id, subtotal, tax_total: taxTotal, discount: discountAmt, total_amount: totalAmount }, items, co, fi)} className="h-9 px-3 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition-all">
                         <Printer size={13} /> Download PDF
                     </button>
                     
+                    {id && (
+                        <button
+                            onClick={() => { setPaymentAmount(Math.max(0, totalAmount - Number(docData.amount_paid || 0))); setShowPaymentModal(true); }}
+                            className="h-9 px-3 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all shadow-sm shadow-emerald-500/20"
+                        >
+                            <CreditCard size={13} /> Record Payment
+                        </button>
+                    )}
                     {isLocked ? (
                         <>
                             <div className="h-9 px-3 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-xl text-xs font-semibold flex items-center gap-1.5 border border-slate-200 dark:border-slate-700">
@@ -849,11 +1042,12 @@ export const DocumentEditor: React.FC = () => {
                             <table className="w-full text-sm">
                                 <thead>
                                     <tr className="bg-violet-700 text-white text-xs" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-                                        <th className="text-left px-4 py-3 font-semibold w-[60%]">Item</th>
+                                        <th className="text-left px-4 py-3 font-semibold w-[45%]">Item</th>
                                         <th className="text-center px-2 py-3 font-semibold w-[10%]">Date<br/>From</th>
                                         <th className="text-center px-2 py-3 font-semibold w-[10%]">Date<br/>To</th>
-                                        <th className="text-center px-2 py-3 font-semibold w-[10%]">Total<br/>Days or<br/>Km</th>
+                                        <th className="text-center px-2 py-3 font-semibold w-[8%]">Total<br/>Days/Qty</th>
                                         <th className="text-center px-2 py-3 font-semibold w-[10%]">Rate</th>
+                                        <th className="text-center px-2 py-3 font-semibold w-[7%]">Tax %</th>
                                         <th className="text-right px-4 py-3 font-semibold w-[10%]">Amount</th>
                                         <th className="w-0 p-0 print:hidden"></th>
                                     </tr>
@@ -904,8 +1098,16 @@ export const DocumentEditor: React.FC = () => {
                                                     className="w-full bg-transparent text-center text-slate-700 outline-none border-b border-transparent focus:border-violet-300"
                                                 />
                                             </td>
+                                            <td className="px-2 py-3 align-top text-center">
+                                                <input
+                                                    type="number" min="0" max="100"
+                                                    value={item.tax_rate}
+                                                    onChange={(e) => handleItemChange(index, 'tax_rate', parseFloat(e.target.value) || 0)}
+                                                    className="w-full bg-transparent text-center text-slate-700 outline-none border-b border-transparent focus:border-violet-300"
+                                                />
+                                            </td>
                                             <td className="px-4 py-3 align-top text-right text-slate-700 tabular-nums">
-                                                ₹{(Number(item.quantity || 0) * Number(item.unit_price || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                                ₹{((Number(item.quantity || 0) * Number(item.unit_price || 0)) * (1 + Number(item.tax_rate || 0) / 100)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                                             </td>
                                             <td className="p-0 align-top print:hidden w-8">
                                                 <button onClick={() => removeItem(index)} className="p-2 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all mt-1">
@@ -995,13 +1197,25 @@ export const DocumentEditor: React.FC = () => {
                                         </div>
                                     </div>
                                     <div className="flex justify-between items-center">
-                                        <span>Extra services/Parking:</span>
-                                        <span className="tabular-nums">₹0.00</span>
+                                        <span>Subtotal:</span>
+                                        <span className="tabular-nums">₹{subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                                     </div>
-                                    <div className="flex justify-between items-center">
-                                        <span>Advance Received:</span>
-                                        <span className="tabular-nums">₹0.00</span>
-                                    </div>
+                                    {taxTotal > 0 && (
+                                        <>
+                                            <div className="flex justify-between items-center text-slate-500 text-xs">
+                                                <span>CGST (half of tax)</span>
+                                                <span className="tabular-nums">₹{(taxTotal / 2).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                            </div>
+                                            <div className="flex justify-between items-center text-slate-500 text-xs">
+                                                <span>SGST (half of tax)</span>
+                                                <span className="tabular-nums">₹{(taxTotal / 2).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                            </div>
+                                            <div className="flex justify-between items-center">
+                                                <span>Total Tax:</span>
+                                                <span className="tabular-nums">₹{taxTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                            </div>
+                                        </>
+                                    )}
                                 </div>
                                 
                                 <div className="border-t-2 border-violet-700 pt-3 flex justify-between items-center mb-5" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>

@@ -116,7 +116,19 @@ ensureAuditLogsSchema();
 async function migratePackagesColumns() {
     const alterations = [
         "ALTER TABLE packages ADD COLUMN IF NOT EXISTS addons LONGTEXT",
-        "ALTER TABLE packages ADD COLUMN IF NOT EXISTS remaining_seats INT DEFAULT NULL"
+        "ALTER TABLE packages ADD COLUMN IF NOT EXISTS remaining_seats INT DEFAULT NULL",
+        "ALTER TABLE packages ADD COLUMN IF NOT EXISTS itinerary_status VARCHAR(50) DEFAULT 'Draft'",
+        "ALTER TABLE packages ADD COLUMN IF NOT EXISTS client_name VARCHAR(255) DEFAULT NULL",
+        "ALTER TABLE packages ADD COLUMN IF NOT EXISTS client_id VARCHAR(255) DEFAULT NULL",
+        "ALTER TABLE packages ADD COLUMN IF NOT EXISTS validity_date DATE DEFAULT NULL",
+        "ALTER TABLE packages ADD COLUMN IF NOT EXISTS terms_and_conditions LONGTEXT DEFAULT NULL",
+        // v2 fields — UI badges, pricing mode, offer price, highlights with icons, itinerary JSON
+        "ALTER TABLE packages ADD COLUMN IF NOT EXISTS tag VARCHAR(100) DEFAULT NULL",
+        "ALTER TABLE packages ADD COLUMN IF NOT EXISTS tag_color VARCHAR(100) DEFAULT NULL",
+        "ALTER TABLE packages ADD COLUMN IF NOT EXISTS original_price DECIMAL(10,2) DEFAULT NULL",
+        "ALTER TABLE packages ADD COLUMN IF NOT EXISTS pricing_mode VARCHAR(50) DEFAULT 'group'",
+        "ALTER TABLE packages ADD COLUMN IF NOT EXISTS highlights LONGTEXT DEFAULT NULL",
+        "ALTER TABLE packages ADD COLUMN IF NOT EXISTS itinerary LONGTEXT DEFAULT NULL"
     ];
     for (const sql of alterations) {
         try {
@@ -131,6 +143,19 @@ async function migratePackagesColumns() {
     console.log('[Packages Migration] Column check complete.');
 }
 migratePackagesColumns();
+
+// Ensure leads.package_id column exists for package → lead linkage
+async function migrateLeadsPackageId() {
+    try {
+        await pool.query("ALTER TABLE leads ADD COLUMN IF NOT EXISTS package_id VARCHAR(255) DEFAULT NULL");
+        console.log('[Leads Migration] package_id column ensured.');
+    } catch (err) {
+        if (!err.message?.includes('Duplicate column')) {
+            console.warn('[Leads Migration] package_id skipped:', err.message?.split('\n')[0]);
+        }
+    }
+}
+migrateLeadsPackageId();
 
 // Ensure the settings table exists (key-value store for admin configuration)
 async function ensureSettingsTable() {
@@ -269,6 +294,270 @@ async function ensureLiveOpsSchema() {
     console.log('[LiveOps Migration] Schema check complete.');
 }
 ensureLiveOpsSchema();
+
+// ─── Ensure booking_transactions table and all its columns ───
+async function ensureBookingTransactionsSchema() {
+    try {
+        // Create table if not exists (with BIGINT to prevent INT overflow from timestamp IDs)
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS booking_transactions (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                booking_id VARCHAR(64),
+                date DATE,
+                amount DECIMAL(10,2),
+                type VARCHAR(50),
+                method VARCHAR(100),
+                reference VARCHAR(255),
+                notes TEXT,
+                status VARCHAR(50) DEFAULT 'Pending',
+                receipt_url VARCHAR(255),
+                recorded_by VARCHAR(255),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        // Fix existing tables: upgrade id to BIGINT if it's still INT (prevents AUTO_INCREMENT overflow)
+        try {
+            await pool.query("ALTER TABLE booking_transactions MODIFY COLUMN id BIGINT AUTO_INCREMENT");
+        } catch(e) { /* already BIGINT */ }
+        // Add missing recorded_by column if upgrading existing table
+        try {
+            await pool.query("ALTER TABLE booking_transactions ADD COLUMN IF NOT EXISTS recorded_by VARCHAR(255) DEFAULT NULL");
+        } catch(e) { /* already exists or DB doesn't support IF NOT EXISTS */ }
+        console.log('[BookingTransactions Migration] Schema ensured.');
+    } catch (err) {
+        console.error('[BookingTransactions Migration] Failed:', err.message);
+    }
+}
+ensureBookingTransactionsSchema();
+
+// ─── Sync bookings.payment_status from actual Verified transactions ───
+// Runs on startup to ensure DB consistency between bookings and booking_transactions
+async function syncPaymentStatusFromTransactions() {
+    try {
+        const [bookings] = await pool.query('SELECT id, total_price, payment_status FROM bookings');
+        const [allTxs] = await pool.query(
+            "SELECT booking_id, amount, type, status FROM booking_transactions WHERE status = 'Verified'"
+        );
+
+        // Group verified txs by booking_id
+        const txMap = {};
+        allTxs.forEach(t => {
+            if (!txMap[t.booking_id]) txMap[t.booking_id] = [];
+            txMap[t.booking_id].push(t);
+        });
+
+        let updated = 0;
+        for (const booking of bookings) {
+            const txs = txMap[booking.id] || [];
+            const netPaid = txs.reduce((sum, t) => {
+                return sum + (t.type === 'Payment' ? Number(t.amount) : t.type === 'Refund' ? -Number(t.amount) : 0);
+            }, 0);
+            const totalPrice = Number(booking.total_price || 0);
+
+            let newStatus = 'pending';
+            if (totalPrice > 0 && netPaid >= totalPrice) newStatus = 'paid';
+            else if (netPaid > 0) newStatus = 'deposit';
+            else if (netPaid < 0) newStatus = 'refunded';
+
+            if (newStatus !== booking.payment_status) {
+                await pool.query('UPDATE bookings SET payment_status = ? WHERE id = ?', [newStatus, booking.id]);
+                updated++;
+            }
+        }
+        if (updated > 0) console.log('[Payment Sync] Corrected payment_status for ' + updated + ' booking(s).');
+        else console.log('[Payment Sync] All booking payment statuses are in sync.');
+    } catch (err) {
+        console.error('[Payment Sync] Failed:', err.message);
+    }
+}
+syncPaymentStatusFromTransactions();
+
+
+// ─── Ensure all remaining whitelisted tables exist ───
+// Prevents 500 errors on first run or after a reset. All safe to run repeatedly.
+async function ensureMissingTables() {
+    const tables = [
+        // CMS Tables
+        `CREATE TABLE IF NOT EXISTS cms_banners (
+            id VARCHAR(255) PRIMARY KEY,
+            title VARCHAR(255),
+            subtitle TEXT,
+            image_url TEXT,
+            cta_text VARCHAR(255),
+            cta_link VARCHAR(500),
+            is_active BOOLEAN DEFAULT true,
+            sort_order INT DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )`,
+        `CREATE TABLE IF NOT EXISTS cms_testimonials (
+            id VARCHAR(255) PRIMARY KEY,
+            name VARCHAR(255),
+            location VARCHAR(255),
+            avatar_url TEXT,
+            rating INT DEFAULT 5,
+            review TEXT,
+            package_name VARCHAR(255),
+            is_active BOOLEAN DEFAULT true,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE TABLE IF NOT EXISTS cms_gallery_images (
+            id VARCHAR(255) PRIMARY KEY,
+            url TEXT NOT NULL,
+            caption VARCHAR(500),
+            category VARCHAR(100),
+            sort_order INT DEFAULT 0,
+            is_active BOOLEAN DEFAULT true,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE TABLE IF NOT EXISTS cms_posts (
+            id VARCHAR(255) PRIMARY KEY,
+            title VARCHAR(500),
+            slug VARCHAR(500) UNIQUE,
+            content LONGTEXT,
+            excerpt TEXT,
+            cover_image TEXT,
+            author VARCHAR(255),
+            status VARCHAR(50) DEFAULT 'Draft',
+            tags TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )`,
+        // Master Data Tables
+        `CREATE TABLE IF NOT EXISTS master_activities (
+            id VARCHAR(255) PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            category VARCHAR(100),
+            description TEXT,
+            base_price DECIMAL(10,2) DEFAULT 0,
+            unit VARCHAR(100),
+            tags TEXT,
+            is_active BOOLEAN DEFAULT true,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE TABLE IF NOT EXISTS master_transports (
+            id VARCHAR(255) PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            type VARCHAR(100),
+            capacity INT DEFAULT 0,
+            base_price DECIMAL(10,2) DEFAULT 0,
+            unit VARCHAR(100),
+            description TEXT,
+            is_active BOOLEAN DEFAULT true,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE TABLE IF NOT EXISTS master_plans (
+            id VARCHAR(255) PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            description TEXT,
+            duration_days INT DEFAULT 1,
+            destinations TEXT,
+            inclusions TEXT,
+            exclusions TEXT,
+            is_active BOOLEAN DEFAULT true,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE TABLE IF NOT EXISTS master_room_types (
+            id VARCHAR(255) PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            description TEXT,
+            base_price DECIMAL(10,2) DEFAULT 0,
+            max_occupancy INT DEFAULT 2,
+            amenities TEXT,
+            is_active BOOLEAN DEFAULT true,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE TABLE IF NOT EXISTS master_meal_plans (
+            id VARCHAR(255) PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            code VARCHAR(50),
+            description TEXT,
+            price_per_person DECIMAL(10,2) DEFAULT 0,
+            is_active BOOLEAN DEFAULT true,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE TABLE IF NOT EXISTS master_lead_sources (
+            id VARCHAR(255) PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            description TEXT,
+            is_active BOOLEAN DEFAULT true,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE TABLE IF NOT EXISTS master_terms_templates (
+            id VARCHAR(255) PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            content LONGTEXT,
+            category VARCHAR(100),
+            is_default BOOLEAN DEFAULT false,
+            is_active BOOLEAN DEFAULT true,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        // Business Operations Tables
+        `CREATE TABLE IF NOT EXISTS proposals (
+            id VARCHAR(255) PRIMARY KEY,
+            lead_id VARCHAR(255),
+            customer_name VARCHAR(255),
+            destination VARCHAR(255),
+            title VARCHAR(500),
+            content LONGTEXT,
+            status VARCHAR(50) DEFAULT 'Draft',
+            total_amount DECIMAL(10,2) DEFAULT 0,
+            valid_until DATE,
+            created_by VARCHAR(255),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )`,
+        `CREATE TABLE IF NOT EXISTS daily_targets (
+            id VARCHAR(255) PRIMARY KEY,
+            staff_id INT,
+            date DATE NOT NULL,
+            target_type VARCHAR(100),
+            target_value DECIMAL(10,2) DEFAULT 0,
+            achieved_value DECIMAL(10,2) DEFAULT 0,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE TABLE IF NOT EXISTS time_sessions (
+            id VARCHAR(255) PRIMARY KEY,
+            staff_id INT,
+            start_time DATETIME,
+            end_time DATETIME,
+            duration_minutes INT DEFAULT 0,
+            activity_type VARCHAR(100),
+            description TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE TABLE IF NOT EXISTS assignment_rules (
+            id VARCHAR(255) PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            priority INT DEFAULT 0,
+            conditions LONGTEXT,
+            assigned_to INT,
+            is_active BOOLEAN DEFAULT true,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE TABLE IF NOT EXISTS user_activities (
+            id VARCHAR(255) PRIMARY KEY,
+            staff_id INT,
+            email VARCHAR(255),
+            action VARCHAR(255),
+            module VARCHAR(100),
+            details TEXT,
+            ip_address VARCHAR(100),
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`
+    ];
+
+    for (const sql of tables) {
+        try {
+            await pool.query(sql);
+        } catch (err) {
+            console.warn('[Tables Migration] Skipped:', err.message?.split('\n')[0]);
+        }
+    }
+    console.log('[Tables Migration] All required tables ensured.');
+}
+ensureMissingTables();
 
 // Allowed tables (whitelist to prevent SQL injection)
 const ALLOWED_TABLES = new Set([
@@ -497,6 +786,25 @@ function injectPackageStatusFilter(req, res, next) {
     next();
 }
 
+// ─── Custom Endpoints ───
+app.get('/api/invoices/stats', authMiddleware, async (req, res) => {
+    try {
+        const [rows] = await pool.query(`
+            SELECT 
+                SUM(total_amount) as totalRevenue,
+                SUM(total_amount - amount_paid) as pendingAmount,
+                COUNT(CASE WHEN payment_status = 'Paid' AND MONTH(issue_date) = MONTH(CURRENT_DATE()) AND YEAR(issue_date) = YEAR(CURRENT_DATE()) THEN 1 END) as paidThisMonthCount,
+                SUM(CASE WHEN due_date < CURRENT_DATE() AND payment_status != 'Paid' THEN (total_amount - amount_paid) ELSE 0 END) as overdueAmount
+            FROM invoices
+            WHERE status != 'Draft'
+        `);
+        res.json({ data: rows[0] || {} });
+    } catch (error) {
+        console.error('Stats error:', error);
+        res.status(500).json({ error: 'Failed to fetch invoice stats' });
+    }
+});
+
 // GET all rows from a table
 // Supports: ?order=column&asc=true&limit=100&select=col1,col2
 // Supports: ?eq_field=value for equality filters
@@ -567,6 +875,13 @@ app.get('/api/crud/:table', optionalAuthMiddleware, injectPackageStatusFilter, v
 
         if (limit) {
             query += ` LIMIT ${parseInt(limit) || 100}`;
+            if (req.query.offset) {
+                query += ` OFFSET ${parseInt(req.query.offset) || 0}`;
+            } else if (req.query.page) {
+                const p = parseInt(req.query.page) || 1;
+                const l = parseInt(limit) || 100;
+                query += ` OFFSET ${(p - 1) * l}`;
+            }
         }
 
         const [rows] = await pool.query(query, params);
@@ -630,7 +945,7 @@ app.post('/api/crud/:table', authMiddleware, validateTable, writeGuard, async (r
     const body = req.body;
     try {
         // Auto-generate UUID if missing for non-auto-increment tables
-        const autoIncrementTables = ['users', 'staff_members', 'audit_logs', 'lead_logs'];
+        const autoIncrementTables = ['users', 'staff_members', 'audit_logs', 'lead_logs', 'booking_transactions', 'account_transactions'];
         if (!body.id && !autoIncrementTables.includes(table)) {
             body.id = crypto.randomUUID();
         }
@@ -734,6 +1049,37 @@ app.delete('/api/crud/:table/:id', authMiddleware, validateTable, async (req, re
 });
 
 // ═══════════════════════════════════════════
+// ATOMIC PACKAGE SEAT DECREMENT
+// ═══════════════════════════════════════════
+
+// PATCH /api/packages/:id/decrement-seats
+// Atomically decrements remaining_seats by 1 using a WHERE guard.
+// No auth required — called from the public booking form.
+// Returns 409 if no seats available.
+app.patch('/api/packages/:id/decrement-seats', async (req, res) => {
+    const { id } = req.params;
+    try {
+        const [result] = await pool.query(
+            `UPDATE packages
+             SET remaining_seats = remaining_seats - 1
+             WHERE id = ? AND remaining_seats IS NOT NULL AND remaining_seats > 0`,
+            [id]
+        );
+        if (result.affectedRows === 0) {
+            // Either package not found or no seats available
+            const [[pkg]] = await pool.query('SELECT remaining_seats FROM packages WHERE id = ?', [id]);
+            if (!pkg) return res.status(404).json({ error: 'Package not found' });
+            return res.status(409).json({ error: 'No seats available', remainingSeats: pkg.remaining_seats });
+        }
+        const [[updated]] = await pool.query('SELECT remaining_seats FROM packages WHERE id = ?', [id]);
+        res.json({ status: 'success', remainingSeats: updated?.remaining_seats ?? 0 });
+    } catch (error) {
+        console.error('[DecrementSeats] Error:', error.message);
+        res.status(500).json({ error: 'Failed to decrement seats', details: error.message });
+    }
+});
+
+// ═══════════════════════════════════════════
 // DELETION REQUESTS WORKFLOW
 // ═══════════════════════════════════════════
 
@@ -826,7 +1172,7 @@ app.post('/api/crud/:table/upsert', authMiddleware, validateTable, writeGuard, a
     const body = req.body;
     try {
         // Auto-generate UUID if missing for non-auto-increment tables
-        const autoIncrementTables = ['users', 'staff_members', 'audit_logs', 'bookings', 'tours', 'packages'];
+        const autoIncrementTables = ['users', 'staff_members', 'audit_logs', 'bookings', 'tours', 'packages', 'booking_transactions', 'account_transactions'];
         if (!body.id && !autoIncrementTables.includes(table)) {
             body.id = crypto.randomUUID();
         }
@@ -1162,12 +1508,14 @@ app.get('/api/finance/booking-transactions', authMiddleware, async (req, res) =>
         // Query 1: Client payments (booking transactions)
         const [txRows] = await pool.query(`
             SELECT 
-                t.id, t.date, t.amount, t.type, t.method, t.reference, t.notes, t.status, t.receipt_url,
+                t.id, t.date, t.amount, t.type, t.method, t.reference, t.notes, t.status, t.receipt_url, t.recorded_by,
                 t.booking_id as bookingId, t.created_at,
-                b.customer_name as customer, b.customer_email as email, b.customer_phone as phone, b.tour_id as packageId,
-                'booking_payment' as source
+                b.customer_name as customer, b.customer_email as email, b.customer_phone as phone, b.package_id as packageId, b.title as bookingName,
+                'booking_payment' as source,
+                s.name as recordedByName
             FROM booking_transactions t
             LEFT JOIN bookings b ON t.booking_id = b.id
+            LEFT JOIN staff_members s ON t.recorded_by = s.id OR t.recorded_by = s.name
         `);
 
         // Query 2: Operational expenses
@@ -1186,6 +1534,55 @@ app.get('/api/finance/booking-transactions', authMiddleware, async (req, res) =>
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: 'Failed to fetch finance transactions', details: error.message });
+    }
+});
+
+// POST /api/finance/sync-booking-payment
+// Called after a transaction is approved or rejected on the Payment Approvals page.
+// Re-derives the booking's payment_status from its Verified transactions and persists it.
+app.post('/api/finance/sync-booking-payment', authMiddleware, async (req, res) => {
+    try {
+        const { transactionId } = req.body;
+        if (!transactionId) return res.status(400).json({ error: 'transactionId required' });
+
+        // Find the booking_id for this transaction
+        const [[tx]] = await pool.query(
+            'SELECT booking_id FROM booking_transactions WHERE id = ?', [transactionId]
+        );
+        if (!tx || !tx.booking_id) return res.json({ status: 'skipped', reason: 'Transaction not found or not a booking tx' });
+
+        const bookingId = tx.booking_id;
+
+        // Get all Verified transactions for this booking
+        const [verifiedTxs] = await pool.query(
+            "SELECT amount, type FROM booking_transactions WHERE booking_id = ? AND status = 'Verified'",
+            [bookingId]
+        );
+
+        const netPaid = verifiedTxs.reduce((sum, t) => {
+            return sum + (t.type === 'Payment' ? Number(t.amount) : t.type === 'Refund' ? -Number(t.amount) : 0);
+        }, 0);
+
+        // Get the booking's total price
+        const [[booking]] = await pool.query('SELECT total_price FROM bookings WHERE id = ?', [bookingId]);
+        if (!booking) return res.json({ status: 'skipped', reason: 'Booking not found' });
+
+        const totalPrice = Number(booking.total_price || 0);
+
+        let newStatus = 'pending';
+        if (totalPrice > 0 && netPaid >= totalPrice) newStatus = 'paid';
+        else if (netPaid > 0) newStatus = 'deposit';
+        else if (netPaid < 0) newStatus = 'refunded';
+
+        await pool.query('UPDATE bookings SET payment_status = ? WHERE id = ?', [newStatus, bookingId]);
+
+        console.log('[Payment Approval Sync] Booking ' + bookingId + ' payment_status → ' + newStatus + ' (netPaid=' + netPaid + ', total=' + totalPrice + ')');
+        auditLog('Finance', 'bookings', 'Payment status synced to ' + newStatus + ' after transaction approval for booking ' + bookingId, req.user?.email);
+
+        res.json({ status: 'ok', bookingId, newPaymentStatus: newStatus, netPaid, totalPrice });
+    } catch (error) {
+        console.error('[Payment Sync] Error:', error.message);
+        res.status(500).json({ error: 'Failed to sync booking payment status', details: error.message });
     }
 });
 

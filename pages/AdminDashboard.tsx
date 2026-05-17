@@ -19,6 +19,7 @@ export const AdminDashboard: React.FC = () => {
     const [salesTimeFilter, setSalesTimeFilter] = useState<'7' | '14' | '30'>('7');
     const [deletionRequests, setDeletionRequests] = useState<any[]>([]);
     const [isProcessingDel, setIsProcessingDel] = useState<string | null>(null);
+    const [isAlertsExpanded, setIsAlertsExpanded] = useState(false);
     const today = new Date().toISOString().split('T')[0];
 
     useEffect(() => {
@@ -331,8 +332,8 @@ export const AdminDashboard: React.FC = () => {
 
             // Receivables calculations
             if (b.payment === 'Unpaid' || b.payment === 'Deposit') {
-                const paid = (b.transactions || []).filter(t => t.type === 'Payment').reduce((sum, t) => sum + t.amount, 0);
-                const refunded = (b.transactions || []).filter(t => t.type === 'Refund').reduce((sum, t) => sum + t.amount, 0);
+                const paid = (b.transactions || []).filter(t => t.type === 'Payment' && t.status === 'Verified').reduce((sum, t) => sum + t.amount, 0);
+                const refunded = (b.transactions || []).filter(t => t.type === 'Refund' && t.status === 'Verified').reduce((sum, t) => sum + t.amount, 0);
                 const netPaid = paid - refunded;
                 const remaining = b.amount - netPaid;
                 if (remaining > 0) receivables += remaining;
@@ -444,31 +445,31 @@ export const AdminDashboard: React.FC = () => {
                 <div className="absolute inset-0 bg-gradient-to-br from-indigo-600 via-purple-700 to-slate-900 opacity-90"></div>
 
                 {/* Abstract Shapes */}
-                <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-white/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3 pointer-events-none"></div>
-                <div className="absolute bottom-0 left-0 w-[300px] h-[300px] bg-indigo-500/20 rounded-full blur-3xl translate-y-1/3 -translate-x-1/3 pointer-events-none"></div>
+                <div className="hidden md:block absolute top-0 right-0 w-[500px] h-[500px] bg-white/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3 pointer-events-none"></div>
+                <div className="hidden md:block absolute bottom-0 left-0 w-[300px] h-[300px] bg-indigo-500/20 rounded-full blur-3xl translate-y-1/3 -translate-x-1/3 pointer-events-none"></div>
 
-                <div className="relative z-10 p-8 lg:p-12 flex flex-col md:flex-row justify-between items-start md:items-end gap-8">
+                <div className="relative z-10 p-6 lg:p-12 flex flex-col md:flex-row justify-between items-start md:items-end gap-6 md:gap-8">
                     <div className="space-y-4 max-w-2xl">
                         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 backdrop-blur-md border border-white/10 text-xs font-bold uppercase tracking-widest text-indigo-100">
                             <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
                             System Online
                         </div>
-                        <h1 className="text-4xl md:text-5xl font-black tracking-tight leading-tight">
+                        <h1 className="text-3xl md:text-5xl font-black tracking-tight leading-tight">
                             {greeting}, {currentUser?.name || 'there'}.
                         </h1>
-                        <p className="text-lg text-indigo-100 font-medium leading-relaxed opacity-90">
+                        <p className="text-base md:text-lg text-indigo-100 font-medium leading-relaxed opacity-90">
                             Here's what's happening today. You have <span className="text-white font-bold underline decoration-indigo-400 decoration-2 underline-offset-4">{pendingBookings} pending bookings</span> and <span className="text-white font-bold underline decoration-green-400 decoration-2 underline-offset-4">{ongoingBookings} ongoing tours</span>.
                         </p>
                     </div>
 
-                    <div className="flex flex-wrap gap-4">
-                        <button onClick={() => navigate('/admin/itinerary-builder')} className="group flex items-center gap-3 px-6 py-4 bg-white text-slate-900 rounded-2xl font-bold shadow-xl shadow-white/10 hover:bg-indigo-50 transition-all active:scale-95">
+                    <div className="flex flex-col sm:flex-row w-full md:w-auto gap-4">
+                        <button onClick={() => navigate('/admin/itinerary-builder')} className="group w-full sm:w-auto flex justify-center items-center gap-3 px-6 py-4 bg-white text-slate-900 rounded-2xl font-bold shadow-xl shadow-white/10 hover:bg-indigo-50 transition-all active:scale-95">
                             <div className="size-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center group-hover:scale-110 transition-transform">
                                 <span className="material-symbols-outlined text-[18px]">add</span>
                             </div>
                             <span>Create Package</span>
                         </button>
-                        <button onClick={() => navigate('/admin/bookings')} className="flex items-center gap-3 px-6 py-4 bg-white/10 text-white backdrop-blur-md border border-white/10 rounded-2xl font-bold hover:bg-white/20 transition-all active:scale-95">
+                        <button onClick={() => navigate('/admin/bookings')} className="w-full sm:w-auto flex justify-center items-center gap-3 px-6 py-4 bg-white/10 text-white backdrop-blur-md border border-white/10 rounded-2xl font-bold hover:bg-white/20 transition-all active:scale-95">
                             <span>Manage Bookings</span>
                             <span className="material-symbols-outlined text-[20px]">arrow_forward</span>
                         </button>
@@ -477,14 +478,14 @@ export const AdminDashboard: React.FC = () => {
             </div>
 
             {/* 2. Key Performance Indicators - Premium Gradient Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="flex overflow-x-auto snap-x snap-mandatory gap-4 pb-2 -mx-6 px-6 lg:mx-0 lg:px-0 lg:grid lg:grid-cols-4 lg:gap-6 lg:overflow-visible hide-scrollbar">
                 {[
                     { label: 'Total Revenue', value: formatPriceCompact(totalRevenue), icon: 'payments', gradient: 'from-emerald-500 to-teal-600', shadowColor: 'shadow-emerald-500/20', trend: thisWeekBookings > 0 ? `${thisWeekBookings} this week` : 'No bookings', trendUp: thisWeekBookings > 0 },
                     { label: 'Conversion Rate', value: `${conversionRate}%`, icon: 'trending_up', gradient: 'from-blue-500 to-indigo-600', shadowColor: 'shadow-blue-500/20', trend: conversionRate > 20 ? 'Above avg' : 'Needs focus', trendUp: conversionRate > 20 },
                     { label: 'Pipeline Value', value: formatPriceCompact(totalLeadsValue), icon: 'account_balance', gradient: 'from-violet-500 to-purple-600', shadowColor: 'shadow-violet-500/20', trend: `${hotLeadsCount} hot leads`, trendUp: hotLeadsCount > 0 },
                     { label: 'Active Packages', value: activePackages, icon: 'travel_explore', gradient: 'from-orange-500 to-rose-500', shadowColor: 'shadow-orange-500/20', trend: `${masterDataStats.locations} destinations`, trendUp: null },
                 ].map((kpi, idx) => (
-                    <div key={idx} className="group relative bg-white dark:bg-slate-900/50 rounded-3xl border border-slate-100 dark:border-slate-800 overflow-hidden card-lift">
+                    <div key={idx} className="min-w-[85vw] sm:min-w-[45vw] lg:min-w-0 shrink-0 snap-center group relative bg-white dark:bg-slate-900/50 rounded-3xl border border-slate-100 dark:border-slate-800 overflow-hidden card-lift">
                         {/* Gradient Background Accent */}
                         <div className={`absolute top-0 right-0 w-32 h-32 bg-gradient-to-br ${kpi.gradient} opacity-10 rounded-full -translate-y-1/2 translate-x-1/2 group-hover:scale-150 transition-transform duration-500`} />
 
@@ -511,7 +512,17 @@ export const AdminDashboard: React.FC = () => {
             {/* Smart Alerts Section - Modern Glassmorphism */}
             {smartAlerts.length > 0 && (
                 <div className="space-y-3">
-                    {smartAlerts.map((alert, idx) => (
+                    <div className="md:hidden">
+                        <button onClick={() => setIsAlertsExpanded(!isAlertsExpanded)} className="w-full flex items-center justify-between p-4 rounded-2xl bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20 border border-indigo-100 dark:border-indigo-800/30 font-bold text-indigo-900 dark:text-indigo-100 active:scale-[0.98] transition-transform">
+                            <div className="flex items-center gap-3">
+                                <span className="material-symbols-outlined text-indigo-500">notifications_active</span>
+                                <span>{smartAlerts.length} Actionable Alert{smartAlerts.length > 1 ? 's' : ''}</span>
+                            </div>
+                            <span className={`material-symbols-outlined transition-transform duration-300 ${isAlertsExpanded ? 'rotate-180' : ''}`}>expand_more</span>
+                        </button>
+                    </div>
+                    <div className={`${isAlertsExpanded ? 'flex flex-col gap-3' : 'hidden'} md:block md:space-y-3`}>
+                        {smartAlerts.map((alert, idx) => (
                         <div key={idx} className={`group flex items-center justify-between p-5 rounded-2xl backdrop-blur-sm border transition-all duration-300 hover:scale-[1.01] ${alert.type === 'warning'
                             ? 'bg-gradient-to-r from-amber-50/90 to-orange-50/90 dark:from-amber-900/20 dark:to-orange-900/20 border-amber-200/50 dark:border-amber-700/30'
                             : alert.type === 'success'
@@ -543,7 +554,8 @@ export const AdminDashboard: React.FC = () => {
                                 {alert.action}
                             </button>
                         </div>
-                    ))}
+                        ))}
+                    </div>
                 </div>
             )}
 
@@ -641,7 +653,8 @@ export const AdminDashboard: React.FC = () => {
                                 View All <span className="material-symbols-outlined text-lg transition-transform group-hover:translate-x-1">arrow_right_alt</span>
                             </Link>
                         </div>
-                        <div className="overflow-x-auto">
+                        {/* Desktop Table View */}
+                        <div className="hidden md:block overflow-x-auto">
                             <table className="w-full text-left text-sm">
                                 <thead className="bg-slate-50/50 dark:bg-slate-900/50 text-xs font-black uppercase tracking-widest text-slate-400">
                                     <tr>
@@ -687,6 +700,47 @@ export const AdminDashboard: React.FC = () => {
                                     ))}
                                 </tbody>
                             </table>
+                        </div>
+
+                        {/* Mobile Cards View */}
+                        <div className="md:hidden flex flex-col divide-y divide-slate-100 dark:divide-slate-800">
+                            {bookings.slice(0, 5).map((row, i) => (
+                                <div key={i} className="p-5 hover:bg-slate-50 dark:hover:bg-slate-800/50 active:bg-slate-100 transition-colors cursor-pointer" onClick={() => navigate('/admin/bookings')}>
+                                    <div className="flex justify-between items-start mb-3">
+                                        <div className="flex items-center gap-3">
+                                            <div className="size-10 rounded-full bg-gradient-to-tr from-slate-200 to-slate-100 dark:from-slate-700 dark:to-slate-600 flex items-center justify-center font-black text-slate-500 dark:text-slate-300 text-sm shadow-sm">
+                                                {row.customer.charAt(0)}
+                                            </div>
+                                            <div>
+                                                <p className="font-bold text-slate-900 dark:text-white text-sm">{row.customer}</p>
+                                                <p className="text-[11px] font-medium text-slate-500 line-clamp-1">{row.title}</p>
+                                            </div>
+                                        </div>
+                                        <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider whitespace-nowrap ${row.payment === 'Paid' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
+                                            row.payment === 'Deposit' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :
+                                                'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
+                                            }`}>
+                                            {row.payment}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between items-center pl-13">
+                                        <div className="flex items-center gap-1.5 text-slate-400">
+                                            <span className="material-symbols-outlined text-[14px]">calendar_today</span>
+                                            <p className="text-[11px] font-medium">
+                                                {new Date(row.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                                            </p>
+                                        </div>
+                                        <p className="font-black text-slate-900 dark:text-white text-sm">
+                                            {formatPrice(row.amount)}
+                                        </p>
+                                    </div>
+                                </div>
+                            ))}
+                            {bookings.length === 0 && (
+                                <div className="p-8 text-center text-sm font-medium text-slate-400">
+                                    No recent bookings found.
+                                </div>
+                            )}
                         </div>
                     </div>
 

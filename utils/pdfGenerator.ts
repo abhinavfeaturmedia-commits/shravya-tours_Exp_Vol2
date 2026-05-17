@@ -375,3 +375,204 @@ export const generateBookingInvoice = (booking: any, customer: any) => {
     // --- Footer ---
     doc.save(`Invoice_${booking.invoiceNo || booking.id}.pdf`);
 };
+
+export const generateTrueInvoicePDF = (docData: any, items: any[], company: any, finance: any) => {
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.width;
+    const isProforma = docData.document_type === 'Proforma';
+    const isQuote = docData.document_type === 'Quotation';
+    
+    // --- Header ---
+    doc.setFillColor(255, 255, 255);
+    doc.setFontSize(22);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(88, 28, 135); // Violet-900
+    doc.text(docData.document_type ? docData.document_type.toUpperCase() : "INVOICE", pageWidth - 15, 25, { align: 'right' });
+
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(100, 100, 100);
+    doc.text(`Date: ${new Date(docData.issue_date || new Date()).toLocaleDateString()}`, pageWidth - 15, 33, { align: 'right' });
+    const prefix = finance?.invoicePrefix || (isProforma ? 'PI' : isQuote ? 'QT' : 'INV');
+    const docId = docData.id ? docData.id.slice(0, 6).toUpperCase() : 'DRAFT';
+    doc.text(`Ref No: ${prefix}-${docId}`, pageWidth - 15, 38, { align: 'right' });
+    
+    if (docData.due_date) {
+        doc.text(`Due Date: ${new Date(docData.due_date).toLocaleDateString()}`, pageWidth - 15, 43, { align: 'right' });
+    }
+
+    // Logo / Company Name
+    doc.setFontSize(18);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(88, 28, 135);
+    doc.text(company.companyName || "SHRAWELLO TRAVEL HUB", 15, 25);
+
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(0, 0, 0);
+    
+    // Split registered address by newline if it exists
+    let startY = 32;
+    if (company.registeredAddress) {
+        const addressLines = company.registeredAddress.split('\n');
+        addressLines.forEach((line: string) => {
+            doc.text(line.trim(), 15, startY);
+            startY += 4;
+        });
+    } else {
+        doc.text("Pimpri chinchwad, Pune ,", 15, startY); startY += 4;
+        doc.text("Maharashtra, India - 411062", 15, startY); startY += 4;
+    }
+    
+    doc.text(`Phone: ${company.phone || '+91 80109 55675'}`, 15, startY); startY += 4;
+    doc.text(`Email: ${company.email || 'hello@shrawello.com'}`, 15, startY); startY += 4;
+    if (company.gstNumber) {
+        doc.text(`GSTIN: ${company.gstNumber}`, 15, startY);
+    }
+
+    doc.setDrawColor(200, 200, 200);
+    doc.line(15, 60, pageWidth - 15, 60);
+
+    // Bill To
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "bold");
+    doc.text("Bill To:", 15, 70);
+
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    let billY = 76;
+    doc.text(docData.client_name || 'Valued Customer', 15, billY); billY += 5;
+    if (docData.email) { doc.text(docData.email, 15, billY); billY += 5; }
+    if (docData.phone) { doc.text(docData.phone, 15, billY); billY += 5; }
+    if (docData.address) { 
+        const addLines = doc.splitTextToSize(docData.address, 80);
+        doc.text(addLines, 15, billY);
+    }
+    
+    // Details right column
+    let detY = 70;
+    doc.setFont("helvetica", "bold");
+    doc.text("Travel Dates:", pageWidth / 2, detY);
+    doc.setFont("helvetica", "normal");
+    doc.text(docData.travel_dates || 'TBD', pageWidth / 2, detY + 6);
+    
+    detY += 16;
+    doc.setFont("helvetica", "bold");
+    doc.text("Passengers:", pageWidth / 2, detY);
+    doc.setFont("helvetica", "normal");
+    doc.text(`${docData.adults || 0} Adults, ${docData.children || 0} Children`, pageWidth / 2, detY + 6);
+
+    // --- Table ---
+    const bodyData = items.map((item, idx) => {
+        const qty = Number(item.quantity) || 1;
+        const price = Number(item.unit_price) || 0;
+        const taxRate = Number(item.tax_rate) || 0;
+        const taxableVal = qty * price;
+        const taxAmt = taxableVal * (taxRate / 100);
+        const cgst = taxAmt / 2;
+        const sgst = taxAmt / 2;
+        const total = taxableVal + taxAmt;
+        
+        return [
+            (idx + 1).toString(),
+            item.description || 'Tour Service',
+            '9985',
+            taxableVal.toFixed(2),
+            taxRate > 0 ? cgst.toFixed(2) : '0.00',
+            taxRate > 0 ? sgst.toFixed(2) : '0.00',
+            total.toLocaleString('en-IN', { minimumFractionDigits: 2 })
+        ];
+    });
+
+    const subtotal = Number(docData.subtotal) || 0;
+    const discount = Number(docData.discount) || 0;
+    const taxTotal = Number(docData.tax_total) || 0;
+    const finalTotal = Number(docData.total_amount) || 0;
+    const amountPaid = Number(docData.amount_paid) || 0;
+    const balanceDue = finalTotal - amountPaid;
+
+    autoTable(doc, {
+        startY: 105,
+        head: [['S.No', 'Description', 'HSN/SAC', 'Taxable Val', 'CGST', 'SGST', 'Total']],
+        body: bodyData,
+        theme: 'grid',
+        headStyles: { fillColor: [88, 28, 135], textColor: 255, halign: 'center' },
+        bodyStyles: { valign: 'middle', halign: 'center' },
+        columnStyles: {
+            1: { halign: 'left', cellWidth: 55 }
+        }
+    });
+
+    // @ts-ignore
+    let yPos = doc.lastAutoTable.finalY + 10;
+    
+    // Summary Table (Aligned Right)
+    autoTable(doc, {
+        startY: yPos,
+        margin: { left: pageWidth / 2 },
+        body: [
+            ['Subtotal:', `INR ${subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`],
+            ['Discount:', `INR ${discount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`],
+            ['Tax Total:', `INR ${taxTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`],
+            ['Grand Total:', `INR ${finalTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`],
+            ['Amount Paid:', `INR ${amountPaid.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`],
+            ['Balance Due:', `INR ${balanceDue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`]
+        ],
+        theme: 'plain',
+        styles: { fontSize: 10, halign: 'right' },
+        columnStyles: {
+            0: { fontStyle: 'bold', textColor: [100, 100, 100] },
+            1: { fontStyle: 'bold' }
+        },
+        willDrawCell: (data: any) => {
+            if (data.row.index === 3 || data.row.index === 5) {
+                doc.setTextColor(88, 28, 135);
+                doc.setFont("helvetica", "bold");
+            }
+        }
+    });
+
+    // --- Bank Details ---
+    // @ts-ignore
+    let leftYPos = doc.lastAutoTable.finalY - 35; // Position alongside summary if possible, or below table
+    
+    // Let's just put it below the table on the left
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(15, yPos, (pageWidth / 2) - 10, 45, 3, 3, 'F');
+
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(0, 0, 0);
+    doc.text("Bank Details:", 20, yPos + 8);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.text(`Account Name: ${finance?.bankAccountName || 'SHRAWELLO TRAVEL HUB'}`, 20, yPos + 14);
+    doc.text(`Bank Name: ${finance?.bankName || 'HDFC Bank'}`, 20, yPos + 19);
+    doc.text(`Account Number: ${finance?.bankAccountNumber || '50200088927878'}`, 20, yPos + 24);
+    doc.text(`IFSC Code: ${finance?.bankIfsc || 'HDFC0000007'}`, 20, yPos + 29);
+    if (finance?.upiId) doc.text(`UPI ID: ${finance.upiId}`, 20, yPos + 34);
+
+    // --- Notes ---
+    // @ts-ignore
+    let finalY = Math.max(doc.lastAutoTable.finalY, yPos + 50) + 10;
+    
+    if (docData.notes) {
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "bold");
+        doc.text("Notes & Terms:", 15, finalY);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8);
+        const notesLines = doc.splitTextToSize(docData.notes, pageWidth - 30);
+        doc.text(notesLines, 15, finalY + 6);
+    }
+
+    // Footer
+    const pageHeight = doc.internal.pageSize.height;
+    doc.setFontSize(8);
+    doc.setTextColor(150, 150, 150);
+    doc.text("Thank you for your business!", pageWidth / 2, pageHeight - 10, { align: 'center' });
+
+    doc.save(`${docData.document_type}_${docData.client_name.replace(/\\s+/g, '_')}_${docId}.pdf`);
+};
+

@@ -30,7 +30,7 @@ type BookingFormData = z.infer<typeof bookingSchema>;
 interface QuickBookingModalProps {
     isOpen: boolean;
     onClose: () => void;
-    bookingType: 'Car' | 'Bus' | 'Hotel' | 'Tour';
+    bookingType: 'Car' | 'Bus' | 'Hotel' | 'Tour' | 'Train' | 'Flight';
     bookingDetails: string;
 }
 
@@ -80,7 +80,7 @@ export const QuickBookingModal: React.FC<QuickBookingModalProps> = ({
             type: bookingType,
             status: 'New',
             priority: 'Medium',
-            potentialValue: bookingType === 'Car' ? 3500 : bookingType === 'Bus' ? 1200 : 8000,
+            potentialValue: bookingType === 'Car' ? 3500 : bookingType === 'Bus' ? 1200 : bookingType === 'Train' ? 2500 : bookingType === 'Flight' ? 15000 : 8000,
             addedOn: new Date().toISOString(),
             travelers: data.travelers,
             budget: 'TBD',

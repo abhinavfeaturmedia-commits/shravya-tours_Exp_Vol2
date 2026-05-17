@@ -59,7 +59,26 @@ export const Leads: React.FC = () => {
         if (filterParam === 'overdue') {
             setIsAgendaExpanded(true);
         }
-    }, [location.search]);
+
+        // Handle navigation from Customer Details Drawer -> New Inquiry
+        if (location.state?.fromCustomer) {
+            const customer = location.state.fromCustomer;
+            setLeadForm(prev => ({
+                ...prev,
+                customerId: customer.id, // Ensure we store customerId reference
+                name: customer.name,
+                email: customer.email,
+                phone: customer.phone,
+                location: customer.location,
+                source: 'Existing Customer'
+            }));
+            setModalMode('add');
+            setIsModalOpen(true);
+            
+            // Clear the state so refresh doesn't reopen modal
+            window.history.replaceState({}, document.title);
+        }
+    }, [location.search, location.state]);
 
     // Forms
     const [noteContent, setNoteContent] = useState('');
@@ -161,12 +180,27 @@ export const Leads: React.FC = () => {
 
         // 2. Duplicate Detection (Only for new leads)
         if (modalMode === 'add') {
-            const isDuplicate = leads.some(l =>
-                (leadForm.email && l.email?.toLowerCase() === leadForm.email.toLowerCase()) ||
+            const isIntentionalNewInquiry = location.state?.fromCustomer?.id === leadForm.customerId;
+            const duplicateLead = !isIntentionalNewInquiry && leads.find(l => 
+                (leadForm.email && l.email?.toLowerCase() === leadForm.email.toLowerCase()) || 
                 (leadForm.phone && l.phone === leadForm.phone)
             );
-            if (isDuplicate) {
-                if (!confirm('A lead with this email or phone already exists. Do you want to create a duplicate?')) {
+
+            if (duplicateLead) {
+                const leadRef = duplicateLead.leadNumber 
+                    ? "LD-" + String(duplicateLead.leadNumber).padStart(4, '0') 
+                    : duplicateLead.name;
+                
+                const relatedCustomer = customers?.find((c: Customer) => 
+                    c.email?.toLowerCase() === duplicateLead.email?.toLowerCase() || 
+                    c.phone === duplicateLead.phone
+                );
+
+                const tip = relatedCustomer 
+                    ? "\n\n💡 Tip: Open \"" + relatedCustomer.name + "\" in the Customers tab and use \"New Inquiry\" to keep their full history linked."
+                    : '';
+
+                if (!confirm("⚠️ A lead already exists for this contact (" + leadRef + ").\nStatus: " + duplicateLead.status + tip + "\n\nCreate a separate lead anyway?")) {
                     return;
                 }
             }
@@ -401,20 +435,20 @@ export const Leads: React.FC = () => {
                     })()}
 
                     {/* Stats Cards */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8 stagger-cards">
-                        <div className="bg-white dark:bg-[#1A2633] p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
+                    <div className="flex overflow-x-auto snap-x snap-mandatory hide-scrollbar gap-4 pb-2 md:grid md:grid-cols-3 mb-8 stagger-cards -mx-8 px-8 md:mx-0 md:px-0">
+                        <div className="min-w-[80vw] sm:min-w-[40vw] md:min-w-0 shrink-0 snap-center bg-white dark:bg-[#1A2633] p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
                             <p className="text-xs font-bold text-slate-400 uppercase mb-1">Pending Leads</p>
                             <div className="flex items-center gap-3">
                                 <span className="text-4xl kpi-number text-slate-900 dark:text-white">{stats.pending}</span>
                             </div>
                         </div>
-                        <div className="bg-white dark:bg-[#1A2633] p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
+                        <div className="min-w-[80vw] sm:min-w-[40vw] md:min-w-0 shrink-0 snap-center bg-white dark:bg-[#1A2633] p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
                             <p className="text-xs font-bold text-slate-400 uppercase mb-1">Pipeline Value</p>
                             <div className="flex items-center gap-3">
                                 <span className="text-4xl kpi-number text-slate-900 dark:text-white">{formatPriceCompact(stats.value)}</span>
                             </div>
                         </div>
-                        <div className="bg-white dark:bg-[#1A2633] p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
+                        <div className="min-w-[80vw] sm:min-w-[40vw] md:min-w-0 shrink-0 snap-center bg-white dark:bg-[#1A2633] p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
                             <p className="text-xs font-bold text-slate-400 uppercase mb-1">Tasks Due Today</p>
                             <div className="flex items-center gap-3">
                                 <span className="text-4xl kpi-number text-slate-900 dark:text-white">{stats.tasks}</span>
@@ -522,12 +556,12 @@ export const Leads: React.FC = () => {
                     {/* ── END AGENDA STRIP ── */}
 
                     {/* Filter Tabs */}
-                    <div className="flex flex-wrap p-1 bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-800 rounded-xl w-full mb-6">
+                    <div className="flex overflow-x-auto hide-scrollbar p-1 bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-800 rounded-xl w-full mb-6">
                         {(['All', 'New', 'Warm', 'Hot', 'Offer Sent', 'Converted', 'Cold'] as const).map(tab => (
                             <button
                                 key={tab}
                                 onClick={() => setActiveTab(tab)}
-                                className={`px-4 sm:px-6 py-2 rounded-lg text-sm font-bold transition-all flex-1 sm:flex-none text-center ${activeTab === tab ? 'bg-slate-100 dark:bg-slate-800 shadow-sm text-slate-900 dark:text-white border-b-2 border-primary' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
+                                className={`px-4 sm:px-6 py-2 rounded-lg text-sm font-bold transition-all shrink-0 text-center ${activeTab === tab ? 'bg-slate-100 dark:bg-slate-800 shadow-sm text-slate-900 dark:text-white border-b-2 border-primary' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
                             >
                                 {tab === 'All' ? 'All Leads' : tab}
                             </button>
@@ -535,7 +569,7 @@ export const Leads: React.FC = () => {
                     </div>
 
                     {/* Search & Actions */}
-                    <div className="flex items-center gap-4 mb-6">
+                    <div className="flex flex-col md:flex-row items-stretch md:items-center gap-4 mb-6">
                         <div className="relative flex-1">
                             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 h-5 w-5" />
                             <input
@@ -546,15 +580,17 @@ export const Leads: React.FC = () => {
                                 className="w-full pl-12 pr-4 py-3 bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-primary shadow-sm"
                             />
                         </div>
-                        <button onClick={() => setIsImportModalOpen(true)} className="px-6 py-3 bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold shadow-sm flex items-center gap-2 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800">
-                            <span className="material-symbols-outlined text-[20px]">upload_file</span> Import
-                        </button>
-                        <button onClick={handleExport} className="px-6 py-3 bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold shadow-sm flex items-center gap-2 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800">
-                            <span className="material-symbols-outlined text-[20px]">download</span> Export
-                        </button>
-                        <button onClick={openAddModal} className="bg-primary hover:bg-primary-dark text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-primary/20 flex items-center gap-2 transition-transform active:scale-95 whitespace-nowrap btn-glow">
-                            <Plus size={20} /> Add Lead
-                        </button>
+                        <div className="flex items-center gap-3 overflow-x-auto hide-scrollbar pb-2 md:pb-0">
+                            <button onClick={() => setIsImportModalOpen(true)} className="flex-1 md:flex-none justify-center px-4 md:px-6 py-3 bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold shadow-sm flex items-center gap-2 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap">
+                                <span className="material-symbols-outlined text-[20px]">upload_file</span> <span className="hidden sm:inline">Import</span>
+                            </button>
+                            <button onClick={handleExport} className="flex-1 md:flex-none justify-center px-4 md:px-6 py-3 bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold shadow-sm flex items-center gap-2 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap">
+                                <span className="material-symbols-outlined text-[20px]">download</span> <span className="hidden sm:inline">Export</span>
+                            </button>
+                            <button onClick={openAddModal} className="flex-[2] md:flex-none justify-center bg-primary hover:bg-primary-dark text-white px-4 md:px-6 py-3 rounded-xl font-bold shadow-lg shadow-primary/20 flex items-center gap-2 transition-transform active:scale-95 whitespace-nowrap btn-glow">
+                                <Plus size={20} /> Add Lead
+                            </button>
+                        </div>
                     </div>
 
                     {/* Leads List */}
@@ -643,8 +679,8 @@ export const Leads: React.FC = () => {
 
             {/* LEAD DETAILS (Modal) */}
             {selectedLead && (
-                <div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
-                    <div className="bg-white dark:bg-[#1A2633] rounded-2xl w-full max-w-4xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden animate-in zoom-in-95">
+                <div className="fixed inset-0 z-[200] bg-black/50 flex items-end sm:items-center justify-center sm:p-4 backdrop-blur-sm animate-in fade-in">
+                    <div className="bg-white dark:bg-[#1A2633] rounded-t-3xl sm:rounded-2xl w-full h-[95vh] sm:h-auto max-w-4xl shadow-2xl flex flex-col sm:max-h-[90vh] overflow-hidden animate-in slide-in-from-bottom-4 sm:zoom-in-95">
 
                     {/* Panel Header */}
                     <div className="p-6 border-b border-slate-100 dark:border-slate-800">
@@ -892,12 +928,21 @@ export const Leads: React.FC = () => {
 
             {/* Modals area */}
             {isModalOpen && (
-                <div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
-                    <div className="bg-white dark:bg-[#1A2633] rounded-2xl w-full max-w-lg shadow-2xl p-6 animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
+                <div className="fixed inset-0 z-[200] bg-black/50 flex items-end sm:items-center justify-center sm:p-4 backdrop-blur-sm animate-in fade-in">
+                    <div className="bg-white dark:bg-[#1A2633] rounded-t-3xl sm:rounded-2xl w-full max-w-lg shadow-2xl p-6 animate-in slide-in-from-bottom-4 sm:zoom-in-95 max-h-[95vh] sm:max-h-[90vh] overflow-y-auto">
                         <div className="flex justify-between items-center mb-6 border-b border-slate-100 dark:border-slate-800 pb-4">
                             <h3 className="font-bold text-lg text-slate-900 dark:text-white">{modalMode === 'edit' ? 'Edit Lead Details' : 'Add New Lead'}</h3>
                             <button onClick={() => setIsModalOpen(false)}><X size={20} className="text-slate-400" /></button>
                         </div>
+                        {leadForm.customerId && (
+                            <div className="mb-6 px-4 py-3 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800/30 rounded-xl flex items-start gap-3">
+                                <span className="material-symbols-outlined text-indigo-600 dark:text-indigo-400 text-[20px] mt-0.5">link</span>
+                                <div>
+                                    <p className="text-sm font-bold text-indigo-900 dark:text-indigo-300">Linked to Customer Profile</p>
+                                    <p className="text-xs text-indigo-700 dark:text-indigo-400 mt-0.5">This inquiry is attached to an existing customer. Their history will be kept together.</p>
+                                </div>
+                            </div>
+                        )}
                         <form onSubmit={handleFormSubmit} className="space-y-4">
                             <div>
                                 <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Full Name</label>

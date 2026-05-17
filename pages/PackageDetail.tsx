@@ -8,6 +8,7 @@ import { toast } from '../components/ui/Toast';
 import { TravelerSelector } from '../components/ui/TravelerSelector';
 import { PhoneInput } from '../components/ui/PhoneInput';
 import { getLocationName, formatPrice, formatPriceCompact } from '../utils/packageUtils';
+import { api } from '../src/lib/api';
 
 export const PackageDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -113,6 +114,17 @@ export const PackageDetail: React.FC = () => {
   }, [isLightboxOpen, tour]);
 
   if (!tour) {
+    if (!packages || packages.length === 0) {
+      // Loading state when context is still fetching packages
+      return (
+        <div className="min-h-screen pt-28 pb-16 px-4 md:px-8 max-w-[1440px] mx-auto">
+          <div className="h-8 w-64 bg-slate-200 dark:bg-slate-800 rounded animate-pulse mb-4"></div>
+          <div className="h-12 w-3/4 bg-slate-200 dark:bg-slate-800 rounded animate-pulse mb-8"></div>
+          <div className="h-[500px] w-full bg-slate-200 dark:bg-slate-800 rounded-[2rem] animate-pulse"></div>
+        </div>
+      );
+    }
+
     return (
       <>
         <SEO title="Package Not Found" description="The requested tour package could not be found." />
@@ -127,6 +139,30 @@ export const PackageDetail: React.FC = () => {
       </>
     );
   }
+
+  // --- JSON-LD Structured Data ---
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "TouristTrip",
+    "name": tour.title,
+    "description": tour.overview || tour.description,
+    "image": tour.gallery?.[0] || tour.image,
+    "offers": {
+      "@type": "Offer",
+      "price": tour.price,
+      "priceCurrency": "INR",
+      "availability": (tour.remainingSeats ?? 10) > 0 ? "https://schema.org/InStock" : "https://schema.org/SoldOut"
+    },
+    "itinerary": tour.itinerary?.map(day => ({
+      "@type": "ListItem",
+      "position": day.day,
+      "item": {
+        "@type": "TouristAttraction",
+        "name": day.title,
+        "description": day.desc
+      }
+    }))
+  };
 
   // --- Logic ---
 
@@ -148,11 +184,14 @@ export const PackageDetail: React.FC = () => {
   };
 
   const getGuestMultiplier = () => {
+    if (tour?.pricingMode === 'group') return 1;
+
     const adultsMatch = guests.match(/(\d+)\s*Adults?/i);
     const childrenMatch = guests.match(/(\d+)\s*Child(ren)?/i);
 
     const adults = adultsMatch ? parseInt(adultsMatch[1]) : 2;
     const children = childrenMatch ? parseInt(childrenMatch[1]) : 0;
+    // Infants are usually free, so they don't add to multiplier
 
     const totalPeople = adults + children;
 
@@ -169,59 +208,69 @@ export const PackageDetail: React.FC = () => {
     return Math.round(tour.price * getGuestMultiplier() + addonsTotal);
   };
 
-  const confirmBooking = (e: React.FormEvent) => {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const confirmBooking = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
 
-    const addonNames = selectedAddons.map(id => addonsList.find(a => a.id === id)?.label).join(', ');
-    const preferenceString = `Interested in ${tour.title}. Date: ${bookingData.date}. Add-ons: ${addonNames || 'None'}. Guests: ${guests}. Estimated Quote: ${formatPrice(calculateTotal())}`;
+    setIsSubmitting(true);
+    try {
+      const addonNames = selectedAddons.map(id => addonsList.find(a => a.id === id)?.label).join(', ');
+      const preferenceString = `Interested in ${tour.title}. Date: ${bookingData.date}. Add-ons: ${addonNames || 'None'}. Guests: ${guests}. Estimated Quote: ${formatPrice(calculateTotal())}`;
 
-    const referenceId = `LD-${Date.now()}`;
-    const newLead: Lead = {
-      id: referenceId,
-      name: bookingData.name,
-      email: bookingData.email,
-      phone: bookingData.phone,
-      whatsapp: bookingData.isWhatsappSame ? bookingData.phone : bookingData.whatsapp,
-      isWhatsappSame: bookingData.isWhatsappSame,
-      destination: tour.title,
-      startDate: bookingData.date,
-      type: 'Tour',
-      status: 'New',
-      priority: 'High',
-      potentialValue: calculateTotal(),
-      addedOn: new Date().toISOString(),
-      travelers: guests,
-      budget: `~ ${formatPrice(calculateTotal())}`,
-      source: 'Website',
-      preferences: preferenceString,
-      avatarColor: 'bg-green-100 text-green-600',
-      logs: [
-        { id: `log-${Date.now()}`, type: 'System', content: `Inquiry submitted for ${tour.title} with options: ${addonNames}`, timestamp: new Date().toISOString() }
-      ]
-    };
-
-    addLead(newLead);
-
-    // Decrement remainingSeats in DB so inventory stays accurate
-    if (tour.remainingSeats !== undefined && tour.remainingSeats > 0) {
-      updatePackage(tour.id, { remainingSeats: tour.remainingSeats - 1 });
-    }
-
-    setBookingModal(false);
-
-    // Navigate to confirmation page with booking details
-    navigate('/booking-confirmation', {
-      state: {
-        referenceId,
-        customerName: bookingData.name,
-        packageTitle: tour.title,
-        date: bookingData.date,
-        guests,
+      const referenceId = `LD-${Date.now()}`;
+      const newLead: Partial<Lead> = {
+        name: bookingData.name,
         email: bookingData.email,
         phone: bookingData.phone,
-        estimatedTotal: calculateTotal()
+        whatsapp: bookingData.isWhatsappSame ? bookingData.phone : bookingData.whatsapp,
+        isWhatsappSame: bookingData.isWhatsappSame,
+        destination: tour.title,
+        startDate: bookingData.date,
+        type: 'Tour',
+        status: 'New',
+        priority: 'High',
+        potentialValue: calculateTotal(),
+        addedOn: new Date().toISOString(),
+        travelers: guests,
+        budget: `~ ${formatPrice(calculateTotal())}`,
+        source: 'Website',
+        preferences: preferenceString,
+        avatarColor: 'bg-green-100 text-green-600',
+        packageId: tour.id // Link to package
+      };
+
+      await addLead(newLead as Lead);
+
+      // Decrement remainingSeats in DB atomically
+      if (tour.remainingSeats !== undefined && tour.remainingSeats > 0) {
+        await api.decrementSeats(tour.id);
+        // Local state update
+        updatePackage(tour.id, { remainingSeats: tour.remainingSeats - 1 });
       }
-    });
+
+      setBookingModal(false);
+
+      // Navigate to confirmation page with booking details
+      navigate('/booking-confirmation', {
+        state: {
+          referenceId,
+          customerName: bookingData.name,
+          packageTitle: tour.title,
+          date: bookingData.date,
+          guests,
+          email: bookingData.email,
+          phone: bookingData.phone,
+          estimatedTotal: calculateTotal()
+        }
+      });
+    } catch (error) {
+      console.error('Booking failed:', error);
+      toast.error('Failed to submit booking. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const openLightbox = (index: number) => {
@@ -236,6 +285,9 @@ export const PackageDetail: React.FC = () => {
         description={tour.overview || tour.description}
         image={tour.image}
       />
+      
+      {/* JSON-LD Script Injection */}
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
 
       <div className="bg-white dark:bg-[#0B1116] min-h-screen pb-40 md:pb-20 relative pt-24 md:pt-28">
 
@@ -335,7 +387,7 @@ export const PackageDetail: React.FC = () => {
 
                 <div className="space-y-1">
                   <label className="block text-xs font-bold uppercase text-slate-500 pl-1">Travel Date</label>
-                  <input required type="date" className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all" value={bookingData.date} onChange={e => setBookingData({ ...bookingData, date: e.target.value })} />
+                  <input required min={new Date().toISOString().split('T')[0]} type="date" className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all" value={bookingData.date} onChange={e => setBookingData({ ...bookingData, date: e.target.value })} />
                 </div>
                 <div className="p-4 bg-primary/5 rounded-2xl border border-primary/10 mt-2">
                   <div className="flex justify-between items-center text-sm font-bold text-slate-900 dark:text-white">
@@ -384,12 +436,12 @@ export const PackageDetail: React.FC = () => {
                 </div>
                 <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300 font-bold bg-slate-100 dark:bg-slate-800/50 px-4 py-2 rounded-full">
                   <span className="material-symbols-outlined text-primary">calendar_month</span>
-                  {tour.days} Days / {tour.days - 1} Nights
+                  {tour.days} Days / {tour.builderData?.tripDetails?.nights ?? Math.max(0, tour.days - 1)} Nights
                 </div>
                 {tour.groupSize && (
                   <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300 font-bold bg-slate-100 dark:bg-slate-800/50 px-4 py-2 rounded-full">
                     <span className="material-symbols-outlined text-primary">group</span>
-                    {tour.groupSize}
+                    {/^\d+$/.test(String(tour.groupSize)) ? `${tour.groupSize} Guests` : tour.groupSize}
                   </div>
                 )}
               </div>
@@ -485,7 +537,7 @@ export const PackageDetail: React.FC = () => {
                 </div>
 
                 {/* Right: 2×2 thumbnail grid — 40% width, desktop only */}
-                <div className="hidden md:flex flex-[2] flex-col gap-3">
+                <div className="hidden md:grid grid-cols-2 grid-rows-2 flex-[2] gap-3" style={{ maxHeight: '520px' }}>
                   {[0, 1, 2, 3].map((gridPos) => {
                     // Use stable index-based approach to avoid URL duplicate bugs
                     const skipIdx = carouselIndex;
@@ -501,8 +553,7 @@ export const PackageDetail: React.FC = () => {
                     return (
                       <div
                         key={gridPos}
-                        className="relative flex-1 rounded-[1.2rem] overflow-hidden bg-slate-100 dark:bg-slate-900 cursor-pointer group/thumb shadow-md"
-                        style={{ minHeight: '100px' }}
+                        className="relative w-full h-full rounded-[1.2rem] overflow-hidden bg-slate-100 dark:bg-slate-900 cursor-pointer group/thumb shadow-md"
                         onClick={() => isLast ? openLightbox(realIdx) : goCarouselTo(realIdx)}
                       >
                         <OptimizedImage
@@ -562,37 +613,110 @@ export const PackageDetail: React.FC = () => {
                 </p>
 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-10">
-                  {tour.highlights.map((item: any, idx: number) => (
-                    <div key={idx} className="p-5 bg-slate-50 dark:bg-slate-800/50 rounded-2xl flex flex-col items-center text-center gap-3 border border-slate-100 dark:border-slate-800 transition-all hover:-translate-y-1 hover:shadow-lg">
-                      <div className="size-12 rounded-full bg-white dark:bg-slate-700 shadow-sm flex items-center justify-center text-primary">
-                        <span className="material-symbols-outlined text-2xl">{item.icon}</span>
-                      </div>
-                      <span className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-200">{item.label}</span>
+                  {/* Destination */}
+                  <div className="p-5 bg-slate-50 dark:bg-slate-800/50 rounded-2xl flex flex-col items-center text-center gap-3 border border-slate-100 dark:border-slate-800 transition-all hover:-translate-y-1 hover:shadow-lg">
+                    <div className="size-12 rounded-full bg-white dark:bg-slate-700 shadow-sm flex items-center justify-center text-primary">
+                      <span className="material-symbols-outlined text-2xl">pin_drop</span>
                     </div>
-                  ))}
+                    <div>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-1">Destination</span>
+                      <span className="text-sm font-bold text-slate-700 dark:text-slate-200">{getLocationName(tour.location, masterLocations) || 'Multiple Regions'}</span>
+                    </div>
+                  </div>
+
+                  {/* Duration */}
+                  <div className="p-5 bg-slate-50 dark:bg-slate-800/50 rounded-2xl flex flex-col items-center text-center gap-3 border border-slate-100 dark:border-slate-800 transition-all hover:-translate-y-1 hover:shadow-lg">
+                    <div className="size-12 rounded-full bg-white dark:bg-slate-700 shadow-sm flex items-center justify-center text-primary">
+                      <span className="material-symbols-outlined text-2xl">schedule</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-1">Duration</span>
+                      <span className="text-sm font-bold text-slate-700 dark:text-slate-200">{tour.days || tour.itinerary?.length || 4} Days</span>
+                    </div>
+                  </div>
+
+                  {/* Theme */}
+                  <div className="p-5 bg-slate-50 dark:bg-slate-800/50 rounded-2xl flex flex-col items-center text-center gap-3 border border-slate-100 dark:border-slate-800 transition-all hover:-translate-y-1 hover:shadow-lg">
+                    <div className="size-12 rounded-full bg-white dark:bg-slate-700 shadow-sm flex items-center justify-center text-primary">
+                      <span className="material-symbols-outlined text-2xl">category</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-1">Theme</span>
+                      <span className="text-sm font-bold text-slate-700 dark:text-slate-200">{tour.theme || 'Standard'}</span>
+                    </div>
+                  </div>
+
+                  {/* Tour Type */}
+                  <div className="p-5 bg-slate-50 dark:bg-slate-800/50 rounded-2xl flex flex-col items-center text-center gap-3 border border-slate-100 dark:border-slate-800 transition-all hover:-translate-y-1 hover:shadow-lg">
+                    <div className="size-12 rounded-full bg-white dark:bg-slate-700 shadow-sm flex items-center justify-center text-primary">
+                      <span className="material-symbols-outlined text-2xl">group</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-1">Tour Type</span>
+                      <span className="text-sm font-bold text-slate-700 dark:text-slate-200">{tour.pricingMode === 'group' ? 'Group Trip' : 'Private Custom'}</span>
+                    </div>
+                  </div>
                 </div>
               </section>
 
               {/* Itinerary */}
               <section className="animate-in slide-in-from-bottom-8 duration-700 delay-100">
-                <h2 className="text-3xl font-black text-slate-900 dark:text-white mb-10">Itinerary</h2>
-                <div className="relative">
-                  {/* Dashed Line */}
-                  <div className="absolute left-[19px] top-6 bottom-6 w-0.5 border-l-2 border-dashed border-slate-300 dark:border-slate-700"></div>
+                <h2 className="text-3xl font-black text-slate-900 dark:text-white mb-8 flex items-center gap-3">
+                  <span className="material-symbols-outlined text-primary text-4xl">map</span>
+                  Day-by-Day Itinerary
+                </h2>
+                
+                <div className="space-y-4">
+                  {(() => {
+                    // Fallback itinerary if empty
+                    const defaultItinerary = [
+                      { day: 1, title: 'Arrival & Welcome', desc: 'Arrive at the destination. Our representative will meet you and arrange a smooth transfer to your premium accommodation. Evening at leisure to relax and explore the surroundings at your own pace.' },
+                      { day: 2, title: 'Guided Sightseeing & Exploration', desc: 'After a delicious breakfast, embark on a comprehensive guided tour. Visit the most iconic landmarks, experience the local culture, and enjoy a curated lunch at a highly-rated local restaurant.' },
+                      { day: 3, title: 'Adventure & Leisure', desc: 'A day dedicated to thrilling optional activities or peaceful relaxation. Choose to indulge in water sports, mountain trekking, or simply unwind at the resort spa. The evening concludes with a special gala dinner.' },
+                      { day: 4, title: 'Local Markets & Shopping', desc: 'Explore the vibrant local markets for souvenirs, handicrafts, and authentic street food. Enjoy a cultural performance in the evening showcasing the region’s heritage.' },
+                      { day: 5, title: 'Departure', desc: 'Check-out after a final hearty breakfast. Our driver will transfer you to the airport/station for your onward journey, carrying wonderful memories.' }
+                    ];
+                    
+                    const itData = tour.itinerary && tour.itinerary.length > 0 
+                      ? tour.itinerary 
+                      : defaultItinerary.slice(0, tour.days || 4);
 
-                  {tour.itinerary.map((item: any, idx: number) => (
-                    <div key={idx} className="relative pl-16 pb-12 last:pb-0 group">
-                      {/* Marker */}
-                      <div className={`absolute left-0 top-0 size-10 rounded-full flex items-center justify-center font-black text-sm border-4 border-white dark:border-[#0B1116] z-10 transition-colors ${idx === 0 ? 'bg-primary text-white shadow-lg shadow-primary/30' : 'bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 group-hover:bg-primary group-hover:text-white'}`}>
-                        {item.day}
-                      </div>
-
-                      <div className="p-6 rounded-3xl bg-white dark:bg-[#151d29] border border-slate-100 dark:border-slate-800 shadow-sm transition-all group-hover:shadow-xl group-hover:-translate-y-1">
-                        <h3 className="text-xl font-black text-slate-900 dark:text-white mb-2">{item.title}</h3>
-                        <p className="text-slate-600 dark:text-slate-300 leading-relaxed whitespace-pre-line">{item.desc}</p>
-                      </div>
-                    </div>
-                  ))}
+                    return itData.map((item: any, idx: number) => {
+                      // We'll use a local state for accordion, but since this is inside a render block, 
+                      // we can just use the HTML5 details/summary for an elegant native accordion
+                      return (
+                        <details key={idx} className="group bg-white dark:bg-[#151d29] rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm transition-all hover:shadow-xl open:shadow-md overflow-hidden" open={idx === 0}>
+                          <summary className="flex items-center gap-5 p-6 cursor-pointer select-none list-none outline-none [&::-webkit-details-marker]:hidden">
+                            <div className="flex-shrink-0 size-14 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700 flex flex-col items-center justify-center group-open:bg-primary group-open:border-primary transition-colors duration-300">
+                              <span className="text-[10px] font-black uppercase text-slate-400 group-open:text-white/70">Day</span>
+                              <span className="text-xl font-black text-slate-900 dark:text-white group-open:text-white leading-none mt-0.5">{item.day || idx + 1}</span>
+                            </div>
+                            <div className="flex-1">
+                              <h3 className="text-lg md:text-xl font-black text-slate-900 dark:text-white group-open:text-primary transition-colors">{item.title}</h3>
+                            </div>
+                            <div className="flex-shrink-0 size-8 rounded-full bg-slate-50 dark:bg-slate-800 flex items-center justify-center group-open:rotate-180 transition-transform duration-300">
+                              <span className="material-symbols-outlined text-slate-400">expand_more</span>
+                            </div>
+                          </summary>
+                          
+                          <div className="px-6 pb-8 pt-2 pl-[92px] -mt-2 animate-in slide-in-from-top-2 fade-in duration-200">
+                            <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/30 border border-slate-100 dark:border-slate-800 relative">
+                              <div className="absolute top-0 left-6 w-8 h-[1px] bg-primary/20 -translate-y-px"></div>
+                              <p className="text-slate-600 dark:text-slate-300 leading-relaxed whitespace-pre-line text-[15px] font-medium">
+                                {item.desc}
+                              </p>
+                              
+                              {/* Optional visual flourish */}
+                              <div className="mt-4 flex items-center gap-3 pt-4 border-t border-slate-200 dark:border-slate-700/50">
+                                <span className="material-symbols-outlined text-primary/60 text-[18px]">verified</span>
+                                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Premium Experience Included</span>
+                              </div>
+                            </div>
+                          </div>
+                        </details>
+                      );
+                    });
+                  })()}
                 </div>
               </section>
 
@@ -637,6 +761,12 @@ export const PackageDetail: React.FC = () => {
                       <span className="text-4xl font-black text-slate-900 dark:text-white tracking-tight">{formatPrice(calculateTotal())}</span>
                       <span className="text-sm font-bold text-slate-500">/ total</span>
                     </div>
+                    {tour.originalPrice && tour.originalPrice > tour.price && (
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="text-sm text-slate-400 line-through decoration-slate-300 dark:decoration-slate-600">{formatPrice(tour.originalPrice * getGuestMultiplier())}</span>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 uppercase tracking-wider">Save {Math.round(((tour.originalPrice - tour.price) / tour.originalPrice) * 100)}%</span>
+                      </div>
+                    )}
 
                     {/* Limited Seats Warning */}
                     {tour.remainingSeats && tour.remainingSeats < 10 && (
@@ -705,16 +835,31 @@ export const PackageDetail: React.FC = () => {
                       Book Now
                     </button>
 
-                    {/* WhatsApp Share */}
-                    <a
-                      href={`https://wa.me/?text=${encodeURIComponent(`Check out this tour: ${tour.title}\n${window.location.href}`)}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center justify-center gap-2 w-full py-3 rounded-2xl border border-green-300 dark:border-green-800 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 font-bold text-sm hover:bg-green-100 dark:hover:bg-green-900/30 transition-all"
-                    >
-                      <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-                      Share on WhatsApp
-                    </a>
+                    <div className="flex gap-2">
+                      {/* WhatsApp Share */}
+                      <a
+                        href={`https://wa.me/?text=${encodeURIComponent(`Check out this tour: ${tour.title}\n${window.location.href}`)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl border border-green-300 dark:border-green-800 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 font-bold text-sm hover:bg-green-100 dark:hover:bg-green-900/30 transition-all"
+                      >
+                        <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                        Share
+                      </a>
+                      
+                      {/* Copy Link */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(window.location.href);
+                          toast.success('Link copied to clipboard!');
+                        }}
+                        className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-sm hover:bg-slate-100 dark:hover:bg-slate-700/70 transition-all"
+                      >
+                        <span className="material-symbols-outlined text-[20px]">link</span>
+                        Copy Link
+                      </button>
+                    </div>
 
                     <p className="text-[10px] text-center text-slate-400 font-medium">No payment required today. Free cancellation options available.</p>
                   </div>
@@ -730,7 +875,8 @@ export const PackageDetail: React.FC = () => {
             .filter(p =>
               p.id !== tour.id &&
               p.status !== 'Inactive' &&
-              (p.theme === tour.theme || p.location === tour.location)
+              ((p.theme && tour.theme && p.theme.toLowerCase() === tour.theme.toLowerCase()) || 
+               (p.location && tour.location && p.location.toLowerCase() === tour.location.toLowerCase()))
             )
             .slice(0, 3);
           if (related.length === 0) return null;
@@ -745,7 +891,7 @@ export const PackageDetail: React.FC = () => {
                     className="group block bg-white dark:bg-[#151d29] rounded-2xl overflow-hidden shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 border border-slate-100 dark:border-slate-800"
                   >
                     <div className="relative h-48 overflow-hidden">
-                      <img src={p.image} alt={p.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
+                      <OptimizedImage src={p.image} alt={p.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
                       <div className="absolute top-3 right-3 bg-white/90 dark:bg-slate-900/90 backdrop-blur px-2.5 py-1 rounded-full text-xs font-bold text-slate-900 dark:text-white">
                         {p.days} Days
                       </div>
@@ -772,8 +918,16 @@ export const PackageDetail: React.FC = () => {
         <div className="fixed bottom-0 left-0 right-0 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-t border-slate-200 dark:border-slate-800 p-4 z-40 lg:hidden shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.1)] pb-safe-area-bottom">
           <div className="flex items-center justify-between max-w-lg mx-auto">
             <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Package Price</p>
-              <p className="text-2xl font-black text-slate-900 dark:text-white">{formatPrice(calculateTotal())}</p>
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1">
+                Package Price
+                {selectedAddons.length > 0 && <span className="px-1 py-[1px] bg-primary/10 text-primary rounded-[3px] text-[8px] leading-none ml-1">+{selectedAddons.length} ADD-ONS</span>}
+              </p>
+              <div className="flex items-baseline gap-2">
+                <p className="text-2xl font-black text-slate-900 dark:text-white">{formatPrice(calculateTotal())}</p>
+                {tour.originalPrice && tour.originalPrice > tour.price && (
+                  <span className="text-xs text-slate-400 line-through decoration-slate-300 dark:decoration-slate-600">{formatPriceCompact(tour.originalPrice * getGuestMultiplier())}</span>
+                )}
+              </div>
             </div>
             <button
               onClick={() => setBookingModal(true)}

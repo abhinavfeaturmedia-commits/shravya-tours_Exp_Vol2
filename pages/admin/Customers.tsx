@@ -381,6 +381,22 @@ const CustomerDetailsDrawer: React.FC<{
     const [note, setNote] = useState('');
     const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
     const [editNoteText, setEditNoteText] = useState('');
+    const navigate = useNavigate();
+
+    const handleNewInquiry = () => {
+        navigate('/admin/leads', {
+            state: {
+                fromCustomer: {
+                    id: customer!.id,
+                    name: customer!.name,
+                    email: customer!.email,
+                    phone: customer!.phone,
+                    location: customer!.location
+                }
+            }
+        });
+        onClose();
+    };
 
     const history = useMemo(() => {
         if (!customer) return [];
@@ -618,10 +634,18 @@ const CustomerDetailsDrawer: React.FC<{
                         </div>
                     </div>
                 </div>
-                <div className="p-4 bg-white dark:bg-[#0B1116] border-t border-slate-100 dark:border-slate-800 grid grid-cols-3 gap-2 sticky bottom-0">
-                    <button className="py-3 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-300 font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">Log Call</button>
-                    <button onClick={onEdit} className="py-3 bg-primary text-white rounded-xl font-bold text-sm hover:bg-primary-dark transition-colors shadow-lg shadow-primary/20">Edit Profile</button>
-                    <button onClick={() => window.location.href = `/admin/invoices/new?customer_id=${customer.id}&type=Invoice`} className="py-3 bg-slate-900 text-white rounded-xl font-bold text-sm hover:bg-slate-800 transition-colors shadow-lg">Create Invoice</button>
+                <div className="p-4 bg-white dark:bg-[#0B1116] border-t border-slate-100 dark:border-slate-800 sticky bottom-0 space-y-2">
+                    <button
+                        onClick={handleNewInquiry}
+                        className="w-full py-3 bg-primary text-white rounded-xl font-bold text-sm hover:bg-primary-dark transition-all shadow-lg shadow-primary/20 flex items-center justify-center gap-2 btn-glow"
+                    >
+                        <span className="material-symbols-outlined text-[18px]">add_circle</span>
+                        New Inquiry for this Customer
+                    </button>
+                    <div className="grid grid-cols-2 gap-2">
+                        <button onClick={onEdit} className="py-2.5 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-300 font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">Edit Profile</button>
+                        <button onClick={() => window.location.href = `/admin/invoices/new?customer_id=${customer.id}&type=Invoice`} className="py-2.5 bg-slate-900 text-white rounded-xl font-bold text-sm hover:bg-slate-800 transition-colors shadow-lg">Create Invoice</button>
+                    </div>
                 </div>
             </div>
         </>

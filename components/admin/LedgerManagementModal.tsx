@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Booking, BookingTransaction } from '../../types';
 import { useData } from '../../context/DataContext';
 import { useAuth } from '../../context/AuthContext';
@@ -13,6 +14,7 @@ interface LedgerManagementModalProps {
 export const LedgerManagementModal: React.FC<LedgerManagementModalProps> = ({ isOpen, onClose, booking }) => {
     const { addBookingTransaction, deleteBookingTransaction } = useData();
     const { currentUser, hasPermission } = useAuth();
+    const navigate = useNavigate();
 
     // Derived Totals
     const transactions = booking.transactions || [];
@@ -36,7 +38,7 @@ export const LedgerManagementModal: React.FC<LedgerManagementModalProps> = ({ is
         notes: ''
     });
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         const newTx: BookingTransaction = {
             id: `TX-${Date.now()}`,
@@ -49,17 +51,22 @@ export const LedgerManagementModal: React.FC<LedgerManagementModalProps> = ({ is
             notes: formData.notes,
             recordedBy: currentUser?.name
         };
-        addBookingTransaction(booking.id, newTx);
-        toast.success(`${newTx.type} recorded successfully`);
-        setIsFormVisible(false);
-        setFormData({
-            amount: '' as any,
-            date: new Date().toISOString().split('T')[0],
-            type: 'Payment',
-            method: 'Bank Transfer',
-            reference: '',
-            notes: ''
-        });
+        try {
+            await addBookingTransaction(booking.id, newTx);
+            toast.success('Payment recorded — pending approval on Payment Approvals page.');
+            setIsFormVisible(false);
+            setFormData({
+                amount: '' as any,
+                date: new Date().toISOString().split('T')[0],
+                type: 'Payment',
+                method: 'Bank Transfer',
+                reference: '',
+                notes: ''
+            });
+        } catch (error) {
+            // Error is handled inside addBookingTransaction, but we prevent form close
+            console.error(error);
+        }
     };
 
     const handleDelete = (txId: string) => {
@@ -72,8 +79,8 @@ export const LedgerManagementModal: React.FC<LedgerManagementModalProps> = ({ is
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
-            <div className="bg-white dark:bg-[#1A2633] w-full max-w-4xl rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 h-[80vh]">
+        <div className="fixed inset-0 z-[150] flex items-end sm:items-center justify-center sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+            <div className="bg-white dark:bg-[#1A2633] w-full max-w-4xl rounded-t-3xl sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 sm:zoom-in-95 h-[95vh] sm:h-[80vh]">
                 <div className="p-4 sm:p-6 border-b border-slate-100 dark:border-slate-700 flex justify-between items-start gap-3 bg-slate-50 dark:bg-slate-800/50">
                     <div className="min-w-0 flex-1">
                         <h2 className="text-xl font-bold text-slate-900 dark:text-white">Billing Ledger</h2>
@@ -124,6 +131,27 @@ export const LedgerManagementModal: React.FC<LedgerManagementModalProps> = ({ is
                         </div>
                     </div>
 
+                    {/* Pending Approval Alert */}
+                    {pendingAmount > 0 && (
+                        <div className="mb-6 flex items-start gap-3 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/40 rounded-xl p-4">
+                            <span className="material-symbols-outlined text-amber-500 text-[22px] mt-0.5 flex-shrink-0">pending_actions</span>
+                            <div className="flex-1 min-w-0">
+                                <p className="text-sm font-bold text-amber-700 dark:text-amber-400">
+                                    ₹{pendingAmount.toLocaleString()} awaiting approval
+                                </p>
+                                <p className="text-xs text-amber-600 dark:text-amber-500 mt-0.5">
+                                    Recorded payments must be verified by a finance manager before they count toward the balance.
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => { onClose(); navigate('/admin/finance-verification'); }}
+                                className="flex-shrink-0 px-3 py-1.5 bg-amber-500 text-white text-xs font-bold rounded-lg hover:bg-amber-600 transition-colors whitespace-nowrap"
+                            >
+                                Go to Approvals →
+                            </button>
+                        </div>
+                    )}
+
                     {/* Add Transaction Form */}
                     {isFormVisible && (
                         <div className="mb-8 bg-slate-50 dark:bg-slate-800/50 rounded-xl p-6 border border-slate-200 dark:border-slate-700 animate-in slide-in-from-top-4">
@@ -168,7 +196,7 @@ export const LedgerManagementModal: React.FC<LedgerManagementModalProps> = ({ is
 
                     {/* Transactions Table */}
                     <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden shadow-sm">
-                        <div className="overflow-x-auto">
+                        <div className="overflow-x-auto hide-scrollbar">
                         <table className="w-full text-left text-sm min-w-[640px]">
                             <thead className="bg-slate-50 dark:bg-slate-800/50 text-xs uppercase text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700">
                                 <tr>

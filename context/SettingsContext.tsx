@@ -127,7 +127,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     email: '',
     phone: '',
     website: '',
-    logoUrl: '',
+    logoUrl: '/logo.png',
     instagram: '',
     facebook: '',
     city: '',

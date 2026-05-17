@@ -3,8 +3,10 @@ import { useItinerary } from '../ItineraryContext';
 import { useData } from '../../../context/DataContext';
 import { useNavigate } from 'react-router-dom';
 import { Package } from '../../../types';
-import { Save, ArrowLeft, MapPin, Calendar, Users, Printer, Share2, Check, DollarSign, ArrowRight, Loader2, Hotel, Car } from 'lucide-react';
+import { Save, ArrowLeft, MapPin, Calendar, Users, Printer, Share2, Check, DollarSign, ArrowRight, Loader2, Hotel, Car, FileText, Receipt, Tag, Clock, Download } from 'lucide-react';
 import { toast } from 'sonner';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 interface Props {
     onBack?: () => void;
@@ -25,6 +27,20 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
 
     const guestCount = (tripDetails.adults || 0) + (tripDetails.children || 0);
     const finalPrice = grandTotal;
+
+    // Per-pax breakdown (Fix #8)
+    const pricePerAdult = tripDetails.adults > 0 ? Math.round(finalPrice / tripDetails.adults) : 0;
+    const pricePerPax = guestCount > 0 ? Math.round(finalPrice / guestCount) : 0;
+
+    // Valid until calculation (Fix #15)
+    const validityDays = tripDetails.validityDays ?? 7;
+    const validUntilDate = validityDays > 0 && tripDetails.startDate
+        ? (() => {
+            const d = new Date();
+            d.setDate(d.getDate() + validityDays);
+            return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+        })()
+        : null;
 
     const accommodations = items.filter(i => i.type === 'hotel').sort((a, b) => a.day - b.day);
     const transports = items.filter(i => i.type === 'transport' || i.type === 'flight').sort((a, b) => a.day - b.day);
@@ -69,7 +85,7 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
                 days: tripDetails.days,
                 groupSize: String(guestCount),
                 location: destinationName,
-                description: `Custom itinerary created for ${guestCount || 'Valued Guests'}.`,
+                description: `Custom itinerary for ${tripDetails.clientName || guestCount + ' Guests'}.`,
                 price: finalPrice,
                 image: tripDetails.coverImage,
                 theme: 'Custom',
@@ -80,8 +96,16 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
                 status: 'Active',
                 included: tripDetails.included || [],
                 notIncluded: tripDetails.notIncluded || [],
+                // V2 columns — persisted directly to DB
+                itinerary_status: tripDetails.itineraryStatus || 'Draft',
+                client_name: tripDetails.clientName || null,
+                client_id: tripDetails.clientId || null,
+                validity_date: validityDays > 0
+                    ? (() => { const d = new Date(); d.setDate(d.getDate() + validityDays); return d.toISOString().split('T')[0]; })()
+                    : null,
+                terms_and_conditions: tripDetails.termsAndConditions || null,
                 builderData: { tripDetails, items, dayMeta, currency, taxConfig, packageMarkupPercent, packageMarkupFlat },
-            };
+            } as any;
 
             if (editPackageId) {
                 await updatePackage(editPackageId, packageData);
@@ -92,8 +116,7 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
                 }
             }
 
-            // DO NOT navigate away. We stay on the page so the user can choose to convert to booking or print.
-            // onSaved callback can be fired if parent needs it.
+            toast.success(editPackageId ? 'Itinerary updated!' : 'Itinerary saved as package!');
             onSaved?.();
         } catch (err: any) {
             toast.error(`Save failed: ${err?.message || 'Unknown error. Please try again.'}`);
@@ -107,21 +130,166 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
             toast.error('Save the package first, then convert to booking.');
             return;
         }
-        // Store prefill data for bookings page
         sessionStorage.setItem('booking_quick_create', JSON.stringify({
             title: tripDetails.title,
             amount: finalPrice,
             guests: `${(tripDetails.adults || 0) + (tripDetails.children || 0)} Guests`,
             date: tripDetails.startDate,
             packageId: editPackageId,
-            type: 'Tour'
+            type: 'Tour',
+            clientName: tripDetails.clientName || ''
         }));
         navigate('/admin/bookings');
         toast.success('Opening bookings — package details pre-filled.');
     };
 
+    // Fix #11 — Generate Invoice from itinerary
+    const handleGenerateInvoice = () => {
+        if (!editPackageId) {
+            toast.error('Save the itinerary first, then generate an invoice.');
+            return;
+        }
+        sessionStorage.setItem('invoice_quick_create', JSON.stringify({
+            title: tripDetails.title,
+            clientName: tripDetails.clientName || '',
+            amount: finalPrice,
+            description: `Travel Itinerary: ${tripDetails.title} — ${tripDetails.nights}N/${tripDetails.days}D to ${destinationName}`,
+            packageId: editPackageId,
+            adults: tripDetails.adults,
+            children: tripDetails.children,
+            startDate: tripDetails.startDate,
+        }));
+        navigate('/admin/invoices/new');
+        toast.success('Opening Invoice Editor — details pre-filled from itinerary.');
+    };
 
-    const handlePrint = () => window.print();
+    // Fix #1 — jsPDF export
+    const handleDownloadPDF = () => {
+        try {
+            const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+            const pageW = doc.internal.pageSize.getWidth();
+            const margin = 15;
+            let y = margin;
+
+            const addPage = () => { doc.addPage(); y = margin; };
+            const checkY = (needed: number) => { if (y + needed > 275) addPage(); };
+
+            // Header band
+            doc.setFillColor(28, 25, 23);
+            doc.rect(0, 0, pageW, 28, 'F');
+            doc.setTextColor(251, 191, 36);
+            doc.setFontSize(7);
+            doc.setFont('helvetica', 'bold');
+            doc.text('SHRAWELLO TRAVEL HUB', margin, 10);
+            doc.setFontSize(14);
+            doc.text(tripDetails.title || 'Itinerary', margin, 20);
+            doc.setTextColor(200, 200, 200);
+            doc.setFontSize(7);
+            doc.text(`${destinationName}  |  ${tripDetails.startDate}  |  ${guestCount} Guests  |  ${tripDetails.nights}N/${tripDetails.days}D`, margin, 25);
+            if (validUntilDate) doc.text(`Valid Until: ${validUntilDate}`, pageW - margin, 25, { align: 'right' });
+            y = 36;
+
+            // Client row
+            if (tripDetails.clientName) {
+                doc.setFontSize(8);
+                doc.setTextColor(80, 80, 80);
+                doc.setFont('helvetica', 'normal');
+                doc.text(`Prepared for: ${tripDetails.clientName}`, margin, y);
+                y += 6;
+            }
+
+            // Pricing summary
+            doc.setFillColor(240, 255, 244);
+            doc.roundedRect(margin, y, pageW - margin * 2, 18, 2, 2, 'F');
+            doc.setFontSize(9);
+            doc.setTextColor(21, 128, 61);
+            doc.setFont('helvetica', 'bold');
+            doc.text(`Total: ${formatCurrency(finalPrice)}`, margin + 4, y + 8);
+            if (pricePerPax > 0) doc.text(`Per Person: ${formatCurrency(pricePerPax)}`, pageW / 2, y + 8, { align: 'center' });
+            if (tripDetails.adults > 0 && tripDetails.children > 0)
+                doc.text(`Per Adult: ${formatCurrency(pricePerAdult)}`, pageW - margin - 4, y + 8, { align: 'right' });
+            y += 24;
+
+            // Day-by-day itinerary table
+            const tableBody = itineraryList.map(d => [
+                `Day ${d.day}`,
+                d.title,
+                d.desc,
+                dayMeta[d.day]?.notes || ''
+            ]);
+            autoTable(doc, {
+                startY: y,
+                head: [['Day', 'Theme', 'Activities', 'Notes']],
+                body: tableBody,
+                theme: 'striped',
+                headStyles: { fillColor: [28, 25, 23], textColor: [251, 191, 36], fontStyle: 'bold', fontSize: 8 },
+                bodyStyles: { fontSize: 7, textColor: [50, 50, 50] },
+                columnStyles: { 0: { cellWidth: 12 }, 1: { cellWidth: 28 }, 2: { cellWidth: 100 }, 3: { cellWidth: 35 } },
+                margin: { left: margin, right: margin },
+                didDrawPage: (data: any) => { y = data.cursor?.y || y; }
+            });
+            y = (doc as any).lastAutoTable?.finalY + 8 || y;
+
+            // Accommodation + Transport tables
+            if (accommodations.length > 0) {
+                checkY(20);
+                doc.setFontSize(9); doc.setFont('helvetica', 'bold'); doc.setTextColor(28, 25, 23);
+                doc.text('ACCOMMODATION SUMMARY', margin, y); y += 4;
+                autoTable(doc, {
+                    startY: y,
+                    head: [['Day', 'Property', 'Room / Details']],
+                    body: accommodations.map(a => [`Day ${a.day}`, a.title, a.description || '-']),
+                    theme: 'grid',
+                    headStyles: { fillColor: [220, 38, 38], textColor: 255, fontSize: 8 },
+                    bodyStyles: { fontSize: 7 },
+                    margin: { left: margin, right: margin },
+                });
+                y = (doc as any).lastAutoTable?.finalY + 8 || y;
+            }
+            if (transports.length > 0) {
+                checkY(20);
+                doc.setFontSize(9); doc.setFont('helvetica', 'bold'); doc.setTextColor(28, 25, 23);
+                doc.text('TRANSPORTATION SUMMARY', margin, y); y += 4;
+                autoTable(doc, {
+                    startY: y,
+                    head: [['Day', 'Vehicle / Service', 'Details']],
+                    body: transports.map(t => [`Day ${t.day}`, t.title, t.description || '-']),
+                    theme: 'grid',
+                    headStyles: { fillColor: [5, 150, 105], textColor: 255, fontSize: 8 },
+                    bodyStyles: { fontSize: 7 },
+                    margin: { left: margin, right: margin },
+                });
+                y = (doc as any).lastAutoTable?.finalY + 8 || y;
+            }
+
+            // T&C
+            if (tripDetails.termsAndConditions) {
+                checkY(20);
+                doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(100, 100, 100);
+                doc.text('TERMS & CONDITIONS', margin, y); y += 5;
+                doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(120, 120, 120);
+                const lines = doc.splitTextToSize(tripDetails.termsAndConditions, pageW - margin * 2);
+                doc.text(lines, margin, y);
+                y += lines.length * 4 + 4;
+            }
+
+            // Footer on all pages
+            const totalPages = (doc.internal as any).getNumberOfPages();
+            for (let i = 1; i <= totalPages; i++) {
+                doc.setPage(i);
+                doc.setFontSize(7); doc.setTextColor(160, 160, 160); doc.setFont('helvetica', 'normal');
+                doc.text('Generated by SHRAWELLO Travel Hub', margin, 292);
+                doc.text(`Page ${i} of ${totalPages}`, pageW - margin, 292, { align: 'right' });
+            }
+
+            const filename = `Itinerary_${(tripDetails.title || 'Trip').replace(/\s+/g, '_')}_${tripDetails.startDate || 'draft'}.pdf`;
+            doc.save(filename);
+            toast.success('PDF downloaded!');
+        } catch (err: any) {
+            console.error('PDF Error:', err);
+            toast.error('PDF generation failed: ' + err.message);
+        }
+    };
 
     const handleShareWhatsApp = () => {
         const text = `Here is the itinerary for *${tripDetails.title}* \n📅 Start Date: ${tripDetails.startDate}\n\nPlease check the attached PDF for full details.`;
@@ -155,16 +323,33 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
                             <h1 className="text-2xl md:text-3xl font-black text-stone-900 uppercase tracking-tight mb-2">
                                 {tripDetails.title || 'Untitled Itinerary'}
                             </h1>
+                            {tripDetails.clientName && (
+                                <p className="text-xs font-bold text-indigo-600 mb-1.5">👤 Prepared for: {tripDetails.clientName}</p>
+                            )}
                             <div className="flex flex-wrap items-center gap-3 text-xs font-bold text-stone-500">
                                 <span className="flex items-center gap-1"><MapPin size={12} /> {destinationName}</span>
                                 <span className="flex items-center gap-1"><Calendar size={12} /> {tripDetails.startDate}</span>
                                 <span className="flex items-center gap-1"><Users size={12} /> {guestCount} Guests</span>
                                 <span>🌙 {tripDetails.nights}N / ☀️ {tripDetails.days}D</span>
                             </div>
+                            {validUntilDate && (
+                                <p className="text-[10px] font-bold text-amber-600 mt-1.5 flex items-center gap-1">
+                                    <Clock size={10} /> Quote valid until: {validUntilDate}
+                                </p>
+                            )}
                         </div>
                         <div className="text-left md:text-right">
                             <div className="text-[10px] font-black uppercase tracking-widest text-stone-400 mb-0.5">Total Cost</div>
                             <div className="text-xl md:text-2xl font-black text-amber-600">{formatCurrency(finalPrice)}</div>
+                            {/* Per-pax pricing — Fix #8 */}
+                            {pricePerPax > 0 && (
+                                <div className="text-[10px] text-stone-400 mt-1 space-y-0.5">
+                                    <div>Per Person: <span className="font-bold text-stone-600">{formatCurrency(pricePerPax)}</span></div>
+                                    {tripDetails.children > 0 && (
+                                        <div>Per Adult: <span className="font-bold text-stone-600">{formatCurrency(pricePerAdult)}</span></div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     </div>
 
@@ -218,6 +403,12 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
                                 <div className="text-stone-500 text-xs leading-relaxed whitespace-pre-line bg-stone-50 p-4 rounded-xl border border-stone-100">
                                     {day.desc}
                                 </div>
+                                {/* Day Notes — Fix #6 */}
+                                {dayMeta[day.day]?.notes && (
+                                    <div className="mt-2 text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 leading-relaxed">
+                                        📝 <span className="font-bold">Note:</span> {dayMeta[day.day].notes}
+                                    </div>
+                                )}
                             </div>
                         ))}
                     </div>
@@ -281,6 +472,18 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
                         </div>
                     )}
 
+                    {/* Terms & Conditions — Fix #14 */}
+                    {tripDetails.termsAndConditions && (
+                        <div className="mt-10 pt-8 border-t border-stone-200">
+                            <h3 className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+                                <FileText size={11} /> Terms & Conditions
+                            </h3>
+                            <p className="text-[11px] text-stone-500 leading-relaxed whitespace-pre-line">
+                                {tripDetails.termsAndConditions}
+                            </p>
+                        </div>
+                    )}
+
                     {/* Footer */}
                     <div className="mt-16 pt-8 border-t border-stone-200 flex justify-between items-center text-stone-400 text-[10px] uppercase tracking-widest font-bold">
                         <span>Generated by SHRAWELLO Travel Hub</span>
@@ -298,6 +501,21 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
                 </div>
 
                 <div className="flex-1 p-5 space-y-6 overflow-y-auto">
+                    {/* Status badge */}
+                    {tripDetails.itineraryStatus && (
+                        <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-stone-400">Status</span>
+                            <span className={`text-[10px] font-black uppercase tracking-wider px-3 py-1 rounded-full ${
+                                tripDetails.itineraryStatus === 'Confirmed' ? 'bg-emerald-100 text-emerald-700' :
+                                tripDetails.itineraryStatus === 'Sent' ? 'bg-blue-100 text-blue-700' :
+                                tripDetails.itineraryStatus === 'Cancelled' ? 'bg-rose-100 text-rose-700' :
+                                'bg-stone-100 text-stone-500'
+                            }`}>
+                                {tripDetails.itineraryStatus}
+                            </span>
+                        </div>
+                    )}
+
                     {/* Item Subtotal */}
                     <div className="bg-stone-50 p-4 rounded-xl border border-stone-200">
                         <div className="text-[10px] font-black uppercase text-stone-400 mb-0.5 tracking-wider">Item Subtotal</div>
@@ -368,14 +586,27 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
                     >
                         <ArrowRight size={14} /> Convert to Booking
                     </button>
+                    {/* Generate Invoice — Fix #11 */}
+                    <button
+                        onClick={handleGenerateInvoice}
+                        className={`w-full py-2.5 font-bold rounded-xl transition-all flex items-center justify-center gap-2 text-xs shadow-lg ${
+                            editPackageId
+                                ? 'bg-violet-600 hover:bg-violet-700 text-white shadow-violet-600/20'
+                                : 'bg-stone-100 text-stone-400 cursor-not-allowed border border-stone-200 shadow-none'
+                        }`}
+                        title={!editPackageId ? 'Save itinerary first' : 'Create invoice from this itinerary'}
+                    >
+                        <Receipt size={14} /> Generate Invoice
+                    </button>
                     <div className="grid grid-cols-2 gap-3">
                         {onBack && (
                             <button onClick={onBack} className="w-full py-2.5 bg-white border border-stone-200 text-stone-500 font-bold rounded-xl hover:bg-stone-50 transition-all flex items-center justify-center gap-2 text-xs">
                                 <ArrowLeft size={14} /> Edit
                             </button>
                         )}
-                        <button onClick={handlePrint} className="w-full py-2.5 bg-white border border-stone-200 text-stone-500 font-bold rounded-xl hover:bg-stone-50 transition-all flex items-center justify-center gap-2 text-xs">
-                            <Printer size={14} /> Print PDF
+                        {/* Download PDF — Fix #1 */}
+                        <button onClick={handleDownloadPDF} className="w-full py-2.5 bg-white border border-stone-200 text-stone-500 font-bold rounded-xl hover:bg-stone-50 transition-all flex items-center justify-center gap-2 text-xs">
+                            <Download size={14} /> Download PDF
                         </button>
                     </div>
                     <div className="flex gap-2">

@@ -849,37 +849,28 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }));
       }
 
-      // 4. Update Booking State
-      // Compute new status OUTSIDE setBookings so we can await the DB update
+      // 4. Update Booking State (optimistic UI update)
+      // Payments now start as 'Pending' so we do NOT update booking payment_status here.
+      // The status only changes after a finance manager approves on the Payment Approvals page.
       const currentBooking = bookings.find(b => b.id === bookingId);
       if (currentBooking) {
-        const newTransactions = [...(currentBooking.transactions || []), tx];
-        const totalPaid = newTransactions.filter(t => t.type === 'Payment').reduce((sum, t) => sum + t.amount, 0);
-        const totalRefunded = newTransactions.filter(t => t.type === 'Refund').reduce((sum, t) => sum + t.amount, 0);
-        const netPaid = totalPaid - totalRefunded;
+        const newTransactions = [...(currentBooking.transactions || []), { ...tx, status: 'Pending' as any }];
 
-        let newStatus: 'Paid' | 'Unpaid' | 'Deposit' | 'Refunded' = 'Unpaid';
-        if (netPaid >= currentBooking.amount && currentBooking.amount > 0) newStatus = 'Paid';
-        else if (netPaid > 0) newStatus = 'Deposit';
-        else if (netPaid < 0) newStatus = 'Refunded';
-
-        // Persist updated payment status to DB — show error toast if it fails
-        try {
-          await api.updateBooking(bookingId, { payment: newStatus });
-        } catch (dbErr: any) {
-          toast.error('Payment recorded locally but DB status update failed. Refresh may reset display.');
-        }
-
-        // Now update local UI state synchronously
+        // Append transaction to local UI state so the Ledger modal shows it immediately
         setBookings(prev => prev.map(b =>
-          b.id === bookingId ? { ...b, transactions: newTransactions, payment: newStatus } : b
+          b.id === bookingId ? { ...b, transactions: newTransactions } : b
         ));
+
+        // Notify React Query cache to refetch so Bookings.tsx list stays in sync
+        window.dispatchEvent(new CustomEvent('booking-transactions-changed', { detail: { bookingId } }));
       }
 
-      logAction('Transaction', 'Finance', `Recorded ${tx.type} of amount ${tx.amount} for Booking ${bookingId}`);
-      toast.success("Transaction recorded to ledger");
+      logAction('Transaction', 'Finance', `Recorded ${tx.type} of amount ${tx.amount} for Booking ${bookingId} - Pending Approval`);
+      toast.success("Transaction recorded — pending approval on Payment Approvals page.");
+
     } catch (e: any) {
       toast.error(e.message || "Failed to record transaction");
+      throw e;
     }
   }, [accounts, bookings]);
 

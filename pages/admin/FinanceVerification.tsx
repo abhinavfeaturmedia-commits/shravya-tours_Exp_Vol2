@@ -133,12 +133,24 @@ export const FinanceVerification: React.FC = () => {
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4">
-                                                <p className="text-xs font-mono text-slate-600 dark:text-slate-400 break-all">
-                                                    {tx.source === 'expense' ? `Category: ${tx.packageId || 'None'}` : tx.bookingId}
+                                                <p className="text-xs font-bold text-slate-900 dark:text-white">
+                                                    {tx.source === 'expense' ? `Category: ${tx.packageId || 'None'}` : (tx.bookingName || 'Unknown Booking')}
                                                 </p>
-                                                <span className={`text-sm kpi-number font-bold mt-1 block ${tx.type === 'Refund' || tx.source === 'expense' ? 'text-red-600' : 'text-slate-900 dark:text-white'}`}>
-                                                    {tx.type === 'Refund' || tx.source === 'expense' ? '-' : ''}₹{tx.amount.toLocaleString()}
-                                                </span>
+                                                {tx.source !== 'expense' && (
+                                                    <p className="text-[10px] font-mono text-slate-500 dark:text-slate-400 mt-0.5 break-all">
+                                                        ID: {tx.bookingId}
+                                                    </p>
+                                                )}
+                                                <div className="flex items-center gap-2 mt-2">
+                                                    <span className={`text-sm kpi-number font-bold ${tx.type === 'Refund' || tx.source === 'expense' ? 'text-red-600' : 'text-slate-900 dark:text-white'}`}>
+                                                        {tx.type === 'Refund' || tx.source === 'expense' ? '-' : ''}₹{tx.amount.toLocaleString()}
+                                                    </span>
+                                                    {tx.recordedBy && (
+                                                        <span className="text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-500 px-1.5 py-0.5 rounded font-medium">
+                                                            by {tx.recordedBy}
+                                                        </span>
+                                                    )}
+                                                </div>
                                             </td>
                                             <td className="px-6 py-4">
                                                 <div className="flex flex-col gap-1">

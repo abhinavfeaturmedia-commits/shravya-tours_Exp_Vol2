@@ -38,7 +38,8 @@ const DAY_THEMES = [
 
 // ─── Main Board ───────────────────────────────────────────────────────────────
 export const StepDayPlanner: React.FC<Props> = ({ onOpenPricing, onOpenTripDetails }) => {
-    const { tripDetails, getItemsForDay, removeItem, updateItem, replaceAllItems, getDayMeta, updateDayMeta } = useItinerary();
+    const { tripDetails, getItemsForDay, removeItem, updateItem, replaceAllItems, getDayMeta, updateDayMeta, duplicateDay } = useItinerary();
+    const { masterLocations } = useData();
     const [addingToDay, setAddingToDay] = useState<number | null>(null);
     const [isGenerating, setIsGenerating] = useState(false);
 
@@ -49,11 +50,15 @@ export const StepDayPlanner: React.FC<Props> = ({ onOpenPricing, onOpenTripDetai
             toast.error('Please select a destination in Trip Details first.');
             return;
         }
+        // Fix #9: resolve UUID → human-readable name before passing to AI
+        const destinationName = masterLocations?.find(l => String(l.id) === String(tripDetails.destination))?.name
+            || tripDetails.destination;
+
         setIsGenerating(true);
         const toastId = toast.loading('Consulting our AI Travel Expert...');
         try {
             const guestStr = `${tripDetails.adults} Adults, ${tripDetails.children} Children`;
-            const result = await generateItinerary(tripDetails.destination, tripDetails.days, guestStr, tripDetails.startDate);
+            const result = await generateItinerary(destinationName, tripDetails.days, guestStr, tripDetails.startDate);
             const newItems: Omit<ItineraryItem, 'sellPrice'>[] = [];
             result.days.forEach((day: any) => {
                 day.activities.forEach((act: any) => {
@@ -146,12 +151,14 @@ export const StepDayPlanner: React.FC<Props> = ({ onOpenPricing, onOpenTripDetai
                                 theme={DAY_THEMES[(day - 1) % DAY_THEMES.length]}
                                 locationId={locationId}
                                 items={getItemsForDay(day)}
-                                meta={getDayMeta(day)}
+                                meta={getDayMeta(day) || {}}
+                                allDays={days}
                                 onAdd={() => setAddingToDay(day)}
                                 onRemove={removeItem}
                                 onUpdate={updateItem}
                                 onUpdateMeta={meta => updateDayMeta(day, meta)}
                                 onClearDay={() => getItemsForDay(day).forEach(i => removeItem(i.id))}
+                                onDuplicateTo={(targetDay) => duplicateDay(day, targetDay)}
                             />
                         );
                     })}
@@ -183,12 +190,14 @@ const DayColumn: React.FC<{
     locationId: string;
     items: ItineraryItem[];
     meta: any;
+    allDays: number[];
     onAdd: () => void;
     onRemove: (id: string) => void;
     onUpdate: (id: string, u: any) => void;
     onUpdateMeta: (m: any) => void;
     onClearDay: () => void;
-}> = ({ day, theme, locationId, items, meta, onAdd, onRemove, onUpdate, onUpdateMeta, onClearDay }) => {
+    onDuplicateTo: (targetDay: number) => void;
+}> = ({ day, theme, locationId, items, meta, allDays, onAdd, onRemove, onUpdate, onUpdateMeta, onClearDay, onDuplicateTo }) => {
     const { reorderItems } = useItinerary();
     const { masterLocations } = useData();
     const [showMenu, setShowMenu] = useState(false);
@@ -257,7 +266,7 @@ const DayColumn: React.FC<{
                             <MoreHorizontal size={14} />
                         </button>
                         {showMenu && (
-                            <div className="absolute right-0 top-8 bg-white shadow-xl rounded-xl border border-stone-100 py-1 z-30 w-44 text-xs font-bold text-stone-600">
+                            <div className="absolute right-0 top-8 bg-white shadow-xl rounded-xl border border-stone-100 py-1 z-30 w-48 text-xs font-bold text-stone-600">
                                 <button onClick={() => { onAdd(); setShowMenu(false); }} className="w-full px-4 py-2 text-left hover:bg-stone-50 flex items-center gap-2">
                                     <Plus size={12} /> Add Service
                                 </button>
@@ -292,10 +301,25 @@ const DayColumn: React.FC<{
                                         <Trash2 size={12} /> Remove Cover
                                     </button>
                                 )}
+                                {/* Duplicate Day submenu */}
+                                {allDays.filter(d => d !== day).length > 0 && (
+                                    <div className="border-t border-stone-50 mt-1 pt-1">
+                                        <p className="px-4 py-1 text-[9px] uppercase tracking-widest text-stone-400">Duplicate to Day…</p>
+                                        {allDays.filter(d => d !== day).map(targetDay => (
+                                            <button
+                                                key={targetDay}
+                                                onClick={() => { onDuplicateTo(targetDay); setShowMenu(false); }}
+                                                className="w-full px-4 py-1.5 text-left hover:bg-indigo-50 text-indigo-600 flex items-center gap-2"
+                                            >
+                                                <RefreshCw size={10} /> Day {targetDay}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
                                 {items.length > 0 && (
                                     <button
                                         onClick={() => { if (window.confirm(`Clear all ${items.length} items from Day ${day}?`)) onClearDay(); setShowMenu(false); }}
-                                        className="w-full px-4 py-2 text-left hover:bg-rose-50 text-rose-500 flex items-center gap-2"
+                                        className="w-full px-4 py-2 text-left hover:bg-rose-50 text-rose-500 flex items-center gap-2 border-t border-stone-50 mt-1"
                                     >
                                         <Trash2 size={12} /> Clear Day
                                     </button>
@@ -320,6 +344,19 @@ const DayColumn: React.FC<{
                     </div>
                 )}
                 
+                {/* Day notes — Fix #12 */}
+                <div className="mt-2">
+                    <textarea
+                        value={meta.notes || ''}
+                        onChange={e => onUpdateMeta({ ...meta, notes: e.target.value })}
+                        placeholder="Day notes (logistics, tips, reminders…)"
+                        rows={1}
+                        className="w-full text-[10px] text-stone-500 bg-stone-50 border border-stone-100 rounded-lg px-2 py-1.5 outline-none resize-none focus:ring-1 focus:ring-amber-300 transition-all placeholder:text-stone-300"
+                        style={{ minHeight: '28px' }}
+                        onInput={(e: any) => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }}
+                    />
+                </div>
+
                 {/* Warning: Missing Hotel */}
                 {hasItems && !hasHotel && (
                     <div className="mt-2 text-[10px] font-bold text-amber-600 bg-amber-50 px-2.5 py-1.5 rounded border border-amber-200 border-dashed flex items-center gap-1.5">

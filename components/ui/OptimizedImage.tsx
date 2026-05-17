@@ -8,7 +8,7 @@ interface OptimizedImageProps extends React.ImgHTMLAttributes<HTMLImageElement> 
     showSkeleton?: boolean;
 }
 
-const FALLBACK_IMAGE = 'https://placehold.co/600x400/e2e8f0/94a3b8?text=Image+Not+Found';
+const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?w=800&q=80&auto=format&fit=crop';
 
 export const OptimizedImage: React.FC<OptimizedImageProps> = ({
     src,
@@ -72,7 +72,7 @@ export const OptimizedImage: React.FC<OptimizedImageProps> = ({
             {/* Actual Image */}
             {isInView && (
                 <img
-                    src={hasError ? fallbackSrc : src}
+                    src={hasError || !src ? fallbackSrc : src}
                     alt={alt}
                     onLoad={handleLoad}
                     onError={handleError}

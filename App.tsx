@@ -31,6 +31,7 @@ const Inventory = lazy(() => import('./pages/admin/Inventory').then(module => ({
 const Analytics = lazy(() => import('./pages/admin/Analytics').then(module => ({ default: module.Analytics })));
 const Operations = lazy(() => import('./pages/admin/Operations').then(module => ({ default: module.Operations })));
 const ItineraryBuilder = lazy(() => import('./pages/admin/ItineraryBuilder').then(module => ({ default: module.ItineraryBuilder })));
+const ItinerariesDashboard = lazy(() => import('./pages/admin/ItinerariesDashboard').then(module => ({ default: module.ItinerariesDashboard })));
 const StaffManagement = lazy(() => import('./pages/admin/StaffManagement').then(module => ({ default: module.StaffManagement })));
 const TeamPerformance = lazy(() => import('./pages/admin/TeamPerformance').then(module => ({ default: module.TeamPerformance })));
 const Bookings = lazy(() => import('./pages/admin/Bookings').then(module => ({ default: module.Bookings })));
@@ -49,7 +50,7 @@ const FinanceVerification = lazy(() => import('./pages/admin/FinanceVerification
 const InvoicesDashboard = lazy(() => import('./pages/admin/InvoicesDashboard').then(module => ({ default: module.InvoicesDashboard })));
 const DocumentEditor = lazy(() => import('./pages/admin/DocumentEditor').then(module => ({ default: module.DocumentEditor })));
 const AdminSettings = lazy(() => import('./pages/admin/Settings').then(module => ({ default: module.Settings })));
-
+const TestimonialsManager = lazy(() => import('./pages/admin/TestimonialsManager').then(module => ({ default: module.TestimonialsManager })));
 
 // Loading Fallback
 const PageLoader = () => (
@@ -98,6 +99,7 @@ const App: React.FC = () => {
                   <Route path="bookings" element={<Bookings />} />
                   <Route path="inventory" element={<Inventory />} />
                   <Route path="vendors" element={<Vendors />} />
+                  <Route path="itineraries" element={<ItinerariesDashboard />} />
                   <Route path="itinerary-builder" element={<ItineraryBuilder />} />
                   <Route path="accounts" element={<AdminAccounts />} />
                   <Route path="expenses" element={<AdminExpenses />} />
@@ -117,6 +119,7 @@ const App: React.FC = () => {
                   <Route path="packages" element={<AdminPackages />} />
                   <Route path="masters" element={<Masters />} />
                   <Route path="settings" element={<AdminSettings />} />
+                  <Route path="testimonials" element={<TestimonialsManager />} />
                   <Route path="*" element={<div className="p-10">Page Under Construction</div>} />
                 </Route>
 

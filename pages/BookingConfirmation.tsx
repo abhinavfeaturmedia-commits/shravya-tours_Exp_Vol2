@@ -3,6 +3,7 @@ import { Link, useLocation, Navigate, useNavigate } from 'react-router-dom';
 import { SEO } from '../components/ui/SEO';
 import { SuggestPopup, isDismissed, isSnoozed } from '../components/ui/SuggestPopup';
 import { formatPrice } from '../utils/packageUtils';
+import { COMPANY_PHONE, COMPANY_PHONE_DISPLAY, COMPANY_EMAIL } from '../src/lib/constants';
 
 interface BookingConfirmationState {
     referenceId: string;
@@ -173,7 +174,7 @@ export const BookingConfirmation: React.FC = () => {
 
                     {/* Help Note */}
                     <p className="text-center text-sm text-slate-500 mt-8">
-                        Have questions? Call us at <a href="tel:+919876543210" className="font-bold text-primary hover:underline">+91 98765 43210</a> or email <a href="mailto:info@shravyatours.com" className="font-bold text-primary hover:underline">info@shravyatours.com</a>
+                        Have questions? Call us at <a href={`tel:+91${COMPANY_PHONE}`} className="font-bold text-primary hover:underline">+91 {COMPANY_PHONE_DISPLAY}</a> or email <a href={`mailto:${COMPANY_EMAIL}`} className="font-bold text-primary hover:underline">{COMPANY_EMAIL}</a>
                     </p>
 
                 </div>

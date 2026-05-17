@@ -22,6 +22,7 @@ const NAV_GROUPS = [
       { name: 'Bookings', path: '/admin/bookings', icon: 'airplane_ticket', module: 'bookings' },
       { name: 'Inventory', path: '/admin/inventory', icon: 'calendar_month', module: 'inventory' },
       { name: 'Vendors', path: '/admin/vendors', icon: 'storefront', module: 'vendors' },
+      { name: 'Itineraries', path: '/admin/itineraries', icon: 'auto_stories', module: 'itinerary' },
       { name: 'Itinerary Builder', path: '/admin/itinerary-builder', icon: 'map', module: 'itinerary' },
       { name: 'Live Operations', path: '/admin/operations', icon: 'traffic', module: 'operations' },
       { name: 'Masters', path: '/admin/masters', icon: 'dataset', module: 'masters' },
@@ -45,6 +46,7 @@ const NAV_GROUPS = [
       { name: 'Staff', path: '/admin/staff', icon: 'badge', module: 'staff' },
       { name: 'Team Performance', path: '/admin/team-performance', icon: 'monitoring', module: 'staff' },
       { name: 'Packages', path: '/admin/packages', icon: 'inventory_2', module: 'inventory' },
+      { name: 'Testimonials', path: '/admin/testimonials', icon: 'rate_review', module: 'settings' },
     ]
   },
   {
@@ -288,7 +290,7 @@ export const AdminLayout: React.FC = () => {
   if (!isAuthenticated || !currentUser) return null;
 
   return (
-    <div className="bg-slate-50 dark:bg-[#0B1116] text-slate-900 dark:text-slate-100 flex h-screen print:h-auto overflow-hidden print:overflow-visible font-sans relative">
+    <div className="bg-slate-50 dark:bg-[#0B1116] text-slate-900 dark:text-slate-100 flex min-h-screen print:h-auto print:overflow-visible font-sans relative">
       {/* Masquerade Banner */}
       {isMasquerading && (
         <div className="fixed top-0 left-0 right-0 h-8 bg-amber-400 text-amber-900 z-[200] flex items-center justify-center text-xs font-bold gap-4 shadow-sm animate-in slide-in-from-top">
@@ -311,8 +313,8 @@ export const AdminLayout: React.FC = () => {
 
       {/* Side Navigation - Modernized */}
       <aside className={`print:hidden
-        fixed lg:static inset-y-0 left-0 w-[280px] bg-white/95 dark:bg-[#0F172A]/95 backdrop-blur-xl border-r border-slate-200/50 dark:border-slate-800/50 
-        transform transition-transform duration-300 ease-[cubic-bezier(0.25,0.1,0.25,1.0)] z-[110] flex flex-col
+        fixed lg:sticky lg:top-0 lg:h-screen inset-y-0 left-0 w-[280px] bg-white/95 dark:bg-[#0F172A]/95 backdrop-blur-xl border-r border-slate-200/50 dark:border-slate-800/50 
+        transform transition-transform duration-300 ease-[cubic-bezier(0.25,0.1,0.25,1.0)] z-[110] flex flex-col shrink-0
         ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
       `}>
         {/* Logo Area */}
@@ -399,10 +401,10 @@ export const AdminLayout: React.FC = () => {
       </aside>
 
       {/* Main Content Wrapper */}
-      <div className="flex-1 flex flex-col h-screen print:h-auto overflow-hidden print:overflow-visible relative bg-slate-50 dark:bg-[#0B1116] print:bg-white">
+      <div className="flex-1 flex flex-col min-h-screen print:h-auto overflow-y-auto print:overflow-visible relative bg-slate-50 dark:bg-[#0B1116] print:bg-white pb-20 lg:pb-0">
 
         {/* Sticky Top Header */}
-        <header className="print:hidden h-20 flex items-center justify-between px-6 lg:px-8 border-b border-slate-200/60 dark:border-slate-800 bg-white/80 dark:bg-[#151d29]/80 backdrop-blur-xl z-20 shrink-0 sticky top-0">
+        <header className="print:hidden h-20 flex items-center justify-between px-6 lg:px-8 border-b border-slate-200/60 dark:border-slate-800 bg-white/80 dark:bg-[#151d29]/80 backdrop-blur-xl z-20 shrink-0">
           <div className="flex items-center gap-4">
             <button
               className="lg:hidden p-2 -ml-2 text-slate-500 hover:bg-slate-100 rounded-xl transition-colors"
@@ -711,8 +713,8 @@ export const AdminLayout: React.FC = () => {
           );
         })()}
 
-        {/* Scrollable Content Area */}
-        <div className="flex-1 overflow-y-auto print:overflow-visible scroll-smooth">
+        {/* Content Area */}
+        <div className="flex-1 print:overflow-visible scroll-smooth pb-24 lg:pb-0">
           <Outlet />
         </div>
 
@@ -734,7 +736,7 @@ export const AdminLayout: React.FC = () => {
           const nudgeId = `vendor-due-${v.name}-${v.daysLeft}`;
           if (isDismissed(nudgeId)) return null;
           return (
-            <div className="fixed bottom-6 left-[300px] z-[49]">
+            <div className="fixed bottom-24 left-4 right-4 md:bottom-6 md:left-[300px] md:right-auto z-[49]">
               <SuggestPopup
                 id={nudgeId}
                 variant="float"
@@ -762,7 +764,7 @@ export const AdminLayout: React.FC = () => {
           const nudgeId = `overdue-backlog-${currentUser.id}`;
           if (myOverdue < 10 || isDismissed(nudgeId) || isSnoozed(nudgeId)) return null;
           return (
-            <div className="fixed bottom-24 right-6 z-[48]">
+            <div className="fixed bottom-[130px] lg:bottom-24 right-4 lg:right-6 z-[48]">
               <SuggestPopup
                 id={nudgeId}
                 variant="float"
@@ -779,7 +781,7 @@ export const AdminLayout: React.FC = () => {
 
         {/* ── #16: Idle Session Warning ── */}
         {isUserIdle && !isSnoozed('idle-session-warning') && !isDismissed('idle-session-warning') && (
-          <div className="fixed bottom-6 left-[300px] z-[47]">
+          <div className="fixed bottom-24 left-4 right-4 md:bottom-6 md:left-[300px] md:right-auto z-[47]">
             <SuggestPopup
               id="idle-session-warning"
               variant="float"
@@ -796,7 +798,7 @@ export const AdminLayout: React.FC = () => {
 
         {/* ── #17: Positive Reinforcement ── */}
         {showPositiveReinforcement && (
-          <div className="fixed bottom-6 left-[300px] z-[46]">
+          <div className="fixed bottom-24 left-4 right-4 md:bottom-6 md:left-[300px] md:right-auto z-[46]">
             <SuggestPopup
               id={`positive-reinforcement-${sessionBookingsProcessed}`}
               variant="float"
@@ -810,7 +812,7 @@ export const AdminLayout: React.FC = () => {
         )}
 
         {/* Floating Action Button (FAB) */}
-        <div className="fixed bottom-6 right-6 z-50">
+        <div className="fixed bottom-24 lg:bottom-6 right-4 lg:right-6 z-50">
           {/* FAB Menu */}
           {isFabOpen && (
             <div className="absolute bottom-16 right-0 mb-2 space-y-2 animate-slide-up">
@@ -837,6 +839,44 @@ export const AdminLayout: React.FC = () => {
           >
             <span className="material-symbols-outlined text-[28px]">{isFabOpen ? 'close' : 'add'}</span>
           </button>
+        </div>
+        
+
+        {/* Mobile Bottom Navigation Bar (Glassmorphism Pill) */}
+        <div className="lg:hidden fixed bottom-4 left-4 right-4 z-[120] flex justify-center pointer-events-none">
+          <nav className="bg-[#2A2420]/95 dark:bg-[#1A1A1A]/95 backdrop-blur-2xl border border-white/10 rounded-full flex items-center gap-1 px-2 py-2 shadow-[0_8px_30px_rgb(0,0,0,0.4)] pointer-events-auto max-w-full overflow-x-auto hide-scrollbar">
+            {[
+              { path: '/admin', icon: 'dashboard', label: 'Dash' },
+              { path: '/admin/leads', icon: 'groups', label: 'Leads' },
+              { path: '/admin/bookings', icon: 'airplane_ticket', label: 'Bookings' },
+              { path: '/admin/tasks', icon: 'task_alt', label: 'Tasks', fallback: '/admin/productivity' },
+            ].map((item, i) => {
+              const active = isActive(item.path).includes('bg-slate-900') || isActive(item.path).includes('bg-gradient-to-r');
+              return (
+                <Link
+                  key={i}
+                  to={item.path}
+                  className={`flex items-center justify-center shrink-0 px-4 py-2.5 gap-2 rounded-full transition-all ${
+                    active 
+                      ? 'bg-white text-slate-900 font-bold shadow-md' 
+                      : 'text-white/80 font-medium hover:text-white hover:bg-white/10'
+                  }`}
+                >
+                  <span className={`material-symbols-outlined text-[18px] ${active ? 'font-variation-fill' : ''}`}>
+                    {item.icon}
+                  </span>
+                  <span className="text-[13px] tracking-wide whitespace-nowrap">{item.label}</span>
+                </Link>
+              );
+            })}
+            <button
+              onClick={toggleSidebar}
+              className="flex items-center justify-center shrink-0 px-4 py-2.5 gap-2 rounded-full transition-all text-white/80 font-medium hover:text-white hover:bg-white/10"
+            >
+              <span className="material-symbols-outlined text-[18px]">menu</span>
+              <span className="text-[13px] tracking-wide whitespace-nowrap">Menu</span>
+            </button>
+          </nav>
         </div>
       </div>
 

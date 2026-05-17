@@ -67,6 +67,12 @@ export interface TripDetails {
     children: number;
     included: string[];
     notIncluded: string[];
+    // Itinerary V2 fields
+    clientName?: string;          // Client this itinerary is built for
+    clientId?: string;            // Linked lead/booking ID
+    itineraryStatus?: string;     // Draft | Sent | Confirmed
+    validityDays?: number;        // Quote validity in days (0 = no expiry)
+    termsAndConditions?: string;  // Per-itinerary T&C text
 }
 
 // Currency exchange rates (base: INR)
@@ -115,6 +121,7 @@ interface ItineraryContextType {
     removeItem: (id: string) => void;
     replaceAllItems: (items: Omit<ItineraryItem, 'sellPrice'>[]) => void;
     reorderItems: (destDay: number, sourceId: string, destIndex: number) => void;
+    duplicateDay: (sourceDay: number, targetDay: number) => void;
     setCurrency: (currency: CurrencyCode) => void;
     updateTaxConfig: (config: Partial<TaxConfig>) => void;
     setPackageMarkup: (percent: number, flat: number) => void;
@@ -174,7 +181,12 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
         adults: 2,
         children: 0,
         included: ['Premium accommodation', 'Daily breakfast & dinner', 'Private transfers', 'Entry tickets', 'Expert guide'],
-        notIncluded: ['Airfare (International)', 'Personal expenses', 'Camera fees', 'Optional activities', 'Insurance']
+        notIncluded: ['Airfare (International)', 'Personal expenses', 'Camera fees', 'Optional activities', 'Insurance'],
+        clientName: '',
+        clientId: '',
+        itineraryStatus: 'Draft',
+        validityDays: 7,
+        termsAndConditions: '',
     });
 
     // Auto-save to localStorage
@@ -285,6 +297,22 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
                 sellPrice: calculateSellPrice(item.netCost, item.baseMarkupPercent, item.extraMarkupFlat, item.quantity)
             };
         }));
+    }, []);
+
+    // Duplicate all items from sourceDay into targetDay with new IDs
+    const duplicateDay = useCallback((sourceDay: number, targetDay: number) => {
+        setItems(prev => {
+            const sourceDayItems = prev.filter(i => i.day === sourceDay).sort((a, b) => (a.order || 0) - (b.order || 0));
+            if (sourceDayItems.length === 0) return prev;
+            const existingCount = prev.filter(i => i.day === targetDay).length;
+            const duplicates: ItineraryItem[] = sourceDayItems.map((item, idx) => ({
+                ...item,
+                id: `dup-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+                day: targetDay,
+                order: existingCount + idx,
+            }));
+            return [...prev, ...duplicates];
+        });
     }, []);
 
     const reorderItems = useCallback((destDay: number, sourceId: string, destIndex: number) => {
@@ -460,7 +488,12 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
             adults: 2,
             children: 0,
             included: ['Premium accommodation', 'Daily breakfast & dinner', 'Private transfers', 'Entry tickets', 'Expert guide'],
-            notIncluded: ['Airfare (International)', 'Personal expenses', 'Camera fees', 'Optional activities', 'Insurance']
+            notIncluded: ['Airfare (International)', 'Personal expenses', 'Camera fees', 'Optional activities', 'Insurance'],
+            clientName: '',
+            clientId: '',
+            itineraryStatus: 'Draft',
+            validityDays: 7,
+            termsAndConditions: '',
         });
     }, []);
 
@@ -485,6 +518,7 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
         removeItem,
         replaceAllItems,
         reorderItems,
+        duplicateDay,
         getItemsForDay,
         getDayMeta,
         updateDayMeta,
@@ -499,7 +533,7 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
         dayMeta
     }), [step, tripDetails, items, currency, taxConfig, packageMarkupPercent, packageMarkupFlat,
         subtotal, packageMarkupAmount, taxAmount, grandTotal, editPackageId,
-        updateTripDetails, addItem, updateItem, removeItem, replaceAllItems, reorderItems,
+        updateTripDetails, addItem, updateItem, removeItem, replaceAllItems, reorderItems, duplicateDay,
         getItemsForDay, updateTaxConfig, setPackageMarkup, loadPackage, clearDraft, formatCurrency, convertCurrency, dayMeta, setEditPackageId]);
 
     return (

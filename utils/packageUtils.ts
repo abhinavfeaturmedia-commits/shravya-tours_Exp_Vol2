@@ -8,15 +8,14 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
  * Handles both UUID references (looked up in masterLocations) and plain text strings.
  */
 export const getLocationName = (
-  locationValue: string | undefined | null,
+  locationValue: string | number | undefined | null,
   masterLocations: MasterLocation[]
 ): string => {
   if (!locationValue) return '';
-  if (UUID_REGEX.test(locationValue)) {
-    const found = masterLocations.find(l => l.id === locationValue);
-    return found ? found.name : locationValue;
-  }
-  return locationValue;
+  const strVal = String(locationValue);
+  const found = masterLocations.find(l => String(l.id) === strVal);
+  if (found) return found.name;
+  return strVal;
 };
 
 /**

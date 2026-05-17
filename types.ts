@@ -12,7 +12,7 @@ export enum BookingStatus {
   COMPLETED = 'Completed'
 }
 
-export type BookingType = 'Tour' | 'Hotel' | 'Car' | 'Bus';
+export type BookingType = 'Tour' | 'Hotel' | 'Car' | 'Bus' | 'Train' | 'Flight';
 
 export interface User {
   id: string;
@@ -30,6 +30,8 @@ export interface Package {
   location: string;
   description: string;
   price: number;
+  originalPrice?: number;          // Pre-discount price for offer strikethrough display
+  pricingMode?: 'per_person' | 'group'; // How price is applied: per person or total group price
   image: string;
   tag?: string;
   tagColor?: string;
@@ -40,12 +42,17 @@ export interface Package {
   gallery: string[];
   status?: 'Active' | 'Inactive';
   remainingSeats?: number;
-  offerEndTime?: string; // ISO String for countdown
+  offerEndTime?: string;           // ISO String for countdown
   included?: string[];
   notIncluded?: string[];
-  builderData?: any; // To store raw Itinerary Builder state for editing
+  builderData?: any;               // Raw Itinerary Builder state for editing
   proposalStatus?: 'Draft' | 'Sent' | 'Viewed' | 'Approved' | 'Changes Requested';
   addons?: { id: string; label: string; price: number }[]; // Per-package configurable add-ons
+  itinerary_status?: string;
+  client_name?: string | null;
+  client_id?: string | null;
+  validity_date?: string | null;
+  terms_and_conditions?: string | null;
 }
 
 export interface Booking {
@@ -164,16 +171,17 @@ export interface AuditLog {
 }
 
 export interface Lead {
-  id: string; // Internal UUID from DB
-  customerId?: string; // Link to Customer Profile
-  leadNumber?: number; // DB AUTO_INCREMENT number → displayed as LD-0001
+  id: string;                      // Internal UUID from DB
+  customerId?: string;             // Link to Customer Profile
+  leadNumber?: number;             // DB AUTO_INCREMENT number → displayed as LD-0001
+  packageId?: string;              // Source package that generated this lead (for admin linkage)
   name: string;
   email: string;
   phone: string;
-  location?: string; // Added for PDF generation
+  location?: string;               // Added for PDF generation
   destination: string;
   startDate?: string;
-  endDate?: string; // New: Travel end date
+  endDate?: string;                // Travel end date
   travelers: string;
   budget: string;
   type: string;
@@ -185,17 +193,17 @@ export interface Lead {
   preferences?: string;
   logs: LeadLog[];
   avatarColor?: string;
-  assignedTo?: number; // Staff ID
-  whatsapp?: string; // WhatsApp Number
+  assignedTo?: number;             // Staff ID
+  whatsapp?: string;               // WhatsApp Number
   isWhatsappSame?: boolean;
-  aiScore?: number; // 0-100
+  aiScore?: number;                // 0-100
   aiSummary?: string;
-  serviceType?: ServiceType; // New: Type of service requested
-  paxAdult?: number; // New: Number of adults
-  paxChild?: number; // New: Number of children
-  paxInfant?: number; // New: Number of infants
-  residentialAddress?: string; // New: Residential Address
-  officeAddress?: string; // New: Office Address
+  serviceType?: ServiceType;       // Type of service requested
+  paxAdult?: number;               // Number of adults
+  paxChild?: number;               // Number of children
+  paxInfant?: number;              // Number of infants
+  residentialAddress?: string;     // Residential Address
+  officeAddress?: string;          // Office Address
 }
 
 export interface CustomerPreference {
