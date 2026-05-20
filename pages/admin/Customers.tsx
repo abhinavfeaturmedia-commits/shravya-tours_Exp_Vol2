@@ -17,7 +17,7 @@ type SortField = 'name' | 'totalSpent' | 'bookingsCount' | 'joinedDate' | 'lastA
 type SortOrder = 'asc' | 'desc';
 
 export const Customers: React.FC = () => {
-    const { customers, bookings, leads, addCustomer, updateCustomer, deleteCustomer, importCustomers } = useData();
+    const { customers, bookings, leads, addCustomer, updateCustomer, deleteCustomer, importCustomers, getActiveMembershipForCustomer, membershipPlans } = useData();
     const { hasPermission } = useAuth();
 
     // Compute live booking stats (count and spent) from actual bookings (avoids stale DB counters)
@@ -203,11 +203,19 @@ export const Customers: React.FC = () => {
                                                         const stats = liveBookingStats[customer.id];
                                                         const isReturning = stats && stats.count > 1;
                                                         const totalSpent = stats?.spent ?? customer.totalSpent ?? 0;
-                                                        const isVIP = customer.type === 'VIP' || totalSpent >= 500000; // Auto VIP threshold
-                                                        
+                                                        const isVIP = customer.type === 'VIP' || totalSpent >= 500000;
+                                                        const activeMembership = getActiveMembershipForCustomer(customer.id);
+                                                        const planDef = activeMembership ? membershipPlans.find(p => p.id === activeMembership.planId) : null;
                                                         return (
-                                                            <div className="flex gap-1 mt-1">
+                                                            <div className="flex gap-1 mt-1 flex-wrap">
                                                                 {isVIP && <span className="text-[10px] uppercase font-bold text-amber-600 bg-amber-50 dark:bg-amber-900/20 px-1.5 py-0.5 rounded">VIP Member</span>}
+                                                                {activeMembership && (
+                                                                    <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded flex items-center gap-1"
+                                                                          style={{ backgroundColor: `${planDef?.color || '#CD7F32'}20`, color: planDef?.color || '#CD7F32' }}>
+                                                                        <span className="material-symbols-outlined text-[10px]">workspace_premium</span>
+                                                                        {activeMembership.tier}
+                                                                    </span>
+                                                                )}
                                                                 {!isVIP && isReturning && <span className="text-[10px] uppercase font-bold text-blue-600 bg-blue-50 dark:bg-blue-900/20 px-1.5 py-0.5 rounded border border-blue-100 dark:border-blue-800">Repeat Client</span>}
                                                                 {!isVIP && !isReturning && customer.type === 'New' && <span className="text-[10px] uppercase font-bold text-green-600 bg-green-50 dark:bg-green-900/20 px-1.5 py-0.5 rounded">New</span>}
                                                             </div>
@@ -259,7 +267,7 @@ export const Customers: React.FC = () => {
                                                                         toast.success(`${customer.name} deleted.`);
                                                                         if (selectedCustomer?.id === customer.id) setSelectedCustomer(null);
                                                                     })
-                                                                    .catch((err: any) => {
+                                                                    .catch((err) => {
                                                                         toast.dismiss(toastId);
                                                                         toast.error(`Delete failed: ${err?.message || 'Unknown error'}`);
                                                                     });
@@ -378,6 +386,7 @@ const CustomerDetailsDrawer: React.FC<{
     updateCustomer: (id: string, data: Partial<Customer>) => void;
     onEdit: () => void;
 }> = ({ isOpen, onClose, customer, bookings, leads, updateCustomer, onEdit }) => {
+    const { getActiveMembershipForCustomer, membershipPlans } = useData();
     const [note, setNote] = useState('');
     const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
     const [editNoteText, setEditNoteText] = useState('');
@@ -545,6 +554,37 @@ const CustomerDetailsDrawer: React.FC<{
                             </table>
                         </div>
                     </div>
+
+                    {/* Active Membership Card */}
+                    {(() => {
+                        const m = getActiveMembershipForCustomer(customer.id);
+                        if (!m) return null;
+                        const plan = membershipPlans.find(p => p.id === m.planId);
+                        const daysLeft = Math.ceil((new Date(m.expiresOn).getTime() - new Date().getTime()) / (1000 * 3600 * 24));
+                        return (
+                            <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
+                                <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider mb-4 flex justify-between items-center">
+                                    Active Membership
+                                    <span className="text-[10px] bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 px-2 py-0.5 rounded-full">{daysLeft} days left</span>
+                                </h3>
+                                <div className="p-4 rounded-xl border flex justify-between items-center" style={{ borderColor: plan?.color || '#CD7F32', backgroundColor: `${plan?.color || '#CD7F32'}08` }}>
+                                    <div>
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <span className="material-symbols-outlined text-lg" style={{ color: plan?.color || '#CD7F32' }}>workspace_premium</span>
+                                            <span className="font-bold text-lg" style={{ color: plan?.color || '#CD7F32' }}>{m.tier} Tier</span>
+                                        </div>
+                                        <p className="text-sm text-slate-600 dark:text-slate-400">{m.planName}</p>
+                                        <p className="text-xs text-slate-500 mt-1">Expires {new Date(m.expiresOn).toLocaleDateString()}</p>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="text-sm font-bold text-slate-700 dark:text-slate-300">{m.discountPercent}% Flat Off</p>
+                                        <p className="text-xs text-slate-500">+{m.hotelDiscount}% Hotel · +{m.flightDiscount}% Flight</p>
+                                        <button onClick={() => window.location.href = '/admin/memberships'} className="text-xs text-primary font-medium hover:underline mt-2 block">Manage →</button>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })()}
 
 <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
                         <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider mb-4">Activity Timeline</h3>

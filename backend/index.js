@@ -40,7 +40,6 @@ const upload = multer({
     }
 });
 
-// ─── Database Pool ───
 const pool = mysql.createPool({
     host: process.env.DB_HOST,
     user: process.env.DB_USER,
@@ -49,7 +48,9 @@ const pool = mysql.createPool({
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,
-    connectTimeout: 30000 // 30 seconds for remote Hostinger DB
+    connectTimeout: 30000, // 30 seconds for remote Hostinger DB
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 10000
 });
 
 const JWT_SECRET = process.env.JWT_SECRET || 'change-me';
@@ -559,6 +560,118 @@ async function ensureMissingTables() {
 }
 ensureMissingTables();
 
+// ─── Ensure Membership Tables ───
+async function ensureMembershipTables() {
+    try {
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS membership_plans (
+                id VARCHAR(255) PRIMARY KEY,
+                name VARCHAR(100) NOT NULL,
+                tier ENUM('Bronze','Silver','Gold') NOT NULL,
+                price_per_year DECIMAL(10,2) NOT NULL DEFAULT 0,
+                discount_percent INT DEFAULT 0,
+                hotel_discount INT DEFAULT 0,
+                tour_discount INT DEFAULT 0,
+                flight_discount INT DEFAULT 0,
+                perks LONGTEXT,
+                color VARCHAR(50) DEFAULT '#CD7F32',
+                is_active BOOLEAN DEFAULT true,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS customer_memberships (
+                id VARCHAR(255) PRIMARY KEY,
+                customer_id VARCHAR(255) NOT NULL,
+                customer_name VARCHAR(255),
+                customer_email VARCHAR(255),
+                plan_id VARCHAR(255) NOT NULL,
+                plan_name VARCHAR(100),
+                tier VARCHAR(50),
+                status ENUM('Active','Suspended','Expired') DEFAULT 'Active',
+                enrolled_on DATE NOT NULL,
+                expires_on DATE NOT NULL,
+                discount_percent INT DEFAULT 0,
+                hotel_discount INT DEFAULT 0,
+                tour_discount INT DEFAULT 0,
+                flight_discount INT DEFAULT 0,
+                notes TEXT,
+                enrolled_by VARCHAR(255),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+        console.log('[Membership Migration] Tables ensured.');
+    } catch (err) {
+        console.error('[Membership Migration] Failed:', err.message);
+    }
+}
+ensureMembershipTables();
+
+// ─── Ensure Partner Portal Tables ───
+async function ensurePartnerTables() {
+    try {
+        // Core partners table
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS partners (
+                id VARCHAR(255) PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                email VARCHAR(255) UNIQUE NOT NULL,
+                phone VARCHAR(50),
+                company_name VARCHAR(255),
+                location VARCHAR(255),
+                status ENUM('Pending Approval', 'Active', 'Blocked') DEFAULT 'Pending Approval',
+                commission_type ENUM('Percentage', 'Flat_Amount') DEFAULT 'Percentage',
+                commission_value DECIMAL(10,2) DEFAULT 5.00,
+                notes TEXT,
+                bank_details LONGTEXT,
+                joined_date DATE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+
+        // Commission ledger
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS partner_commissions (
+                id VARCHAR(255) PRIMARY KEY,
+                partner_id VARCHAR(255) NOT NULL,
+                booking_id VARCHAR(255) NOT NULL,
+                booking_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+                commission_type ENUM('Percentage', 'Flat_Amount') DEFAULT 'Percentage',
+                commission_rate DECIMAL(10,4) NOT NULL DEFAULT 0,
+                commission_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+                status ENUM('Pending', 'Approved', 'Paid', 'Rejected') DEFAULT 'Pending',
+                notes TEXT,
+                paid_at DATETIME DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_partner_id (partner_id),
+                INDEX idx_booking_id (booking_id),
+                INDEX idx_status (status)
+            )
+        `);
+
+        // Add partner_id column to leads table
+        try {
+            await pool.query("ALTER TABLE leads ADD COLUMN IF NOT EXISTS partner_id VARCHAR(255) DEFAULT NULL");
+            console.log('[Partner Migration] partner_id added to leads.');
+        } catch(e) { /* already exists */ }
+
+        // Add partner_id column to bookings table
+        try {
+            await pool.query("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS partner_id VARCHAR(255) DEFAULT NULL");
+            console.log('[Partner Migration] partner_id added to bookings.');
+        } catch(e) { /* already exists */ }
+
+        console.log('[Partner Migration] Partner tables ensured.');
+    } catch (err) {
+        console.error('[Partner Migration] Failed:', err.message);
+    }
+}
+ensurePartnerTables();
+
 // Allowed tables (whitelist to prevent SQL injection)
 const ALLOWED_TABLES = new Set([
     'packages', 'bookings', 'booking_transactions', 'supplier_bookings',
@@ -573,7 +686,9 @@ const ALLOWED_TABLES = new Set([
     'follow_ups', 'proposals', 'daily_targets', 'time_sessions',
     'assignment_rules', 'user_activities', 'audit_logs', 'settings',
     'invoices', 'invoice_items',
-    'attendance_logs'  // Live Operations attendance tracking
+    'attendance_logs',  // Live Operations attendance tracking
+    'membership_plans', 'customer_memberships',  // Membership Module
+    'partners', 'partner_commissions'  // B2B Partner Portal
 ]);
 
 // ─── Auth Middleware ───
@@ -989,6 +1104,11 @@ app.put('/api/crud/:table/:id', authMiddleware, validateTable, writeGuard, async
         values.push(id);
 
         await pool.query(`UPDATE \`${table}\` SET ${setClauses} WHERE id = ?`, values);
+
+        // Auto-Commission Trigger
+        if (table === 'bookings' && (body.status === 'confirmed' || body.status === 'completed' || body.payment_status === 'paid')) {
+            autoCalculatePartnerCommission(id);
+        }
 
         // Server-side audit log
         auditLog('Update', table, `Updated record ${id}: ${Object.keys(req.body).join(', ')}`, req.user?.email);
@@ -1735,6 +1855,495 @@ app.post('/api/staff/:id/reset-password', authMiddleware, async (req, res) => {
         res.status(500).json({ error: 'Failed to reset password' });
     }
 });
+
+// ═══════════════════════════════════════════
+// PARTNER AUTH ROUTES
+// ═══════════════════════════════════════════
+
+// Partner Registration (public)
+app.post('/api/partner/auth/register', async (req, res) => {
+    const { name, email, password, phone, companyName, location } = req.body || {};
+    if (!name || !email || !password) return res.status(400).json({ error: 'Name, email, and password are required' });
+    try {
+        const trimmedEmail = email.trim().toLowerCase();
+        const [existing] = await pool.query('SELECT id FROM partners WHERE email = ?', [trimmedEmail]);
+        if (existing.length > 0) return res.status(409).json({ error: 'Email already registered' });
+
+        const hash = await bcrypt.hash(password, 10);
+        const partnerId = `PART-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+        const joinedDate = new Date().toISOString().split('T')[0];
+
+        await pool.query(
+            `INSERT INTO partners (id, name, email, phone, company_name, location, status, commission_type, commission_value, joined_date) VALUES (?, ?, ?, ?, ?, ?, 'Pending Approval', 'Percentage', 5.00, ?)`,
+            [partnerId, name, trimmedEmail, phone || '', companyName || '', location || '', joinedDate]
+        );
+        // Create partner user in users table with role 'partner'
+        await pool.query(
+            'INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE password_hash = ?, role = ?',
+            [trimmedEmail, hash, 'partner', hash, 'partner']
+        );
+
+        await auditLog('PartnerRegister', 'Partners', `New partner registered: ${name} (${trimmedEmail}). Pending admin approval.`, 'System');
+        console.log(`[Email Service Mock] Sending registration confirmation email to partner: ${trimmedEmail}`);
+        console.log(`[Email Service Mock] Sending new partner alert to admin: admin@shravyatours.com (Partner: ${name})`);
+        res.json({ message: 'Registration successful. Your account is pending admin approval.', partnerId });
+    } catch (error) {
+        console.error('Partner registration error:', error);
+        res.status(500).json({ error: 'Registration failed', details: error.message });
+    }
+});
+
+// Partner Login (returns JWT scoped as 'partner')
+app.post('/api/partner/auth/login', async (req, res) => {
+    const { email, password } = req.body || {};
+    if (!email || !password) return res.status(400).json({ error: 'Email and password are required' });
+    try {
+        const trimmedEmail = email.trim().toLowerCase();
+        const [users] = await pool.query("SELECT * FROM users WHERE email = ? AND role = 'partner'", [trimmedEmail]);
+        if (users.length === 0) return res.status(401).json({ error: 'Invalid credentials or account not a partner account' });
+
+        const valid = await bcrypt.compare(password, users[0].password_hash);
+        if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
+
+        const [partners] = await pool.query('SELECT * FROM partners WHERE email = ?', [trimmedEmail]);
+        if (partners.length === 0) return res.status(404).json({ error: 'Partner profile not found' });
+
+        const partner = partners[0];
+        if (partner.status === 'Blocked') return res.status(403).json({ error: 'Your partner account has been blocked. Please contact support.' });
+        if (partner.status === 'Pending Approval') return res.status(403).json({ error: 'Your account is pending admin approval. You will be notified once approved.' });
+
+        const token = jwt.sign(
+            { id: partner.id, email: trimmedEmail, role: 'partner', partnerId: partner.id },
+            JWT_SECRET,
+            { expiresIn: '7d' }
+        );
+        console.log(`Partner login: ${trimmedEmail}`);
+        res.json({ token, partner });
+    } catch (error) {
+        console.error('Partner login error:', error);
+        res.status(500).json({ error: 'Login failed' });
+    }
+});
+
+// Partner auth middleware (scoped to 'partner' role JWT)
+function partnerAuthMiddleware(req, res, next) {
+    const header = req.headers.authorization;
+    if (!header || !header.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+        const decoded = jwt.verify(header.split(' ')[1], JWT_SECRET);
+        if (decoded.role !== 'partner') return res.status(403).json({ error: 'Partner access required' });
+        req.partner = decoded;
+        next();
+    } catch {
+        return res.status(401).json({ error: 'Invalid or expired token' });
+    }
+}
+
+// Partner profile (GET self)
+app.get('/api/partner/me', partnerAuthMiddleware, async (req, res) => {
+    try {
+        const [rows] = await pool.query('SELECT * FROM partners WHERE id = ?', [req.partner.partnerId]);
+        if (rows.length === 0) return res.status(404).json({ error: 'Partner not found' });
+        const p = rows[0];
+
+        // Compute stats
+        const [leadsRows] = await pool.query('SELECT COUNT(*) as cnt FROM leads WHERE partner_id = ?', [p.id]);
+        const [commissionsRows] = await pool.query(
+            "SELECT COALESCE(SUM(commission_amount),0) as total_earnings, COALESCE(SUM(CASE WHEN status='Approved' THEN commission_amount ELSE 0 END),0) as pending_payout, COUNT(DISTINCT booking_id) as converted_bookings FROM partner_commissions WHERE partner_id = ?",
+            [p.id]
+        );
+        const stats = commissionsRows[0];
+        const bankDetails = p.bank_details ? (typeof p.bank_details === 'string' ? JSON.parse(p.bank_details) : p.bank_details) : null;
+
+        res.json({
+            ...p,
+            bank_details: bankDetails,
+            total_leads_submitted: Number(leadsRows[0].cnt) || 0,
+            total_bookings_converted: Number(stats.converted_bookings) || 0,
+            total_earnings: Number(stats.total_earnings) || 0,
+            pending_payout: Number(stats.pending_payout) || 0,
+        });
+    } catch (err) {
+        console.error('Partner /me error:', err);
+        res.status(500).json({ error: 'Failed to fetch partner info' });
+    }
+});
+
+// Partner update profile (self-service)
+app.put('/api/partner/me', partnerAuthMiddleware, async (req, res) => {
+    try {
+        const { phone, companyName, location, bankDetails } = req.body;
+        const updates = {};
+        if (phone !== undefined) updates.phone = phone;
+        if (companyName !== undefined) updates.company_name = companyName;
+        if (location !== undefined) updates.location = location;
+        if (bankDetails !== undefined) updates.bank_details = JSON.stringify(bankDetails);
+        if (Object.keys(updates).length === 0) return res.json({ message: 'No changes' });
+        await pool.query('UPDATE partners SET ? WHERE id = ?', [updates, req.partner.partnerId]);
+        res.json({ message: 'Profile updated successfully' });
+    } catch (err) {
+        console.error('Partner update profile error:', err);
+        res.status(500).json({ error: 'Failed to update profile' });
+    }
+});
+
+// Partner change password
+app.post('/api/partner/auth/change-password', partnerAuthMiddleware, async (req, res) => {
+    const { currentPassword, newPassword } = req.body;
+    try {
+        const [users] = await pool.query("SELECT * FROM users WHERE email = ? AND role = 'partner'", [req.partner.email]);
+        if (users.length === 0) return res.status(404).json({ error: 'User not found' });
+        const valid = await bcrypt.compare(currentPassword, users[0].password_hash);
+        if (!valid) return res.status(401).json({ error: 'Current password is incorrect' });
+        const hash = await bcrypt.hash(newPassword, 10);
+        await pool.query('UPDATE users SET password_hash = ? WHERE email = ?', [hash, req.partner.email]);
+        res.json({ message: 'Password changed successfully' });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to change password' });
+    }
+});
+
+// ═══════════════════════════════════════════
+// PARTNER LEAD ROUTES
+// ═══════════════════════════════════════════
+
+// Partner: Submit a new lead
+app.post('/api/partner/leads', partnerAuthMiddleware, async (req, res) => {
+    try {
+        const lead = req.body;
+        const leadId = `PLEAD-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+        await pool.query(
+            `INSERT INTO leads (id, name, email, phone, location, destination, start_date, end_date, travelers, budget, type, status, priority, potential_value, source, preferences, partner_id, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'New', 'Medium', ?, 'Partner Referral', ?, ?, NOW())`,
+            [
+                leadId,
+                lead.name, lead.email || '', lead.phone || '',
+                lead.location || '', lead.destination || '',
+                lead.startDate || null, lead.endDate || null,
+                lead.travelers || '2 Adults', lead.budget || 'Flexible',
+                lead.type || 'Tour',
+                Number(lead.potentialValue) || 0,
+                lead.preferences || '',
+                req.partner.partnerId
+            ]
+        );
+        res.json({ message: 'Lead submitted successfully', leadId });
+    } catch (err) {
+        console.error('Partner submit lead error:', err);
+        res.status(500).json({ error: 'Failed to submit lead' });
+    }
+});
+
+// Partner: Get my submitted leads with status tracking
+app.get('/api/partner/leads', partnerAuthMiddleware, async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            `SELECT l.id, l.name, l.email, l.phone, l.destination, l.start_date, l.end_date, 
+             l.travelers, l.budget, l.status, l.potential_value, l.created_at,
+             b.id as booking_id, b.total_price as booking_amount
+             FROM leads l
+             LEFT JOIN bookings b ON b.partner_id = ? AND b.customer_email = l.email
+             WHERE l.partner_id = ?
+             ORDER BY l.created_at DESC`,
+            [req.partner.partnerId, req.partner.partnerId]
+        );
+        res.json({ data: rows });
+    } catch (err) {
+        console.error('Partner get leads error:', err);
+        res.status(500).json({ error: 'Failed to fetch leads' });
+    }
+});
+
+// ═══════════════════════════════════════════
+// PARTNER COMMISSION ROUTES
+// ═══════════════════════════════════════════
+
+// Partner: Get my commissions / earnings
+app.get('/api/partner/commissions', partnerAuthMiddleware, async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            `SELECT pc.*, b.customer_name as customer_name, b.title as booking_title
+             FROM partner_commissions pc
+             LEFT JOIN bookings b ON b.id = pc.booking_id
+             WHERE pc.partner_id = ?
+             ORDER BY pc.created_at DESC`,
+            [req.partner.partnerId]
+        );
+        res.json({ data: rows });
+    } catch (err) {
+        console.error('Partner get commissions error:', err);
+        res.status(500).json({ error: 'Failed to fetch commissions' });
+    }
+});
+
+// ═══════════════════════════════════════════
+// ADMIN: PARTNER MANAGEMENT ROUTES
+// ═══════════════════════════════════════════
+
+// Middleware to check if user is admin OR has partners.manage permission
+async function requirePartnerAdmin(req, res, next) {
+    if (req.user?.role === 'admin') return next();
+    if (req.user?.staffId) {
+        try {
+            const [rows] = await pool.query('SELECT permissions FROM staff_members WHERE id = ?', [req.user.staffId]);
+            if (rows.length > 0) {
+                let perms = rows[0].permissions;
+                if (typeof perms === 'string') {
+                    try { perms = JSON.parse(perms); } catch(e) { perms = {}; }
+                }
+                if (perms?.partners?.manage === true) {
+                    return next();
+                }
+            }
+        } catch (e) {
+            console.error('Permission check error:', e);
+        }
+    }
+    return res.status(403).json({ error: 'Unauthorized' });
+}
+
+// Admin: Get all partners with stats
+app.get('/api/admin/partners', authMiddleware, async (req, res) => {
+    try {
+        const [partners] = await pool.query('SELECT * FROM partners ORDER BY created_at DESC');
+        const enriched = await Promise.all(partners.map(async (p) => {
+            const [leadsRows] = await pool.query('SELECT COUNT(*) as cnt FROM leads WHERE partner_id = ?', [p.id]);
+            const [commRows] = await pool.query(
+                `SELECT 
+                  COALESCE(SUM(commission_amount), 0) as total_earnings,
+                  COALESCE(SUM(CASE WHEN status='Approved' THEN commission_amount ELSE 0 END), 0) as pending_payout,
+                  COUNT(DISTINCT booking_id) as converted_bookings
+                 FROM partner_commissions WHERE partner_id = ?`,
+                [p.id]
+            );
+            const stats = commRows[0];
+            const bankDetails = p.bank_details ? (typeof p.bank_details === 'string' ? JSON.parse(p.bank_details) : p.bank_details) : null;
+            return {
+                ...p,
+                bank_details: bankDetails,
+                total_leads_submitted: Number(leadsRows[0].cnt) || 0,
+                total_bookings_converted: Number(stats.converted_bookings) || 0,
+                total_earnings: Number(stats.total_earnings) || 0,
+                pending_payout: Number(stats.pending_payout) || 0,
+            };
+        }));
+        res.json({ data: enriched });
+    } catch (err) {
+        console.error('Admin get partners error:', err);
+        res.status(500).json({ error: 'Failed to fetch partners' });
+    }
+});
+
+// Admin: Add new partner manually
+app.post('/api/admin/partners', authMiddleware, requirePartnerAdmin, async (req, res) => {
+    const { name, email, password, phone, companyName, location, commissionType, commissionValue, status } = req.body || {};
+    if (!name || !email || !password) return res.status(400).json({ error: 'Name, email, and password are required' });
+    
+    try {
+        const trimmedEmail = email.trim().toLowerCase();
+        const [existing] = await pool.query('SELECT id FROM partners WHERE email = ?', [trimmedEmail]);
+        if (existing.length > 0) return res.status(409).json({ error: 'Email already registered' });
+
+        const hash = await bcrypt.hash(password, 10);
+        const partnerId = `PART-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+        const joinedDate = new Date().toISOString().split('T')[0];
+        
+        const finalStatus = status || 'Active';
+        const finalCommType = commissionType || 'Percentage';
+        const finalCommValue = commissionValue || 5.00;
+
+        await pool.query(
+            `INSERT INTO partners (id, name, email, phone, company_name, location, status, commission_type, commission_value, joined_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [partnerId, name, trimmedEmail, phone || '', companyName || '', location || '', finalStatus, finalCommType, finalCommValue, joinedDate]
+        );
+        
+        // Create partner user in users table with role 'partner'
+        await pool.query(
+            'INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE password_hash = ?, role = ?',
+            [trimmedEmail, hash, 'partner', hash, 'partner']
+        );
+
+        await auditLog('AdminPartnerAdd', 'Partners', `Admin manually added partner: ${name} (${trimmedEmail}).`, req.user.email);
+        res.json({ message: 'Partner added successfully', partnerId });
+    } catch (error) {
+        console.error('Admin add partner error:', error);
+        res.status(500).json({ error: 'Failed to add partner', details: error.message });
+    }
+});
+
+
+// Admin: Get single partner
+app.get('/api/admin/partners/:id', authMiddleware, async (req, res) => {
+    try {
+        const [rows] = await pool.query('SELECT * FROM partners WHERE id = ?', [req.params.id]);
+        if (rows.length === 0) return res.status(404).json({ error: 'Partner not found' });
+        const p = rows[0];
+        const bankDetails = p.bank_details ? JSON.parse(p.bank_details) : null;
+        res.json({ data: { ...p, bank_details: bankDetails } });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch partner' });
+    }
+});
+
+// Admin: Approve partner
+app.patch('/api/admin/partners/:id/approve', authMiddleware, requirePartnerAdmin, async (req, res) => {
+    try {
+        await pool.query("UPDATE partners SET status = 'Active' WHERE id = ?", [req.params.id]);
+        
+        // Simulated Email Notification
+        const [p] = await pool.query("SELECT email FROM partners WHERE id = ?", [req.params.id]);
+        if (p.length) {
+            console.log(`[Email Service Mock] Sending approval email to partner: ${p[0].email}`);
+        }
+        await auditLog('PartnerApprove', 'Partners', `Partner ID ${req.params.id} approved.`, req.user.email);
+        res.json({ message: 'Partner approved' });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to approve partner' });
+    }
+});
+
+// Admin: Block partner
+app.patch('/api/admin/partners/:id/block', authMiddleware, requirePartnerAdmin, async (req, res) => {
+    try {
+        await pool.query("UPDATE partners SET status = 'Blocked' WHERE id = ?", [req.params.id]);
+        await auditLog('PartnerBlock', 'Partners', `Partner ID ${req.params.id} blocked.`, req.user.email);
+        res.json({ message: 'Partner blocked' });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to block partner' });
+    }
+});
+
+// Admin: Update partner commission config
+app.put('/api/admin/partners/:id', authMiddleware, requirePartnerAdmin, async (req, res) => {
+    try {
+        const { commissionType, commissionValue, status, notes, bankDetails } = req.body;
+        const updates = {};
+        if (commissionType !== undefined) updates.commission_type = commissionType;
+        if (commissionValue !== undefined) updates.commission_value = commissionValue;
+        if (status !== undefined) updates.status = status;
+        if (notes !== undefined) updates.notes = notes;
+        if (bankDetails !== undefined) updates.bank_details = JSON.stringify(bankDetails);
+        if (Object.keys(updates).length === 0) return res.json({ message: 'No changes' });
+        await pool.query('UPDATE partners SET ? WHERE id = ?', [updates, req.params.id]);
+        await auditLog('PartnerUpdate', 'Partners', `Partner ID ${req.params.id} updated.`, req.user.email);
+        res.json({ message: 'Partner updated' });
+    } catch (err) {
+        console.error('Admin update partner error:', err);
+        res.status(500).json({ error: 'Failed to update partner' });
+    }
+});
+
+// Admin: Delete partner
+app.delete('/api/admin/partners/:id', authMiddleware, requirePartnerAdmin, async (req, res) => {
+    try {
+        await pool.query('DELETE FROM partners WHERE id = ?', [req.params.id]);
+        await pool.query("DELETE FROM users WHERE email = (SELECT email FROM partners WHERE id = ?) AND role = 'partner'", [req.params.id]).catch(()=>{});
+        res.json({ message: 'Partner deleted' });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to delete partner' });
+    }
+});
+
+// Admin: Get all commissions (for payout management)
+app.get('/api/admin/partner-commissions', authMiddleware, async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            `SELECT pc.*, p.name as partner_name, p.email as partner_email,
+             b.customer_name, b.title as booking_title
+             FROM partner_commissions pc
+             LEFT JOIN partners p ON p.id = pc.partner_id
+             LEFT JOIN bookings b ON b.id = pc.booking_id
+             ORDER BY pc.created_at DESC`
+        );
+        res.json({ data: rows });
+    } catch (err) {
+        console.error('Admin get commissions error:', err);
+        res.status(500).json({ error: 'Failed to fetch commissions' });
+    }
+});
+
+// Admin: Approve commission (mark as Approved)
+app.patch('/api/admin/partner-commissions/:id/approve', authMiddleware, requirePartnerAdmin, async (req, res) => {
+    try {
+        await pool.query("UPDATE partner_commissions SET status = 'Approved' WHERE id = ?", [req.params.id]);
+        await auditLog('CommissionApprove', 'Partners', `Commission ${req.params.id} approved.`, req.user.email);
+        res.json({ message: 'Commission approved' });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to approve commission' });
+    }
+});
+
+// Admin: Mark commission as Paid
+app.patch('/api/admin/partner-commissions/:id/pay', authMiddleware, requirePartnerAdmin, async (req, res) => {
+    try {
+        await pool.query(
+            "UPDATE partner_commissions SET status = 'Paid', paid_at = NOW() WHERE id = ?",
+            [req.params.id]
+        );
+        
+        // Simulated Email Notification
+        const [c] = await pool.query("SELECT p.email, pc.commission_amount FROM partner_commissions pc JOIN partners p ON pc.partner_id = p.id WHERE pc.id = ?", [req.params.id]);
+        if (c.length) {
+            console.log(`[Email Service Mock] Sending payout confirmation email to partner: ${c[0].email} for ₹${c[0].commission_amount}`);
+        }
+        await auditLog('CommissionPaid', 'Partners', `Commission ${req.params.id} marked as Paid.`, req.user.email);
+        res.json({ message: 'Commission marked as paid' });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to mark commission as paid' });
+    }
+});
+
+// Admin: Reject commission
+app.patch('/api/admin/partner-commissions/:id/reject', authMiddleware, requirePartnerAdmin, async (req, res) => {
+    try {
+        const { notes } = req.body || {};
+        await pool.query(
+            "UPDATE partner_commissions SET status = 'Rejected', notes = ? WHERE id = ?",
+            [notes || null, req.params.id]
+        );
+        await auditLog('CommissionReject', 'Partners', `Commission ${req.params.id} rejected.`, req.user.email);
+        res.json({ message: 'Commission rejected' });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to reject commission' });
+    }
+});
+
+// Internal helper: Auto-calculate commission when a booking becomes 'completed' or 'paid'
+// Called from booking status update route
+async function autoCalculatePartnerCommission(bookingId) {
+    try {
+        const [bookings] = await pool.query('SELECT * FROM bookings WHERE id = ?', [bookingId]);
+        if (bookings.length === 0) return;
+        const booking = bookings[0];
+        if (!booking.partner_id) return; // No partner linked
+
+        // Check if commission already exists for this booking
+        const [existing] = await pool.query('SELECT id FROM partner_commissions WHERE booking_id = ?', [bookingId]);
+        if (existing.length > 0) return; // Already created
+
+        const [partners] = await pool.query('SELECT * FROM partners WHERE id = ?', [booking.partner_id]);
+        if (partners.length === 0) return;
+        const partner = partners[0];
+
+        const bookingAmount = Number(booking.total_price) || 0;
+        let commissionAmount = 0;
+        if (partner.commission_type === 'Percentage') {
+            commissionAmount = (bookingAmount * Number(partner.commission_value)) / 100;
+        } else {
+            commissionAmount = Number(partner.commission_value);
+        }
+
+        const commId = `COMM-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+        await pool.query(
+            `INSERT INTO partner_commissions (id, partner_id, booking_id, booking_amount, commission_type, commission_rate, commission_amount, status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'Pending')`,
+            [commId, booking.partner_id, bookingId, bookingAmount, partner.commission_type, partner.commission_value, commissionAmount]
+        );
+        console.log(`[Commission] Auto-created commission ${commId} for partner ${booking.partner_id}: ₹${commissionAmount.toFixed(2)}`);
+    } catch (err) {
+        console.error('[Commission] Auto-calculate failed:', err.message);
+    }
+}
 
 // ═══════════════════════════════════════════
 // SERVE REACT FRONTEND (Production)

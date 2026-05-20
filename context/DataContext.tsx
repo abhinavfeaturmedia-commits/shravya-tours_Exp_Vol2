@@ -8,7 +8,8 @@ import {
   MasterLocation, MasterHotel, MasterActivity, MasterTransport, MasterPlan, AuditLog, Customer,
   FollowUp, MasterRoomType, MasterMealPlan, MasterLeadSource, MasterTermsTemplate, SupplierBooking, BookingTransaction, Proposal,
   CMSBanner, CMSTestimonial, CMSGalleryImage, CMSPost,
-  Task, DailyTarget, UserActivity, TimeSession, AssignmentRule
+  Task, DailyTarget, UserActivity, TimeSession, AssignmentRule,
+  MembershipPlan, CustomerMembership
 } from '../types';
 import { DeletionRequestModal } from '../components/ui/DeletionRequestModal';
 
@@ -386,6 +387,17 @@ interface DataContextType {
   userActivities: UserActivity[];
   logUserActivity: (activity: Omit<UserActivity, 'id' | 'timestamp'>) => void;
   refreshData: () => Promise<void>;
+
+  // Memberships
+  membershipPlans: MembershipPlan[];
+  customerMemberships: CustomerMembership[];
+  addMembershipPlan: (plan: MembershipPlan) => Promise<void>;
+  updateMembershipPlan: (id: string, plan: Partial<MembershipPlan>) => Promise<void>;
+  deleteMembershipPlan: (id: string) => Promise<void>;
+  enrollCustomer: (m: CustomerMembership) => Promise<void>;
+  updateMembership: (id: string, updates: Partial<CustomerMembership>) => Promise<void>;
+  deleteMembership: (id: string) => Promise<void>;
+  getActiveMembershipForCustomer: (customerId: string) => CustomerMembership | undefined;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -441,6 +453,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Phase 3: Time Tracking & Auto-Assignment
   const [timeSessions, setTimeSessions] = useState<TimeSession[]>(() => loadFromStorage(`${STORAGE_KEY}_time_sessions`, []));
   const [assignmentRules, setAssignmentRules] = useState<AssignmentRule[]>(() => loadFromStorage(`${STORAGE_KEY}_assignment_rules`, []));
+
+  // Memberships
+  const [membershipPlans, setMembershipPlans] = useState<MembershipPlan[]>([]);
+  const [customerMemberships, setCustomerMemberships] = useState<CustomerMembership[]>([]);
 
   // CMS State
   const [cmsBanners, setCmsBanners] = useState<CMSBanner[]>(() => loadFromStorage(`${STORAGE_KEY}_cms_banners`, INITIAL_CMS_BANNERS));
@@ -509,7 +525,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const [
           activities, transports, plans, roomTypes, mealPlans, leadSources, termsTemplates,
           cmsBannersList, cmsTestList, cmsGalList, cmsPostsList,
-          props, targets, sessions, rules, uActs, auditList
+          props, targets, sessions, rules, uActs, auditList, membershipPlansList, membershipsList
         ] = await Promise.all([
           api.getMasterActivities().catch(() => []),
           api.getMasterTransports().catch(() => []),
@@ -527,7 +543,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           api.getTimeSessions().catch(() => []),
           api.getAssignmentRules().catch(() => []),
           api.getUserActivities().catch(() => []),
-          api.getAuditLogs().catch(() => [])
+          api.getAuditLogs().catch(() => []),
+          api.getMembershipPlans().catch(() => []),
+          api.getCustomerMemberships().catch(() => [])
         ]);
 
         if (activities.length > 0) setMasterActivities(activities);
@@ -1710,6 +1728,89 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try { await api.deleteAssignmentRule(id); logAction('Delete', 'AutoAssignment', `Deleted rule ${id}`); } catch (e) { console.error(e); }
   }, [logAction]);
 
+  // ─── Membership Plan Handlers ───
+  const addMembershipPlan = useCallback(async (plan: MembershipPlan) => {
+    try {
+      await api.createMembershipPlan(plan);
+      setMembershipPlans(prev => [...prev, plan]);
+      logAction('Create', 'Memberships', `Created Plan: ${plan.name}`);
+      toast.success('Membership plan created');
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to create plan');
+      throw e;
+    }
+  }, [logAction]);
+
+  const updateMembershipPlan = useCallback(async (id: string, plan: Partial<MembershipPlan>) => {
+    const prev = membershipPlans;
+    setMembershipPlans(p => p.map(x => x.id === id ? { ...x, ...plan } : x));
+    try {
+      await api.updateMembershipPlan(id, plan);
+      logAction('Update', 'Memberships', `Updated Plan: ${id}`);
+      toast.success('Plan updated');
+    } catch (e: any) {
+      setMembershipPlans(prev);
+      toast.error(e.message || 'Failed to update plan');
+    }
+  }, [membershipPlans, logAction]);
+
+  const deleteMembershipPlan = useCallback(async (id: string) => {
+    const hasActive = customerMemberships.some(m => m.planId === id && m.status === 'Active');
+    if (hasActive) { toast.error('Cannot delete plan with active members. Suspend them first.'); return; }
+    const prev = membershipPlans;
+    setMembershipPlans(p => p.filter(x => x.id !== id));
+    try {
+      await api.deleteMembershipPlan(id);
+      logAction('Delete', 'Memberships', `Deleted Plan: ${id}`);
+      toast.success('Plan deleted');
+    } catch (e: any) {
+      setMembershipPlans(prev);
+      toast.error(e.message || 'Failed to delete plan');
+    }
+  }, [membershipPlans, customerMemberships, logAction]);
+
+  // ─── Customer Membership Handlers ───
+  const enrollCustomer = useCallback(async (m: CustomerMembership) => {
+    try {
+      await api.enrollCustomer(m);
+      setCustomerMemberships(prev => [m, ...prev]);
+      logAction('Create', 'Memberships', `Enrolled ${m.customerName} in ${m.planName}`);
+      toast.success(`${m.customerName} enrolled in ${m.planName}`);
+    } catch (e: any) {
+      toast.error(e.message || 'Enrollment failed');
+      throw e;
+    }
+  }, [logAction]);
+
+  const updateMembership = useCallback(async (id: string, updates: Partial<CustomerMembership>) => {
+    const prev = customerMemberships;
+    setCustomerMemberships(p => p.map(x => x.id === id ? { ...x, ...updates } : x));
+    try {
+      await api.updateMembership(id, updates);
+      logAction('Update', 'Memberships', `Updated membership: ${id}`);
+      toast.success('Membership updated');
+    } catch (e: any) {
+      setCustomerMemberships(prev);
+      toast.error(e.message || 'Failed to update membership');
+    }
+  }, [customerMemberships, logAction]);
+
+  const deleteMembership = useCallback(async (id: string) => {
+    const prev = customerMemberships;
+    setCustomerMemberships(p => p.filter(x => x.id !== id));
+    try {
+      await api.deleteMembership(id);
+      logAction('Delete', 'Memberships', `Removed membership: ${id}`);
+      toast.success('Membership removed');
+    } catch (e: any) {
+      setCustomerMemberships(prev);
+      toast.error(e.message || 'Failed to remove membership');
+    }
+  }, [customerMemberships, logAction]);
+
+  const getActiveMembershipForCustomer = useCallback((customerId: string) => {
+    return customerMemberships.find(m => m.customerId === customerId && m.status === 'Active');
+  }, [customerMemberships]);
 
   const value = useMemo(() => ({
     packages, bookings, leads, inventory, vendors, accounts, campaigns, auditLogs, logAction, customers,
@@ -1747,6 +1848,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Phase 3: Time Tracking & Auto-Assignment
     timeSessions, startTimeSession, updateTimeSession, endTimeSession, getActiveSession,
     assignmentRules, addAssignmentRule, updateAssignmentRule, deleteAssignmentRule,
+    // Memberships
+    membershipPlans, customerMemberships,
+    addMembershipPlan, updateMembershipPlan, deleteMembershipPlan,
+    enrollCustomer, updateMembership, deleteMembership, getActiveMembershipForCustomer,
     refreshData
   }), [
     packages, bookings, leads, inventory, vendors, accounts, campaigns, customers,
@@ -1786,6 +1891,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Phase 3 deps
     timeSessions, startTimeSession, updateTimeSession, endTimeSession, getActiveSession,
     assignmentRules, addAssignmentRule, updateAssignmentRule, deleteAssignmentRule,
+    // Membership deps
+    membershipPlans, customerMemberships,
+    addMembershipPlan, updateMembershipPlan, deleteMembershipPlan,
+    enrollCustomer, updateMembership, deleteMembership, getActiveMembershipForCustomer,
     refreshData
   ]);
 

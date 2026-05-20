@@ -11,7 +11,7 @@ export const AdminDashboard: React.FC = () => {
     const navigate = useNavigate();
     const {
         bookings: globalBookings, packages, leads: globalLeads, vendors, masterLocations, masterHotels, masterActivities,
-        tasks, followUps,
+        tasks, followUps, customers, getActiveMembershipForCustomer
     } = useData();
     const { currentUser, staff } = useAuth();
     const [greeting, setGreeting] = useState('');
@@ -75,6 +75,17 @@ export const AdminDashboard: React.FC = () => {
     const totalRevenue = bookings.reduce((acc, b) => b.payment === 'Paid' ? acc + b.amount : acc, 0);
     const bookingCount = bookings.length;
     const activePackages = packages.filter(p => p.status === 'Active').length;
+
+    // Membership Metrics
+    const activeMembersCount = useMemo(() => {
+        let count = 0;
+        customers.forEach(c => {
+            if (getActiveMembershipForCustomer(c.id)) {
+                count++;
+            }
+        });
+        return count;
+    }, [customers, getActiveMembershipForCustomer]);
 
     // Lead Analytics
     const newLeadsCount = leads.filter(l => l.status === 'New').length;
@@ -478,9 +489,10 @@ export const AdminDashboard: React.FC = () => {
             </div>
 
             {/* 2. Key Performance Indicators - Premium Gradient Cards */}
-            <div className="flex overflow-x-auto snap-x snap-mandatory gap-4 pb-2 -mx-6 px-6 lg:mx-0 lg:px-0 lg:grid lg:grid-cols-4 lg:gap-6 lg:overflow-visible hide-scrollbar">
+            <div className="flex overflow-x-auto snap-x snap-mandatory gap-4 pb-2 -mx-6 px-6 lg:mx-0 lg:px-0 lg:grid lg:grid-cols-5 lg:gap-6 lg:overflow-visible hide-scrollbar">
                 {[
                     { label: 'Total Revenue', value: formatPriceCompact(totalRevenue), icon: 'payments', gradient: 'from-emerald-500 to-teal-600', shadowColor: 'shadow-emerald-500/20', trend: thisWeekBookings > 0 ? `${thisWeekBookings} this week` : 'No bookings', trendUp: thisWeekBookings > 0 },
+                    { label: 'Active Members', value: activeMembersCount, icon: 'workspace_premium', gradient: 'from-amber-400 to-orange-500', shadowColor: 'shadow-amber-500/20', trend: 'Growing base', trendUp: true },
                     { label: 'Conversion Rate', value: `${conversionRate}%`, icon: 'trending_up', gradient: 'from-blue-500 to-indigo-600', shadowColor: 'shadow-blue-500/20', trend: conversionRate > 20 ? 'Above avg' : 'Needs focus', trendUp: conversionRate > 20 },
                     { label: 'Pipeline Value', value: formatPriceCompact(totalLeadsValue), icon: 'account_balance', gradient: 'from-violet-500 to-purple-600', shadowColor: 'shadow-violet-500/20', trend: `${hotLeadsCount} hot leads`, trendUp: hotLeadsCount > 0 },
                     { label: 'Active Packages', value: activePackages, icon: 'travel_explore', gradient: 'from-orange-500 to-rose-500', shadowColor: 'shadow-orange-500/20', trend: `${masterDataStats.locations} destinations`, trendUp: null },

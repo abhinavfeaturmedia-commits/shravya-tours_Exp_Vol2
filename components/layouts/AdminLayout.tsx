@@ -33,6 +33,8 @@ const NAV_GROUPS = [
     items: [
       { name: 'Leads CRM', path: '/admin/leads', icon: 'groups', module: 'leads' },
       { name: 'Customers', path: '/admin/customers', icon: 'face', module: 'customers' },
+      { name: 'Memberships', path: '/admin/memberships', icon: 'card_membership', module: 'customers' },
+      { name: 'Partners', path: '/admin/partners', icon: 'handshake', module: 'customers' },
       { name: 'Accounts', path: '/admin/accounts', icon: 'account_balance', module: 'finance' },
       { name: 'Expenses', path: '/admin/expenses', icon: 'receipt_long', module: 'finance' },
       { name: 'Payment Approvals', path: '/admin/finance-verification', icon: 'fact_check', module: 'invoices' },
@@ -714,7 +716,7 @@ export const AdminLayout: React.FC = () => {
         })()}
 
         {/* Content Area */}
-        <div className="flex-1 print:overflow-visible scroll-smooth pb-24 lg:pb-0">
+        <div className="flex-1 print:overflow-visible scroll-smooth pb-24 lg:pb-0 overflow-x-hidden min-w-0">
           <Outlet />
         </div>
 

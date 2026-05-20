@@ -3,8 +3,10 @@ import React, { Suspense, lazy } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { PublicLayout } from './components/layouts/PublicLayout';
 import { AdminLayout } from './components/layouts/AdminLayout';
+import { PartnerLayout } from './components/layouts/PartnerLayout';
 import { DataProvider } from './context/DataContext';
 import { AuthProvider } from './context/AuthContext';
+import { PartnerAuthProvider } from './context/PartnerAuthContext';
 import { MasterDataProvider } from './context/MasterDataContext';
 import { SettingsProvider } from './context/SettingsContext';
 import { ToastProvider } from './components/ui/Toast';
@@ -51,6 +53,17 @@ const InvoicesDashboard = lazy(() => import('./pages/admin/InvoicesDashboard').t
 const DocumentEditor = lazy(() => import('./pages/admin/DocumentEditor').then(module => ({ default: module.DocumentEditor })));
 const AdminSettings = lazy(() => import('./pages/admin/Settings').then(module => ({ default: module.Settings })));
 const TestimonialsManager = lazy(() => import('./pages/admin/TestimonialsManager').then(module => ({ default: module.TestimonialsManager })));
+const MembershipManager = lazy(() => import('./pages/admin/MembershipManager').then(module => ({ default: module.MembershipManager })));
+const PartnerManager = lazy(() => import('./pages/admin/PartnerManager').then(module => ({ default: module.PartnerManager })));
+
+// Partner Portal Pages
+const PartnerLogin = lazy(() => import('./pages/partner/PartnerLogin').then(m => ({ default: m.PartnerLogin })));
+const PartnerRegister = lazy(() => import('./pages/partner/PartnerRegister').then(m => ({ default: m.PartnerRegister })));
+const PartnerDashboard = lazy(() => import('./pages/partner/PartnerDashboard').then(m => ({ default: m.PartnerDashboard })));
+const PartnerLeads = lazy(() => import('./pages/partner/PartnerLeads').then(m => ({ default: m.PartnerLeads })));
+const PartnerSubmitLead = lazy(() => import('./pages/partner/PartnerSubmitLead').then(m => ({ default: m.PartnerSubmitLead })));
+const PartnerEarnings = lazy(() => import('./pages/partner/PartnerEarnings').then(m => ({ default: m.PartnerEarnings })));
+const PartnerProfile = lazy(() => import('./pages/partner/PartnerProfile').then(m => ({ default: m.PartnerProfile })));
 
 // Loading Fallback
 const PageLoader = () => (
@@ -65,7 +78,8 @@ const PageLoader = () => (
 const App: React.FC = () => {
   return (
     <AuthProvider>
-      <MasterDataProvider>
+      <PartnerAuthProvider>
+        <MasterDataProvider>
         <SettingsProvider>
         <DataProvider>
           <ToastProvider />
@@ -120,7 +134,21 @@ const App: React.FC = () => {
                   <Route path="masters" element={<Masters />} />
                   <Route path="settings" element={<AdminSettings />} />
                   <Route path="testimonials" element={<TestimonialsManager />} />
+                  <Route path="memberships" element={<MembershipManager />} />
+                  <Route path="partners" element={<PartnerManager />} />
                   <Route path="*" element={<div className="p-10">Page Under Construction</div>} />
+                </Route>
+
+                {/* Partner Portal Routes */}
+                <Route path="/partner/login" element={<PartnerLogin />} />
+                <Route path="/partner/register" element={<PartnerRegister />} />
+                <Route path="/partner" element={<PartnerLayout />}>
+                  <Route index element={<Navigate to="/partner/dashboard" replace />} />
+                  <Route path="dashboard" element={<PartnerDashboard />} />
+                  <Route path="leads" element={<PartnerLeads />} />
+                  <Route path="leads/new" element={<PartnerSubmitLead />} />
+                  <Route path="earnings" element={<PartnerEarnings />} />
+                  <Route path="profile" element={<PartnerProfile />} />
                 </Route>
 
                 {/* Fallback for unknown routes */}
@@ -130,7 +158,8 @@ const App: React.FC = () => {
           </HashRouter>
         </DataProvider>
         </SettingsProvider>
-      </MasterDataProvider>
+        </MasterDataProvider>
+      </PartnerAuthProvider>
     </AuthProvider>
   );
 };

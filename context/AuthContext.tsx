@@ -43,6 +43,10 @@ const DEFAULT_PERMISSIONS: StaffPermissions = {
     reports: { view: false, manage: false },
     audit: { view: false, manage: false },
     settings: { view: false, manage: false },
+    cms: { view: false, manage: false },
+    partners: { view: false, manage: false },
+    memberships: { view: false, manage: false },
+    testimonials: { view: false, manage: false },
 };
 
 const ADMIN_PERMISSIONS: StaffPermissions = {
@@ -63,6 +67,10 @@ const ADMIN_PERMISSIONS: StaffPermissions = {
     reports: { view: true, manage: true },
     audit: { view: true, manage: true },
     settings: { view: true, manage: true },
+    cms: { view: true, manage: true },
+    partners: { view: true, manage: true },
+    memberships: { view: true, manage: true },
+    testimonials: { view: true, manage: true },
 };
 
 const INITIAL_STAFF: StaffMember[] = [];

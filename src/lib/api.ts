@@ -545,7 +545,8 @@ export const api = {
             status: booking.status === 'Confirmed' ? 'confirmed' : 'pending',
             payment_status: booking.payment === 'Paid' ? 'paid' : 'pending', // Enums: pending, paid, failed, refunded
             notes: booking.details || '',
-            assigned_to: booking.assignedTo || null
+            assigned_to: booking.assignedTo || null,
+            partner_id: booking.partnerId || null
         };
 
         if (booking.packageId) dbBooking.package_id = booking.packageId;
@@ -579,6 +580,9 @@ export const api = {
         }
         if (updates.assignedTo !== undefined) {
             dbUpdates.assigned_to = updates.assignedTo || null;
+        }
+        if (updates.partnerId !== undefined) {
+            dbUpdates.partner_id = updates.partnerId || null;
         }
         if (updates.guests !== undefined) {
             dbUpdates.number_of_people = updates.guests ? parseInt(updates.guests.split(' ')[0]) || 1 : 1;
@@ -1867,4 +1871,111 @@ export const api = {
     upsertSetting: async (key: string, value: string) => {
         return crud.upsert('settings', { id: key, key, value, updated_at: new Date().toISOString() });
     },
+
+    // ─── MEMBERSHIP PLANS ───
+    getMembershipPlans: () =>
+        crud.getAll('membership_plans', { order: 'created_at', asc: true }).then((rows: any[]) =>
+            rows.map((r: any) => ({
+                id: r.id,
+                name: r.name,
+                tier: r.tier,
+                pricePerYear: Number(r.price_per_year || 0),
+                discountPercent: Number(r.discount_percent || 0),
+                hotelDiscount: Number(r.hotel_discount || 0),
+                tourDiscount: Number(r.tour_discount || 0),
+                flightDiscount: Number(r.flight_discount || 0),
+                perks: parseJsonFieldSafe(r.perks, []),
+                color: r.color || '#CD7F32',
+                isActive: Boolean(r.is_active),
+            }))
+        ),
+
+    createMembershipPlan: (plan: any) =>
+        crud.create('membership_plans', {
+            id: plan.id,
+            name: plan.name,
+            tier: plan.tier,
+            price_per_year: plan.pricePerYear,
+            discount_percent: plan.discountPercent,
+            hotel_discount: plan.hotelDiscount,
+            tour_discount: plan.tourDiscount,
+            flight_discount: plan.flightDiscount,
+            perks: JSON.stringify(plan.perks || []),
+            color: plan.color,
+            is_active: plan.isActive,
+        }),
+
+    updateMembershipPlan: (id: string, plan: any) =>
+        crud.update('membership_plans', id, {
+            ...(plan.name !== undefined && { name: plan.name }),
+            ...(plan.pricePerYear !== undefined && { price_per_year: plan.pricePerYear }),
+            ...(plan.discountPercent !== undefined && { discount_percent: plan.discountPercent }),
+            ...(plan.hotelDiscount !== undefined && { hotel_discount: plan.hotelDiscount }),
+            ...(plan.tourDiscount !== undefined && { tour_discount: plan.tourDiscount }),
+            ...(plan.flightDiscount !== undefined && { flight_discount: plan.flightDiscount }),
+            ...(plan.perks !== undefined && { perks: JSON.stringify(plan.perks) }),
+            ...(plan.color !== undefined && { color: plan.color }),
+            ...(plan.isActive !== undefined && { is_active: plan.isActive }),
+        }),
+
+    deleteMembershipPlan: (id: string) => crud.remove('membership_plans', id),
+
+    // ─── CUSTOMER MEMBERSHIPS ───
+    getCustomerMemberships: () =>
+        crud.getAll('customer_memberships', { order: 'created_at', asc: false }).then((rows: any[]) =>
+            rows.map((r: any) => ({
+                id: r.id,
+                customerId: r.customer_id,
+                customerName: r.customer_name,
+                customerEmail: r.customer_email,
+                planId: r.plan_id,
+                planName: r.plan_name,
+                tier: r.tier,
+                status: r.status,
+                enrolledOn: r.enrolled_on,
+                expiresOn: r.expires_on,
+                discountPercent: Number(r.discount_percent || 0),
+                hotelDiscount: Number(r.hotel_discount || 0),
+                tourDiscount: Number(r.tour_discount || 0),
+                flightDiscount: Number(r.flight_discount || 0),
+                notes: r.notes,
+                enrolledBy: r.enrolled_by,
+            }))
+        ),
+
+    enrollCustomer: (m: any) =>
+        crud.create('customer_memberships', {
+            id: m.id,
+            customer_id: m.customerId,
+            customer_name: m.customerName,
+            customer_email: m.customerEmail,
+            plan_id: m.planId,
+            plan_name: m.planName,
+            tier: m.tier,
+            status: m.status,
+            enrolled_on: m.enrolledOn,
+            expires_on: m.expiresOn,
+            discount_percent: m.discountPercent,
+            hotel_discount: m.hotelDiscount,
+            tour_discount: m.tourDiscount,
+            flight_discount: m.flightDiscount,
+            notes: m.notes || null,
+            enrolled_by: m.enrolledBy || null,
+        }),
+
+    updateMembership: (id: string, updates: any) =>
+        crud.update('customer_memberships', id, {
+            ...(updates.status !== undefined && { status: updates.status }),
+            ...(updates.planId !== undefined && { plan_id: updates.planId }),
+            ...(updates.planName !== undefined && { plan_name: updates.planName }),
+            ...(updates.tier !== undefined && { tier: updates.tier }),
+            ...(updates.expiresOn !== undefined && { expires_on: updates.expiresOn }),
+            ...(updates.discountPercent !== undefined && { discount_percent: updates.discountPercent }),
+            ...(updates.hotelDiscount !== undefined && { hotel_discount: updates.hotelDiscount }),
+            ...(updates.tourDiscount !== undefined && { tour_discount: updates.tourDiscount }),
+            ...(updates.flightDiscount !== undefined && { flight_discount: updates.flightDiscount }),
+            ...(updates.notes !== undefined && { notes: updates.notes }),
+        }),
+
+    deleteMembership: (id: string) => crud.remove('customer_memberships', id),
 };

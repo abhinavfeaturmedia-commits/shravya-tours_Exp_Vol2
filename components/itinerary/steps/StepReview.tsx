@@ -163,130 +163,325 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
         toast.success('Opening Invoice Editor — details pre-filled from itinerary.');
     };
 
-    // Fix #1 — jsPDF export
-    const handleDownloadPDF = () => {
+    const handleDownloadPDF = async () => {
+        const toastId = toast.loading('Generating premium PDF... Please wait.');
         try {
             const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
             const pageW = doc.internal.pageSize.getWidth();
-            const margin = 15;
+            const pageH = doc.internal.pageSize.getHeight();
+            const margin = 20;
             let y = margin;
 
-            const addPage = () => { doc.addPage(); y = margin; };
-            const checkY = (needed: number) => { if (y + needed > 275) addPage(); };
+            // Brand Colors (typed as tuples for jsPDF compatibility)
+            const brandColor: [number, number, number] = [28, 25, 23]; // stone-900
+            const accentColor: [number, number, number] = [217, 119, 6]; // amber-600
+            const textDark: [number, number, number] = [41, 37, 36]; // stone-800
+            const textLight: [number, number, number] = [120, 113, 108]; // stone-500
 
-            // Header band
-            doc.setFillColor(28, 25, 23);
-            doc.rect(0, 0, pageW, 28, 'F');
-            doc.setTextColor(251, 191, 36);
-            doc.setFontSize(7);
+            // Helper to add pages
+            const checkPage = (neededHeight: number) => {
+                if (y + neededHeight > pageH - margin) {
+                    doc.addPage();
+                    y = margin;
+                }
+            };
+
+            // Image Loader
+            const loadImageBase64 = async (url: string): Promise<string | null> => {
+                if (!url) return null;
+                try {
+                    const img = new Image();
+                    img.crossOrigin = 'Anonymous';
+                    await new Promise((resolve, reject) => {
+                        img.onload = resolve;
+                        img.onerror = reject;
+                        img.src = url;
+                    });
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) return null;
+                    ctx.drawImage(img, 0, 0);
+                    return canvas.toDataURL('image/jpeg', 0.8);
+                } catch (e) {
+                    console.warn('Could not load image for PDF:', url);
+                    return null;
+                }
+            };
+
+            // 1. Cover Page
+            if (tripDetails.coverImage) {
+                const coverBase64 = await loadImageBase64(tripDetails.coverImage);
+                if (coverBase64) {
+                    doc.addImage(coverBase64, 'JPEG', 0, 0, pageW, 140);
+                } else {
+                    doc.setFillColor(brandColor[0], brandColor[1], brandColor[2]);
+                    doc.rect(0, 0, pageW, 140, 'F');
+                }
+            } else {
+                doc.setFillColor(brandColor[0], brandColor[1], brandColor[2]);
+                doc.rect(0, 0, pageW, 140, 'F');
+            }
+
+            // Dark Overlay for Cover
+            doc.setFillColor(0, 0, 0);
+            doc.setGState(new (doc as any).GState({opacity: 0.6}));
+            doc.rect(0, 0, pageW, 140, 'F');
+            doc.setGState(new (doc as any).GState({opacity: 1}));
+
+            // Brand Header
+            doc.setTextColor(accentColor[0], accentColor[1], accentColor[2]);
             doc.setFont('helvetica', 'bold');
-            doc.text('SHRAWELLO TRAVEL HUB', margin, 10);
+            doc.setFontSize(10);
+            doc.text('SHRAWELLO TRAVEL HUB', 20, 30);
+
+            // Cover Title
+            doc.setTextColor(255, 255, 255);
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(32);
+            const titleLines = doc.splitTextToSize(tripDetails.title || 'Exclusive Itinerary', pageW - 40);
+            doc.text(titleLines, 20, 80);
+
             doc.setFontSize(14);
-            doc.text(tripDetails.title || 'Itinerary', margin, 20);
-            doc.setTextColor(200, 200, 200);
-            doc.setFontSize(7);
-            doc.text(`${destinationName}  |  ${tripDetails.startDate}  |  ${guestCount} Guests  |  ${tripDetails.nights}N/${tripDetails.days}D`, margin, 25);
-            if (validUntilDate) doc.text(`Valid Until: ${validUntilDate}`, pageW - margin, 25, { align: 'right' });
-            y = 36;
-
-            // Client row
-            if (tripDetails.clientName) {
-                doc.setFontSize(8);
-                doc.setTextColor(80, 80, 80);
-                doc.setFont('helvetica', 'normal');
-                doc.text(`Prepared for: ${tripDetails.clientName}`, margin, y);
-                y += 6;
+            doc.setFont('helvetica', 'normal');
+            doc.setTextColor(230, 230, 230);
+            doc.text(`${destinationName}  •  ${tripDetails.nights} Nights, ${tripDetails.days} Days`, 20, 80 + (titleLines.length * 12));
+            if (validUntilDate) {
+                doc.setFontSize(10);
+                doc.setTextColor(accentColor[0], accentColor[1], accentColor[2]);
+                doc.text(`Quote valid until: ${validUntilDate}`, 20, 80 + (titleLines.length * 12) + 10);
             }
 
-            // Pricing summary
-            doc.setFillColor(240, 255, 244);
-            doc.roundedRect(margin, y, pageW - margin * 2, 18, 2, 2, 'F');
-            doc.setFontSize(9);
-            doc.setTextColor(21, 128, 61);
+            // Info Card (Prepared For & Total)
+            y = 150;
+            doc.setFillColor(250, 250, 250);
+            doc.setDrawColor(230, 230, 230);
+            doc.roundedRect(20, y, pageW - 40, 45, 3, 3, 'FD');
+
+            // Left Side: Client
+            doc.setTextColor(textDark[0], textDark[1], textDark[2]);
             doc.setFont('helvetica', 'bold');
-            doc.text(`Total: ${formatCurrency(finalPrice)}`, margin + 4, y + 8);
-            if (pricePerPax > 0) doc.text(`Per Person: ${formatCurrency(pricePerPax)}`, pageW / 2, y + 8, { align: 'center' });
-            if (tripDetails.adults > 0 && tripDetails.children > 0)
-                doc.text(`Per Adult: ${formatCurrency(pricePerAdult)}`, pageW - margin - 4, y + 8, { align: 'right' });
-            y += 24;
+            doc.setFontSize(12);
+            doc.text('Prepared For:', 30, y + 15);
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(14);
+            doc.text(tripDetails.clientName || 'Valued Guest', 30, y + 25);
+            doc.setFontSize(10);
+            doc.setTextColor(textLight[0], textLight[1], textLight[2]);
+            doc.text(`${guestCount} Guests  •  Starts ${tripDetails.startDate}`, 30, y + 33);
 
-            // Day-by-day itinerary table
-            const tableBody = itineraryList.map(d => [
-                `Day ${d.day}`,
-                d.title,
-                d.desc,
-                dayMeta[d.day]?.notes || ''
-            ]);
-            autoTable(doc, {
-                startY: y,
-                head: [['Day', 'Theme', 'Activities', 'Notes']],
-                body: tableBody,
-                theme: 'striped',
-                headStyles: { fillColor: [28, 25, 23], textColor: [251, 191, 36], fontStyle: 'bold', fontSize: 8 },
-                bodyStyles: { fontSize: 7, textColor: [50, 50, 50] },
-                columnStyles: { 0: { cellWidth: 12 }, 1: { cellWidth: 28 }, 2: { cellWidth: 100 }, 3: { cellWidth: 35 } },
-                margin: { left: margin, right: margin },
-                didDrawPage: (data: any) => { y = data.cursor?.y || y; }
-            });
-            y = (doc as any).lastAutoTable?.finalY + 8 || y;
-
-            // Accommodation + Transport tables
-            if (accommodations.length > 0) {
-                checkY(20);
-                doc.setFontSize(9); doc.setFont('helvetica', 'bold'); doc.setTextColor(28, 25, 23);
-                doc.text('ACCOMMODATION SUMMARY', margin, y); y += 4;
-                autoTable(doc, {
-                    startY: y,
-                    head: [['Day', 'Property', 'Room / Details']],
-                    body: accommodations.map(a => [`Day ${a.day}`, a.title, a.description || '-']),
-                    theme: 'grid',
-                    headStyles: { fillColor: [220, 38, 38], textColor: 255, fontSize: 8 },
-                    bodyStyles: { fontSize: 7 },
-                    margin: { left: margin, right: margin },
-                });
-                y = (doc as any).lastAutoTable?.finalY + 8 || y;
-            }
-            if (transports.length > 0) {
-                checkY(20);
-                doc.setFontSize(9); doc.setFont('helvetica', 'bold'); doc.setTextColor(28, 25, 23);
-                doc.text('TRANSPORTATION SUMMARY', margin, y); y += 4;
-                autoTable(doc, {
-                    startY: y,
-                    head: [['Day', 'Vehicle / Service', 'Details']],
-                    body: transports.map(t => [`Day ${t.day}`, t.title, t.description || '-']),
-                    theme: 'grid',
-                    headStyles: { fillColor: [5, 150, 105], textColor: 255, fontSize: 8 },
-                    bodyStyles: { fontSize: 7 },
-                    margin: { left: margin, right: margin },
-                });
-                y = (doc as any).lastAutoTable?.finalY + 8 || y;
+            // Right Side: Price
+            doc.setTextColor(brandColor[0], brandColor[1], brandColor[2]);
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(10);
+            doc.text('Total Investment:', pageW - 30, y + 15, { align: 'right' });
+            doc.setFontSize(22);
+            doc.setTextColor(accentColor[0], accentColor[1], accentColor[2]);
+            doc.text(formatCurrency(finalPrice), pageW - 30, y + 27, { align: 'right' });
+            if (pricePerPax > 0) {
+                doc.setFontSize(9);
+                doc.setTextColor(textLight[0], textLight[1], textLight[2]);
+                doc.text(`${formatCurrency(pricePerPax)} per person`, pageW - 30, y + 35, { align: 'right' });
             }
 
-            // T&C
+            y += 60;
+
+            // Inclusions & Exclusions
+            const inc = tripDetails.included || [];
+            const exc = tripDetails.notIncluded || [];
+            
+            if (inc.length > 0 || exc.length > 0) {
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(14);
+                
+                if (inc.length > 0) {
+                    checkPage(40);
+                    doc.setTextColor(textDark[0], textDark[1], textDark[2]);
+                    doc.text('What\'s Included', 20, y);
+                    y += 10;
+                    doc.setFont('helvetica', 'normal');
+                    doc.setFontSize(10);
+                    for (const item of inc) {
+                        checkPage(10);
+                        doc.setTextColor(16, 185, 129); // emerald
+                        doc.text('✓', 20, y);
+                        doc.setTextColor(textLight[0], textLight[1], textLight[2]);
+                        const lines = doc.splitTextToSize(item, pageW - 45);
+                        doc.text(lines, 26, y);
+                        y += lines.length * 5;
+                    }
+                    y += 10;
+                }
+
+                if (exc.length > 0) {
+                    checkPage(40);
+                    doc.setFont('helvetica', 'bold');
+                    doc.setFontSize(14);
+                    doc.setTextColor(textDark[0], textDark[1], textDark[2]);
+                    doc.text('Not Included', 20, y);
+                    y += 10;
+                    doc.setFont('helvetica', 'normal');
+                    doc.setFontSize(10);
+                    for (const item of exc) {
+                        checkPage(10);
+                        doc.setTextColor(244, 63, 94); // rose
+                        doc.text('✗', 20, y);
+                        doc.setTextColor(textLight[0], textLight[1], textLight[2]);
+                        const lines = doc.splitTextToSize(item, pageW - 45);
+                        doc.text(lines, 26, y);
+                        y += lines.length * 5;
+                    }
+                    y += 10;
+                }
+            }
+
+            // 2. Day-by-Day Itinerary
+            doc.addPage();
+            y = margin;
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(22);
+            doc.setTextColor(brandColor[0], brandColor[1], brandColor[2]);
+            doc.text('Your Itinerary', 20, y);
+            y += 20;
+
+            for (const d of itineraryList) {
+                const dayImage = dayMeta[d.day]?.image;
+                let neededHeight = 40;
+                if (dayImage) neededHeight += 70;
+                const descLines = doc.splitTextToSize(d.desc, pageW - 40);
+                neededHeight += descLines.length * 6;
+                const note = dayMeta[d.day]?.notes;
+                if (note) neededHeight += 25;
+
+                checkPage(neededHeight);
+
+                // Day Label
+                doc.setFillColor(brandColor[0], brandColor[1], brandColor[2]);
+                doc.roundedRect(20, y, 16, 16, 2, 2, 'F');
+                doc.setTextColor(255, 255, 255);
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(12);
+                doc.text(`${d.day}`, 28, y + 10.5, { align: 'center' });
+
+                // Theme
+                doc.setTextColor(textDark[0], textDark[1], textDark[2]);
+                doc.setFontSize(16);
+                doc.text(d.title, 45, y + 10.5);
+                y += 22;
+
+                // Photo
+                if (dayImage) {
+                    const imgBase64 = await loadImageBase64(dayImage);
+                    if (imgBase64) {
+                        doc.addImage(imgBase64, 'JPEG', 20, y, pageW - 40, 60);
+                        y += 68;
+                    }
+                }
+
+                // Description
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(10);
+                doc.setTextColor(textLight[0], textLight[1], textLight[2]);
+                doc.text(descLines, 20, y);
+                y += descLines.length * 5 + 5;
+
+                // Notes
+                if (note) {
+                    doc.setFillColor(254, 252, 232); // yellow-50
+                    doc.setDrawColor(253, 230, 138); // yellow-200
+                    const noteLines = doc.splitTextToSize(`Note: ${note}`, pageW - 50);
+                    const noteHeight = noteLines.length * 5 + 10;
+                    doc.roundedRect(20, y, pageW - 40, noteHeight, 2, 2, 'FD');
+                    doc.setTextColor(180, 83, 9); // amber-700
+                    doc.setFontSize(9);
+                    doc.text(noteLines, 25, y + 8);
+                    y += noteHeight + 5;
+                }
+                
+                y += 10;
+            }
+
+            // 3. Accommodation & Transport
+            if (accommodations.length > 0 || transports.length > 0) {
+                checkPage(60);
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(18);
+                doc.setTextColor(brandColor[0], brandColor[1], brandColor[2]);
+                doc.text('Summary', 20, y);
+                y += 15;
+
+                if (accommodations.length > 0) {
+                    doc.setFontSize(12);
+                    doc.text('Accommodations', 20, y);
+                    y += 5;
+                    autoTable(doc, {
+                        startY: y,
+                        head: [['Day', 'Property', 'Room / Details']],
+                        body: accommodations.map(a => [`Day ${a.day}`, a.title, a.description || '-']),
+                        theme: 'grid',
+                        headStyles: { fillColor: [brandColor[0], brandColor[1], brandColor[2]], textColor: 255, fontSize: 9 },
+                        bodyStyles: { textColor: textDark, fontSize: 9 },
+                        margin: { left: 20, right: 20 }
+                    });
+                    y = (doc as any).lastAutoTable.finalY + 15;
+                }
+
+                if (transports.length > 0) {
+                    checkPage(40);
+                    doc.setFont('helvetica', 'bold');
+                    doc.setFontSize(12);
+                    doc.setTextColor(brandColor[0], brandColor[1], brandColor[2]);
+                    doc.text('Transportation', 20, y);
+                    y += 5;
+                    autoTable(doc, {
+                        startY: y,
+                        head: [['Day', 'Vehicle / Service', 'Details']],
+                        body: transports.map(t => [`Day ${t.day}`, t.title, t.description || '-']),
+                        theme: 'grid',
+                        headStyles: { fillColor: [accentColor[0], accentColor[1], accentColor[2]], textColor: 255, fontSize: 9 },
+                        bodyStyles: { textColor: textDark, fontSize: 9 },
+                        margin: { left: 20, right: 20 }
+                    });
+                    y = (doc as any).lastAutoTable.finalY + 15;
+                }
+            }
+
+            // 4. Terms
             if (tripDetails.termsAndConditions) {
-                checkY(20);
-                doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(100, 100, 100);
-                doc.text('TERMS & CONDITIONS', margin, y); y += 5;
-                doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(120, 120, 120);
-                const lines = doc.splitTextToSize(tripDetails.termsAndConditions, pageW - margin * 2);
-                doc.text(lines, margin, y);
-                y += lines.length * 4 + 4;
+                checkPage(40);
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(14);
+                doc.setTextColor(textDark[0], textDark[1], textDark[2]);
+                doc.text('Terms & Conditions', 20, y);
+                y += 10;
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(8);
+                doc.setTextColor(textLight[0], textLight[1], textLight[2]);
+                const lines = doc.splitTextToSize(tripDetails.termsAndConditions, pageW - 40);
+                doc.text(lines, 20, y);
             }
 
-            // Footer on all pages
+            // Footer (All Pages)
             const totalPages = (doc.internal as any).getNumberOfPages();
             for (let i = 1; i <= totalPages; i++) {
                 doc.setPage(i);
-                doc.setFontSize(7); doc.setTextColor(160, 160, 160); doc.setFont('helvetica', 'normal');
-                doc.text('Generated by SHRAWELLO Travel Hub', margin, 292);
-                doc.text(`Page ${i} of ${totalPages}`, pageW - margin, 292, { align: 'right' });
+                doc.setFillColor(250, 250, 250);
+                doc.rect(0, pageH - 18, pageW, 18, 'F');
+                doc.setFontSize(8);
+                doc.setTextColor(150, 150, 150);
+                doc.setFont('helvetica', 'normal');
+                doc.text('Generated by SHRAWELLO Travel Hub', 20, pageH - 8);
+                doc.text(`Page ${i} of ${totalPages}`, pageW - 20, pageH - 8, { align: 'right' });
             }
 
             const filename = `Itinerary_${(tripDetails.title || 'Trip').replace(/\s+/g, '_')}_${tripDetails.startDate || 'draft'}.pdf`;
             doc.save(filename);
-            toast.success('PDF downloaded!');
+            toast.dismiss(toastId);
+            toast.success('Premium PDF Downloaded!');
         } catch (err: any) {
             console.error('PDF Error:', err);
+            toast.dismiss();
             toast.error('PDF generation failed: ' + err.message);
         }
     };

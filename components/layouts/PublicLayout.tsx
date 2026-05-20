@@ -23,6 +23,16 @@ export const PublicLayout: React.FC = () => {
   const seasonalTitle = isMonsoon ? '🌧️ Monsoon Magic Deals!' : '☀️ Peak Season Packages!';
   const seasonalDesc = isMonsoon ? 'Get up to 25% off on select hill station and waterfall packages this monsoon.' : 'Rajasthan, Kerala & Goa packages with exclusive winter pricing. Limited seats!';
 
+  // Partner Affiliate Tracking
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const partnerRef = params.get('ref');
+    if (partnerRef) {
+      sessionStorage.setItem('shravya_partner_ref', partnerRef);
+      console.log(`[Affiliate] Partner linked: ${partnerRef}`);
+    }
+  }, [location.search]);
+
   // Exit-intent detector (desktop: mouse leaves viewport top)
   useEffect(() => {
     const EI_ID = 'exit-intent-quote';
@@ -60,7 +70,8 @@ export const PublicLayout: React.FC = () => {
     { label: 'Destinations', href: '/packages' },
     { label: 'About', href: '/about' },
     { label: 'Contact', href: '/contact' },
-    { label: 'Staff', href: '/admin' },
+    { label: 'Partners', href: '/partner/login' },
+    { label: 'Staff', href: '/login' },
   ];
 
   const handlePlaceholder = (e: React.MouseEvent, label: string) => {
@@ -228,6 +239,7 @@ export const PublicLayout: React.FC = () => {
           <div className="border-t border-slate-100 dark:border-slate-800 pt-8 flex flex-col md:flex-row justify-between items-center gap-4 text-xs font-medium text-slate-400">
             <p>© 2025 SHRAWELLO Travel Hub. All rights reserved.</p>
             <div className="flex gap-6">
+              <Link to="/partner/login" className="hover:text-slate-900 dark:hover:text-white transition-colors">Partner Portal</Link>
               <Link to="/admin" className="hover:text-slate-900 dark:hover:text-white transition-colors">Staff Portal</Link>
               <button onClick={(e) => handlePlaceholder(e, 'Sitemap')} className="hover:text-slate-900 dark:hover:text-white transition-colors">Sitemap</button>
             </div>

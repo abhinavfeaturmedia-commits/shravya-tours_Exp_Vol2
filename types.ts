@@ -83,6 +83,7 @@ export interface Booking {
   paxCount?: number;           // Explicit passenger count — avoids regex on guests string
   whatsappGroupUrl?: string;   // WhatsApp group link for the tour group
   liveStatus?: 'Live' | 'Completed' | 'Cancelled' | 'Issue'; // Operational status
+  partnerId?: string;          // Link to Partner
 }
 
 export interface BookingNote {
@@ -204,6 +205,7 @@ export interface Lead {
   paxInfant?: number;              // Number of infants
   residentialAddress?: string;     // Residential Address
   officeAddress?: string;          // Office Address
+  partnerId?: string;              // Partner Referral ID
 }
 
 export interface CustomerPreference {
@@ -263,6 +265,10 @@ export interface StaffPermissions {
   reports: StaffModulePermissions;     // Analytics
   audit: StaffModulePermissions;       // Audit Logs only
   settings: StaffModulePermissions;    // Settings (was incorrectly under audit)
+  cms: StaffModulePermissions;         // CMS and Content
+  partners: StaffModulePermissions;    // B2B Partners
+  memberships: StaffModulePermissions; // Memberships
+  testimonials: StaffModulePermissions;// Testimonials
 }
 
 export interface StaffMember {
@@ -784,4 +790,101 @@ export interface AssignmentRule {
   };
   createdAt: string;
   updatedAt: string;
+}
+
+// --- Membership Types ---
+
+export interface MembershipPlan {
+  id: string;
+  name: string;
+  tier: 'Bronze' | 'Silver' | 'Gold';
+  pricePerYear: number;
+  discountPercent: number;   // Flat discount on all bookings
+  hotelDiscount: number;     // Extra hotel-specific discount
+  tourDiscount: number;      // Extra tour-specific discount
+  flightDiscount: number;    // Extra flight-specific discount
+  perks: string[];           // Editable list of perk strings
+  color: string;             // Hex color for tier badge display
+  isActive: boolean;
+}
+
+export interface CustomerMembership {
+  id: string;
+  customerId: string;
+  customerName: string;
+  customerEmail: string;
+  planId: string;
+  planName: string;
+  tier: 'Bronze' | 'Silver' | 'Gold';
+  status: 'Active' | 'Suspended' | 'Expired';
+  enrolledOn: string;        // YYYY-MM-DD
+  expiresOn: string;         // YYYY-MM-DD (1 year from enrolledOn)
+  discountPercent: number;   // Snapshot of plan discount at enrollment time
+  hotelDiscount: number;
+  tourDiscount: number;
+  flightDiscount: number;
+  notes?: string;
+  enrolledBy?: string;       // Staff name who enrolled the customer
+}
+
+// ─── B2B Partner Portal Types ───
+
+export type PartnerStatus = 'Pending Approval' | 'Active' | 'Blocked';
+export type CommissionType = 'Percentage' | 'Flat_Amount';
+export type PartnerCommissionStatus = 'Pending' | 'Approved' | 'Paid' | 'Rejected';
+
+export interface Partner {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  companyName: string;
+  location?: string;
+  status: PartnerStatus;
+  commissionType: CommissionType;
+  commissionValue: number;       // Percentage (e.g. 5) or Flat amount (e.g. 500)
+  totalEarnings: number;         // Lifetime earnings
+  pendingPayout: number;         // Unpaid approved commissions
+  totalLeadsSubmitted: number;   // Total leads submitted
+  totalBookingsConverted: number;// Converted bookings
+  joinedDate: string;            // ISO date string
+  notes?: string;
+  bankDetails?: {
+    accountName: string;
+    accountNumber: string;
+    bankName: string;
+    ifsc: string;
+    upiId?: string;
+  };
+  // Auth – populated on login, not stored in DB response
+  passwordHash?: string;
+}
+
+export interface PartnerCommission {
+  id: string;
+  partnerId: string;
+  partnerName?: string;          // Joined from partners table
+  bookingId: string;
+  bookingTitle?: string;         // Joined from bookings table
+  customerName?: string;         // Joined from bookings table
+  bookingAmount: number;
+  commissionType: CommissionType;
+  commissionRate: number;        // Rate snapshot at commission creation time
+  commissionAmount: number;      // Actual calculated commission
+  status: PartnerCommissionStatus;
+  createdAt: string;
+  paidAt?: string;
+  notes?: string;
+}
+
+export interface PartnerLead {
+  id: string;
+  partnerId: string;
+  leadId: string;                // FK to main leads table
+  leadName: string;
+  destination: string;
+  leadStatus: string;            // Mirrors the main lead status
+  submittedAt: string;
+  convertedToBooking: boolean;
+  bookingId?: string;
 }

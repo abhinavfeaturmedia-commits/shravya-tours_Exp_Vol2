@@ -168,13 +168,19 @@ export const Login: React.FC = () => {
                         </p>
 
                         {/* Back link */}
-                        <div className="pt-2 flex justify-center">
+                        <div className="pt-2 flex flex-col items-center gap-2">
                             <a
                                 href="/"
                                 className="text-slate-400 hover:text-primary text-sm font-medium flex items-center gap-2 transition-colors no-underline"
                             >
                                 <span className="material-symbols-outlined text-lg">arrow_back</span>
                                 Back to Homepage
+                            </a>
+                            <a
+                                href="#/partner/login"
+                                className="text-slate-400 hover:text-violet-500 text-xs font-medium flex items-center gap-2 transition-colors mt-2"
+                            >
+                                Partner Portal Login →
                             </a>
                         </div>
                     </form>

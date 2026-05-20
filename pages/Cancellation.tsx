@@ -68,9 +68,7 @@ export const Cancellation: React.FC = () => {
             title: "Refund Policy",
             content: (
                 <ul className="list-disc pl-5 space-y-2">
-                    <li>Refunds (if applicable) will be processed after deducting cancellation and service charges.</li>
-                    <li>Refund timelines typically range between 7–14 working days, subject to supplier and bank processing.</li>
-                    <li>Convenience fees, service charges, and GST (if applicable) may be non-refundable.</li>
+                    <li>If any refund approved by the company according to policies mentioned it will be credited to your account within 7 working days</li>
                 </ul>
             )
         },

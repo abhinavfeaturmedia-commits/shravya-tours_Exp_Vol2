@@ -95,6 +95,7 @@ export const QuickBookingModal: React.FC<QuickBookingModalProps> = ({
                     timestamp: new Date().toISOString(),
                 },
             ],
+            partnerId: sessionStorage.getItem('shravya_partner_ref') || undefined,
         };
 
         addLead(newLead);
