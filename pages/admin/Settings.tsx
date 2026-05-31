@@ -198,6 +198,25 @@ const FinanceSection: React.FC = () => {
   const setStr = (field: string, val: string) => { setForm(p => ({ ...p, [field]: val })); setIsDirty(true); };
   const setBool = (field: string, val: boolean) => { setForm(p => ({ ...p, [field]: val })); setIsDirty(true); };
 
+  const handleQrUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please upload an image file');
+      return;
+    }
+    
+    const reader = new FileReader();
+    reader.onload = () => {
+      setStr('upiQrImage', reader.result as string);
+    };
+    reader.onerror = () => {
+      toast.error('Failed to read file');
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleSave = async () => {
     try {
       await updateFinance(form);
@@ -257,23 +276,65 @@ const FinanceSection: React.FC = () => {
       <SectionCard title="Bank Details" description="Printed on invoices and payment receipts">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           <Field label="Account Holder Name">
-            <TextInput value={form.bankAccountName} onChange={v => setStr('bankAccountName', v)} placeholder="SHRAWELLO TRAVEL HUB" />
+            <TextInput value={form.bankAccountName} onChange={v => setStr('bankAccountName', v)} placeholder="SHRAWELLO TRAVELHUB AND EVENTS LLP" />
           </Field>
           <Field label="Bank Name">
-            <TextInput value={form.bankName} onChange={v => setStr('bankName', v)} placeholder="HDFC Bank" />
+            <TextInput value={form.bankName} onChange={v => setStr('bankName', v)} placeholder="KOTAK MAHINDRA BANK" />
           </Field>
           <Field label="Account Number">
-            <TextInput value={form.bankAccountNumber} onChange={v => setStr('bankAccountNumber', v)} placeholder="1234567890" />
+            <TextInput value={form.bankAccountNumber} onChange={v => setStr('bankAccountNumber', v)} placeholder="4054789256" />
           </Field>
           <Field label="IFSC Code">
-            <TextInput value={form.bankIfsc} onChange={v => setStr('bankIfsc', v)} placeholder="HDFC0001234" />
+            <TextInput value={form.bankIfsc} onChange={v => setStr('bankIfsc', v)} placeholder="KKBK0002119" />
           </Field>
           <Field label="Branch">
-            <TextInput value={form.bankBranch} onChange={v => setStr('bankBranch', v)} placeholder="Andheri West, Mumbai" />
+            <TextInput value={form.bankBranch} onChange={v => setStr('bankBranch', v)} placeholder="Pune - Chikhali" />
           </Field>
           <Field label="UPI ID" hint="For QR code payments">
             <TextInput value={form.upiId} onChange={v => setStr('upiId', v)} placeholder="shrawello@upi" />
           </Field>
+
+          <div className="md:col-span-2 border-t border-slate-100 dark:border-slate-800 pt-4 mt-2">
+            <Field label="UPI QR Code Image" hint="Upload a static QR code image (e.g. from bank app). If uploaded, this overrides the dynamically generated code. Max 150KB recommended.">
+              {form.upiQrImage ? (
+                <div className="flex items-center gap-6 p-4 bg-slate-50/50 dark:bg-slate-900/40 rounded-2xl border border-slate-200 dark:border-slate-850 w-fit">
+                  <div className="p-2 bg-white rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex items-center justify-center">
+                    <img src={form.upiQrImage} alt="UPI QR Preview" className="w-28 h-28 object-contain mix-blend-multiply" />
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-xs font-bold text-slate-800 dark:text-slate-200">Custom QR Code Active</p>
+                    <p className="text-[10px] text-slate-400 dark:text-slate-500 max-w-[280px]">Scanning this QR code will process payments using your uploaded static details.</p>
+                    <button
+                      type="button"
+                      onClick={() => setStr('upiQrImage', '')}
+                      className="px-3.5 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/20 dark:hover:bg-rose-900/30 text-rose-600 dark:text-rose-450 text-xs font-bold rounded-xl border border-rose-100/50 dark:border-rose-900/40 transition-all flex items-center gap-1.5 shadow-sm"
+                    >
+                      <span className="material-symbols-outlined text-[15px]">delete</span>
+                      Remove Image
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="relative group border-2 border-dashed border-slate-200 dark:border-slate-700 hover:border-primary/50 dark:hover:border-primary/50 rounded-2xl p-6 transition-all bg-slate-50/50 dark:bg-slate-900/30 hover:bg-slate-50 dark:hover:bg-slate-900/50 flex flex-col items-center justify-center text-center cursor-pointer min-h-[140px]">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleQrUpload}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                  />
+                  <div className="size-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 group-hover:text-primary group-hover:bg-primary/10 transition-all mb-2">
+                    <span className="material-symbols-outlined text-[22px]">qr_code_2</span>
+                  </div>
+                  <p className="text-xs font-bold text-slate-750 dark:text-slate-350">
+                    Click to upload or drag & drop QR image
+                  </p>
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Supports PNG, JPG, JPEG (Max 150KB recommended)
+                  </p>
+                </div>
+              )}
+            </Field>
+          </div>
         </div>
       </SectionCard>
 

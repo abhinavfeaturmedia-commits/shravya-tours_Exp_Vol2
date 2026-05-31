@@ -53,6 +53,8 @@ export interface Package {
   client_id?: string | null;
   validity_date?: string | null;
   terms_and_conditions?: string | null;
+  partnerCommissionType?: CommissionType;
+  partnerCommissionValue?: number;
 }
 
 export interface Booking {
@@ -84,6 +86,18 @@ export interface Booking {
   whatsappGroupUrl?: string;   // WhatsApp group link for the tour group
   liveStatus?: 'Live' | 'Completed' | 'Cancelled' | 'Issue'; // Operational status
   partnerId?: string;          // Link to Partner
+  partnerName?: string;
+  partnerCompanyName?: string;
+  
+  // NEW: Lead CRM Carry Forward Fields
+  whatsapp?: string;           // WhatsApp Number
+  isWhatsappSame?: boolean;    // Is WhatsApp same as primary phone number
+  altPhone?: string;           // Alternate Phone Number
+  paxAdult?: number;           // Number of adults
+  paxInfant?: number;          // Number of infants
+  serviceType?: string;        // Category of service requested
+  residentialAddress?: string; // Residential Address
+  officeAddress?: string;      // Office Address
 }
 
 export interface BookingNote {
@@ -142,9 +156,10 @@ export interface AttendanceLog {
 
 export interface LeadLog {
   id: string;
-  type: 'Note' | 'Call' | 'Email' | 'Quote' | 'System' | 'WhatsApp';
+  type: 'Note' | 'Call' | 'Email' | 'Quote' | 'System' | 'WhatsApp' | 'Chat';
   content: string;
   timestamp: string; // ISO String
+  sender?: string;
 }
 
 export interface Expense {
@@ -206,6 +221,11 @@ export interface Lead {
   residentialAddress?: string;     // Residential Address
   officeAddress?: string;          // Office Address
   partnerId?: string;              // Partner Referral ID
+  partnerName?: string;
+  partnerCompanyName?: string;
+  
+  // NEW: Lead CRM Carry Forward Fields
+  altPhone?: string;           // Alternate Phone Number
 }
 
 export interface CustomerPreference {
@@ -237,6 +257,13 @@ export interface Customer {
   lastActive?: string;
   preferences?: CustomerPreference;
   notes?: CustomerNote[];
+  prefix?: string;
+  dob?: string;
+  altPhone?: string;
+  whatsapp?: string;
+  isWhatsappSame?: boolean;
+  address?: string;
+  officeAddress?: string;
 }
 
 
@@ -798,11 +825,17 @@ export interface MembershipPlan {
   id: string;
   name: string;
   tier: 'Bronze' | 'Silver' | 'Gold';
+  pricePerMonth: number;
+  pricePerQuarter: number;
+  pricePerHalfYear: number;
   pricePerYear: number;
-  discountPercent: number;   // Flat discount on all bookings
+  discountType: 'Percentage' | 'Flat_Amount';
+  discountPercent: number;   // Flat discount percentage
+  discountFlat: number;      // Flat discount fixed amount (₹)
   hotelDiscount: number;     // Extra hotel-specific discount
   tourDiscount: number;      // Extra tour-specific discount
   flightDiscount: number;    // Extra flight-specific discount
+  cabDiscount: number;       // Extra cab/taxi-specific discount
   perks: string[];           // Editable list of perk strings
   color: string;             // Hex color for tier badge display
   isActive: boolean;
@@ -817,12 +850,17 @@ export interface CustomerMembership {
   planName: string;
   tier: 'Bronze' | 'Silver' | 'Gold';
   status: 'Active' | 'Suspended' | 'Expired';
+  billingCycle: 'Monthly' | 'Quarterly' | '6 Months' | 'Yearly';
+  pricePaid: number;
   enrolledOn: string;        // YYYY-MM-DD
-  expiresOn: string;         // YYYY-MM-DD (1 year from enrolledOn)
-  discountPercent: number;   // Snapshot of plan discount at enrollment time
+  expiresOn: string;         // YYYY-MM-DD (calculated dynamically)
+  discountType: 'Percentage' | 'Flat_Amount';
+  discountPercent: number;   // Snapshot of plan discount percent at enrollment time
+  discountFlat: number;      // Snapshot of plan flat discount amount at enrollment time
   hotelDiscount: number;
   tourDiscount: number;
   flightDiscount: number;
+  cabDiscount: number;
   notes?: string;
   enrolledBy?: string;       // Staff name who enrolled the customer
 }
@@ -843,6 +881,14 @@ export interface Partner {
   status: PartnerStatus;
   commissionType: CommissionType;
   commissionValue: number;       // Percentage (e.g. 5) or Flat amount (e.g. 500)
+  cabCommissionType?: CommissionType;
+  cabCommissionValue?: number;
+  busCommissionType?: CommissionType;
+  busCommissionValue?: number;
+  trainCommissionType?: CommissionType;
+  trainCommissionValue?: number;
+  flightCommissionType?: CommissionType;
+  flightCommissionValue?: number;
   totalEarnings: number;         // Lifetime earnings
   pendingPayout: number;         // Unpaid approved commissions
   totalLeadsSubmitted: number;   // Total leads submitted
@@ -888,3 +934,23 @@ export interface PartnerLead {
   convertedToBooking: boolean;
   bookingId?: string;
 }
+
+// ─── Coupon Manager Types ───
+
+export interface Coupon {
+  id: string;
+  code: string;
+  type: 'ToursOnly' | 'MultiCategory';
+  discountType: 'Percentage' | 'Price';
+  discountValue: number;
+  minBookingAmount?: number;
+  validFrom?: string; // YYYY-MM-DD
+  validTo?: string;   // YYYY-MM-DD
+  status: 'Active' | 'Inactive' | 'Expired';
+  isUsed: boolean;
+  useCount: number;
+  downloadCount?: number; // tracks how many times this coupon was downloaded as image/PDF
+  createdAt?: string;
+  updatedAt?: string;
+}
+

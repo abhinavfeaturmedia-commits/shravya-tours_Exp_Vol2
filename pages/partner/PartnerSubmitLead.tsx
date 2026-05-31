@@ -1,15 +1,36 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
 export const PartnerSubmitLead: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [form, setForm] = useState({
     name: '', email: '', phone: '', location: '', destination: '',
     startDate: '', endDate: '', travelers: '2 Adults', budget: '',
     type: 'Tour', potentialValue: '', preferences: '',
+    packageId: '',
   });
+
+  useEffect(() => {
+    const pkgId = searchParams.get('packageId') || '';
+    const dest = searchParams.get('destination') || '';
+    const val = searchParams.get('potentialValue') || '';
+    const notes = searchParams.get('notes') || '';
+    const typeParam = searchParams.get('type') || 'Tour';
+
+    if (pkgId || dest || val || notes) {
+      setForm(prev => ({
+        ...prev,
+        packageId: pkgId,
+        destination: dest,
+        potentialValue: val,
+        type: typeParam,
+        preferences: notes ? `${notes}\n\n${prev.preferences}`.trim() : prev.preferences
+      }));
+    }
+  }, [searchParams]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 

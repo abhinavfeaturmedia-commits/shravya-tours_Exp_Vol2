@@ -4,6 +4,8 @@ import { Booking, BookingTransaction } from '../../types';
 import { useData } from '../../context/DataContext';
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'sonner';
+import { generateReceiptPDF } from '../../utils/pdfGenerator';
+import { useSettings } from '../../context/SettingsContext';
 
 interface LedgerManagementModalProps {
     isOpen: boolean;
@@ -12,9 +14,40 @@ interface LedgerManagementModalProps {
 }
 
 export const LedgerManagementModal: React.FC<LedgerManagementModalProps> = ({ isOpen, onClose, booking }) => {
-    const { addBookingTransaction, deleteBookingTransaction } = useData();
+    const { addBookingTransaction, deleteBookingTransaction, customers, leads, packages } = useData();
     const { currentUser, hasPermission } = useAuth();
+    const { settings } = useSettings();
+    const fi = settings.finance;
     const navigate = useNavigate();
+    const [printingTxId, setPrintingTxId] = useState<string | null>(null);
+
+    const handlePrintReceipt = async (tx: BookingTransaction) => {
+        setPrintingTxId(tx.id);
+        const toastId = toast.loading('Generating transaction receipt...');
+        try {
+            const customerDetails = customers?.find((c: any) => c.id === booking.customerId || c.email === booking.email) || null;
+            
+            const transportBooking = booking.supplierBookings?.find((sb: any) => sb.serviceType === 'Transport');
+            const vehicleDetails = transportBooking 
+                ? `${transportBooking.notes || 'AC Transport'} ${transportBooking.vehicleNumber ? `(Vehicle: ${transportBooking.vehicleNumber})` : ''}`.trim()
+                : '13 + 1 Seater AC Tempo Traveller';
+                
+            const linkedPkg = packages?.find((p: any) => p.id === booking.packageId);
+            const routeDetails = linkedPkg 
+                ? linkedPkg.location 
+                : (booking.title || 'Tour Route');
+
+            await generateReceiptPDF(booking, tx, customerDetails, vehicleDetails, routeDetails, fi);
+            toast.dismiss(toastId);
+            toast.success('Receipt downloaded successfully');
+        } catch (err: any) {
+            toast.dismiss(toastId);
+            toast.error(`Receipt generation failed: ${err.message || 'Unknown error'}`);
+            console.error('[Receipt Error]', err);
+        } finally {
+            setPrintingTxId(null);
+        }
+    };
 
     // Derived Totals
     const transactions = booking.transactions || [];
@@ -243,7 +276,21 @@ export const LedgerManagementModal: React.FC<LedgerManagementModalProps> = ({ is
                                             <td className="px-5 py-4 text-center text-xs text-slate-400">
                                                 {tx.recordedBy || 'System'}
                                             </td>
-                                            <td className="px-5 py-4 text-right">
+                                            <td className="px-5 py-4 text-right flex items-center justify-end gap-1.5">
+                                                {tx.status !== 'Rejected' && (
+                                                    <button 
+                                                        onClick={() => handlePrintReceipt(tx)} 
+                                                        disabled={printingTxId === tx.id}
+                                                        title="Print Receipt"
+                                                        className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 rounded-lg transition-colors disabled:opacity-50"
+                                                    >
+                                                        {printingTxId === tx.id ? (
+                                                            <span className="material-symbols-outlined text-[18px] animate-spin">sync</span>
+                                                        ) : (
+                                                            <span className="material-symbols-outlined text-[18px]">receipt</span>
+                                                        )}
+                                                    </button>
+                                                )}
                                                 {hasPermission('finance', 'manage') && (
                                                     <button onClick={() => handleDelete(tx.id)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors">
                                                         <span className="material-symbols-outlined text-[18px]">delete</span>

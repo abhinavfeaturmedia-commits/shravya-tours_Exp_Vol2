@@ -33,8 +33,9 @@ const NAV_GROUPS = [
     items: [
       { name: 'Leads CRM', path: '/admin/leads', icon: 'groups', module: 'leads' },
       { name: 'Customers', path: '/admin/customers', icon: 'face', module: 'customers' },
-      { name: 'Memberships', path: '/admin/memberships', icon: 'card_membership', module: 'customers' },
-      { name: 'Partners', path: '/admin/partners', icon: 'handshake', module: 'customers' },
+      { name: 'Memberships', path: '/admin/memberships', icon: 'card_membership', module: 'memberships' },
+      { name: 'Partners', path: '/admin/partners', icon: 'handshake', module: 'partners' },
+      { name: 'Coupons', path: '/admin/coupons', icon: 'local_offer', module: 'marketing' },
       { name: 'Accounts', path: '/admin/accounts', icon: 'account_balance', module: 'finance' },
       { name: 'Expenses', path: '/admin/expenses', icon: 'receipt_long', module: 'finance' },
       { name: 'Payment Approvals', path: '/admin/finance-verification', icon: 'fact_check', module: 'invoices' },
@@ -48,7 +49,7 @@ const NAV_GROUPS = [
       { name: 'Staff', path: '/admin/staff', icon: 'badge', module: 'staff' },
       { name: 'Team Performance', path: '/admin/team-performance', icon: 'monitoring', module: 'staff' },
       { name: 'Packages', path: '/admin/packages', icon: 'inventory_2', module: 'inventory' },
-      { name: 'Testimonials', path: '/admin/testimonials', icon: 'rate_review', module: 'settings' },
+      { name: 'Testimonials', path: '/admin/testimonials', icon: 'rate_review', module: 'testimonials' },
     ]
   },
   {

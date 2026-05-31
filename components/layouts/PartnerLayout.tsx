@@ -4,6 +4,7 @@ import { usePartnerAuth } from '../../context/PartnerAuthContext';
 
 const NAV_ITEMS = [
   { name: 'Dashboard', path: '/partner/dashboard', icon: 'dashboard' },
+  { name: 'Tour Packages', path: '/partner/packages', icon: 'travel_explore' },
   { name: 'Submit Lead', path: '/partner/leads/new', icon: 'person_add' },
   { name: 'My Leads', path: '/partner/leads', icon: 'groups' },
   { name: 'Earnings', path: '/partner/earnings', icon: 'payments' },

@@ -5,6 +5,7 @@ import { useLeads } from '../../src/hooks/useLeads';
 import { useBookings } from '../../src/hooks/useBookings';
 import { useAuth } from '../../context/AuthContext';
 import { Lead, BookingStatus, FollowUpType, Customer } from '../../types'; // Removed unused imports
+import { api } from '../../src/lib/api';
 import { toast } from 'sonner'; // Use sonner for consistency if available, or keep existing toast
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -38,9 +39,9 @@ const StatusBadge = ({ status }: { status: string }) => {
 
 export const Leads: React.FC = () => {
     const { addFollowUp, followUps, customers, addCustomer } = useData();
-    const { leads, addLead, updateLead, deleteLead, addLeadLog, updateLeadLog, deleteLeadLog, isLoading } = useLeads();
+    const { leads, addLead, updateLead, deleteLead, addLeadLog, updateLeadLog, deleteLeadLog, isLoading, refetchLeads } = useLeads();
     const { addBooking } = useBookings();
-    const { currentUser, staff } = useAuth();
+    const { currentUser, staff, hasPermission } = useAuth();
     const navigate = useNavigate();
 
     // UI State
@@ -93,6 +94,29 @@ export const Leads: React.FC = () => {
     const [followUpPriority, setFollowUpPriority] = useState<'High' | 'Medium' | 'Low'>('Medium');
 
     const selectedLead = leads.find(l => l.id === selectedLeadId);
+
+    const [leadModalTab, setLeadModalTab] = useState<'info' | 'chat'>('info');
+    const [chatInput, setChatInput] = useState('');
+
+    useEffect(() => {
+        setLeadModalTab('info');
+    }, [selectedLeadId]);
+
+    const handleSendStaffMessage = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!selectedLead || !chatInput.trim()) return;
+        
+        const messageText = chatInput.trim();
+        setChatInput('');
+        
+        try {
+            await api.sendStaffLeadMessage(selectedLead.id, messageText);
+            refetchLeads();
+            toast.success('Message sent to partner');
+        } catch (err: any) {
+            toast.error(err.message || 'Failed to send message');
+        }
+    };
 
     // Stats calculation
     const tasksDueToday = followUps.filter(f => {
@@ -218,12 +242,12 @@ export const Leads: React.FC = () => {
                 phone: leadForm.phone || '',
                 destination: leadForm.destination || '',
                 travelers: leadForm.travelers || '',
-                budget: leadForm.budget || '',
+                budget: leadForm.budget || 'Flexible',
                 status: leadForm.status || 'New',
-                type: leadForm.type || 'Custom Package',
+                type: leadForm.type || 'Tour',
                 priority: 'Medium',
                 source: leadForm.source || 'Manual Entry',
-                potentialValue: Number(leadForm.budget) || 0,
+                potentialValue: Number(leadForm.potentialValue) || 0,
                 ...leadForm
             };
             addLead(newLead);
@@ -231,7 +255,7 @@ export const Leads: React.FC = () => {
         } else {
             updateLead(leadForm.id!, {
                 ...leadForm,
-                potentialValue: Number(leadForm.budget) || 0
+                potentialValue: Number(leadForm.potentialValue) || 0
             });
             toast.success('Lead updated successfully');
         }
@@ -268,6 +292,20 @@ export const Leads: React.FC = () => {
 
         if (existingCustomer) {
             targetCustomerId = existingCustomer.id;
+            
+            // Proactively backfill missing customer fields if they are available in the lead
+            try {
+                const updates: Partial<Customer> = {};
+                if (!existingCustomer.address && selectedLead.residentialAddress) updates.address = selectedLead.residentialAddress;
+                if (!existingCustomer.officeAddress && selectedLead.officeAddress) updates.officeAddress = selectedLead.officeAddress;
+                if (!existingCustomer.altPhone && selectedLead.altPhone) updates.altPhone = selectedLead.altPhone;
+                if (!existingCustomer.whatsapp && selectedLead.whatsapp) updates.whatsapp = selectedLead.whatsapp;
+                if (Object.keys(updates).length > 0) {
+                    await api.updateCustomer(existingCustomer.id, updates);
+                }
+            } catch (err) {
+                console.warn('Customer backfill failed:', err);
+            }
         } else {
             // Create new customer
                 const newCustomerId = `CU-${Date.now()}`;
@@ -280,7 +318,13 @@ export const Leads: React.FC = () => {
                     status: 'Active',
                     joinedDate: new Date().toISOString(),
                     bookingsCount: 0,
-                    totalSpent: 0
+                    totalSpent: 0,
+                    // Carry forward lead CRM details to Customer CRM
+                    address: selectedLead.residentialAddress || '',
+                    officeAddress: selectedLead.officeAddress || '',
+                    altPhone: selectedLead.altPhone || '',
+                    whatsapp: selectedLead.whatsapp || '',
+                    isWhatsappSame: selectedLead.isWhatsappSame !== undefined ? selectedLead.isWhatsappSame : true
                 };
                 addCustomer?.(newCustomer);
                 targetCustomerId = newCustomerId;
@@ -301,7 +345,19 @@ export const Leads: React.FC = () => {
                 status: BookingStatus.PENDING,
                 payment: 'Unpaid',
                 guests: selectedLead.travelers,
-                details: `Converted from Lead. Destination: ${selectedLead.destination}. Budget: ${formatPrice(selectedLead.potentialValue || 0)}.`
+                details: `Converted from Lead. Destination: ${selectedLead.destination}. Budget: ${formatPrice(selectedLead.potentialValue || 0)}.`,
+                assignedTo: selectedLead.assignedTo || staff?.id || currentUser?.id,
+                partnerId: selectedLead.partnerId,
+                
+                // Carry forward lead CRM details to Booking
+                whatsapp: selectedLead.whatsapp,
+                isWhatsappSame: selectedLead.isWhatsappSame,
+                altPhone: selectedLead.altPhone,
+                paxAdult: selectedLead.paxAdult,
+                paxInfant: selectedLead.paxInfant,
+                serviceType: selectedLead.serviceType,
+                residentialAddress: selectedLead.residentialAddress,
+                officeAddress: selectedLead.officeAddress
             });
 
             // Only mark lead as converted AFTER booking is saved successfully
@@ -309,7 +365,7 @@ export const Leads: React.FC = () => {
             addLeadLog(selectedLead.id, {
                 id: `lg-conv-${Date.now()}`,
                 type: 'System',
-                content: `Lead converted to Booking. Customer profile ${existingCustomer ? 'linked' : 'created'}.`,
+                content: `Lead converted to Booking. Customer profile ${existingCustomer ? 'linked and synced' : 'created and synced'}.`,
                 timestamp: new Date().toISOString()
             });
             toast.success('Lead converted to Booking! Now visible in Pending bookings.');
@@ -325,7 +381,19 @@ export const Leads: React.FC = () => {
 
     const openAddModal = () => {
         setModalMode('add');
-        setLeadForm({ status: 'New', travelers: '2 Adults', source: 'Manual Entry' });
+        setLeadForm({ 
+            status: 'New', 
+            travelers: '2 Adults', 
+            source: 'Manual Entry',
+            altPhone: '',
+            whatsapp: '',
+            isWhatsappSame: true,
+            residentialAddress: '',
+            officeAddress: '',
+            paxAdult: 2,
+            paxChild: 0,
+            paxInfant: 0
+        });
         setIsModalOpen(true);
     };
 
@@ -367,9 +435,13 @@ export const Leads: React.FC = () => {
         setModalMode('edit');
         setLeadForm({ 
             ...selectedLead, 
-            budget: String(selectedLead.potentialValue),
+            budget: selectedLead.budget || '',
+            potentialValue: selectedLead.potentialValue || 0,
             startDate: formatLocalIso(selectedLead.startDate),
-            endDate: formatLocalIso(selectedLead.endDate)
+            endDate: formatLocalIso(selectedLead.endDate),
+            altPhone: selectedLead.altPhone || '',
+            whatsapp: selectedLead.whatsapp || '',
+            isWhatsappSame: selectedLead.isWhatsappSame !== undefined ? selectedLead.isWhatsappSame : true
         });
         setIsModalOpen(true);
     };
@@ -581,15 +653,19 @@ export const Leads: React.FC = () => {
                             />
                         </div>
                         <div className="flex items-center gap-3 overflow-x-auto hide-scrollbar pb-2 md:pb-0">
-                            <button onClick={() => setIsImportModalOpen(true)} className="flex-1 md:flex-none justify-center px-4 md:px-6 py-3 bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold shadow-sm flex items-center gap-2 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap">
-                                <span className="material-symbols-outlined text-[20px]">upload_file</span> <span className="hidden sm:inline">Import</span>
-                            </button>
+                            {hasPermission('leads', 'manage') && (
+                                <button onClick={() => setIsImportModalOpen(true)} className="flex-1 md:flex-none justify-center px-4 md:px-6 py-3 bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold shadow-sm flex items-center gap-2 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap">
+                                    <span className="material-symbols-outlined text-[20px]">upload_file</span> <span className="hidden sm:inline">Import</span>
+                                </button>
+                            )}
                             <button onClick={handleExport} className="flex-1 md:flex-none justify-center px-4 md:px-6 py-3 bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold shadow-sm flex items-center gap-2 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap">
                                 <span className="material-symbols-outlined text-[20px]">download</span> <span className="hidden sm:inline">Export</span>
                             </button>
-                            <button onClick={openAddModal} className="flex-[2] md:flex-none justify-center bg-primary hover:bg-primary-dark text-white px-4 md:px-6 py-3 rounded-xl font-bold shadow-lg shadow-primary/20 flex items-center gap-2 transition-transform active:scale-95 whitespace-nowrap btn-glow">
-                                <Plus size={20} /> Add Lead
-                            </button>
+                            {hasPermission('leads', 'manage') && (
+                                <button onClick={openAddModal} className="flex-[2] md:flex-none justify-center bg-primary hover:bg-primary-dark text-white px-4 md:px-6 py-3 rounded-xl font-bold shadow-lg shadow-primary/20 flex items-center gap-2 transition-transform active:scale-95 whitespace-nowrap btn-glow">
+                                    <Plus size={20} /> Add Lead
+                                </button>
+                            )}
                         </div>
                     </div>
 
@@ -612,61 +688,78 @@ export const Leads: React.FC = () => {
 
                         {/* List Items */}
                         <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                            {filteredLeads.map(lead => (
-                                <div
-                                    key={lead.id}
-                                    onClick={() => setSelectedLeadId(lead.id)}
-                                    className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors ${selectedLeadId === lead.id ? 'bg-primary/5' : ''}`}
-                                >
-                                    {/* Desktop Row */}
-                                    <div className="hidden sm:grid grid-cols-12 gap-4 px-6 py-4 items-center">
-                                        <div className="col-span-3 flex items-center gap-4 overflow-hidden pr-4">
-                                            <div className={`h-10 w-10 shrink-0 rounded-full flex items-center justify-center font-bold text-sm ${lead.avatarColor || 'bg-slate-100 text-slate-600'}`}>
-                                                {lead.name.charAt(0)}
+                            {filteredLeads.map(lead => {
+                                const isPartner = !!lead.partnerId || lead.source === 'Partner Referral';
+                                return (
+                                    <div
+                                        key={lead.id}
+                                        onClick={() => setSelectedLeadId(lead.id)}
+                                        className={`cursor-pointer border-l-4 transition-colors ${
+                                            isPartner 
+                                                ? 'bg-violet-500/5 dark:bg-violet-500/10 border-violet-500 hover:bg-violet-500/10 dark:hover:bg-violet-500/20' 
+                                                : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800'
+                                        } ${selectedLeadId === lead.id ? 'bg-primary/5' : ''}`}
+                                    >
+                                        {/* Desktop Row */}
+                                        <div className="hidden sm:grid grid-cols-12 gap-4 px-6 py-4 items-center">
+                                            <div className="col-span-3 flex items-center gap-4 overflow-hidden pr-4">
+                                                <div className={`h-10 w-10 shrink-0 rounded-full flex items-center justify-center font-bold text-sm ${lead.avatarColor || 'bg-slate-100 text-slate-600'}`}>
+                                                    {lead.name.charAt(0)}
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <h3 className="font-bold text-slate-900 dark:text-white truncate flex items-center gap-1.5">
+                                                        {lead.name}
+                                                        {isPartner && (
+                                                            <span className="inline-flex items-center text-[9px] font-black px-1.5 py-0.5 rounded bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-400 border border-violet-200/50 uppercase tracking-wider">Partner</span>
+                                                        )}
+                                                    </h3>
+                                                    <p className="text-xs text-slate-500 truncate">
+                                                        {lead.leadNumber ? <span className="font-mono font-bold text-primary mr-1">LD-{String(lead.leadNumber).padStart(4, '0')}</span> : null}
+                                                        Added {new Date(lead.addedOn).toLocaleDateString()}
+                                                    </p>
+                                                </div>
                                             </div>
-                                            <div className="min-w-0">
-                                                <h3 className="font-bold text-slate-900 dark:text-white truncate">{lead.name}</h3>
-                                                <p className="text-xs text-slate-500 truncate">
-                                                    {lead.leadNumber ? <span className="font-mono font-bold text-primary mr-1">LD-{String(lead.leadNumber).padStart(4, '0')}</span> : null}
-                                                    Added {new Date(lead.addedOn).toLocaleDateString()}
-                                                </p>
+                                            <div className="col-span-3 overflow-hidden pr-4">
+                                                <div className="flex items-center gap-2 text-slate-900 dark:text-white font-medium text-sm truncate">
+                                                    <MapPin size={14} className="text-slate-400 shrink-0" />
+                                                    <span className="truncate">{lead.destination}</span>
+                                                </div>
+                                                <p className="text-xs text-slate-500 ml-6 truncate">{lead.type}</p>
                                             </div>
-                                        </div>
-                                        <div className="col-span-3 overflow-hidden pr-4">
-                                            <div className="flex items-center gap-2 text-slate-900 dark:text-white font-medium text-sm truncate">
-                                                <MapPin size={14} className="text-slate-400 shrink-0" />
-                                                <span className="truncate">{lead.destination}</span>
+                                            <div className="col-span-2 font-bold text-slate-900 dark:text-white truncate">
+                                                {formatPrice(lead.potentialValue || 0)}
                                             </div>
-                                            <p className="text-xs text-slate-500 ml-6 truncate">{lead.type}</p>
-                                        </div>
-                                        <div className="col-span-2 font-bold text-slate-900 dark:text-white truncate">
-                                            {formatPrice(lead.potentialValue || 0)}
-                                        </div>
-                                        <div className="col-span-2 text-xs font-medium text-slate-600 dark:text-slate-400 truncate">
-                                            {lead.assignedTo ? staff.find(s => s.id === lead.assignedTo)?.name || 'Unknown' : 'Unassigned'}
-                                        </div>
-                                        <div className="col-span-2 text-right">
-                                            <StatusBadge status={lead.status} />
-                                        </div>
-                                    </div>
-                                    {/* Mobile Row */}
-                                    <div className="flex sm:hidden items-center gap-3 px-4 py-3">
-                                        <div className={`h-9 w-9 shrink-0 rounded-full flex items-center justify-center font-bold text-sm ${lead.avatarColor || 'bg-slate-100 text-slate-600'}`}>
-                                            {lead.name.charAt(0)}
-                                        </div>
-                                        <div className="min-w-0 flex-1">
-                                            <h3 className="font-bold text-slate-900 dark:text-white text-sm truncate">{lead.name}</h3>
-                                            <p className="text-xs text-slate-500 truncate">{lead.destination}</p>
-                                        </div>
-                                        <div className="text-right shrink-0">
-                                            <p className="text-xs font-bold text-slate-900 dark:text-white">{formatPriceCompact(lead.potentialValue || 0)}</p>
-                                            <div className="mt-1">
+                                            <div className="col-span-2 text-xs font-medium text-slate-600 dark:text-slate-400 truncate">
+                                                {lead.assignedTo ? staff.find(s => s.id === lead.assignedTo)?.name || 'Unknown' : 'Unassigned'}
+                                            </div>
+                                            <div className="col-span-2 text-right">
                                                 <StatusBadge status={lead.status} />
                                             </div>
                                         </div>
+                                        {/* Mobile Row */}
+                                        <div className="flex sm:hidden items-center gap-3 px-4 py-3">
+                                            <div className={`h-9 w-9 shrink-0 rounded-full flex items-center justify-center font-bold text-sm ${lead.avatarColor || 'bg-slate-100 text-slate-600'}`}>
+                                                {lead.name.charAt(0)}
+                                            </div>
+                                            <div className="min-w-0 flex-1">
+                                                <h3 className="font-bold text-slate-900 dark:text-white text-sm truncate flex items-center gap-1.5">
+                                                    {lead.name}
+                                                    {isPartner && (
+                                                        <span className="inline-flex items-center text-[9px] font-black px-1.5 py-0.5 rounded bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-400 border border-violet-200/50 uppercase tracking-wider">Partner</span>
+                                                    )}
+                                                </h3>
+                                                <p className="text-xs text-slate-500 truncate">{lead.destination}</p>
+                                            </div>
+                                            <div className="text-right shrink-0">
+                                                <p className="text-xs font-bold text-slate-900 dark:text-white">{formatPriceCompact(lead.potentialValue || 0)}</p>
+                                                <div className="mt-1">
+                                                    <StatusBadge status={lead.status} />
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
 
                         {/* Pagination Footer */}
@@ -700,27 +793,164 @@ export const Leads: React.FC = () => {
                                 </div>
                             </div>
                             <div className="flex items-center gap-1">
-                                <button onClick={openEditModal} className="p-2 text-slate-400 hover:text-primary hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">
-                                    <Edit2 size={18} />
-                                </button>
-                                <button onClick={handleDeleteLead} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10 rounded-lg transition-colors">
-                                    <Trash2 size={18} />
-                                </button>
+                                {hasPermission('leads', 'manage') && (
+                                    <button onClick={openEditModal} className="p-2 text-slate-400 hover:text-primary hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">
+                                        <Edit2 size={18} />
+                                    </button>
+                                )}
+                                {hasPermission('leads', 'manage') && (
+                                    <button onClick={handleDeleteLead} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10 rounded-lg transition-colors">
+                                        <Trash2 size={18} />
+                                    </button>
+                                )}
                                 <button onClick={() => setSelectedLeadId(null)} className="p-2 text-slate-400 hover:text-slate-600 rounded-lg">
                                     <X size={20} />
                                 </button>
                             </div>
                         </div>
-                        <div className="flex gap-2">
-                            <StatusBadge status={selectedLead.status} />
-                            {selectedLead.status === 'Offer Sent' && (
-                                <span className="px-2 py-1 bg-purple-50 text-purple-700 text-[10px] font-bold uppercase rounded-md tracking-wide">Quote Sent</span>
+                        <div className="flex items-center justify-between mt-2">
+                            <div className="flex gap-2">
+                                <StatusBadge status={selectedLead.status} />
+                                {selectedLead.status === 'Offer Sent' && (
+                                    <span className="px-2 py-1 bg-purple-50 text-purple-700 text-[10px] font-bold uppercase rounded-md tracking-wide">Quote Sent</span>
+                                )}
+                            </div>
+                            {selectedLead.partnerId && (
+                                <span className="text-[10px] font-bold text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-950/30 border border-violet-100 dark:border-violet-800/40 px-2.5 py-1 rounded-md">
+                                    Referral: {selectedLead.partnerName || selectedLead.partnerId} {selectedLead.partnerCompanyName ? `(${selectedLead.partnerCompanyName})` : ''}
+                                </span>
                             )}
                         </div>
+                        {selectedLead.partnerId && (
+                            <div className="flex gap-4 mt-4 border-b border-slate-100 dark:border-slate-800 pb-2">
+                                <button
+                                    onClick={() => setLeadModalTab('info')}
+                                    className={`text-xs font-bold pb-1 transition-all ${
+                                        leadModalTab === 'info'
+                                            ? 'text-primary border-b-2 border-primary'
+                                            : 'text-slate-400 hover:text-slate-600'
+                                    }`}
+                                >
+                                    Details & Timeline
+                                </button>
+                                <button
+                                    onClick={() => setLeadModalTab('chat')}
+                                    className={`text-xs font-bold pb-1 transition-all flex items-center gap-1.5 ${
+                                        leadModalTab === 'chat'
+                                            ? 'text-primary border-b-2 border-primary'
+                                            : 'text-slate-400 hover:text-slate-600'
+                                    }`}
+                                >
+                                    <MessageCircle size={14} />
+                                    Partner Chat
+                                    {selectedLead.logs?.some(l => l.type === 'Chat' && l.sender !== 'Admin' && !staff.some(s => s.name === l.sender)) && (
+                                        <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse"></span>
+                                    )}
+                                </button>
+                            </div>
+                        )}
                     </div>
 
                     {/* Content Body */}
                     <div className="p-6 flex-1 overflow-y-auto">
+                        {leadModalTab === 'chat' ? (
+                            <div className="flex flex-col h-[55vh] justify-between">
+                                {/* Chat Messages */}
+                                <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50 dark:bg-slate-900/40 rounded-2xl border border-slate-100 dark:border-slate-800">
+                                    {selectedLead.logs && selectedLead.logs.filter(log => log.type === 'Chat').length > 0 ? (
+                                        [...selectedLead.logs]
+                                            .filter(log => log.type === 'Chat')
+                                            .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+                                            .map(log => {
+                                                const isStaff = log.sender === 'Admin' || staff.some(s => s.name === log.sender) || log.sender === currentUser?.email;
+                                                return (
+                                                    <div key={log.id} className={`flex flex-col ${isStaff ? 'items-end' : 'items-start'}`}>
+                                                        <div className="flex items-center gap-1.5 mb-1 px-1">
+                                                            <span className="text-[10px] font-bold text-slate-400">
+                                                                {log.sender || 'System'}
+                                                            </span>
+                                                            <span className="text-[9px] text-slate-400">
+                                                                • {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                            </span>
+                                                        </div>
+                                                        <div className={`max-w-[75%] px-4 py-2.5 rounded-2xl text-xs font-medium shadow-sm leading-relaxed ${
+                                                            isStaff 
+                                                                ? 'bg-primary text-white rounded-tr-none' 
+                                                                : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border border-slate-100 dark:border-slate-700 rounded-tl-none'
+                                                        }`}>
+                                                            {log.content}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })
+                                    ) : (
+                                        <div className="h-full flex flex-col items-center justify-center text-slate-400 gap-2">
+                                            <MessageCircle size={32} className="text-slate-300" />
+                                            <p className="text-xs italic">No messages exchanged yet. Start chatting with the partner.</p>
+                                        </div>
+                                    )}
+                                </div>
+                                
+                                {/* Input form */}
+                                <form onSubmit={handleSendStaffMessage} className="mt-4 flex gap-2">
+                                    <input
+                                        type="text"
+                                        value={chatInput}
+                                        onChange={e => setChatInput(e.target.value)}
+                                        placeholder="Type a message to send to partner..."
+                                        className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-xs font-medium text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary shadow-sm"
+                                    />
+                                    <button
+                                        type="submit"
+                                        className="bg-primary hover:bg-primary-dark text-white px-5 rounded-xl font-bold text-xs flex items-center justify-center shadow-md active:scale-95 transition-all"
+                                    >
+                                        Send
+                                    </button>
+                                </form>
+                            </div>
+                        ) : (
+                            <>
+
+                        {/* Contact Information */}
+                        <div className="mb-8 p-4 bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-slate-100 dark:border-slate-800">
+                            <h3 className="text-xs font-bold text-slate-400 uppercase mb-4 tracking-wider flex items-center gap-2 section-heading-accent">
+                                <span className="material-symbols-outlined text-[16px] text-primary">contact_page</span> Contact Information
+                            </h3>
+                            <div className="grid grid-cols-2 gap-y-4 gap-x-4">
+                                <div>
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Primary Phone</p>
+                                    <a href={`tel:${selectedLead.phone}`} className="text-sm font-bold text-slate-900 dark:text-white hover:underline hover:text-primary flex items-center gap-1.5">
+                                        <Phone size={14} className="text-primary" />
+                                        {selectedLead.phone}
+                                    </a>
+                                </div>
+                                <div>
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Email Address</p>
+                                    <a href={`mailto:${selectedLead.email}`} className="text-sm font-bold text-slate-900 dark:text-white hover:underline hover:text-primary flex items-center gap-1.5 truncate">
+                                        <Mail size={14} className="text-primary" />
+                                        {selectedLead.email}
+                                    </a>
+                                </div>
+                                {selectedLead.altPhone && (
+                                    <div>
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Alternate Phone</p>
+                                        <a href={`tel:${selectedLead.altPhone}`} className="text-sm font-bold text-slate-900 dark:text-white hover:underline hover:text-primary flex items-center gap-1.5">
+                                            <span className="material-symbols-outlined text-primary text-[14px]">phone_iphone</span>
+                                            {selectedLead.altPhone}
+                                        </a>
+                                    </div>
+                                )}
+                                {selectedLead.whatsapp && (
+                                    <div>
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">WhatsApp Number</p>
+                                        <a href={`https://wa.me/${selectedLead.whatsapp.replace(/\D/g, '')}`} target="_blank" className="text-sm font-bold text-green-600 dark:text-green-400 hover:underline flex items-center gap-1.5">
+                                            <MessageCircle size={14} className="text-green-500" />
+                                            {selectedLead.whatsapp}
+                                        </a>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
 
                         {/* Trip Details Grid */}
                         <div className="mb-8 p-4 bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-slate-100 dark:border-slate-800">
@@ -743,9 +973,28 @@ export const Leads: React.FC = () => {
                                     </p>
                                 </div>
                                 <div>
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Budget</p>
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Estimated Value</p>
                                     <p className="text-sm font-bold text-slate-900 dark:text-white text-green-600">{formatPrice(selectedLead.potentialValue || 0)}</p>
                                 </div>
+                                {selectedLead.budget && (
+                                    <div>
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Target Budget Range</p>
+                                        <p className="text-sm font-bold text-slate-900 dark:text-white">{selectedLead.budget}</p>
+                                    </div>
+                                )}
+                                <div>
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Trip Type</p>
+                                    <p className="text-sm font-bold text-slate-900 dark:text-white">{selectedLead.type || 'Custom Package'}</p>
+                                </div>
+                                {selectedLead.location && (
+                                    <div>
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Customer Home Location</p>
+                                        <p className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                                            <MapPin size={14} className="text-primary" />
+                                            {selectedLead.location}
+                                        </p>
+                                    </div>
+                                )}
                                 <div>
                                     <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Source</p>
                                     <p className="text-sm font-bold text-slate-900 dark:text-white">{selectedLead.source}</p>
@@ -758,6 +1007,16 @@ export const Leads: React.FC = () => {
                                 </div>
                             </div>
                         </div>
+
+                        {/* Special Preferences / Notes (if present) */}
+                        {selectedLead.preferences && (
+                            <div className="mb-8 p-4 bg-violet-50 dark:bg-violet-950/15 rounded-2xl border border-violet-100 dark:border-violet-900/30">
+                                <h3 className="text-xs font-bold text-violet-700 dark:text-violet-400 uppercase mb-4 tracking-wider flex items-center gap-2">
+                                    <span className="material-symbols-outlined text-[18px]">favorite</span> Special Preferences & Notes
+                                </h3>
+                                <p className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed whitespace-pre-wrap">{selectedLead.preferences}</p>
+                            </div>
+                        )}
 
                         {/* Addresses Grid (if present) */}
                         {(selectedLead.residentialAddress || selectedLead.officeAddress) && (
@@ -799,77 +1058,83 @@ export const Leads: React.FC = () => {
                                     <span className="text-xs font-bold">WhatsApp</span>
                                 </a>
                             </div>
-                            <button
-                                onClick={handleConvertToBooking}
-                                className="w-full py-3 rounded-xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-bold text-sm hover:opacity-90 flex items-center justify-center gap-2 transition-all shadow-lg btn-glow"
-                            >
-                                <CheckCircle2 size={16} /> Convert to Booking
-                            </button>
-                        <button onClick={handleCreateQuotation} className="w-full py-3 mt-3 rounded-xl bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200 font-bold text-sm hover:bg-slate-200 dark:hover:bg-slate-700 flex items-center justify-center gap-2 transition-all border border-slate-200 dark:border-slate-700"><FileText size={16} /> Create Quotation</button></div>
+                            {hasPermission('leads', 'manage') && (
+                                <>
+                                    <button
+                                        onClick={handleConvertToBooking}
+                                        className="w-full py-3 rounded-xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-bold text-sm hover:opacity-90 flex items-center justify-center gap-2 transition-all shadow-lg btn-glow"
+                                    >
+                                        <CheckCircle2 size={16} /> Convert to Booking
+                                    </button>
+                                    <button onClick={handleCreateQuotation} className="w-full py-3 mt-3 rounded-xl bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200 font-bold text-sm hover:bg-slate-200 dark:hover:bg-slate-700 flex items-center justify-center gap-2 transition-all border border-slate-200 dark:border-slate-700"><FileText size={16} /> Create Quotation</button>
+                                </>
+                            )}</div>
 
                         {/* Follow Up Log */}
                         <div>
                             <h3 className="text-xs font-bold text-slate-400 uppercase mb-4 tracking-wider">Activity Log</h3>
-                            <div className="mb-6 bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm">
-                                <textarea
-                                    value={noteContent}
-                                    onChange={(e) => setNoteContent(e.target.value)}
-                                    placeholder="Log call notes, internal comments, or meeting outcomes..."
-                                    className="w-full bg-transparent text-sm outline-none resize-none h-20 placeholder:text-slate-400 text-slate-900 dark:text-white"
-                                />
-                                <div className="flex flex-col gap-3 mt-3 border-t border-slate-100 dark:border-slate-700 pt-3">
-                                    <div className="flex items-center justify-between gap-2">
-                                        <div className="flex items-center gap-2">
-                                            <input
-                                                type="checkbox"
-                                                id="set-reminder"
-                                                checked={isReminderSet}
-                                                onChange={(e) => setIsReminderSet(e.target.checked)}
-                                                className="rounded border-slate-300 text-primary focus:ring-primary h-4 w-4"
-                                            />
-                                            <label htmlFor="set-reminder" className="text-xs font-bold text-slate-600 dark:text-slate-400 cursor-pointer select-none">
-                                                Schedule Next Follow-up
-                                            </label>
+                            {hasPermission('leads', 'manage') && (
+                                <div className="mb-6 bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm">
+                                    <textarea
+                                        value={noteContent}
+                                        onChange={(e) => setNoteContent(e.target.value)}
+                                        placeholder="Log call notes, internal comments, or meeting outcomes..."
+                                        className="w-full bg-transparent text-sm outline-none resize-none h-20 placeholder:text-slate-400 text-slate-900 dark:text-white"
+                                    />
+                                    <div className="flex flex-col gap-3 mt-3 border-t border-slate-100 dark:border-slate-700 pt-3">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div className="flex items-center gap-2">
+                                                <input
+                                                    type="checkbox"
+                                                    id="set-reminder"
+                                                    checked={isReminderSet}
+                                                    onChange={(e) => setIsReminderSet(e.target.checked)}
+                                                    className="rounded border-slate-300 text-primary focus:ring-primary h-4 w-4"
+                                                />
+                                                <label htmlFor="set-reminder" className="text-xs font-bold text-slate-600 dark:text-slate-400 cursor-pointer select-none">
+                                                    Schedule Next Follow-up
+                                                </label>
+                                            </div>
+                                            {isReminderSet && (
+                                                <select
+                                                    value={followUpType}
+                                                    onChange={(e) => setFollowUpType(e.target.value as FollowUpType)}
+                                                    className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-[10px] font-bold text-slate-700 dark:text-slate-300 outline-none"
+                                                >
+                                                    {['Call', 'Email', 'WhatsApp', 'Meeting'].map(t => <option key={t} value={t}>{t}</option>)}
+                                                </select>
+                                            )}
                                         </div>
                                         {isReminderSet && (
-                                            <select
-                                                value={followUpType}
-                                                onChange={(e) => setFollowUpType(e.target.value as FollowUpType)}
-                                                className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-[10px] font-bold text-slate-700 dark:text-slate-300 outline-none"
-                                            >
-                                                {['Call', 'Email', 'WhatsApp', 'Meeting'].map(t => <option key={t} value={t}>{t}</option>)}
-                                            </select>
+                                            <div className="flex gap-2 w-full">
+                                                <input
+                                                    type="datetime-local"
+                                                    value={reminderDate}
+                                                    onChange={(e) => setReminderDate(e.target.value)}
+                                                    className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-300 outline-none flex-1"
+                                                />
+                                                <select
+                                                    value={followUpPriority}
+                                                    onChange={(e) => setFollowUpPriority(e.target.value as any)}
+                                                    className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-300 outline-none w-28"
+                                                >
+                                                    <option value="High">High Priority</option>
+                                                    <option value="Medium">Med Priority</option>
+                                                    <option value="Low">Low Priority</option>
+                                                </select>
+                                            </div>
                                         )}
-                                    </div>
-                                    {isReminderSet && (
-                                        <div className="flex gap-2 w-full">
-                                            <input
-                                                type="datetime-local"
-                                                value={reminderDate}
-                                                onChange={(e) => setReminderDate(e.target.value)}
-                                                className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-300 outline-none flex-1"
-                                            />
-                                            <select
-                                                value={followUpPriority}
-                                                onChange={(e) => setFollowUpPriority(e.target.value as any)}
-                                                className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-300 outline-none w-28"
+                                        <div className="flex justify-end">
+                                            <button
+                                                onClick={handleSaveLog}
+                                                className="bg-primary text-white px-4 py-2 rounded-lg text-xs font-bold shadow-md hover:bg-primary-dark transition-colors flex items-center gap-2"
                                             >
-                                                <option value="High">High Priority</option>
-                                                <option value="Medium">Med Priority</option>
-                                                <option value="Low">Low Priority</option>
-                                            </select>
+                                                <Save size={14} /> Save Log
+                                            </button>
                                         </div>
-                                    )}
-                                    <div className="flex justify-end">
-                                        <button
-                                            onClick={handleSaveLog}
-                                            className="bg-primary text-white px-4 py-2 rounded-lg text-xs font-bold shadow-md hover:bg-primary-dark transition-colors flex items-center gap-2"
-                                        >
-                                            <Save size={14} /> Save Log
-                                        </button>
                                     </div>
                                 </div>
-                            </div>
+                            )}
 
                             {/* Timeline Activity */}
                             <div className="space-y-6 pl-2 border-l-2 border-slate-100 dark:border-slate-800 ml-2 pb-10">
@@ -884,7 +1149,7 @@ export const Leads: React.FC = () => {
                                                     </p>
                                                     <p className="text-sm font-bold text-slate-900 dark:text-white capitalize flex items-center gap-2">
                                                         {log.type}
-                                                        {log.type === 'Note' && (
+                                                        {log.type === 'Note' && hasPermission('leads', 'manage') && (
                                                             <div className="opacity-0 group-hover:opacity-100 transition-opacity flex space-x-1">
                                                                 <button onClick={() => { setEditingLogId(log.id); setEditLogContent(log.content); }} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded text-slate-400 hover:text-primary transition-colors">
                                                                     <span className="material-symbols-outlined text-[14px]">edit</span>
@@ -921,6 +1186,8 @@ export const Leads: React.FC = () => {
                                 )}
                             </div>
                         </div>
+                        </>
+                    )}
                     </div>
                 </div>
                 </div>
@@ -951,11 +1218,34 @@ export const Leads: React.FC = () => {
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
                                     <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Phone</label>
-                                    <input required placeholder="Phone Number" value={leadForm.phone || ''} onChange={e => setLeadForm({ ...leadForm, phone: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary" />
+                                    <input required placeholder="Phone Number" value={leadForm.phone || ''} onChange={e => setLeadForm({ ...leadForm, phone: e.target.value, whatsapp: leadForm.isWhatsappSame ? e.target.value : leadForm.whatsapp })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary" />
                                 </div>
                                 <div>
                                     <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Email</label>
                                     <input required type="email" placeholder="Email Address" value={leadForm.email || ''} onChange={e => setLeadForm({ ...leadForm, email: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary" />
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Alternate Phone</label>
+                                    <input placeholder="Alternate Number" value={leadForm.altPhone || ''} onChange={e => setLeadForm({ ...leadForm, altPhone: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary" />
+                                </div>
+                                <div>
+                                    <div className="flex items-center justify-between mb-1">
+                                        <label className="text-xs font-bold text-slate-500 uppercase block">WhatsApp Number</label>
+                                        <div className="flex items-center gap-1.5">
+                                            <input type="checkbox" id="lead-is-whatsapp-same" checked={leadForm.isWhatsappSame} onChange={e => {
+                                                const checked = e.target.checked;
+                                                setLeadForm({ 
+                                                    ...leadForm, 
+                                                    isWhatsappSame: checked, 
+                                                    whatsapp: checked ? (leadForm.phone || '') : '' 
+                                                });
+                                            }} className="rounded border-slate-300 text-primary focus:ring-primary h-3.5 w-3.5" />
+                                            <label htmlFor="lead-is-whatsapp-same" className="text-[10px] font-bold text-slate-400 cursor-pointer select-none">Same as Phone</label>
+                                        </div>
+                                    </div>
+                                    <input placeholder="WhatsApp Number" disabled={leadForm.isWhatsappSame} value={leadForm.isWhatsappSame ? (leadForm.phone || '') : (leadForm.whatsapp || '')} onChange={e => setLeadForm({ ...leadForm, whatsapp: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary disabled:opacity-55 disabled:cursor-not-allowed" />
                                 </div>
                             </div>
                             <div className="grid grid-cols-2 gap-3">
@@ -974,26 +1264,46 @@ export const Leads: React.FC = () => {
                                     <input required placeholder="e.g. Kyoto, Japan" value={leadForm.destination || ''} onChange={e => setLeadForm({ ...leadForm, destination: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary" />
                                 </div>
                                 <div>
-                                    <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Budget (₹)</label>
-                                    <input type="number" placeholder="0" value={leadForm.budget || ''} onChange={e => setLeadForm({ ...leadForm, budget: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary" />
+                                    <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Customer Home Location</label>
+                                    <input placeholder="e.g. Mumbai, IN" value={leadForm.location || ''} onChange={e => setLeadForm({ ...leadForm, location: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary" />
                                 </div>
                             </div>
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
+                                    <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Estimated Value (₹)</label>
+                                    <input type="number" placeholder="0" value={leadForm.potentialValue !== undefined ? leadForm.potentialValue : ''} onChange={e => setLeadForm({ ...leadForm, potentialValue: Number(e.target.value) || 0 })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary" />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Target Budget Range (₹)</label>
+                                    <input placeholder="e.g. 50,000 – 80,000" value={leadForm.budget || ''} onChange={e => setLeadForm({ ...leadForm, budget: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary" />
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-3 gap-3">
+                                <div className="col-span-1">
+                                    <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Trip Type</label>
+                                    <select value={leadForm.type || 'Tour'} onChange={e => setLeadForm({ ...leadForm, type: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary">
+                                        {['Tour', 'Hotel', 'Car', 'Bus', 'Flight', 'Custom Package'].map(t => <option key={t} value={t}>{t}</option>)}
+                                    </select>
+                                </div>
+                                <div className="col-span-1">
                                     <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Status</label>
                                     <select value={leadForm.status} onChange={e => setLeadForm({ ...leadForm, status: e.target.value as any })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary">
                                         {['New', 'Warm', 'Hot', 'Cold', 'Offer Sent', 'Converted'].map(s => <option key={s} value={s}>{s}</option>)}
                                     </select>
                                 </div>
-                                <div>
+                                <div className="col-span-1">
                                     <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Assigned To</label>
                                     <select value={leadForm.assignedTo || ''} onChange={e => setLeadForm({ ...leadForm, assignedTo: e.target.value ? Number(e.target.value) : undefined })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary">
                                         <option value="">Unassigned</option>
                                         {staff.map(s => (
-                                            <option key={s.id} value={s.id}>{s.name} ({s.role})</option>
+                                            <option key={s.id} value={s.id}>{s.name}</option>
                                         ))}
                                     </select>
                                 </div>
+                            </div>
+                            <div>
+                                <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Special Preferences / Notes</label>
+                                <textarea placeholder="Accommodation preferences, dietary requirements, special requests..." value={leadForm.preferences || ''} onChange={e => setLeadForm({ ...leadForm, preferences: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary h-20 resize-none" />
                             </div>
                             <div>
                                 <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Travelers</label>

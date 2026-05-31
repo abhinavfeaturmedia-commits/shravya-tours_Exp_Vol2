@@ -1,6 +1,22 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { usePartnerAuth } from '../../context/PartnerAuthContext';
+import { api } from '../../src/lib/api';
+import {
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  PieChart,
+  Pie,
+  Cell,
+  BarChart,
+  Bar,
+  Legend
+} from 'recharts';
 
 const StatCard: React.FC<{ icon: string; label: string; value: string; sub?: string; gradient: string; iconColor: string }> = ({ icon, label, value, sub, gradient, iconColor }) => (
   <div className={`bg-gradient-to-br ${gradient} backdrop-blur-md rounded-2xl p-5 border border-white/10 hover:border-white/20 relative overflow-hidden group transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-black/20`}>
@@ -18,11 +34,25 @@ export const PartnerDashboard: React.FC = () => {
   const { partner, refreshPartner } = usePartnerAuth();
   const [recentLeads, setRecentLeads] = useState<any[]>([]);
   const [leadsLoading, setLeadsLoading] = useState(true);
+  const [analytics, setAnalytics] = useState<{ earnings: any[]; funnel: any[]; destinations: any[] } | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(true);
 
   useEffect(() => {
     refreshPartner();
     fetchRecentLeads();
+    fetchAnalytics();
   }, []);
+
+  const fetchAnalytics = async () => {
+    try {
+      const data = await api.fetchPartnerAnalytics();
+      setAnalytics(data);
+    } catch (err) {
+      console.error('Error fetching partner analytics:', err);
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  };
 
   const fetchRecentLeads = async () => {
     try {
@@ -102,6 +132,193 @@ export const PartnerDashboard: React.FC = () => {
           gradient="from-violet-900/30 to-purple-900/20"
           iconColor="bg-gradient-to-br from-violet-500 to-purple-600"
         />
+      </div>
+
+      {/* Performance & Insights Charts */}
+      <div>
+        <h2 className="text-white font-bold text-lg mb-4">Performance & Insights</h2>
+        {analyticsLoading ? (
+          <div className="bg-white/5 border border-white/10 rounded-3xl p-12 flex items-center justify-center">
+            <div className="size-8 border-2 border-violet-500/30 border-t-violet-500 rounded-full animate-spin" />
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            {/* Earnings Trend Chart */}
+            <div className="lg:col-span-2 bg-white/5 border border-white/10 rounded-3xl p-5 backdrop-blur-md flex flex-col h-[350px]">
+              <div className="mb-4">
+                <h3 className="text-sm font-bold text-white">Monthly Commission Earnings</h3>
+                <p className="text-xs text-white/55">Commission payout trends over time</p>
+              </div>
+              <div className="flex-1 w-full min-h-0">
+                {analytics?.earnings && analytics.earnings.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart
+                      data={analytics.earnings}
+                      margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                    >
+                      <defs>
+                        <linearGradient id="colorEarnings" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.4}/>
+                          <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                      <XAxis
+                        dataKey="month"
+                        stroke="rgba(255,255,255,0.3)"
+                        fontSize={11}
+                        tickLine={false}
+                      />
+                      <YAxis
+                        stroke="rgba(255,255,255,0.3)"
+                        fontSize={11}
+                        tickLine={false}
+                        axisLine={false}
+                        tickFormatter={(val) => `₹${val}`}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: '#0f172a',
+                          border: '1px solid rgba(255,255,255,0.1)',
+                          borderRadius: '12px',
+                          color: '#fff',
+                          fontSize: '12px'
+                        }}
+                        formatter={(val: any) => [`₹${Number(val).toLocaleString('en-IN')}`, 'Earnings']}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="amount"
+                        stroke="#8b5cf6"
+                        strokeWidth={3}
+                        fillOpacity={1}
+                        fill="url(#colorEarnings)"
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-white/30 text-xs italic">No earnings history found</div>
+                )}
+              </div>
+            </div>
+
+            {/* Lead Funnel Pie Chart */}
+            <div className="bg-white/5 border border-white/10 rounded-3xl p-5 backdrop-blur-md flex flex-col h-[350px]">
+              <div className="mb-4">
+                <h3 className="text-sm font-bold text-white">Lead Conversion Funnel</h3>
+                <p className="text-xs text-white/55">Distribution of referred lead statuses</p>
+              </div>
+              <div className="flex-1 w-full min-h-0 relative flex items-center justify-center">
+                {analytics?.funnel && analytics.funnel.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={analytics.funnel}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={65}
+                        outerRadius={85}
+                        paddingAngle={4}
+                        dataKey="count"
+                        nameKey="status"
+                      >
+                        {analytics.funnel.map((entry: any, index: number) => {
+                          const COLORS = ['#3b82f6', '#f59e0b', '#ef4444', '#64748b', '#a855f7', '#10b981'];
+                          const statusColors: Record<string, string> = {
+                            New: '#3b82f6',
+                            Warm: '#f59e0b',
+                            Hot: '#ef4444',
+                            Cold: '#64748b',
+                            'Offer Sent': '#a855f7',
+                            Converted: '#10b981'
+                          };
+                          const fill = statusColors[entry.status] || COLORS[index % COLORS.length];
+                          return <Cell key={`cell-${index}`} fill={fill} />;
+                        })}
+                      </Pie>
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: '#0f172a',
+                          border: '1px solid rgba(255,255,255,0.1)',
+                          borderRadius: '12px',
+                          color: '#fff',
+                          fontSize: '12px'
+                        }}
+                      />
+                      <Legend 
+                        verticalAlign="bottom" 
+                        height={36} 
+                        iconType="circle"
+                        iconSize={8}
+                        wrapperStyle={{ fontSize: '10px', color: 'rgba(255,255,255,0.6)' }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="text-center text-white/30 text-xs italic">No funnel data available</div>
+                )}
+              </div>
+            </div>
+
+            {/* Top Destinations Bar Chart */}
+            <div className="lg:col-span-3 bg-white/5 border border-white/10 rounded-3xl p-5 backdrop-blur-md flex flex-col h-[300px]">
+              <div className="mb-4">
+                <h3 className="text-sm font-bold text-white">Top Referral Destinations</h3>
+                <p className="text-xs text-white/55">Most booked destinations by lead count</p>
+              </div>
+              <div className="flex-1 w-full min-h-0">
+                {analytics?.destinations && analytics.destinations.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={analytics.destinations}
+                      margin={{ top: 10, right: 10, left: -20, bottom: 5 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                      <XAxis
+                        dataKey="destination"
+                        stroke="rgba(255,255,255,0.3)"
+                        fontSize={11}
+                        tickLine={false}
+                      />
+                      <YAxis
+                        stroke="rgba(255,255,255,0.3)"
+                        fontSize={11}
+                        tickLine={false}
+                        axisLine={false}
+                        allowDecimals={false}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: '#0f172a',
+                          border: '1px solid rgba(255,255,255,0.1)',
+                          borderRadius: '12px',
+                          color: '#fff',
+                          fontSize: '12px'
+                        }}
+                        formatter={(val: any) => [val, 'Leads']}
+                      />
+                      <Bar
+                        dataKey="count"
+                        fill="#3b82f6"
+                        radius={[4, 4, 0, 0]}
+                        maxBarSize={45}
+                      >
+                        {analytics.destinations.map((entry: any, index: number) => {
+                          const COLORS = ['#8b5cf6', '#6366f1', '#3b82f6', '#10b981', '#f59e0b'];
+                          return <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />;
+                        })}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="text-center text-white/30 text-xs italic py-16">No destination data available</div>
+                )}
+              </div>
+            </div>
+
+          </div>
+        )}
       </div>
 
       {/* Quick Actions */}

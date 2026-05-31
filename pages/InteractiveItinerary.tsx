@@ -1,6 +1,7 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useData } from '../context/DataContext';
+import { api } from '../src/lib/api';
 import {
     MapPin, Calendar, Users, Moon, Sun, Clock, Check, X,
     ShieldCheck, Ticket, Printer, MessageSquare, CheckCircle2,
@@ -98,12 +99,26 @@ const ApprovedBanner: React.FC = () => (
 // ─── Main Component ────────────────────────────────────────────────────────────
 export const InteractiveItinerary: React.FC = () => {
     const { id } = useParams<{ id: string }>();
-    const { packages, updatePackage, masterLocations } = useData();
+    const { packages, updatePackage, masterLocations, coupons } = useData();
 
     const [showSuccess, setShowSuccess] = useState(false);
     const [showFeedbackModal, setShowFeedbackModal] = useState(false);
 
-    const pkg = packages.find(p => p.id === id);
+    const rawPkg = packages.find(p => p.id === id);
+
+    // Lazy-load the full package record (with builderData) since the global list
+    // intentionally omits builder_data to reduce payload size.
+    const [fullPkg, setFullPkg] = useState<typeof rawPkg>(undefined);
+    useEffect(() => {
+        if (!id) return;
+        // Always fetch the full record for this page so builderData is available
+        api.getPackageById(id).then(full => {
+            if (full) setFullPkg(full);
+        }).catch(console.warn);
+    }, [id]);
+
+    // Merge: use fullPkg's builderData if available, otherwise use the list-level rawPkg
+    const effectivePkg = fullPkg ? { ...(rawPkg || fullPkg), builderData: fullPkg.builderData } : rawPkg;
 
     // Inject print styles once
     useEffect(() => {
@@ -115,34 +130,34 @@ export const InteractiveItinerary: React.FC = () => {
 
     // Document title + view tracking
     useEffect(() => {
-        if (pkg) {
-            document.title = `${pkg.title} | Trip Proposal`;
+        if (rawPkg) {
+            document.title = `${rawPkg.title} | Trip Proposal`;
             if (
-                pkg.proposalStatus !== 'Viewed' &&
-                pkg.proposalStatus !== 'Approved' &&
-                pkg.proposalStatus !== 'Changes Requested'
+                rawPkg.proposalStatus !== 'Viewed' &&
+                rawPkg.proposalStatus !== 'Approved' &&
+                rawPkg.proposalStatus !== 'Changes Requested'
             ) {
-                updatePackage(pkg.id, { proposalStatus: 'Viewed' });
+                updatePackage(rawPkg.id, { proposalStatus: 'Viewed' });
             }
         }
         window.scrollTo(0, 0);
-    }, [pkg?.id]); // only run when ID changes, not on every re-render
+    }, [rawPkg?.id]); // only run when ID changes, not on every re-render
 
     const handleAccept = useCallback(() => {
-        if (!pkg) return;
-        updatePackage(pkg.id, { proposalStatus: 'Approved' });
+        if (!rawPkg) return;
+        updatePackage(rawPkg.id, { proposalStatus: 'Approved' });
         setShowSuccess(true);
         toast.success('Proposal accepted! Our team will contact you soon.');
-    }, [pkg, updatePackage]);
+    }, [rawPkg, updatePackage]);
 
     const handleFeedbackSubmit = useCallback((text: string) => {
-        if (!pkg) return;
-        updatePackage(pkg.id, { proposalStatus: 'Changes Requested' });
+        if (!rawPkg) return;
+        updatePackage(rawPkg.id, { proposalStatus: 'Changes Requested' });
         setShowFeedbackModal(false);
         toast.success('Feedback sent! Our team will review your request.');
-    }, [pkg, updatePackage]);
+    }, [rawPkg, updatePackage]);
 
-    if (!pkg) {
+    if (!effectivePkg) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-stone-50">
                 <div className="text-center">
@@ -158,19 +173,73 @@ export const InteractiveItinerary: React.FC = () => {
     if (showSuccess) return <ApprovedBanner />;
 
     // Extract builder data
-    const { tripDetails, items, dayMeta, currency } = pkg.builderData || {};
+    const { tripDetails, items, dayMeta, currency } = effectivePkg.builderData || {};
     const hasBuilderData = !!tripDetails && !!items;
 
     // Computed
     const guestCount = tripDetails
         ? (tripDetails.adults || 0) + (tripDetails.children || 0)
-        : parseInt(pkg.groupSize || '2');
-    const finalPrice = Math.round(pkg.price);
+        : parseInt(effectivePkg.groupSize || '2');
+    const finalPrice = Math.round(effectivePkg.price);
     const currencySymbol = currency === 'USD' ? '$' : '₹';
 
-    const status = pkg.proposalStatus;
+    const status = effectivePkg.proposalStatus;
     const isApproved = status === 'Approved';
     const isChangesRequested = status === 'Changes Requested';
+
+    // Alias effectivePkg as pkg for JSX — all template references remain unchanged
+    const pkg = effectivePkg;
+
+    // Filter active coupons from data context
+    const activeCoupons = useMemo(() => {
+        return (coupons || []).filter(c => c.status === 'Active');
+    }, [coupons]);
+
+    // Ensure we always have high-quality coupons shown
+    const displayedCoupons = useMemo(() => {
+        const list = [...activeCoupons];
+        // Add fallbacks if they are not already present (by coupon code match)
+        const fallbacks = [
+            {
+                id: 'fallback-tours',
+                code: 'TOUR15',
+                type: 'ToursOnly' as const,
+                discountType: 'Percentage' as const,
+                discountValue: 15,
+                validTo: '2026-12-31',
+                status: 'Active' as const,
+                isUsed: false,
+                useCount: 0
+            },
+            {
+                id: 'fallback-multi',
+                code: 'SHRAVELLO015',
+                type: 'MultiCategory' as const,
+                discountType: 'Percentage' as const,
+                discountValue: 15,
+                validTo: '2026-12-31',
+                status: 'Active' as const,
+                isUsed: false,
+                useCount: 0
+            }
+        ];
+        fallbacks.forEach(fb => {
+            if (!list.some(c => c.code.toLowerCase() === fb.code.toLowerCase())) {
+                list.push(fb);
+            }
+        });
+        return list.slice(0, 3); // show up to 3 coupons in the sidebar
+    }, [activeCoupons]);
+
+    const handleCopyCoupon = useCallback((code: string) => {
+        navigator.clipboard.writeText(code)
+            .then(() => {
+                toast.success(`Coupon "${code}" copied to clipboard!`);
+            })
+            .catch(() => {
+                toast.error('Failed to copy coupon code.');
+            });
+    }, []);
 
     return (
         <div className="min-h-screen bg-stone-50 selection:bg-amber-200">
@@ -445,10 +514,94 @@ export const InteractiveItinerary: React.FC = () => {
                             </div>
                         )}
 
+                        {/* Active Promotional Deals */}
+                        {displayedCoupons.length > 0 && (
+                            <div className="space-y-3 pt-4 border-t border-stone-100">
+                                <h4 className="text-[10px] font-black uppercase tracking-widest text-stone-500 flex items-center gap-1.5">
+                                    <Ticket size={12} className="text-[#FF6A00]" /> Active Promotional Deals
+                                </h4>
+                                <div className="space-y-3">
+                                    {displayedCoupons.map((coupon) => (
+                                        <div
+                                            key={coupon.id}
+                                            className="relative w-full h-[100px] flex rounded-2xl overflow-hidden border border-stone-200/80 shadow-md bg-stone-50 font-sans cursor-pointer group hover:shadow-lg transition-all"
+                                            onClick={() => handleCopyCoupon(coupon.code)}
+                                        >
+                                            {/* Circle tear-off notches */}
+                                            <div className="absolute -top-[8px] left-[70%] w-[16px] h-[16px] rounded-full bg-white border-b border-stone-200/80 z-20" />
+                                            <div className="absolute -bottom-[8px] left-[70%] w-[16px] h-[16px] rounded-full bg-white border-t border-stone-200/80 z-20" />
+
+                                            {/* Dotted separator line */}
+                                            <div className="absolute top-0 bottom-0 left-[70%] flex flex-col justify-between py-2 pointer-events-none z-20 -translate-x-0.5">
+                                                {Array.from({ length: 7 }).map((_, i) => (
+                                                    <div key={i} className="w-1 h-1 rounded-full bg-stone-300" />
+                                                ))}
+                                            </div>
+
+                                            {/* Left Side: Details & Title */}
+                                            <div className="w-[70%] h-full p-3 flex flex-col justify-between relative overflow-hidden select-none">
+                                                {coupon.type === 'ToursOnly' ? (
+                                                    <>
+                                                        <div className="absolute inset-0 bg-gradient-to-r from-teal-50/70 to-emerald-50/30 -z-10" />
+                                                        <div>
+                                                            <div className="flex items-center gap-1.5">
+                                                                <span className="text-[9px] font-black text-teal-700 tracking-wider uppercase bg-teal-100/60 px-1.5 py-0.5 rounded">Tours Pass</span>
+                                                            </div>
+                                                            <p className="text-[11px] font-bold text-stone-700 mt-1.5 leading-tight">
+                                                                Exclusive discount on standard tour packages
+                                                            </p>
+                                                        </div>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <div className="absolute inset-0 bg-gradient-to-r from-amber-50/70 to-orange-50/30 -z-10" />
+                                                        <div>
+                                                            <div className="flex items-center gap-1.5">
+                                                                <span className="text-[9px] font-black text-amber-700 tracking-wider uppercase bg-amber-100/60 px-1.5 py-0.5 rounded">Multi-Category</span>
+                                                            </div>
+                                                            <p className="text-[11px] font-bold text-stone-700 mt-1.5 leading-tight">
+                                                                Save on taxi, trains, flights & packages
+                                                            </p>
+                                                        </div>
+                                                    </>
+                                                )}
+
+                                                <div className="flex items-center gap-1 text-[8.5px] font-semibold text-stone-400">
+                                                    <Clock size={10} />
+                                                    <span>Ends: {coupon.validTo ? new Date(coupon.validTo).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }) : '31 Dec 2026'}</span>
+                                                </div>
+                                            </div>
+
+                                            {/* Right Side: Promo Code & Discount */}
+                                            <div className="w-[30%] h-full bg-[#03231D] relative p-2.5 flex flex-col justify-between items-center text-center text-white">
+                                                {/* Micro Dots overlay */}
+                                                <div className="absolute inset-0 bg-[radial-gradient(#ffffff_0.5px,transparent_0.5px)] [background-size:6px_6px] opacity-5 pointer-events-none" />
+                                                
+                                                <div className="flex flex-col items-center">
+                                                    <div className="flex items-baseline leading-none select-none">
+                                                        <span className="text-xl font-black text-white">{coupon.discountValue}</span>
+                                                        <span className="text-[10px] font-black text-orange-400 ml-0.5">{coupon.discountType === 'Percentage' ? '%' : '₹'}</span>
+                                                    </div>
+                                                    <span className="text-[7px] font-black text-white/60 tracking-wider uppercase mt-0.5">OFF</span>
+                                                </div>
+
+                                                {/* Promo Code Box */}
+                                                <div className="w-full bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg py-1 px-0.5 transition-all duration-200 relative flex items-center justify-center">
+                                                    <span className="font-mono text-[9px] font-black text-amber-300 tracking-wider uppercase truncate">
+                                                        {coupon.code}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
                         {/* Print button */}
                         <button
                             onClick={() => window.print()}
-                            className="w-full flex items-center justify-center gap-2 text-xs font-bold text-stone-400 hover:text-stone-600 transition-colors py-1"
+                            className="w-full flex items-center justify-center gap-2 text-xs font-bold text-stone-400 hover:text-stone-600 transition-colors py-1 pt-2 border-t border-stone-100"
                         >
                             <Printer size={13} /> Download as PDF
                         </button>

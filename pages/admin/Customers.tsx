@@ -198,7 +198,7 @@ export const Customers: React.FC = () => {
                                                     {customer.name.charAt(0)}
                                                 </div>
                                                 <div>
-                                                    <p className="font-bold text-slate-900 dark:text-white text-sm group-hover:text-primary transition-colors">{customer.name}</p>
+                                                    <p className="font-bold text-slate-900 dark:text-white text-sm group-hover:text-primary transition-colors">{customer.prefix ? `${customer.prefix} ` : ''}{customer.name}</p>
                                                     {(() => {
                                                         const stats = liveBookingStats[customer.id];
                                                         const isReturning = stats && stats.count > 1;
@@ -464,7 +464,7 @@ const CustomerDetailsDrawer: React.FC<{
                         </div>
                         <div>
                             <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                                {customer.name}
+                                {customer.prefix ? `${customer.prefix} ` : ''}{customer.name}
                                 {customer.type === 'VIP' && <span className="text-[10px] uppercase bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">VIP CLIENT</span>}
                             </h2>
                             <p className="text-sm text-slate-500">Frequent Flyer | ID: #{customer.id.split('-')[1]}</p>
@@ -489,6 +489,53 @@ const CustomerDetailsDrawer: React.FC<{
                             <div className="text-xl font-black text-slate-900 dark:text-white">₹{((bookings.filter(b => (b.customerId && b.customerId === customer.id) || (b.customer && b.customer === customer.id) || (b.email && customer.email && b.email.toLowerCase() === customer.email.toLowerCase()) || (b.phone && customer.phone && b.phone === customer.phone)).reduce((sum, b) => sum + (Number(b.amount) || 0), 0) || customer.totalSpent || 0) / 1000).toFixed(1)}k</div>
                         </div>
                     </div>
+
+                    {/* Contact & Profile Details Card */}
+                    <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
+                        <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider mb-4">Contact & Profile Details</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 text-sm">
+                            <div>
+                                <span className="text-xs font-bold text-slate-400 uppercase block mb-1">Prefix & Name</span>
+                                <span className="font-semibold text-slate-800 dark:text-slate-200">{customer.prefix ? `${customer.prefix} ` : ''}{customer.name}</span>
+                            </div>
+                            <div>
+                                <span className="text-xs font-bold text-slate-400 uppercase block mb-1">Date of Birth</span>
+                                <span className="font-semibold text-slate-800 dark:text-slate-200">
+                                    {customer.dob ? new Date(customer.dob).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }) : <span className="text-slate-400 dark:text-slate-500 italic">Not set</span>}
+                                </span>
+                            </div>
+                            <div>
+                                <span className="text-xs font-bold text-slate-400 uppercase block mb-1">Main Phone</span>
+                                <span className="font-semibold text-slate-800 dark:text-slate-200">{customer.phone}</span>
+                            </div>
+                            <div>
+                                <span className="text-xs font-bold text-slate-400 uppercase block mb-1">Alternate Phone</span>
+                                <span className="font-semibold text-slate-800 dark:text-slate-200">{customer.altPhone || <span className="text-slate-400 dark:text-slate-500 italic">Not set</span>}</span>
+                            </div>
+                            <div className="md:col-span-2">
+                                <span className="text-xs font-bold text-slate-400 uppercase block mb-1">WhatsApp Number</span>
+                                <span className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                                    {customer.whatsapp || <span className="text-slate-400 dark:text-slate-500 italic">Not set</span>}
+                                    {customer.isWhatsappSame && (
+                                        <span className="text-[10px] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded">Same as Main</span>
+                                    )}
+                                </span>
+                            </div>
+                            <div className="md:col-span-2">
+                                <span className="text-xs font-bold text-slate-400 uppercase block mb-1">Residential Address</span>
+                                <span className="font-semibold text-slate-800 dark:text-slate-200 block bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800 min-h-[50px] whitespace-pre-wrap">
+                                    {customer.address || <span className="text-slate-400 dark:text-slate-500 italic">No residential address stored.</span>}
+                                </span>
+                            </div>
+                            <div className="md:col-span-2">
+                                <span className="text-xs font-bold text-slate-400 uppercase block mb-1">Office Address</span>
+                                <span className="font-semibold text-slate-800 dark:text-slate-200 block bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800 min-h-[50px] whitespace-pre-wrap">
+                                    {customer.officeAddress || <span className="text-slate-400 dark:text-slate-500 italic">No office address stored.</span>}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
                     <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
                         <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider mb-4">Travel Preferences</h3>
                         <div className="space-y-4">
@@ -577,8 +624,12 @@ const CustomerDetailsDrawer: React.FC<{
                                         <p className="text-xs text-slate-500 mt-1">Expires {new Date(m.expiresOn).toLocaleDateString()}</p>
                                     </div>
                                     <div className="text-right">
-                                        <p className="text-sm font-bold text-slate-700 dark:text-slate-300">{m.discountPercent}% Flat Off</p>
-                                        <p className="text-xs text-slate-500">+{m.hotelDiscount}% Hotel · +{m.flightDiscount}% Flight</p>
+                                        <p className="text-sm font-bold text-slate-700 dark:text-slate-300">
+                                            {m.discountType === 'Flat_Amount' ? `₹${m.discountFlat?.toLocaleString()} Flat Off` : `${m.discountPercent}% Flat Off`}
+                                        </p>
+                                        <p className="text-xs text-slate-500">
+                                            +{m.hotelDiscount}% Hotel · +{m.flightDiscount}% Flight · +{m.tourDiscount}% Tour · +{m.cabDiscount}% Cab
+                                        </p>
                                         <button onClick={() => window.location.href = '/admin/memberships'} className="text-xs text-primary font-medium hover:underline mt-2 block">Manage →</button>
                                     </div>
                                 </div>
@@ -700,6 +751,13 @@ const customerSchema = z.object({
     location: z.string().optional(),
     type: z.enum(['New', 'Returning', 'VIP']),
     tags: z.string().optional(),
+    prefix: z.string().optional(),
+    dob: z.string().optional(),
+    altPhone: z.string().optional(),
+    whatsapp: z.string().optional(),
+    isWhatsappSame: z.boolean().optional(),
+    address: z.string().optional(),
+    officeAddress: z.string().optional(),
 });
 
 type CustomerFormData = z.infer<typeof customerSchema>;
@@ -710,16 +768,68 @@ const AddEditCustomerModal: React.FC<{
     customer: Customer | null;
     onSubmit: (data: any) => void;
 }> = ({ isOpen, onClose, customer, onSubmit }) => {
-    const { register, handleSubmit, reset, formState: { errors } } = useForm<CustomerFormData>({
+    const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<CustomerFormData>({
         resolver: zodResolver(customerSchema),
-        defaultValues: { name: '', email: '', phone: '', location: '', type: 'New', tags: '' }
+        defaultValues: {
+            name: '',
+            email: '',
+            phone: '',
+            location: '',
+            type: 'New',
+            tags: '',
+            prefix: '',
+            dob: '',
+            altPhone: '',
+            whatsapp: '',
+            isWhatsappSame: false,
+            address: '',
+            officeAddress: ''
+        }
     });
+
+    const isWhatsappSame = watch('isWhatsappSame');
+    const phone = watch('phone');
+
+    // Dynamically copy main phone to whatsapp when "Same as Main Phone" is checked
+    useEffect(() => {
+        if (isWhatsappSame) {
+            setValue('whatsapp', phone || '');
+        }
+    }, [isWhatsappSame, phone, setValue]);
 
     useEffect(() => {
         if (customer) {
-            reset({ ...customer, tags: customer.tags?.join(', ') || '' });
+            reset({
+                name: customer.name || '',
+                email: customer.email || '',
+                phone: customer.phone || '',
+                location: customer.location || '',
+                type: customer.type || 'New',
+                tags: customer.tags?.join(', ') || '',
+                prefix: customer.prefix || '',
+                dob: customer.dob || '',
+                altPhone: customer.altPhone || '',
+                whatsapp: customer.whatsapp || '',
+                isWhatsappSame: !!customer.isWhatsappSame,
+                address: customer.address || '',
+                officeAddress: customer.officeAddress || ''
+            });
         } else {
-            reset({ name: '', email: '', phone: '', location: '', type: 'New', tags: '' });
+            reset({
+                name: '',
+                email: '',
+                phone: '',
+                location: '',
+                type: 'New',
+                tags: '',
+                prefix: '',
+                dob: '',
+                altPhone: '',
+                whatsapp: '',
+                isWhatsappSame: false,
+                address: '',
+                officeAddress: ''
+            });
         }
     }, [customer, reset, isOpen]);
 
@@ -732,48 +842,109 @@ const AddEditCustomerModal: React.FC<{
 
     return (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in">
-            <div className="bg-white dark:bg-[#1A2633] w-full max-w-lg rounded-[2rem] p-8 shadow-2xl animate-in zoom-in-95 ring-1 ring-white/10">
+            <div className="bg-white dark:bg-[#1A2633] w-full max-w-2xl rounded-[2rem] p-8 shadow-2xl animate-in zoom-in-95 ring-1 ring-white/10 max-h-[90vh] overflow-y-auto">
                 <div className="flex justify-between items-center mb-6">
                     <h2 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">{customer ? 'Edit Profile' : 'New Customer'}</h2>
                     <button onClick={onClose} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors"><span className="material-symbols-outlined text-slate-400">close</span></button>
                 </div>
                 <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
+                    {/* Prefix and Name */}
+                    <div className="grid grid-cols-4 gap-4">
+                        <div className="col-span-1">
+                            <label className="text-xs font-bold uppercase text-slate-500 ml-1 mb-1 block">Prefix</label>
+                            <select {...register('prefix')} className="w-full rounded-xl bg-slate-50 dark:bg-slate-800 border-none p-3 font-bold outline-none focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white">
+                                <option value="">None</option>
+                                <option value="Mr.">Mr.</option>
+                                <option value="Ms.">Ms.</option>
+                                <option value="Mrs.">Mrs.</option>
+                                <option value="Dr.">Dr.</option>
+                                <option value="Prof.">Prof.</option>
+                            </select>
+                        </div>
+                        <div className="col-span-3">
                             <label className="text-xs font-bold uppercase text-slate-500 ml-1 mb-1 block">Full Name</label>
-                            <input {...register('name')} className="w-full rounded-xl bg-slate-50 dark:bg-slate-800 border-none p-3 font-bold outline-none focus:ring-2 focus:ring-primary/50" />
+                            <input {...register('name')} className="w-full rounded-xl bg-slate-50 dark:bg-slate-800 border-none p-3 font-bold outline-none focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white" />
                             {errors.name && <p className="text-xs text-red-500 mt-1">{errors.name.message}</p>}
                         </div>
+                    </div>
+
+                    {/* Email and DOB */}
+                    <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="text-xs font-bold uppercase text-slate-500 ml-1 mb-1 block">Location</label>
-                            <input {...register('location')} className="w-full rounded-xl bg-slate-50 dark:bg-slate-800 border-none p-3 font-bold outline-none focus:ring-2 focus:ring-primary/50" />
+                            <label className="text-xs font-bold uppercase text-slate-500 ml-1 mb-1 block">Email</label>
+                            <input {...register('email')} className="w-full rounded-xl bg-slate-50 dark:bg-slate-800 border-none p-3 font-bold outline-none focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white" />
+                            {errors.email && <p className="text-xs text-red-500 mt-1">{errors.email.message}</p>}
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold uppercase text-slate-500 ml-1 mb-1 block">Date of Birth</label>
+                            <input type="date" {...register('dob')} className="w-full rounded-xl bg-slate-50 dark:bg-slate-800 border-none p-3 font-bold outline-none focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white" />
                         </div>
                     </div>
-                    <div>
-                        <label className="text-xs font-bold uppercase text-slate-500 ml-1 mb-1 block">Email</label>
-                        <input {...register('email')} className="w-full rounded-xl bg-slate-50 dark:bg-slate-800 border-none p-3 font-bold outline-none focus:ring-2 focus:ring-primary/50" />
-                        {errors.email && <p className="text-xs text-red-500 mt-1">{errors.email.message}</p>}
-                    </div>
+
+                    {/* Main Phone and Alt Phone */}
                     <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label className="text-xs font-bold uppercase text-slate-500 ml-1 mb-1 block">Phone</label>
-                            <input {...register('phone')} className="w-full rounded-xl bg-slate-50 dark:bg-slate-800 border-none p-3 font-bold outline-none focus:ring-2 focus:ring-primary/50" />
+                            <input {...register('phone')} className="w-full rounded-xl bg-slate-50 dark:bg-slate-800 border-none p-3 font-bold outline-none focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white" />
                             {errors.phone && <p className="text-xs text-red-500 mt-1">{errors.phone.message}</p>}
                         </div>
                         <div>
+                            <label className="text-xs font-bold uppercase text-slate-500 ml-1 mb-1 block">Alternate Phone</label>
+                            <input {...register('altPhone')} className="w-full rounded-xl bg-slate-50 dark:bg-slate-800 border-none p-3 font-bold outline-none focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white" placeholder="Alt phone number" />
+                        </div>
+                    </div>
+
+                    {/* WhatsApp */}
+                    <div>
+                        <div className="flex justify-between items-center ml-1 mb-1">
+                            <label className="text-xs font-bold uppercase text-slate-500 block">WhatsApp Number</label>
+                            <label className="flex items-center gap-1.5 cursor-pointer text-xs font-bold text-primary hover:text-primary-dark select-none">
+                                <input type="checkbox" {...register('isWhatsappSame')} className="rounded text-primary focus:ring-primary border-slate-300 size-3.5" />
+                                Same as Main Phone
+                            </label>
+                        </div>
+                        <input 
+                            {...register('whatsapp')} 
+                            readOnly={isWhatsappSame}
+                            className={`w-full rounded-xl border-none p-3 font-bold outline-none focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white ${isWhatsappSame ? 'bg-slate-100 dark:bg-slate-700/50 cursor-not-allowed opacity-80' : 'bg-slate-50 dark:bg-slate-800'}`}
+                            placeholder="WhatsApp number"
+                        />
+                    </div>
+
+                    {/* Location and Type */}
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="text-xs font-bold uppercase text-slate-500 ml-1 mb-1 block">Location</label>
+                            <input {...register('location')} className="w-full rounded-xl bg-slate-50 dark:bg-slate-800 border-none p-3 font-bold outline-none focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white" />
+                        </div>
+                        <div>
                             <label className="text-xs font-bold uppercase text-slate-500 ml-1 mb-1 block">Type</label>
-                            <select {...register('type')} className="w-full rounded-xl bg-slate-50 dark:bg-slate-800 border-none p-3 font-bold outline-none focus:ring-2 focus:ring-primary/50">
+                            <select {...register('type')} className="w-full rounded-xl bg-slate-50 dark:bg-slate-800 border-none p-3 font-bold outline-none focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white">
                                 <option value="New">New</option>
                                 <option value="Returning">Returning</option>
                                 <option value="VIP">VIP</option>
                             </select>
                         </div>
                     </div>
+
+                    {/* Residential Address and Office Address */}
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="text-xs font-bold uppercase text-slate-500 ml-1 mb-1 block">Residential Address</label>
+                            <textarea {...register('address')} className="w-full rounded-xl bg-slate-50 dark:bg-slate-800 border-none p-3 font-bold outline-none focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white resize-none h-20" placeholder="Residential Address" />
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold uppercase text-slate-500 ml-1 mb-1 block">Office Address</label>
+                            <textarea {...register('officeAddress')} className="w-full rounded-xl bg-slate-50 dark:bg-slate-800 border-none p-3 font-bold outline-none focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white resize-none h-20" placeholder="Office Address" />
+                        </div>
+                    </div>
+
                     <div>
                         <label className="text-xs font-bold uppercase text-slate-500 ml-1 mb-1 block">Tags (comma separated)</label>
-                        <input {...register('tags')} className="w-full rounded-xl bg-slate-50 dark:bg-slate-800 border-none p-3 font-bold outline-none focus:ring-2 focus:ring-primary/50" placeholder="e.g. High Value, Family..." />
+                        <input {...register('tags')} className="w-full rounded-xl bg-slate-50 dark:bg-slate-800 border-none p-3 font-bold outline-none focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white" placeholder="e.g. High Value, Family..." />
                     </div>
-                    <button type="submit" className="w-full py-3 bg-primary text-white font-bold rounded-xl shadow-lg shadow-primary/20 hover:bg-primary-dark transition-all mt-2">Save Profile</button>
+
+                    <button type="submit" className="w-full py-3 bg-primary text-white font-bold rounded-xl shadow-lg shadow-primary/20 hover:bg-primary-dark transition-all mt-4">Save Profile</button>
                 </form>
             </div>
         </div>
@@ -782,4 +953,3 @@ const AddEditCustomerModal: React.FC<{
 
 // --- Import Modal Removed ---
 // (Replaced by generic DataImportModal)
-

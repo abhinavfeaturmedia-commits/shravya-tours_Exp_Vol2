@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useData } from '../../context/DataContext';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Package } from '../../types';
+import { Package, CommissionType } from '../../types';
 import { ImageUpload } from '../../components/ui/ImageUpload';
 import { SuggestPopup, isDismissed, isSnoozed } from '../../components/ui/SuggestPopup';
 import { useBookings } from '../../src/hooks/useBookings';
@@ -159,7 +159,9 @@ export const AdminPackages: React.FC = () => {
         status: 'Active' as 'Active' | 'Inactive',
         remainingSeats: '' as string | number,
         offerEndTime: '',
-        addons: [] as { id: string; label: string; price: number }[]
+        addons: [] as { id: string; label: string; price: number }[],
+        partnerCommissionType: 'Percentage' as CommissionType,
+        partnerCommissionValue: '' as string | number
     });
 
     // Derived Stats (Memoized to prevent recalculation on every render)
@@ -190,7 +192,9 @@ export const AdminPackages: React.FC = () => {
             status: pkg.status || 'Active',
             remainingSeats: pkg.remainingSeats ?? '',
             offerEndTime: pkg.offerEndTime || '',
-            addons: pkg.addons || []
+            addons: pkg.addons || [],
+            partnerCommissionType: pkg.partnerCommissionType || 'Percentage',
+            partnerCommissionValue: pkg.partnerCommissionValue !== undefined && pkg.partnerCommissionValue !== null ? pkg.partnerCommissionValue : ''
         });
         setIsEditModalOpen(true);
     }, []);
@@ -202,7 +206,9 @@ export const AdminPackages: React.FC = () => {
                 ...editForm,
                 remainingSeats: editForm.remainingSeats === '' ? undefined : Number(editForm.remainingSeats),
                 offerEndTime: editForm.offerEndTime || undefined,
-                addons: editForm.addons.length > 0 ? editForm.addons : undefined
+                addons: editForm.addons.length > 0 ? editForm.addons : undefined,
+                partnerCommissionType: editForm.partnerCommissionValue === '' ? null : editForm.partnerCommissionType,
+                partnerCommissionValue: editForm.partnerCommissionValue === '' ? null : Number(editForm.partnerCommissionValue)
             });
             setIsEditModalOpen(false);
             setEditingPackageId(null);
@@ -383,6 +389,24 @@ export const AdminPackages: React.FC = () => {
                                     <div>
                                         <label className="text-xs font-bold text-slate-500 mb-1 block">Offer End Date &amp; Time</label>
                                         <input value={editForm.offerEndTime} onChange={e => setEditForm({ ...editForm, offerEndTime: e.target.value })} type="datetime-local" className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Section: B2B Partner Commission Override */}
+                            <div>
+                                <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-3 border-b border-slate-100 dark:border-slate-700 pb-2">B2B Partner Commission Settings</h3>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-500 mb-1 block">Override Type</label>
+                                        <select value={editForm.partnerCommissionType} onChange={e => setEditForm({ ...editForm, partnerCommissionType: e.target.value as any })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
+                                            <option value="Percentage">Percentage (%)</option>
+                                            <option value="Flat_Amount">Flat Amount (₹)</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-500 mb-1 block">Override Value (leave blank for partner default)</label>
+                                        <input value={editForm.partnerCommissionValue} onChange={e => setEditForm({ ...editForm, partnerCommissionValue: e.target.value })} type="number" min="0" placeholder="e.g. 10 or 1500" className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
                                     </div>
                                 </div>
                             </div>

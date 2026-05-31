@@ -33,6 +33,7 @@ export interface FinanceSettings {
   bankIfsc: string;
   bankBranch: string;
   upiId: string;
+  upiQrImage?: string;
   invoicePrefix: string;
   bookingPrefix: string;
 }
@@ -148,6 +149,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     bankIfsc: '',
     bankBranch: '',
     upiId: '',
+    upiQrImage: '',
     invoicePrefix: 'INV',
     bookingPrefix: 'BK',
   },

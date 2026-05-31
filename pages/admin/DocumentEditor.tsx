@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { Save, ArrowLeft, Plus, Trash2, CheckCircle2, Printer, CreditCard, User, Mail, MapPin, Calendar, Users, FileCheck, ChevronDown, Loader2, Search, Link, Copy } from 'lucide-react';
+import { Save, ArrowLeft, Plus, Trash2, CheckCircle2, Printer, CreditCard, User, Mail, MapPin, Calendar, Users, FileCheck, ChevronDown, Loader2, Search, Link, Copy, Edit3, X, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSettings } from '../../context/SettingsContext';
 
@@ -66,6 +66,10 @@ export const DocumentEditor: React.FC = () => {
         status: 'Draft',
         payment_status: 'Unpaid',
         amount_paid: 0,
+        driver_stay_allowance: 0,
+        extra_km_charges: 0,
+        extra_hrs_charges: 0,
+        advance_received: 0,
         notes: 'Prices are subject to change based on availability at the time of booking. 50% advance required for confirmation.'
     });
 
@@ -102,6 +106,7 @@ export const DocumentEditor: React.FC = () => {
             id: 'temp-' + generateId(),
             description: `${pkg.title}\nDestination: ${pkg.destination}\nDuration: ${pkg.days} Days / ${pkg.nights} Nights`,
             quantity: 1,
+            total_days_km: String(pkg.days || '1'),
             unit_price: Number(pkg.price || 0),
             tax_rate: 0
         }]);
@@ -110,7 +115,7 @@ export const DocumentEditor: React.FC = () => {
 
     const [deletedItemIds, setDeletedItemIds] = useState<string[]>([]);
     const [items, setItems] = useState<any[]>([
-        { id: generateId(), description: '', quantity: 1, unit_price: 0, tax_rate: 0 }
+        { id: generateId(), description: '', quantity: 1, total_days_km: '1', unit_price: 0, tax_rate: 0 }
     ]);
     const [discount, setDiscount] = useState(0);
     const [loading, setLoading] = useState(isEdit);
@@ -122,6 +127,20 @@ export const DocumentEditor: React.FC = () => {
     const [paymentMethod, setPaymentMethod] = useState('Bank Transfer');
     const [paymentNote, setPaymentNote] = useState('');
     const [recordingPayment, setRecordingPayment] = useState(false);
+
+    const [isSaveDropdownOpen, setIsSaveDropdownOpen] = useState(false);
+
+    // ── Custom Fields & Editable Labels ──────────────────────────────
+    // fieldLabels: renamed labels for the 5 fixed charge rows
+    const [fieldLabels, setFieldLabels] = useState<Record<string, string>>({});
+    // editingLabel: key of the fixed field whose label is being edited inline
+    const [editingLabel, setEditingLabel] = useState<string | null>(null);
+    // customFields: fully user-defined extra charge/deduction rows
+    const [customFields, setCustomFields] = useState<{
+        id: string; label: string; amount: number; is_deduction: boolean; sort_order: number;
+    }[]>([]);
+    // deleted custom field ids to remove on save
+    const [deletedCustomFieldIds, setDeletedCustomFieldIds] = useState<string[]>([]);
 
     useEffect(() => {
         setLoading(true);
@@ -149,6 +168,7 @@ export const DocumentEditor: React.FC = () => {
                             id: generateId(),
                             description: p.description || p.title || 'Travel Itinerary Package',
                             quantity: 1,
+                            total_days_km: '1',
                             unit_price: Number(p.amount) || 0,
                             tax_rate: 0
                         }]);
@@ -173,7 +193,7 @@ export const DocumentEditor: React.FC = () => {
                     adults: data.number_of_people || data.travelers || 2
                 }));
                 if (data.total_price || data.amount) {
-                    setItems([{ id: generateId(), description: 'Tour Package', quantity: 1, unit_price: Number(data.total_price || data.amount), tax_rate: 0 }]);
+                    setItems([{ id: generateId(), description: 'Tour Package', quantity: 1, total_days_km: '1', unit_price: Number(data.total_price || data.amount), tax_rate: 0 }]);
                 }
             }
         } catch (e) { console.error(e); } finally { setLoading(false); }
@@ -194,7 +214,7 @@ export const DocumentEditor: React.FC = () => {
                 }));
                 const budget = data.potential_value || data.budget;
                 if (budget) {
-                    setItems([{ id: generateId(), description: `Custom Tour: ${data.destination || 'Destination'}`, quantity: 1, unit_price: Number(budget), tax_rate: 0 }]);
+                    setItems([{ id: generateId(), description: `Custom Tour: ${data.destination || 'Destination'}`, quantity: 1, total_days_km: '1', unit_price: Number(budget), tax_rate: 0 }]);
                 }
             }
         } catch (e) { console.error(e); } finally { setLoading(false); }
@@ -218,11 +238,33 @@ export const DocumentEditor: React.FC = () => {
             if (res.ok) {
                 const { data } = await res.json();
                 setDocData(data);
+
+                // Parse renamed field labels (stored as JSON string)
+                if (data.field_labels) {
+                    try { setFieldLabels(JSON.parse(data.field_labels)); } catch {}
+                }
+
+                // Load invoice items
                 const itemsRes = await fetch(`/api/crud/invoice_items?eq_invoice_id=${id}`, { headers: { 'Authorization': `Bearer ${token}` } });
                 if (itemsRes.ok) {
                     const itemsData = await itemsRes.json();
                     if (itemsData.data && itemsData.data.length > 0) {
                         setItems(itemsData.data);
+                    }
+                }
+
+                // Load custom extra charge fields
+                const cfRes = await fetch(`/api/crud/invoice_custom_fields?eq_invoice_id=${id}`, { headers: { 'Authorization': `Bearer ${token}` } });
+                if (cfRes.ok) {
+                    const cfData = await cfRes.json();
+                    if (cfData.data && cfData.data.length > 0) {
+                        setCustomFields(cfData.data.map((cf: any) => ({
+                            id: cf.id,
+                            label: cf.label || '',
+                            amount: Number(cf.amount || 0),
+                            is_deduction: Boolean(cf.is_deduction),
+                            sort_order: Number(cf.sort_order || 0)
+                        })));
                     }
                 }
             } else {
@@ -270,7 +312,7 @@ export const DocumentEditor: React.FC = () => {
                 adults: record.number_of_people || record.travelers || prev.adults
             }));
             if (record.total_price && items.length === 1 && items[0].unit_price === 0) {
-                setItems([{ id: generateId(), description: 'Tour Package', quantity: 1, unit_price: Number(record.total_price), tax_rate: 0 }]);
+                setItems([{ id: generateId(), description: 'Tour Package', quantity: 1, total_days_km: '1', unit_price: Number(record.total_price), tax_rate: 0 }]);
             }
         } else {
             setDocData(prev => ({
@@ -284,7 +326,7 @@ export const DocumentEditor: React.FC = () => {
             }));
             const budget = record.budget || record.potential_value;
             if (budget && items.length === 1 && items[0].unit_price === 0) {
-                setItems([{ id: generateId(), description: `Custom Tour: ${record.destination || 'Destination'}`, quantity: 1, unit_price: Number(budget), tax_rate: 0 }]);
+                setItems([{ id: generateId(), description: `Custom Tour: ${record.destination || 'Destination'}`, quantity: 1, total_days_km: '1', unit_price: Number(budget), tax_rate: 0 }]);
             }
         }
         setShowLinkPanel(false);
@@ -297,7 +339,7 @@ export const DocumentEditor: React.FC = () => {
     };
 
     const addItem = () => {
-        setItems([...items, { id: 'temp-' + generateId(), description: '', quantity: 1, unit_price: 0, tax_rate: 0 }]);
+        setItems([...items, { id: 'temp-' + generateId(), description: '', quantity: 1, total_days_km: '1', unit_price: 0, tax_rate: 0 }]);
     };
 
     const removeItem = (index: number) => {
@@ -313,7 +355,43 @@ export const DocumentEditor: React.FC = () => {
     const subtotal = items.reduce((sum, item) => sum + (Number(item.quantity || 0) * Number(item.unit_price || 0)), 0);
     const taxTotal = items.reduce((sum, item) => sum + ((Number(item.quantity || 0) * Number(item.unit_price || 0)) * (Number(item.tax_rate || 0) / 100)), 0);
     const discountAmt = Math.max(0, Math.min(subtotal, discount));
-    const totalAmount = subtotal + taxTotal - discountAmt;
+    
+    // Read allowance values
+    const driverStayAllowance = Number(docData.driver_stay_allowance || 0);
+    const extraKmCharges = Number(docData.extra_km_charges || 0);
+    const extraHrsCharges = Number(docData.extra_hrs_charges || 0);
+    const advanceReceived = Number(docData.advance_received || 0);
+
+    // Custom fields totals
+    const customChargesTotal = customFields.filter(cf => !cf.is_deduction).reduce((s, cf) => s + Number(cf.amount || 0), 0);
+    const customDeductionsTotal = customFields.filter(cf => cf.is_deduction).reduce((s, cf) => s + Number(cf.amount || 0), 0);
+
+    const totalAmount = subtotal + taxTotal + driverStayAllowance + extraKmCharges + extraHrsCharges + customChargesTotal - discountAmt - customDeductionsTotal;
+    const balanceDue = totalAmount - (Number(docData.amount_paid || 0) + advanceReceived);
+
+    // ── Custom Field Helpers ──────────────────────────────────────────
+    const addCustomField = () => {
+        setCustomFields(prev => [...prev, {
+            id: 'temp-' + generateId(),
+            label: '',
+            amount: 0,
+            is_deduction: false,
+            sort_order: prev.length
+        }]);
+    };
+
+    const updateCustomField = (index: number, patch: Partial<typeof customFields[0]>) => {
+        setCustomFields(prev => prev.map((cf, i) => i === index ? { ...cf, ...patch } : cf));
+    };
+
+    const removeCustomField = (index: number) => {
+        const cf = customFields[index];
+        if (isEdit && cf.id && !String(cf.id).startsWith('temp-')) {
+            setDeletedCustomFieldIds(prev => [...prev, cf.id]);
+        }
+        setCustomFields(prev => prev.filter((_, i) => i !== index));
+    };
+
 
     const isLocked = docData.status === 'Sent' || docData.payment_status === 'Paid';
 
@@ -329,10 +407,12 @@ export const DocumentEditor: React.FC = () => {
                 tax_total: taxTotal,
                 discount: discountAmt,
                 total_amount: totalAmount,
+                balance_due: totalAmount - Number(docData.advance_received || 0),
                 status: 'Draft',
                 payment_status: 'Unpaid',
                 amount_paid: 0,
-                issue_date: new Date().toISOString().split('T')[0]
+                issue_date: new Date().toISOString().split('T')[0],
+                field_labels: Object.keys(fieldLabels).length > 0 ? JSON.stringify(fieldLabels) : null
             };
             
             await fetch('/api/crud/invoices', {
@@ -349,6 +429,7 @@ export const DocumentEditor: React.FC = () => {
                     date_from: item.date_from || null,
                     date_to: item.date_to || null,
                     quantity: Number(item.quantity || 1),
+                    total_days_km: item.total_days_km || '1',
                     unit_price: Number(item.unit_price || 0),
                     tax_rate: Number(item.tax_rate || 0),
                     tax_amount: (Number(item.quantity || 1) * Number(item.unit_price || 0)) * (Number(item.tax_rate || 0) / 100),
@@ -360,6 +441,24 @@ export const DocumentEditor: React.FC = () => {
                     body: JSON.stringify(itemPayload)
                 });
             }
+
+            // Copy custom fields to the new draft invoice
+            for (let i = 0; i < customFields.length; i++) {
+                const cf = customFields[i];
+                await fetch('/api/crud/invoice_custom_fields', {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        id: generateId(),
+                        invoice_id: newId,
+                        label: cf.label || '',
+                        amount: Number(cf.amount || 0),
+                        is_deduction: cf.is_deduction ? 1 : 0,
+                        sort_order: i
+                    })
+                });
+            }
+
             toast.success('Document duplicated to Draft');
             navigate(`/admin/invoices/edit/${newId}`);
         } catch (error) {
@@ -388,10 +487,12 @@ export const DocumentEditor: React.FC = () => {
                 tax_total: taxTotal,
                 discount: discountAmt,
                 total_amount: totalAmount,
+                balance_due: balanceDue,
                 status: generate ? 'Sent' : 'Draft',
                 payment_status: docData.payment_status || 'Unpaid',
                 amount_paid: docData.amount_paid || 0,
-                issue_date: new Date().toISOString().split('T')[0]
+                issue_date: new Date().toISOString().split('T')[0],
+                field_labels: Object.keys(fieldLabels).length > 0 ? JSON.stringify(fieldLabels) : null
             };
 
             let invoiceId = id;
@@ -429,6 +530,7 @@ export const DocumentEditor: React.FC = () => {
                     date_from: item.date_from || null,
                     date_to: item.date_to || null,
                     quantity: Number(item.quantity || 1),
+                    total_days_km: item.total_days_km || '1',
                     unit_price: Number(item.unit_price || 0),
                     tax_rate: Number(item.tax_rate || 0),
                     tax_amount: (Number(item.quantity || 1) * Number(item.unit_price || 0)) * (Number(item.tax_rate || 0) / 100),
@@ -445,6 +547,38 @@ export const DocumentEditor: React.FC = () => {
                         method: 'PUT',
                         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
                         body: JSON.stringify(itemPayload)
+                    });
+                }
+            }
+
+            // ── Save Custom Extra Fields ──────────────────────────────────
+            // 1. Delete removed custom fields
+            for (const delId of deletedCustomFieldIds) {
+                await fetch(`/api/crud/invoice_custom_fields/${delId}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
+            }
+            // 2. Create new / update existing custom fields
+            for (let i = 0; i < customFields.length; i++) {
+                const cf = customFields[i];
+                const cfIsNew = String(cf.id).startsWith('temp-') || !isEdit;
+                const cfPayload = {
+                    id: cfIsNew ? generateId() : cf.id,
+                    invoice_id: invoiceId,
+                    label: cf.label || '',
+                    amount: Number(cf.amount || 0),
+                    is_deduction: cf.is_deduction ? 1 : 0,
+                    sort_order: i
+                };
+                if (cfIsNew) {
+                    await fetch('/api/crud/invoice_custom_fields', {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                        body: JSON.stringify(cfPayload)
+                    });
+                } else {
+                    await fetch(`/api/crud/invoice_custom_fields/${cf.id}`, {
+                        method: 'PUT',
+                        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                        body: JSON.stringify(cfPayload)
                     });
                 }
             }
@@ -506,8 +640,12 @@ export const DocumentEditor: React.FC = () => {
                 }
             }
 
+            if (generate) {
+                await generateTrueInvoicePDF({ ...payload, id: invoiceId }, items, co, fi, customFields, fieldLabels);
+            }
             toast.success(`Document ${generate ? 'generated' : 'saved as draft'} successfully!`);
             navigate('/admin/invoices');
+
         } catch (error) {
             console.error(error);
             toast.error('Failed to save document');
@@ -528,11 +666,12 @@ export const DocumentEditor: React.FC = () => {
             const newAmountPaid = Number(docData.amount_paid || 0) + paymentAmount;
             const newStatus = newAmountPaid >= totalAmount ? 'Paid' : 'Partially Paid';
 
-            // 1. Update invoice amount_paid + payment_status
+            // 1. Update invoice amount_paid + payment_status + balance_due
+            const newBalanceDue = Math.max(0, totalAmount - (newAmountPaid + Number(docData.advance_received || 0)));
             await fetch(`/api/crud/invoices/${id}`, {
                 method: 'PUT',
                 headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ amount_paid: newAmountPaid, payment_status: newStatus })
+                body: JSON.stringify({ amount_paid: newAmountPaid, payment_status: newStatus, balance_due: newBalanceDue })
             });
 
             // 2. Create a booking_transactions entry (for ledger, even if no booking_id)
@@ -591,55 +730,77 @@ export const DocumentEditor: React.FC = () => {
     return (
         <div className="flex flex-col h-full bg-[#f4f6fb] dark:bg-[#0d1420] overflow-y-auto">
 
-            {/* Catalog Search Modal */}
+            {/* Catalog Search Slide-over Drawer */}
             {showCatalogPanel && (
-                <div className="fixed inset-0 z-[999] flex items-center justify-center p-4 print:hidden" onClick={() => setShowCatalogPanel(false)}>
-                    <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+                <div className="fixed inset-0 z-[999] flex justify-end p-0 print:hidden bg-black/40 backdrop-blur-sm transition-opacity duration-300" onClick={() => setShowCatalogPanel(false)}>
                     <div
-                        className="relative bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl w-full max-w-md p-5"
+                        className="relative bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-850 shadow-2xl w-full max-w-md h-full flex flex-col animate-[slideUp_0.25s_cubic-bezier(0.16,1,0.3,1)]"
                         onClick={(e) => e.stopPropagation()}
                     >
-                        <div className="flex justify-between items-center mb-4">
+                        {/* Header */}
+                        <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/30">
                             <div>
-                                <h4 className="text-base font-bold text-slate-800 dark:text-white">Search Catalog</h4>
-                                <p className="text-xs text-slate-400 mt-0.5">Add packages directly to the invoice</p>
+                                <h4 className="text-base font-black text-slate-800 dark:text-white flex items-center gap-2">
+                                    <Search size={16} className="text-orange-500" /> Search Catalog
+                                </h4>
+                                <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5 font-medium">Add packaged tours directly to the invoice</p>
                             </div>
                             <button
                                 onClick={() => setShowCatalogPanel(false)}
-                                className="text-slate-400 hover:text-slate-700 dark:hover:text-white p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
-                            >✕</button>
+                                className="text-slate-400 hover:text-slate-700 dark:hover:text-white p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all"
+                            >
+                                <X size={15} />
+                            </button>
                         </div>
-                        <div className="relative mb-3">
-                            <input
-                                type="text"
-                                placeholder="Search packages..."
-                                value={catalogSearch}
-                                autoFocus
-                                onChange={(e) => {
-                                    setCatalogSearch(e.target.value);
-                                    searchCatalog(e.target.value);
-                                }}
-                                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm outline-none focus:border-sky-500 transition-colors"
-                            />
+
+                        {/* Search Input Bar */}
+                        <div className="p-5 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900">
+                            <div className="relative">
+                                <input
+                                    type="text"
+                                    placeholder="Search by package title, destination..."
+                                    value={catalogSearch}
+                                    autoFocus
+                                    onChange={(e) => {
+                                        setCatalogSearch(e.target.value);
+                                        searchCatalog(e.target.value);
+                                    }}
+                                    className="w-full bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 focus:border-orange-500 dark:focus:border-orange-500 rounded-xl pl-4 pr-10 py-3 text-xs outline-none focus:ring-4 focus:ring-orange-500/10 font-bold transition-all text-slate-800 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-600"
+                                />
+                                <div className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400">
+                                    <Search size={14} />
+                                </div>
+                            </div>
                         </div>
-                        <div className="max-h-64 overflow-y-auto rounded-xl border border-slate-100 dark:border-slate-800">
+
+                        {/* Results Body */}
+                        <div className="flex-1 overflow-y-auto p-5 scrollbar-thin">
                             {catalogResults.length === 0 ? (
-                                <div className="py-8 text-center text-slate-400 text-sm">No packages found</div>
+                                <div className="py-12 text-center text-slate-400 dark:text-slate-500 text-xs font-semibold">
+                                    No custom packages found in catalog
+                                </div>
                             ) : (
-                                <div className="divide-y divide-slate-50 dark:divide-slate-800">
+                                <div className="space-y-3">
                                     {catalogResults.map((r: any) => (
                                         <div
                                             key={r.id}
                                             onClick={() => addFromCatalog(r)}
-                                            className="px-4 py-3 hover:bg-sky-50 dark:hover:bg-slate-800 cursor-pointer transition-colors flex justify-between items-center group"
+                                            className="p-4 bg-slate-50/50 hover:bg-orange-500/5 dark:bg-slate-800/10 dark:hover:bg-slate-800/40 cursor-pointer transition-all duration-300 rounded-2xl border border-slate-150 dark:border-slate-800/60 hover:border-orange-500/20 dark:hover:border-orange-500/20 flex justify-between items-center group"
                                         >
-                                            <div>
-                                                <p className="font-semibold text-slate-800 dark:text-slate-200 text-sm">{r.title}</p>
-                                                <p className="text-xs text-slate-500">{r.days}D / {r.nights}N • {r.destination}</p>
+                                            <div className="min-w-0 flex-1 pr-3">
+                                                <p className="font-bold text-slate-800 dark:text-slate-250 text-xs truncate leading-snug">{r.title}</p>
+                                                <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold mt-1 tracking-wide uppercase">
+                                                    {r.days} Days / {r.nights} Nights • {r.destination}
+                                                </p>
                                             </div>
-                                            <span className="text-xs font-bold text-sky-500 group-hover:text-sky-600 bg-sky-50 dark:bg-sky-900/30 px-2 py-1 rounded-md">
-                                                Add →
-                                            </span>
+                                            <div className="text-right flex-shrink-0 flex items-center gap-2">
+                                                <span className="text-xs font-black text-slate-900 dark:text-white">
+                                                    ₹{Number(r.price || 0).toLocaleString('en-IN')}
+                                                </span>
+                                                <span className="text-[10px] font-black text-orange-500 bg-orange-50 dark:bg-orange-500/10 px-2 py-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    + Add
+                                                </span>
+                                            </div>
                                         </div>
                                     ))}
                                 </div>
@@ -649,28 +810,31 @@ export const DocumentEditor: React.FC = () => {
                 </div>
             )}
 
-            {/* Link Record Modal Overlay — rendered at root level to avoid overflow clipping */}
+            {/* Link Record Slide-over Drawer */}
             {showLinkPanel && (
-                <div className="fixed inset-0 z-[999] flex items-center justify-center p-4 print:hidden" onClick={() => setShowLinkPanel(false)}>
-                    <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+                <div className="fixed inset-0 z-[999] flex justify-end p-0 print:hidden bg-black/40 backdrop-blur-sm transition-opacity duration-300" onClick={() => setShowLinkPanel(false)}>
                     <div
-                        className="relative bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl w-full max-w-md p-5"
+                        className="relative bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-850 shadow-2xl w-full max-w-md h-full flex flex-col animate-[slideUp_0.25s_cubic-bezier(0.16,1,0.3,1)]"
                         onClick={(e) => e.stopPropagation()}
                     >
                         {/* Header */}
-                        <div className="flex justify-between items-center mb-4">
+                        <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/30">
                             <div>
-                                <h4 className="text-base font-bold text-slate-800 dark:text-white">Link a Record</h4>
-                                <p className="text-xs text-slate-400 mt-0.5">Auto-fill client details from a booking or lead</p>
+                                <h4 className="text-base font-black text-slate-800 dark:text-white flex items-center gap-2">
+                                    <Link size={16} className="text-orange-500" /> Link Customer Record
+                                </h4>
+                                <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5 font-medium">Auto-fill client details from a booking or lead</p>
                             </div>
                             <button
                                 onClick={() => setShowLinkPanel(false)}
-                                className="text-slate-400 hover:text-slate-700 dark:hover:text-white p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
-                            >✕</button>
+                                className="text-slate-400 hover:text-slate-700 dark:hover:text-white p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all"
+                            >
+                                <X size={15} />
+                            </button>
                         </div>
 
-                        {/* Type + Search */}
-                        <div className="flex gap-2 mb-3">
+                        {/* Search Input Bar */}
+                        <div className="p-5 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 flex gap-2.5">
                             <select
                                 value={searchType}
                                 onChange={(e) => {
@@ -678,15 +842,16 @@ export const DocumentEditor: React.FC = () => {
                                     setSearchResults([]);
                                     searchRecords(e.target.value, searchQuery);
                                 }}
-                                className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm outline-none font-medium text-slate-700 dark:text-slate-300"
+                                className="bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-3 text-xs outline-none font-bold text-slate-700 dark:text-slate-300 focus:ring-4 focus:ring-orange-500/10 cursor-pointer transition-all"
                             >
                                 <option value="bookings">Bookings</option>
                                 <option value="leads">Leads</option>
                             </select>
+                            
                             <div className="flex-1 relative">
                                 <input
                                     type="text"
-                                    placeholder="Search name, email..."
+                                    placeholder="Search name, email, phone..."
                                     value={searchQuery}
                                     autoFocus
                                     onChange={(e) => {
@@ -694,45 +859,46 @@ export const DocumentEditor: React.FC = () => {
                                         searchRecords(searchType, e.target.value);
                                     }}
                                     onKeyDown={(e) => e.key === 'Enter' && searchRecords()}
-                                    className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm outline-none focus:border-orange-500 transition-colors pr-8"
+                                    className="w-full bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 focus:border-orange-500 dark:focus:border-orange-500 rounded-xl pl-4 pr-10 py-3 text-xs outline-none focus:ring-4 focus:ring-orange-500/10 font-bold transition-all text-slate-800 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-600"
                                 />
                                 {searching && (
-                                    <Loader2 size={14} className="animate-spin text-orange-500 absolute right-2.5 top-1/2 -translate-y-1/2" />
+                                    <Loader2 size={13} className="animate-spin text-orange-500 absolute right-3.5 top-1/2 -translate-y-1/2" />
                                 )}
                             </div>
                         </div>
 
-                        {/* Results */}
-                        <div className="max-h-64 overflow-y-auto rounded-xl border border-slate-100 dark:border-slate-800">
+                        {/* Results Body */}
+                        <div className="flex-1 overflow-y-auto p-5 scrollbar-thin">
                             {searching && searchResults.length === 0 ? (
-                                <div className="py-8 text-center text-slate-400 text-sm flex flex-col items-center gap-2">
-                                    <Loader2 size={20} className="animate-spin text-orange-400" />
-                                    <span>Searching...</span>
+                                <div className="py-12 text-center text-slate-400 dark:text-slate-500 text-xs font-semibold flex flex-col items-center gap-3">
+                                    <div className="w-10 h-10 rounded-full bg-orange-500/10 flex items-center justify-center animate-spin">
+                                        <Loader2 size={18} className="text-orange-500" />
+                                    </div>
+                                    <span>Searching databases...</span>
                                 </div>
                             ) : searchResults.length === 0 && searchHasRun ? (
-                                <div className="py-8 text-center text-slate-400 text-sm">
-                                    <p className="font-medium">No records found</p>
-                                    <p className="text-xs mt-1">Try a different name or email</p>
+                                <div className="py-12 text-center text-slate-400 dark:text-slate-500 text-xs font-semibold">
+                                    No matching profiles or entries found
                                 </div>
                             ) : (
-                                <div className="divide-y divide-slate-50 dark:divide-slate-800">
+                                <div className="space-y-3">
                                     {searchResults.map((r: any) => (
                                         <div
                                             key={r.id}
                                             onClick={() => linkRecord(r)}
-                                            className="px-4 py-3 hover:bg-orange-50 dark:hover:bg-slate-800 cursor-pointer transition-colors flex justify-between items-center group"
+                                            className="p-4 bg-slate-50/50 hover:bg-orange-500/5 dark:bg-slate-800/10 dark:hover:bg-slate-800/40 cursor-pointer transition-all duration-300 rounded-2xl border border-slate-150 dark:border-slate-800/60 hover:border-orange-500/20 dark:hover:border-orange-500/20 flex justify-between items-center group"
                                         >
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-bold flex items-center justify-center text-xs flex-shrink-0">
+                                            <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                                                <div className="w-9 h-9 rounded-full bg-orange-500/10 text-orange-600 dark:bg-orange-500/20 dark:text-orange-400 font-extrabold flex items-center justify-center text-xs flex-shrink-0 shadow-inner">
                                                     {(r.customer_name || r.name || r.customer || '?').substring(0, 2).toUpperCase()}
                                                 </div>
-                                                <div>
-                                                    <p className="font-semibold text-slate-800 dark:text-slate-200 text-sm">{r.customer_name || r.name || r.customer || 'Unknown'}</p>
-                                                    <p className="text-xs text-slate-500">{r.customer_email || r.email || 'No email'}</p>
+                                                <div className="min-w-0 flex-1">
+                                                    <p className="font-bold text-slate-800 dark:text-slate-200 text-xs truncate leading-snug">{r.customer_name || r.name || r.customer || 'Unknown Client'}</p>
+                                                    <p className="text-[10px] text-slate-400 dark:text-slate-500 font-semibold mt-0.5 truncate">{r.customer_email || r.email || 'No Email'}</p>
                                                 </div>
                                             </div>
-                                            <span className="text-xs font-bold text-orange-500 group-hover:text-orange-600 bg-orange-50 dark:bg-orange-900/30 px-2 py-1 rounded-md">
-                                                Link →
+                                            <span className="text-[10px] font-black text-orange-500 bg-orange-50 dark:bg-orange-500/10 px-2.5 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity">
+                                                Link
                                             </span>
                                         </div>
                                     ))}
@@ -741,9 +907,9 @@ export const DocumentEditor: React.FC = () => {
                         </div>
 
                         {!searching && searchResults.length > 0 && (
-                            <p className="text-xs text-slate-400 mt-2 text-center">
-                                {searchResults.length} record{searchResults.length !== 1 ? 's' : ''} found · Click to auto-fill client details
-                            </p>
+                            <div className="p-4 border-t border-slate-100 dark:border-slate-800 text-center text-[10px] text-slate-400 dark:text-slate-500 font-medium bg-slate-50/50 dark:bg-slate-900/30">
+                                {searchResults.length} profiles discovered · Click row to autofill Billed To
+                            </div>
                         )}
                     </div>
                 </div>
@@ -829,118 +995,192 @@ export const DocumentEditor: React.FC = () => {
                 </div>
             )}
 
-            {/* Top Bar */}
-            <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-b border-slate-200/70 dark:border-slate-800 px-6 py-3 flex justify-between items-center sticky top-0 z-30 print:hidden">
-                <div className="flex items-center gap-3">
-                    <button onClick={() => navigate(-1)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">
-                        <ArrowLeft size={17} />
+            {/* Premium Grouped Top Bar */}
+            <div className="bg-white/85 dark:bg-slate-900/85 backdrop-blur-md border-b border-slate-200/60 dark:border-slate-800/80 px-6 py-3 flex flex-col md:flex-row justify-between items-center sticky top-0 z-30 gap-4 print:hidden shadow-sm">
+                
+                {/* Left section: Breadcrumb & Title */}
+                <div className="flex items-center gap-3.5 w-full md:w-auto">
+                    <button onClick={() => navigate(-1)} className="p-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700/80 rounded-xl transition-all text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100 hover:scale-105 active:scale-95">
+                        <ArrowLeft size={16} />
                     </button>
-                    <div className="h-5 w-px bg-slate-200 dark:bg-slate-700" />
-                    <div>
-                        <h1 className="font-semibold text-slate-800 dark:text-white text-sm tracking-tight">
-                            {isEdit ? `Editing ${docData.document_type}` : `New ${docData.document_type}`}
+                    <div className="h-6 w-px bg-slate-200/80 dark:bg-slate-800" />
+                    <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Document Editor</span>
+                            <span className="text-[10px] text-slate-300 dark:text-slate-600">•</span>
+                            <span className="text-[11px] font-bold text-orange-500 bg-orange-50 dark:bg-orange-500/10 px-2 py-0.5 rounded-md uppercase tracking-wider">
+                                {docData.document_type}
+                            </span>
+                        </div>
+                        <h1 className="font-bold text-slate-800 dark:text-white text-sm truncate tracking-tight mt-0.5">
+                            {isEdit ? `Edit ${docData.document_type}` : `Create New ${docData.document_type}`}
+                            <span className="text-slate-400 dark:text-slate-500 font-normal ml-1.5 text-xs">
+                                {id ? `#${id.slice(0, 8).toUpperCase()}` : '(Unsaved Draft)'}
+                            </span>
                         </h1>
-                        <p className="text-[11px] text-slate-400">{id ? `#${id.slice(0,8).toUpperCase()}` : 'Unsaved draft'}</p>
                     </div>
                 </div>
-                <div className="flex items-center gap-2">
-                    {totalAmount > 0 && (
-                        <div className="hidden md:flex items-center gap-1 bg-gradient-to-r from-violet-50 to-purple-50 dark:from-violet-900/20 dark:to-purple-900/20 text-violet-700 dark:text-violet-300 border border-violet-200/60 dark:border-violet-800/60 rounded-xl px-3 py-1.5">
-                            <span className="text-[10px] font-medium text-violet-500 dark:text-violet-400">Total</span>
-                            <span className="font-bold text-sm ml-1">₹{totalAmount.toLocaleString('en-IN')}</span>
+
+                {/* Center section: Glowing Live KPI Total */}
+                {totalAmount > 0 && (
+                    <div className="flex items-center gap-3 bg-gradient-to-r from-orange-500/5 to-amber-500/5 dark:from-orange-500/10 dark:to-amber-500/10 border border-orange-500/20 dark:border-orange-500/30 px-4 py-1.5 rounded-2xl shadow-inner animate-pulse-slow">
+                        <div className="flex flex-col items-end">
+                            <span className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest leading-none">Live Total</span>
+                            <span className="font-extrabold text-sm text-[#F26222] tabular-nums mt-0.5">
+                                ₹{totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </span>
                         </div>
-                    )}
-                    <div className="h-5 w-px bg-slate-200 dark:bg-slate-700 mx-1" />
-                    {id && (
-                        <button onClick={handleWhatsApp} className="h-9 px-3 bg-[#25D366]/10 hover:bg-[#25D366]/20 text-[#25D366] border border-[#25D366]/25 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition-all">
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-                            WhatsApp
-                        </button>
-                    )}
-                    <button onClick={() => {
-                        const total = totalAmount.toLocaleString('en-IN');
-                        const subject = encodeURIComponent(`Your ${docData.document_type} from ${co.companyName || 'SHRAWELLO Travel Hub'}`);
-                        const body = encodeURIComponent(`Hi ${docData.client_name},\n\nPlease find the details for your ${docData.document_type} attached.\n\nTotal Amount: INR ${total}\nPayment Status: ${docData.payment_status}\n\nThank you for choosing ${co.companyName || 'SHRAWELLO Travel Hub'}!`);
-                        window.open(`mailto:${docData.email || ''}?subject=${subject}&body=${body}`);
-                    }} className="h-9 px-3 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition-all">
-                        <Mail size={13} /> Email
-                    </button>
-                    <button onClick={() => generateTrueInvoicePDF({ ...docData, id, subtotal, tax_total: taxTotal, discount: discountAmt, total_amount: totalAmount }, items, co, fi)} className="h-9 px-3 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition-all">
-                        <Printer size={13} /> Download PDF
-                    </button>
+                    </div>
+                )}
+
+                {/* Right section: Prioritized Actions */}
+                <div className="flex items-center gap-3 w-full md:w-auto justify-end">
                     
-                    {id && (
+                    {/* Share / Print Quick Action Bar */}
+                    <div className="flex items-center bg-slate-100/80 dark:bg-slate-800/60 p-1 rounded-xl border border-slate-200/50 dark:border-slate-800/80">
+                        {id && (
+                            <button 
+                                onClick={handleWhatsApp} 
+                                title="Share via WhatsApp"
+                                className="p-2 hover:bg-[#25D366]/10 text-slate-500 hover:text-[#25D366] dark:text-slate-400 dark:hover:text-[#25D366] rounded-lg transition-all hover:scale-105 active:scale-95"
+                            >
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                            </button>
+                        )}
+                        <button 
+                            onClick={() => {
+                                const total = totalAmount.toLocaleString('en-IN');
+                                const subject = encodeURIComponent(`Your ${docData.document_type} from ${co.companyName || 'SHRAWELLO Travel Hub'}`);
+                                const body = encodeURIComponent(`Hi ${docData.client_name},\n\nPlease find the details for your ${docData.document_type} attached.\n\nTotal Amount: INR ${total}\nPayment Status: ${docData.payment_status}\n\nThank you for choosing ${co.companyName || 'SHRAWELLO Travel Hub'}!`);
+                                window.open(`mailto:${docData.email || ''}?subject=${subject}&body=${body}`);
+                            }} 
+                            title="Send Email link"
+                            className="p-2 hover:bg-sky-500/10 text-slate-500 hover:text-sky-500 dark:text-slate-400 dark:hover:text-sky-400 rounded-lg transition-all hover:scale-105 active:scale-95"
+                        >
+                            <Mail size={15} />
+                        </button>
+                        <button 
+                            onClick={() => generateTrueInvoicePDF({ ...docData, id, subtotal, tax_total: taxTotal, discount: discountAmt, total_amount: totalAmount }, items, co, fi)} 
+                            title="Download Premium PDF"
+                            className="p-2 hover:bg-orange-500/10 text-slate-500 hover:text-orange-500 dark:text-slate-400 dark:hover:text-orange-400 rounded-lg transition-all hover:scale-105 active:scale-95"
+                        >
+                            <Printer size={15} />
+                        </button>
+                    </div>
+
+                    <div className="h-6 w-px bg-slate-200/80 dark:bg-slate-800" />
+
+                    {/* Violet Record Payment Action */}
+                    {id && docData.payment_status !== 'Paid' && (
                         <button
                             onClick={() => { setPaymentAmount(Math.max(0, totalAmount - Number(docData.amount_paid || 0))); setShowPaymentModal(true); }}
-                            className="h-9 px-3 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all shadow-sm shadow-emerald-500/20"
+                            className="h-9 px-4 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all shadow-md shadow-violet-500/15 hover:scale-[1.02] active:scale-95"
                         >
                             <CreditCard size={13} /> Record Payment
                         </button>
                     )}
+
+                    {/* Locked Indicator / Split Action Button */}
                     {isLocked ? (
-                        <>
-                            <div className="h-9 px-3 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-xl text-xs font-semibold flex items-center gap-1.5 border border-slate-200 dark:border-slate-700">
-                                <span className="material-symbols-outlined text-[14px]">lock</span> Locked
+                        <div className="flex items-center gap-2">
+                            <div className="h-9 px-3 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-xl text-xs font-semibold flex items-center gap-1.5 border border-slate-200 dark:border-slate-700 shadow-sm">
+                                <span className="material-symbols-outlined text-[15px] text-slate-400">lock</span> Locked
                             </div>
-                            <button disabled={saving} onClick={duplicateToDraft} className="h-9 px-4 border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-400 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all disabled:opacity-50">
+                            <button 
+                                disabled={saving} 
+                                onClick={duplicateToDraft} 
+                                className="h-9 px-4 border border-amber-200 bg-amber-50 hover:bg-amber-100 dark:border-amber-900/30 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all disabled:opacity-50 hover:scale-[1.02] active:scale-95"
+                            >
                                 {saving ? <Loader2 size={13} className="animate-spin" /> : <Copy size={13} />}
-                                Duplicate to Draft
+                                Duplicate
                             </button>
-                        </>
+                        </div>
                     ) : (
-                        <>
-                            <button disabled={saving} onClick={() => handleSave(false)} className="h-9 px-3 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition-all disabled:opacity-50">
-                                {saving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
-                                {saving ? 'Saving…' : 'Save Draft'}
-                            </button>
-                            <button disabled={saving} onClick={() => handleSave(true)} className="h-9 px-4 bg-violet-700 hover:bg-violet-800 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all shadow-lg shadow-violet-500/20 disabled:opacity-50">
+                        <div className="relative flex items-center">
+                            {/* Left Side: Save & Generate (Main action) */}
+                            <button
+                                disabled={saving}
+                                onClick={() => handleSave(true)}
+                                className="h-9 pl-4 pr-3.5 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded-l-xl flex items-center gap-1.5 transition-all disabled:opacity-50 hover:opacity-95 shadow-md shadow-orange-500/10"
+                            >
                                 {saving ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
-                                {saving ? 'Saving…' : 'Save & Generate'}
+                                {saving ? 'Saving…' : 'Generate & Send'}
                             </button>
-                        </>
+                            
+                            {/* Right Side: Split Arrow Dropdown Trigger */}
+                            <button
+                                disabled={saving}
+                                onClick={() => setIsSaveDropdownOpen(!isSaveDropdownOpen)}
+                                className="h-9 px-2 bg-orange-600 hover:bg-orange-700 text-white rounded-r-xl border-l border-orange-500/20 flex items-center justify-center transition-all disabled:opacity-50"
+                            >
+                                <ChevronDown size={14} className={`transition-transform duration-200 ${isSaveDropdownOpen ? 'rotate-180' : ''}`} />
+                            </button>
+
+                            {/* Dropdown Options Box */}
+                            {isSaveDropdownOpen && (
+                                <>
+                                    <div className="fixed inset-0 z-40" onClick={() => setIsSaveDropdownOpen(false)} />
+                                    <div className="absolute right-0 top-full mt-2 w-44 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-50 overflow-hidden py-1 animate-[scaleIn_0.15s_ease-out]">
+                                        <button
+                                            onClick={() => {
+                                                setIsSaveDropdownOpen(false);
+                                                handleSave(false);
+                                            }}
+                                            className="w-full text-left px-4 py-2.5 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center gap-2 font-medium"
+                                        >
+                                            <Save size={13} className="text-slate-400" />
+                                            Save Draft
+                                        </button>
+                                    </div>
+                                </>
+                            )}
+                        </div>
                     )}
                 </div>
             </div>
 
-            {/* Document */}
+            {/* Document Workspace */}
             <div className="max-w-[860px] mx-auto w-full px-6 py-8 pb-16 print:p-0 print:max-w-none">
-                <div id="print-section" className="bg-white rounded-2xl shadow-[0_4px_32px_rgba(0,0,0,0.08)] border border-slate-200/70 overflow-hidden relative">
+                <div id="print-section" className="bg-white dark:bg-[#111827] rounded-2xl shadow-[0_4px_32px_rgba(0,0,0,0.06)] dark:shadow-[0_12px_40px_rgba(0,0,0,0.4)] border border-slate-200/60 dark:border-slate-800/80 overflow-hidden relative transition-all duration-300">
 
                     {/* Document Header */}
-                    <div className="bg-white p-8 flex justify-between items-start">
+                    <div className="bg-white dark:bg-[#111827] p-8 flex justify-between items-start transition-colors duration-300">
                         <div className="flex flex-col">
                             {/* Document Type Switcher */}
-                            <div className="flex items-center gap-2 mb-3 print:hidden">
+                            <div className="flex items-center gap-2 mb-3.5 print:hidden">
                                 {['Invoice','Quotation','Proforma'].map(type => (
                                     <button
                                         key={type}
                                         disabled={isLocked}
                                         onClick={() => setDocData({...docData, document_type: type})}
-                                        className={`px-3.5 py-1 rounded-full text-xs font-semibold transition-all ${
+                                        className={`px-3.5 py-1 rounded-full text-xs font-bold transition-all ${
                                             docData.document_type === type
-                                                ? 'bg-violet-700 text-white'
-                                                : 'bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700'
-                                        } ${isLocked ? 'opacity-60 cursor-not-allowed' : ''}`}
+                                                ? 'bg-[#F26222] text-white shadow-sm'
+                                                : 'bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700/80'
+                                        } ${isLocked ? 'opacity-60 cursor-not-allowed' : 'hover:scale-105 active:scale-95'}`}
                                     >
                                         {type}
                                     </button>
                                 ))}
                             </div>
+                            
                             <div className="flex items-center gap-3">
-                                <h1 className="text-4xl font-normal text-violet-700 tracking-wide">{docData.document_type}</h1>
-                                <span className="bg-[#42bbed] text-white px-3 py-0.5 rounded-full text-xs font-bold shadow-sm shadow-[#42bbed]/30 uppercase tracking-wider print:bg-[#42bbed] print:text-white" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-                                    {docData.payment_status === 'Partially Paid' ? 'Part Paid' : docData.payment_status}
+                                <h1 className="text-4xl font-black text-[#091C3B] dark:text-white tracking-tight uppercase">{docData.document_type}</h1>
+                                <span className="bg-[#42bbed] text-white px-3 py-0.5 rounded-md text-[10px] font-bold shadow-sm shadow-[#42bbed]/30 uppercase tracking-wider print:bg-[#42bbed] print:text-white" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+                                    {docData.payment_status === 'Paid' ? 'Paid' : docData.payment_status === 'Partially Paid' ? 'Part Paid' : docData.payment_status}
                                 </span>
                             </div>
                             
-                            <div className="mt-6 space-y-2 text-sm text-slate-600">
+                            <div className="mt-6 space-y-2 text-sm text-slate-600 dark:text-slate-400">
                                 <div className="grid grid-cols-[100px_1fr] items-center">
-                                    <span className="text-slate-500">Invoice No #</span>
-                                    <span className="font-bold text-slate-800">{id ? `${fi.invoicePrefix || 'INV'}${id.slice(0,6).toUpperCase()}` : 'DRAFT'}</span>
+                                    <span className="text-slate-400 dark:text-slate-500">Invoice No #</span>
+                                    <span className="font-bold text-[#091C3B] dark:text-white">{id ? `${fi.invoicePrefix || 'INV'}${id.slice(0,6).toUpperCase()}` : 'DRAFT'}</span>
                                 </div>
                                 <div className="grid grid-cols-[100px_1fr] items-center">
-                                    <span className="text-slate-500">Invoice Date</span>
-                                    <span className="font-bold text-slate-800">{new Date(docData.issue_date || new Date()).toLocaleDateString('en-US', {month:'short', day:'2-digit', year:'numeric'})}</span>
+                                    <span className="text-slate-400 dark:text-slate-500">Invoice Date</span>
+                                    <span className="font-bold text-[#091C3B] dark:text-white">
+                                        {new Date(docData.issue_date || new Date()).toLocaleDateString('en-US', {month:'short', day:'2-digit', year:'numeric'})}
+                                    </span>
                                 </div>
                             </div>
                         </div>
@@ -949,42 +1189,54 @@ export const DocumentEditor: React.FC = () => {
                             {co.logoUrl ? (
                                 <img src={co.logoUrl} alt="logo" className="h-24 w-auto object-contain" />
                             ) : (
-                                <div className="text-center">
-                                    <div className="w-20 h-20 rounded-full border-2 border-orange-200 mx-auto mb-1 flex items-center justify-center relative bg-orange-50 overflow-hidden">
+                                <div className="text-center group cursor-pointer">
+                                    <div className="w-20 h-20 rounded-full border-2 border-orange-200 dark:border-orange-500/20 mx-auto mb-1.5 flex items-center justify-center relative bg-orange-50 dark:bg-orange-950/20 overflow-hidden shadow-sm group-hover:scale-105 transition-transform duration-300">
                                         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-[40px]">✈️</div>
-                                        <div className="absolute top-0 text-[8px] uppercase tracking-[0.2em] font-bold text-orange-800 w-full text-center mt-2" style={{ transform: 'rotate(-25deg)', transformOrigin: 'center' }}>Discover Your</div>
+                                        <div className="absolute top-0 text-[8px] uppercase tracking-[0.2em] font-bold text-orange-800 dark:text-orange-400 w-full text-center mt-2" style={{ transform: 'rotate(-25deg)', transformOrigin: 'center' }}>Discover Your</div>
                                     </div>
-                                    <h2 className="text-lg font-black tracking-widest text-slate-900 uppercase">SHRAWELLO</h2>
-                                    <p className="text-orange-500 font-cursive text-xl -mt-2">Tours</p>
+                                    <h2 className="text-lg font-black tracking-widest text-[#091C3B] dark:text-white uppercase leading-none">SHRAWELLO</h2>
+                                    <p className="text-orange-500 font-cursive text-xl -mt-1">Tours</p>
                                 </div>
                             )}
                         </div>
                     </div>
 
                     <div className="px-8 pb-10 space-y-6">
-                        {/* Billed By / Billed To */}
-                        <div className="grid grid-cols-2 gap-5">
-                            <div className="bg-violet-50/70 rounded-xl p-5 border border-violet-100/80" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-                                <h3 className="text-xl font-normal text-violet-700 mb-3">Billed By</h3>
-                                <div className="space-y-1 text-sm text-slate-700">
-                                    <p className="font-bold text-base">{co.companyName || 'SHRAWELLO Travel Hub'}</p>
+                        {/* Billed By / Billed To Cards */}
+                        <div className="grid grid-cols-2 gap-6">
+                            
+                            {/* Billed By (Static Settings) */}
+                            <div className="bg-slate-50/50 dark:bg-slate-800/20 rounded-2xl p-5 border border-slate-100 dark:border-slate-800/80 transition-colors" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+                                <h3 className="text-sm font-bold text-[#F26222] uppercase tracking-wider mb-3">Billed By</h3>
+                                <div className="space-y-1.5 text-sm text-slate-600 dark:text-slate-300">
+                                    <p className="font-bold text-base text-[#091C3B] dark:text-white">{co.companyName || 'SHRAWELLO Travel Hub'}</p>
                                     {co.registeredAddress ? (
-                                        <div className="whitespace-pre-line">{co.registeredAddress}</div>
+                                        <div className="whitespace-pre-line leading-relaxed text-xs">{co.registeredAddress}</div>
                                     ) : (
-                                        <>
+                                        <div className="leading-relaxed text-xs">
                                             <p>Pimpri chinchwad, Pune ,</p>
                                             <p>Pune,</p>
                                             <p>Maharashtra, India - 411062</p>
-                                        </>
+                                        </div>
                                     )}
-                                    <p><span className="font-semibold">Email:</span> {co.email || 'hello@shrawello.com'}</p>
-                                    <p><span className="font-semibold">Phone:</span> {co.phone || '+91 80109 55675'}</p>
+                                    <p className="text-xs pt-1">
+                                        <span className="font-bold text-slate-400 dark:text-slate-500">Email:</span> {co.email || 'hello@shrawello.com'}
+                                    </p>
+                                    <p className="text-xs">
+                                        <span className="font-bold text-slate-400 dark:text-slate-500">Phone:</span> {co.phone || '+91 80109 55675'}
+                                    </p>
                                 </div>
                             </div>
 
-                            <div className="bg-violet-50/70 rounded-xl p-5 border border-violet-100/80 relative group" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-                                <h3 className="text-xl font-normal text-violet-700 mb-3 flex items-center justify-between">
-                                    Billed To
+                            {/* Billed To (Interactive Form) */}
+                            <div className="bg-slate-50/50 dark:bg-slate-800/20 rounded-2xl p-5 border border-slate-100 dark:border-slate-800/80 hover:border-orange-500/20 dark:hover:border-orange-500/20 transition-all relative group" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+                                <h3 className="text-sm font-bold text-[#F26222] uppercase tracking-wider mb-3 flex items-center justify-between">
+                                    <span className="flex items-center gap-1.5">
+                                        Billed To
+                                        <span className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 dark:text-slate-500">
+                                            <Edit3 size={11} className="inline -mt-0.5 animate-pulse" />
+                                        </span>
+                                    </span>
                                     <button
                                         onClick={() => {
                                             setShowLinkPanel(true);
@@ -993,44 +1245,44 @@ export const DocumentEditor: React.FC = () => {
                                             setSearchQuery('');
                                             setTimeout(() => searchRecords(searchType, ''), 0);
                                         }}
-                                        className="text-xs font-semibold text-orange-500 hover:text-orange-600 flex items-center gap-1 print:hidden opacity-0 group-hover:opacity-100 transition-opacity bg-white px-2 py-1 rounded"
+                                        className="text-[10px] font-bold text-orange-500 hover:text-orange-600 flex items-center gap-1.5 print:hidden opacity-0 group-hover:opacity-100 transition-opacity bg-white dark:bg-slate-800 px-2.5 py-1.5 rounded-lg border border-slate-200/50 dark:border-slate-700/80 shadow-sm"
                                     >
-                                        <Link size={12} /> Link Record
+                                        <Link size={11} /> Link Record
                                     </button>
                                 </h3>
-                                <div className="space-y-1 text-sm text-slate-700">
+                                <div className="space-y-2 text-sm">
                                     <input
                                         type="text"
                                         value={docData.client_name}
                                         onChange={(e) => setDocData({ ...docData, client_name: e.target.value })}
                                         placeholder="Client Name *"
-                                        className="font-bold text-base bg-transparent border-b border-transparent focus:border-violet-300 w-full outline-none placeholder:font-normal"
+                                        className="font-bold text-base bg-transparent border-b border-dashed border-transparent hover:border-slate-200 dark:hover:border-slate-800 focus:border-orange-500 dark:focus:border-orange-500 w-full outline-none focus:ring-0 py-0.5 text-[#091C3B] dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-600 transition-all"
                                     />
                                     <textarea
                                         value={docData.address}
                                         onChange={(e) => setDocData({ ...docData, address: e.target.value })}
                                         placeholder="Billing address"
-                                        rows={3}
-                                        className="bg-transparent border-b border-transparent focus:border-violet-300 w-full outline-none resize-none leading-relaxed"
+                                        rows={2}
+                                        className="bg-transparent border-b border-dashed border-transparent hover:border-slate-200 dark:hover:border-slate-800 focus:border-orange-500 dark:focus:border-orange-500 w-full outline-none focus:ring-0 resize-none text-xs leading-relaxed text-slate-600 dark:text-slate-300 placeholder:text-slate-400 dark:placeholder:text-slate-600 transition-all"
                                     />
-                                    <div className="flex items-center gap-1">
-                                        <span className="font-semibold">Email:</span>
+                                    <div className="flex items-center gap-1.5 text-xs">
+                                        <span className="font-bold text-slate-400 dark:text-slate-500">Email:</span>
                                         <input
                                             type="email"
                                             value={docData.email}
                                             onChange={(e) => setDocData({ ...docData, email: e.target.value })}
                                             placeholder="Email address"
-                                            className="bg-transparent border-b border-transparent focus:border-violet-300 flex-1 outline-none"
+                                            className="bg-transparent border-b border-dashed border-transparent hover:border-slate-200 dark:hover:border-slate-800 focus:border-orange-500 dark:focus:border-orange-500 flex-1 outline-none focus:ring-0 py-0.5 text-slate-600 dark:text-slate-300 placeholder:text-slate-400 dark:placeholder:text-slate-600 transition-all"
                                         />
                                     </div>
-                                    <div className="flex items-center gap-1">
-                                        <span className="font-semibold">Phone:</span>
+                                    <div className="flex items-center gap-1.5 text-xs">
+                                        <span className="font-bold text-slate-400 dark:text-slate-500">Phone:</span>
                                         <input
                                             type="tel"
                                             value={docData.phone || ''}
                                             onChange={(e) => setDocData({ ...docData, phone: e.target.value })}
                                             placeholder="Phone number"
-                                            className="bg-transparent border-b border-transparent focus:border-violet-300 flex-1 outline-none"
+                                            className="bg-transparent border-b border-dashed border-transparent hover:border-slate-200 dark:hover:border-slate-800 focus:border-orange-500 dark:focus:border-orange-500 flex-1 outline-none focus:ring-0 py-0.5 text-slate-600 dark:text-slate-300 placeholder:text-slate-400 dark:placeholder:text-slate-600 transition-all"
                                         />
                                     </div>
                                 </div>
@@ -1038,80 +1290,64 @@ export const DocumentEditor: React.FC = () => {
                         </div>
 
                         {/* Line Items Table */}
-                        <div className="border border-slate-200/80 rounded-xl overflow-hidden">
+                        <div className="border border-slate-200/60 dark:border-slate-800/80 rounded-2xl overflow-hidden shadow-sm transition-all duration-300">
                             <table className="w-full text-sm">
                                 <thead>
-                                    <tr className="bg-violet-700 text-white text-xs" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-                                        <th className="text-left px-4 py-3 font-semibold w-[45%]">Item</th>
-                                        <th className="text-center px-2 py-3 font-semibold w-[10%]">Date<br/>From</th>
-                                        <th className="text-center px-2 py-3 font-semibold w-[10%]">Date<br/>To</th>
-                                        <th className="text-center px-2 py-3 font-semibold w-[8%]">Total<br/>Days/Qty</th>
-                                        <th className="text-center px-2 py-3 font-semibold w-[10%]">Rate</th>
-                                        <th className="text-center px-2 py-3 font-semibold w-[7%]">Tax %</th>
-                                        <th className="text-right px-4 py-3 font-semibold w-[10%]">Amount</th>
+                                    <tr className="bg-[#091C3B] dark:bg-slate-800 text-white text-xs font-bold uppercase tracking-wider" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+                                        <th className="text-left px-4 py-4 w-[5%]">#</th>
+                                        <th className="text-left px-4 py-4 w-[47%]">Description</th>
+                                        <th className="text-center px-2 py-4 w-[10%]">Qty</th>
+                                        <th className="text-center px-2 py-4 w-[18%]">Total Days / Km</th>
+                                        <th className="text-right px-2 py-4 w-[10%]">Rate (₹)</th>
+                                        <th className="text-right px-4 py-4 w-[10%]">Amount (₹)</th>
                                         <th className="w-0 p-0 print:hidden"></th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {items.map((item, index) => {
                                         return (
-                                        <tr key={index} className={`group transition-colors border-b border-slate-100 last:border-0 ${index % 2 !== 0 ? 'bg-[#f8f9fa]' : 'bg-white'}`} style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-                                            <td className="px-4 py-3 align-top flex gap-2">
-                                                <span className="text-slate-500 pt-1">{index + 1}.</span>
+                                        <tr key={index} className={`group transition-colors border-b border-slate-100 dark:border-slate-800/50 last:border-0 ${index % 2 !== 0 ? 'bg-slate-50/50 dark:bg-slate-800/10' : 'bg-white dark:bg-[#111827]'}`} style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+                                            <td className="px-4 py-4.5 align-top text-slate-400 dark:text-slate-500 font-bold text-xs">{index + 1}.</td>
+                                            <td className="px-4 py-4.5 align-top">
                                                 <textarea
                                                     value={item.description}
                                                     onChange={(e) => handleItemChange(index, 'description', e.target.value)}
-                                                    placeholder="Item description..."
+                                                    placeholder="Enter details of tour packages, flights, stays..."
                                                     rows={2}
-                                                    className="w-full bg-transparent outline-none resize-none text-slate-700 leading-relaxed"
+                                                    className="w-full bg-transparent outline-none resize-none text-slate-700 dark:text-slate-200 leading-relaxed font-semibold focus:border-orange-500 focus:ring-0 border-b border-dashed border-transparent hover:border-slate-200 dark:hover:border-slate-700 transition-all text-xs py-0.5"
                                                 />
                                             </td>
-                                            <td className="px-2 py-3 align-top text-center">
-                                                <input
-                                                    type="date"
-                                                    value={item.date_from || ''}
-                                                    onChange={(e) => handleItemChange(index, 'date_from', e.target.value)}
-                                                    className="w-[90px] text-xs bg-transparent text-slate-700 text-center outline-none border-b border-transparent focus:border-violet-300"
-                                                />
-                                            </td>
-                                            <td className="px-2 py-3 align-top text-center">
-                                                <input
-                                                    type="date"
-                                                    value={item.date_to || ''}
-                                                    onChange={(e) => handleItemChange(index, 'date_to', e.target.value)}
-                                                    className="w-[90px] text-xs bg-transparent text-slate-700 text-center outline-none border-b border-transparent focus:border-violet-300"
-                                                />
-                                            </td>
-                                            <td className="px-2 py-3 align-top text-center">
+                                            <td className="px-2 py-4.5 align-top text-center">
                                                 <input
                                                     type="number" min="1"
                                                     value={item.quantity}
                                                     onChange={(e) => handleItemChange(index, 'quantity', parseFloat(e.target.value) || 0)}
-                                                    className="w-full bg-transparent text-center text-slate-700 outline-none border-b border-transparent focus:border-violet-300"
+                                                    className="w-full bg-transparent text-center text-slate-700 dark:text-slate-200 outline-none border-b border-dashed border-transparent focus:border-orange-500 focus:ring-0 font-semibold transition-all text-xs"
                                                 />
                                             </td>
-                                            <td className="px-2 py-3 align-top text-center">
+                                            <td className="px-2 py-4.5 align-top text-center">
+                                                <input
+                                                    type="text"
+                                                    value={item.total_days_km || '1'}
+                                                    onChange={(e) => handleItemChange(index, 'total_days_km', e.target.value)}
+                                                    className="w-full bg-transparent text-center text-slate-700 dark:text-slate-200 outline-none border-b border-dashed border-transparent focus:border-orange-500 focus:ring-0 font-semibold transition-all text-xs"
+                                                    placeholder="1"
+                                                />
+                                            </td>
+                                            <td className="px-2 py-4.5 align-top text-right">
                                                 <input
                                                     type="number" min="0"
                                                     value={item.unit_price}
                                                     onChange={(e) => handleItemChange(index, 'unit_price', parseFloat(e.target.value) || 0)}
-                                                    className="w-full bg-transparent text-center text-slate-700 outline-none border-b border-transparent focus:border-violet-300"
+                                                    className="w-full bg-transparent text-right text-slate-700 dark:text-slate-200 outline-none border-b border-dashed border-transparent focus:border-orange-500 focus:ring-0 font-semibold transition-all text-xs"
                                                 />
                                             </td>
-                                            <td className="px-2 py-3 align-top text-center">
-                                                <input
-                                                    type="number" min="0" max="100"
-                                                    value={item.tax_rate}
-                                                    onChange={(e) => handleItemChange(index, 'tax_rate', parseFloat(e.target.value) || 0)}
-                                                    className="w-full bg-transparent text-center text-slate-700 outline-none border-b border-transparent focus:border-violet-300"
-                                                />
-                                            </td>
-                                            <td className="px-4 py-3 align-top text-right text-slate-700 tabular-nums">
-                                                ₹{((Number(item.quantity || 0) * Number(item.unit_price || 0)) * (1 + Number(item.tax_rate || 0) / 100)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                            <td className="px-4 py-4.5 align-top text-right text-[#091C3B] dark:text-white tabular-nums font-bold text-xs">
+                                                ₹{(Number(item.quantity || 0) * Number(item.unit_price || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                                             </td>
                                             <td className="p-0 align-top print:hidden w-8">
-                                                <button onClick={() => removeItem(index)} className="p-2 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all mt-1">
-                                                    <Trash2 size={14} />
+                                                <button onClick={() => removeItem(index)} className="p-2.5 text-slate-300 hover:text-red-500 hover:scale-105 active:scale-95 opacity-0 group-hover:opacity-100 transition-all mt-1">
+                                                    <Trash2 size={13} />
                                                 </button>
                                             </td>
                                         </tr>
@@ -1121,133 +1357,282 @@ export const DocumentEditor: React.FC = () => {
                         </div>
                         
                         {/* Add Item Actions (Hidden in print) */}
-                        <div className="flex gap-2 print:hidden mt-1">
-                            <button onClick={addItem} className="text-violet-600 hover:text-violet-700 flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 bg-violet-50 hover:bg-violet-100 rounded-lg border border-violet-100 transition-colors">
+                        <div className="flex gap-2 print:hidden mt-2">
+                            <button onClick={addItem} className="text-[#F26222] hover:text-orange-700 hover:scale-[1.02] active:scale-95 flex items-center gap-1.5 text-xs font-bold px-3.5 py-2 bg-orange-50 dark:bg-orange-500/10 hover:bg-orange-100 dark:hover:bg-orange-500/20 rounded-xl border border-orange-100/50 dark:border-orange-500/20 transition-all">
                                 <Plus size={13} /> Add Row
                             </button>
-                            <button onClick={() => { setShowCatalogPanel(true); searchCatalog(); }} className="text-sky-600 hover:text-sky-700 flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 bg-sky-50 hover:bg-sky-100 rounded-lg border border-sky-100 transition-colors">
+                            <button onClick={() => { setShowCatalogPanel(true); searchCatalog(); }} className="text-slate-700 dark:text-slate-200 hover:scale-[1.02] active:scale-95 flex items-center gap-1.5 text-xs font-bold px-3.5 py-2 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-750 rounded-xl border border-slate-200/50 dark:border-slate-700/80 transition-all">
                                 <Search size={13} /> From Catalog
                             </button>
                         </div>
 
                         {/* Totals Section */}
-                        <div className="flex items-start justify-between pt-6">
+                        <div className="flex flex-col lg:flex-row items-stretch justify-between gap-8 pt-8 border-t border-slate-100 dark:border-slate-800/80">
                             
                             {/* Left Side: Bank Details + Words */}
-                            <div className="w-[45%] flex flex-col gap-8">
+                            <div className="w-full lg:w-[45%] flex flex-col gap-6">
                                 <div>
-                                    <p className="text-sm text-slate-800 font-bold mb-1 uppercase tracking-wide">Total (in words) :</p>
-                                    <p className="text-sm text-slate-700 uppercase font-bold">{numberToWords(totalAmount)} RUPEES ONLY</p>
+                                    <p className="text-[10px] text-slate-400 dark:text-slate-500 font-extrabold uppercase tracking-widest mb-1.5">Total (In Words)</p>
+                                    <p className="text-xs text-[#091C3B] dark:text-slate-200 font-bold bg-orange-500/5 dark:bg-orange-500/10 border border-orange-500/20 dark:border-orange-500/30 rounded-2xl px-4 py-3 leading-relaxed shadow-inner">
+                                        {numberToWords(totalAmount)} RUPEES ONLY
+                                    </p>
                                 </div>
                                 
-                                <div className="bg-violet-50/70 rounded-xl p-5 border border-violet-100/80" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-                                    <h4 className="text-sm font-semibold text-violet-700 mb-3 uppercase tracking-wide">Bank Details</h4>
-                                    <div className="grid grid-cols-[120px_1fr] gap-y-2 text-sm text-slate-700">
-                                        <span className="font-semibold text-slate-800">Account Name</span>
-                                        <span>{fi.bankAccountName || co.companyName || 'SHRAWELLO Travel Hub'}</span>
+                                <div className="bg-slate-50/50 dark:bg-slate-800/20 rounded-2xl p-5 border border-slate-100 dark:border-slate-800/80 transition-colors" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+                                    <h4 className="text-xs font-bold text-[#F26222] uppercase tracking-wider mb-4">Bank Details</h4>
+                                    <div className="grid grid-cols-[120px_1fr] gap-y-2.5 text-xs text-slate-600 dark:text-slate-300">
+                                        <span className="font-semibold text-slate-400 dark:text-slate-500">Account Name</span>
+                                        <span className="font-medium text-slate-800 dark:text-slate-200">{fi.bankAccountName || 'SHRAWELLO TRAVELHUB AND EVENTS LLP'}</span>
                                         
-                                        <span className="font-semibold text-slate-800">Account Number</span>
-                                        <span>{fi.bankAccountNumber || '14960200014487'}</span>
+                                        <span className="font-semibold text-slate-400 dark:text-slate-500">Account Number</span>
+                                        <span className="font-bold text-slate-850 dark:text-slate-100 font-mono tracking-wide">{fi.bankAccountNumber || '4054789256'}</span>
                                         
-                                        <span className="font-semibold text-slate-800">IFSC</span>
-                                        <span>{fi.bankIfsc || 'FDRL0001496'}</span>
+                                        <span className="font-semibold text-slate-400 dark:text-slate-500">IFSC</span>
+                                        <span className="font-bold text-slate-850 dark:text-slate-100 font-mono tracking-wide">{fi.bankIfsc || 'KKBK0002119'}</span>
                                         
-                                        <span className="font-semibold text-slate-800">Account Type</span>
-                                        <span>Current</span>
+                                        <span className="font-semibold text-slate-400 dark:text-slate-500">Account Type</span>
+                                        <span className="font-medium text-slate-850 dark:text-slate-200">Current</span>
                                         
-                                        <span className="font-semibold text-slate-800">Bank</span>
-                                        <span>{fi.bankName || 'Federal Bank'}</span>
+                                        <span className="font-semibold text-slate-400 dark:text-slate-500">Bank</span>
+                                        <span className="font-medium text-slate-850 dark:text-slate-200">{fi.bankName || 'KOTAK MAHINDRA BANK'}</span>
                                     </div>
                                 </div>
                             </div>
 
                             {/* Middle Side: UPI QR */}
-                            <div className="w-[20%] flex flex-col items-center pt-20">
-                            {fi.upiId ? (
-                                <>
-                                    <p className="text-sm font-semibold text-violet-700 mb-1">Scan to pay via UPI</p>
-                                    <p className="text-[10px] text-slate-500 text-center mb-2 leading-tight">Maximum of 1 lakh can<br/>be transferred via upi in a<br/>single day</p>
-                                    <img src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=upi://pay?pa=${fi.upiId}&pn=${encodeURIComponent(co.companyName || 'SHRAWELLO')}&cu=INR`} alt="UPI QR" className="w-24 h-24 mix-blend-multiply" />
-                                    <p className="text-xs font-semibold mt-2">{fi.upiId}</p>
-                                </>
-                            ) : null}
-                            </div>
-
-                            {/* Right Side: Totals */}
-                            <div className="w-[35%] text-sm text-slate-700">
-                                <div className="space-y-4 pb-4 px-2">
-                                    <div className="flex justify-between items-center">
-                                        <span>Toll / TP Charges:</span>
-                                        <span className="tabular-nums">₹0.00</span>
-                                    </div>
-                                    <div className="flex justify-between items-center">
-                                        <span>Driver Stay Allowance:</span>
-                                        <span className="tabular-nums">₹0.00</span>
-                                    </div>
-                                    <div className="flex justify-between items-center">
-                                        <span>Corporate / Referral<br/>Discount:</span>
-                                        <div className="flex items-center justify-end">
-                                            <input
-                                                type="number" min="0"
-                                                value={discount}
-                                                onChange={e => setDiscount(parseFloat(e.target.value) || 0)}
-                                                className="w-20 text-right bg-transparent border-b border-transparent focus:border-violet-300 outline-none print:hidden -mr-2"
-                                            />
-                                            <span className="hidden print:inline-block tabular-nums text-slate-600">(₹{discountAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 })})</span>
-                                        </div>
-                                    </div>
-                                    <div className="flex justify-between items-center">
-                                        <span>Subtotal:</span>
-                                        <span className="tabular-nums">₹{subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                                    </div>
-                                    {taxTotal > 0 && (
-                                        <>
-                                            <div className="flex justify-between items-center text-slate-500 text-xs">
-                                                <span>CGST (half of tax)</span>
-                                                <span className="tabular-nums">₹{(taxTotal / 2).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                                            </div>
-                                            <div className="flex justify-between items-center text-slate-500 text-xs">
-                                                <span>SGST (half of tax)</span>
-                                                <span className="tabular-nums">₹{(taxTotal / 2).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                                            </div>
-                                            <div className="flex justify-between items-center">
-                                                <span>Total Tax:</span>
-                                                <span className="tabular-nums">₹{taxTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                                            </div>
-                                        </>
+                            <div className="w-full lg:w-[20%] flex flex-col items-center justify-center py-6 border-y lg:border-y-0 lg:border-x border-slate-100 dark:border-slate-800/80">
+                                <p className="text-[10px] font-extrabold text-[#091C3B] dark:text-white uppercase tracking-widest mb-1">SCAN VIA UPI</p>
+                                <p className="text-[9px] text-slate-400 dark:text-slate-500 text-center mb-3.5 leading-tight">Transfer up to 1 Lakh per day</p>
+                                <div className="p-2.5 bg-white dark:bg-white rounded-2xl border border-slate-200/50 dark:border-slate-700 shadow-sm transition-transform duration-300 hover:scale-105">
+                                    {fi.upiQrImage ? (
+                                        <img src={fi.upiQrImage} alt="UPI QR" className="w-24 h-24 mix-blend-multiply object-contain" />
+                                    ) : fi.upiId ? (
+                                        <img src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=upi://pay?pa=${fi.upiId}&pn=${encodeURIComponent(co.companyName || 'SHRAWELLO')}&am=${Math.max(0, balanceDue).toFixed(2)}&cu=INR`} alt="UPI QR" className="w-24 h-24 mix-blend-multiply" />
+                                    ) : (
+                                        <img src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=upi://pay?pa=shravyatours23@okicici&pn=SHRAWELLO&am=${Math.max(0, balanceDue).toFixed(2)}&cu=INR`} alt="UPI QR" className="w-24 h-24 mix-blend-multiply" />
                                     )}
                                 </div>
-                                
-                                <div className="border-t-2 border-violet-700 pt-3 flex justify-between items-center mb-5" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-                                    <span className="text-base font-bold text-slate-900">Total (INR)</span>
-                                    <span className="text-lg font-bold text-violet-700 tabular-nums">₹{totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                                </div>
-                                
-                                <div className="space-y-4 pt-2">
-                                    <div className="flex justify-between items-center text-slate-600">
-                                        <span>Amount Paid</span>
-                                        <div className="flex items-center justify-end">
-                                            <select
-                                                value={docData.payment_status}
-                                                onChange={e => setDocData({...docData, payment_status: e.target.value})}
-                                                className="bg-transparent border-b border-transparent focus:border-violet-300 outline-none print:hidden mr-2 text-xs"
-                                            >
-                                                <option value="Unpaid">Unpaid</option>
-                                                <option value="Partially Paid">Part Paid</option>
-                                                <option value="Paid">Paid</option>
-                                            </select>
-                                            <input
-                                                type="number" min="0"
-                                                value={docData.amount_paid || 0}
-                                                onChange={e => setDocData({...docData, amount_paid: parseFloat(e.target.value) || 0})}
-                                                className="w-20 text-right bg-transparent border-b border-transparent focus:border-violet-300 outline-none print:hidden -mr-2 tabular-nums"
-                                            />
-                                            <span className="hidden print:inline-block tabular-nums">(₹{(docData.amount_paid || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })})</span>
+                                <p className="text-[10px] font-bold text-[#F26222] mt-3.5 tracking-wide bg-orange-50 dark:bg-orange-500/10 px-2.5 py-0.5 rounded-full">
+                                    {fi.upiId || 'shravyatours23@okicici'}
+                                </p>
+                            </div>
+
+                            {/* Right Side: Calculations Receipt Drawer */}
+                            <div className="w-full lg:w-[32%] text-xs text-slate-600 dark:text-slate-300">
+                                <div className="bg-slate-50/50 dark:bg-slate-800/20 rounded-2xl p-5 border border-slate-100 dark:border-slate-800/80 transition-colors">
+                                    <div className="space-y-3.5 pb-4.5">
+                                        {/* ── Helper: Editable Fixed Label Row ─────────────── */}
+                                        {(
+                                            [
+                                                { key: 'driver_stay_allowance', defaultLabel: 'Driver Stay Allowance', valueKey: 'driver_stay_allowance' },
+                                                { key: 'extra_km_charges', defaultLabel: 'Extra Km Charges', valueKey: 'extra_km_charges' },
+                                                { key: 'extra_hrs_charges', defaultLabel: 'Extra Hrs. Charges', valueKey: 'extra_hrs_charges' },
+                                                { key: 'advance_received', defaultLabel: 'Advance Received', valueKey: 'advance_received' },
+                                            ] as const
+                                        ).map(({ key, defaultLabel, valueKey }) => (
+                                            <div key={key} className="flex justify-between items-center group">
+                                                {/* Editable label */}
+                                                <div className="flex items-center gap-1 flex-1 min-w-0 mr-2">
+                                                    {editingLabel === key ? (
+                                                        <input
+                                                            type="text"
+                                                            autoFocus
+                                                            value={fieldLabels[key] ?? defaultLabel}
+                                                            onChange={e => setFieldLabels(prev => ({ ...prev, [key]: e.target.value }))}
+                                                            onBlur={() => setEditingLabel(null)}
+                                                            onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Escape') setEditingLabel(null); }}
+                                                            className="flex-1 min-w-0 text-xs font-semibold bg-orange-50 dark:bg-orange-500/10 border border-orange-400 rounded px-1.5 py-0.5 outline-none text-orange-700 dark:text-orange-300"
+                                                        />
+                                                    ) : (
+                                                        <>
+                                                            <span className="font-semibold text-slate-500 dark:text-slate-400 truncate">
+                                                                {fieldLabels[key] || defaultLabel}:
+                                                            </span>
+                                                            <button
+                                                                type="button"
+                                                                title="Rename label"
+                                                                onClick={() => setEditingLabel(key)}
+                                                                className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-orange-500 ml-1 flex-shrink-0 print:hidden"
+                                                            >
+                                                                <Edit3 size={10} />
+                                                            </button>
+                                                        </>
+                                                    )}
+                                                </div>
+                                                <div className="flex items-center justify-end flex-shrink-0">
+                                                    <input
+                                                        type="number" min="0"
+                                                        value={(docData as any)[valueKey] || 0}
+                                                        onChange={e => setDocData({ ...docData, [valueKey]: parseFloat(e.target.value) || 0 })}
+                                                        className="w-20 text-right bg-transparent border-b border-dashed border-transparent hover:border-slate-200 dark:hover:border-slate-700 focus:border-orange-500 focus:ring-0 outline-none print:hidden -mr-2 font-bold text-slate-800 dark:text-slate-100"
+                                                    />
+                                                    <span className="hidden print:inline-block tabular-nums font-bold">₹{Number((docData as any)[valueKey] || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                                </div>
+                                            </div>
+                                        ))}
+
+                                        {/* ── Discount row (also editable label) ─────────── */}
+                                        <div className="flex justify-between items-center group">
+                                            <div className="flex items-center gap-1 flex-1 min-w-0 mr-2">
+                                                {editingLabel === 'discount' ? (
+                                                    <input
+                                                        type="text"
+                                                        autoFocus
+                                                        value={fieldLabels['discount'] ?? 'Discount Amount'}
+                                                        onChange={e => setFieldLabels(prev => ({ ...prev, discount: e.target.value }))}
+                                                        onBlur={() => setEditingLabel(null)}
+                                                        onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Escape') setEditingLabel(null); }}
+                                                        className="flex-1 min-w-0 text-xs font-semibold bg-orange-50 dark:bg-orange-500/10 border border-orange-400 rounded px-1.5 py-0.5 outline-none text-orange-700 dark:text-orange-300"
+                                                    />
+                                                ) : (
+                                                    <>
+                                                        <span className="font-semibold text-slate-500 dark:text-slate-400 truncate">
+                                                            {fieldLabels['discount'] || 'Discount Amount'}:
+                                                        </span>
+                                                        <button
+                                                            type="button"
+                                                            title="Rename label"
+                                                            onClick={() => setEditingLabel('discount')}
+                                                            className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-orange-500 ml-1 flex-shrink-0 print:hidden"
+                                                        >
+                                                            <Edit3 size={10} />
+                                                        </button>
+                                                    </>
+                                                )}
+                                            </div>
+                                            <div className="flex items-center justify-end flex-shrink-0">
+                                                <input
+                                                    type="number" min="0"
+                                                    value={discount}
+                                                    onChange={e => setDiscount(parseFloat(e.target.value) || 0)}
+                                                    className="w-20 text-right bg-transparent border-b border-dashed border-transparent hover:border-slate-200 dark:hover:border-slate-700 focus:border-orange-500 focus:ring-0 outline-none print:hidden -mr-2 font-bold text-[#2D6A4F] dark:text-emerald-400"
+                                                />
+                                                <span className="hidden print:inline-block tabular-nums text-slate-500 font-bold">(₹{discountAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 })})</span>
+                                            </div>
                                         </div>
+
+                                        {/* ── Custom Extra Fields ──────────────────────────── */}
+                                        {customFields.map((cf, idx) => (
+                                            <div key={cf.id} className="flex items-center gap-1.5 group animate-[fadeIn_0.2s_ease]">
+                                                {/* Label input */}
+                                                <input
+                                                    type="text"
+                                                    placeholder="Field name…"
+                                                    value={cf.label}
+                                                    onChange={e => updateCustomField(idx, { label: e.target.value })}
+                                                    className="flex-1 min-w-0 text-xs font-semibold bg-transparent border-b border-dashed border-slate-300 dark:border-slate-700 focus:border-orange-500 outline-none text-slate-700 dark:text-slate-200 placeholder:text-slate-300 dark:placeholder:text-slate-600 print:hidden"
+                                                />
+                                                {/* Amount input */}
+                                                <input
+                                                    type="number" min="0"
+                                                    value={cf.amount}
+                                                    onChange={e => updateCustomField(idx, { amount: parseFloat(e.target.value) || 0 })}
+                                                    className="w-20 text-right bg-transparent border-b border-dashed border-slate-300 dark:border-slate-700 focus:border-orange-500 outline-none font-bold text-slate-800 dark:text-slate-100 print:hidden"
+                                                />
+                                                {/* +/- toggle */}
+                                                <button
+                                                    type="button"
+                                                    title={cf.is_deduction ? 'Deduction (click to make charge)' : 'Charge (click to make deduction)'}
+                                                    onClick={() => updateCustomField(idx, { is_deduction: !cf.is_deduction })}
+                                                    className={`flex-shrink-0 w-6 h-6 rounded-full text-[10px] font-black border transition-all print:hidden ${cf.is_deduction ? 'bg-red-50 dark:bg-red-500/10 border-red-300 dark:border-red-500/40 text-red-600 dark:text-red-400' : 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-300 dark:border-emerald-500/40 text-emerald-600 dark:text-emerald-400'}`}
+                                                >
+                                                    {cf.is_deduction ? '−' : '+'}
+                                                </button>
+                                                {/* Delete */}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => removeCustomField(idx)}
+                                                    className="flex-shrink-0 text-slate-300 dark:text-slate-600 hover:text-red-500 dark:hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 print:hidden"
+                                                >
+                                                    <Trash2 size={12} />
+                                                </button>
+                                                {/* Print display */}
+                                                <span className="hidden print:inline-block tabular-nums font-bold text-xs">
+                                                    {cf.is_deduction ? '−' : '+'} ₹{Number(cf.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                                </span>
+                                            </div>
+                                        ))}
+
+                                        {/* Add Custom Field Button */}
+                                        <button
+                                            type="button"
+                                            onClick={addCustomField}
+                                            className="flex items-center gap-1.5 text-[10px] font-bold text-orange-500 hover:text-orange-600 dark:text-orange-400 dark:hover:text-orange-300 bg-orange-50 dark:bg-orange-500/10 border border-dashed border-orange-300 dark:border-orange-500/30 rounded-xl px-3 py-1.5 mt-1 transition-all hover:border-orange-400 dark:hover:border-orange-400 print:hidden w-full justify-center"
+                                        >
+                                            <Plus size={10} /> Add Custom Field
+                                        </button>
+
+                                        {/* Subtotal + Tax read-only rows */}
+                                        <div className="flex justify-between items-center border-t border-slate-200/50 dark:border-slate-800/80 pt-2 text-[10px] text-slate-400">
+                                            <span>Subtotal (Base Items):</span>
+                                            <span className="tabular-nums font-medium">₹{subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                        </div>
+                                        {taxTotal > 0 && (
+                                            <div className="flex justify-between items-center text-[10px] text-slate-400">
+                                                <span>Tax Total:</span>
+                                                <span className="tabular-nums font-medium">₹{taxTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                            </div>
+                                        )}
                                     </div>
-                                    <div className="flex justify-between items-center font-semibold text-slate-800">
-                                        <span>Due Amount</span>
-                                        <span className="tabular-nums text-slate-800">₹{(totalAmount - (docData.amount_paid || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                    
+                                    <div className="border-t border-slate-350 dark:border-slate-700/80 pt-3 flex justify-between items-center mb-4" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+                                        <span className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">Net Amount</span>
+                                        <span className="text-lg font-black text-[#F26222] tabular-nums">₹{totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                    </div>
+                                    
+                                    {/* Live Payment Progress indicator */}
+                                    <div className="space-y-3 pt-3.5 bg-emerald-500/5 dark:bg-emerald-500/10 border border-emerald-500/15 dark:border-emerald-500/20 rounded-2xl p-4 transition-colors">
+                                        <div className="flex justify-between items-center text-slate-700 dark:text-slate-200">
+                                            <div className="flex items-center gap-1">
+                                                <span className="text-[10px] font-extrabold text-emerald-600 dark:text-emerald-400 uppercase tracking-widest">Amount Paid</span>
+                                            </div>
+                                            <div className="flex items-center justify-end">
+                                                <select
+                                                    value={docData.payment_status}
+                                                    onChange={e => setDocData({...docData, payment_status: e.target.value})}
+                                                    className="bg-transparent border-b border-transparent focus:border-orange-500 focus:ring-0 outline-none print:hidden mr-2 text-[10px] text-emerald-600 dark:text-emerald-400 font-extrabold cursor-pointer"
+                                                >
+                                                    <option value="Unpaid">Unpaid</option>
+                                                    <option value="Partially Paid">Part Paid</option>
+                                                    <option value="Paid">Paid</option>
+                                                </select>
+                                                <input
+                                                    type="number" min="0"
+                                                    value={docData.amount_paid || 0}
+                                                    onChange={e => setDocData({...docData, amount_paid: parseFloat(e.target.value) || 0})}
+                                                    className="w-20 text-right bg-transparent border-b border-dashed border-transparent hover:border-slate-200 dark:hover:border-slate-700 focus:border-orange-500 focus:ring-0 outline-none print:hidden -mr-2 font-black text-emerald-600 dark:text-emerald-400"
+                                                />
+                                                <span className="hidden print:inline-block tabular-nums font-bold text-emerald-600 dark:text-emerald-400">(₹{(docData.amount_paid || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })})</span>
+                                            </div>
+                                        </div>
+
+                                        {/* Percentage progress bar */}
+                                        {totalAmount > 0 && (
+                                            <div className="pt-1 select-none">
+                                                {(() => {
+                                                    const percentPaid = Math.min(100, Math.max(0, ((Number(docData.amount_paid || 0) + advanceReceived) / totalAmount) * 100));
+                                                    return (
+                                                        <>
+                                                            <div className="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
+                                                                <div 
+                                                                    className="bg-gradient-to-r from-emerald-500 to-teal-500 h-full rounded-full transition-all duration-500" 
+                                                                    style={{ width: `${percentPaid}%` }} 
+                                                                />
+                                                            </div>
+                                                            <div className="flex justify-between items-center text-[8px] font-extrabold uppercase text-slate-400 dark:text-slate-500 tracking-wider mt-1.5">
+                                                                <span>Paid: {Math.round(percentPaid)}%</span>
+                                                                <span>Due: ₹{Math.max(0, balanceDue).toLocaleString('en-IN')}</span>
+                                                            </div>
+                                                        </>
+                                                    );
+                                                })()}
+                                            </div>
+                                        )}
+
+                                        <div className="flex justify-between items-center font-bold text-slate-800 dark:text-slate-200 border-t border-slate-200/50 dark:border-slate-800/80 pt-2.5 text-[10px]">
+                                            <span className="uppercase tracking-wider">Due Balance</span>
+                                            <span className="tabular-nums font-black text-slate-900 dark:text-white">₹{Math.max(0, balanceDue).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -1257,11 +1642,11 @@ export const DocumentEditor: React.FC = () => {
                         <div className="pt-24 flex justify-end">
                             <div className="text-center">
                                 {co.companyName ? (
-                                    <div className="font-cursive text-3xl text-slate-800 mb-1" style={{ fontFamily: "'Dancing Script', cursive" }}>{co.companyName}</div>
+                                    <div className="font-cursive text-3xl text-[#091C3B] mb-1 animate-pulse" style={{ fontFamily: "'Dancing Script', cursive" }}>{co.companyName}</div>
                                 ) : (
-                                    <div className="font-cursive text-4xl text-slate-800 mb-1" style={{ fontFamily: "'Dancing Script', cursive" }}>Shrawello</div>
+                                    <div className="font-cursive text-4xl text-[#091C3B] mb-1" style={{ fontFamily: "'Dancing Script', cursive" }}>Shrawello</div>
                                 )}
-                                <p className="text-sm text-slate-700">This is system generated invoice</p>
+                                <p className="text-sm text-slate-400">This is a system-generated invoice</p>
                             </div>
                         </div>
 
@@ -1269,15 +1654,15 @@ export const DocumentEditor: React.FC = () => {
                         <div className="hidden print:flex justify-between items-center pt-6 mt-12 border-t border-slate-300 border-dashed text-[10px] text-slate-500">
                             <div className="grid grid-cols-[100px_1fr]">
                                 <span className="font-medium">Invoice No</span>
-                                <span className="font-bold text-slate-800">{id ? `${fi.invoicePrefix || 'INV'}${id.slice(0,6).toUpperCase()}` : 'DRAFT'}</span>
+                                <span className="font-bold text-[#091C3B]">{id ? `${fi.invoicePrefix || 'INV'}-${id.slice(0,6).toUpperCase()}` : 'DRAFT'}</span>
                             </div>
                             <div className="grid grid-cols-[100px_1fr]">
                                 <span className="font-medium">Invoice Date</span>
-                                <span className="font-bold text-slate-800">{new Date(docData.issue_date || new Date()).toLocaleDateString('en-US', {day:'2-digit', month:'short', year:'numeric'})}</span>
+                                <span className="font-bold text-[#091C3B]">{new Date(docData.issue_date || new Date()).toLocaleDateString('en-US', {day:'2-digit', month:'short', year:'numeric'})}</span>
                             </div>
                             <div className="grid grid-cols-[80px_1fr]">
                                 <span className="font-medium">Billed To</span>
-                                <span className="font-bold text-slate-800">{docData.client_name || 'Client'}</span>
+                                <span className="font-bold text-[#091C3B]">{docData.client_name || 'Client'}</span>
                             </div>
                             <div className="font-medium">
                                 Page 1 of 2
@@ -1289,32 +1674,32 @@ export const DocumentEditor: React.FC = () => {
                 {/* Page 2: Terms and Conditions */}
                 <div className="mt-6 bg-white rounded-2xl shadow-[0_4px_32px_rgba(0,0,0,0.08)] border border-slate-200/70 overflow-hidden relative print:mt-[100px] print:shadow-none print:border-none print:break-before-page">
                     <div className="px-8 py-10 space-y-4">
-                        <h3 className="text-base font-semibold text-violet-700 uppercase tracking-wide">Terms and Conditions</h3>
+                        <h3 className="text-base font-bold text-[#F26222] uppercase tracking-wide">Terms and Conditions</h3>
                         <div className="text-sm text-slate-800 space-y-2">
                             <textarea
                                 value={docData.notes || "1. Please pay within 3 days from the date of invoice, overdue interest @ 14% will be charged on delayed payments.\n2. Additional 5% charges applicable for Credit card payments.\n3. Additional 1200/- Night charges applicable if trip ends after 11:45PM.\n4. For Outstation trips more than 1 day, driver stay allowance is applicable as per category of city."}
                                 onChange={(e) => setDocData({ ...docData, notes: e.target.value })}
                                 rows={6}
-                                className="w-full bg-transparent outline-none resize-y leading-relaxed text-sm"
+                                className="w-full bg-transparent outline-none resize-y leading-relaxed text-sm font-medium focus:border-b focus:border-orange-300"
                             />
                         </div>
-                        <div className="pt-8 text-center text-sm">
-                            <p>For any enquiry, reach out via email at <span className="font-semibold">{co.email || 'hello@shrawello.com'}</span>, call on <span className="font-semibold">{co.phone || '+91 80109 55675'}</span></p>
+                        <div className="pt-8 text-center text-sm text-slate-500">
+                            <p>For any enquiry, reach out via email at <span className="font-bold text-[#091C3B]">{co.email || 'hello@shrawello.com'}</span>, call on <span className="font-bold text-[#091C3B]">{co.phone || '+91 80109 55675'}</span></p>
                         </div>
                         
                         {/* Page 2 Footer */}
                         <div className="hidden print:flex justify-between items-center pt-8 mt-[800px] border-t border-slate-300 border-dashed text-[10px] text-slate-500 absolute bottom-8 left-8 right-8">
                             <div className="grid grid-cols-[100px_1fr]">
                                 <span className="font-medium">Invoice No</span>
-                                <span className="font-bold text-slate-800">{id ? `${fi.invoicePrefix || 'INV'}${id.slice(0,6).toUpperCase()}` : 'DRAFT'}</span>
+                                <span className="font-bold text-[#091C3B]">{id ? `${fi.invoicePrefix || 'INV'}-${id.slice(0,6).toUpperCase()}` : 'DRAFT'}</span>
                             </div>
                             <div className="grid grid-cols-[100px_1fr]">
                                 <span className="font-medium">Invoice Date</span>
-                                <span className="font-bold text-slate-800">{new Date(docData.issue_date || new Date()).toLocaleDateString('en-US', {day:'2-digit', month:'short', year:'numeric'})}</span>
+                                <span className="font-bold text-[#091C3B]">{new Date(docData.issue_date || new Date()).toLocaleDateString('en-US', {day:'2-digit', month:'short', year:'numeric'})}</span>
                             </div>
                             <div className="grid grid-cols-[80px_1fr]">
                                 <span className="font-medium">Billed To</span>
-                                <span className="font-bold text-slate-800">{docData.client_name || 'Client'}</span>
+                                <span className="font-bold text-[#091C3B]">{docData.client_name || 'Client'}</span>
                             </div>
                             <div className="font-medium">
                                 Page 2 of 2

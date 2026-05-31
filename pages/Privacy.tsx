@@ -74,7 +74,7 @@ export const Privacy: React.FC = () => {
         },
         {
             title: "Changes to This Policy",
-            content: "SHRAWELLO Travel Hub reserves the right to update or modify this Privacy Policy at any time without prior notice. Changes will be effective upon posting on the website."
+            content: "SHRAWELLO Travel Hub and Events LLP reserves the right to update or modify this Privacy Policy at any time without prior notice. Changes will be effective upon posting on the website."
         },
         {
             title: "Governing Law",
@@ -82,7 +82,7 @@ export const Privacy: React.FC = () => {
         },
         {
             title: "Contact Us",
-            content: "For any questions or concerns regarding this Privacy Policy, please contact SHRAWELLO Travel Hub using the contact details available on our website."
+            content: "For any questions or concerns regarding this Privacy Policy, please contact SHRAWELLO Travel Hub and Events LLP using the contact details available on our website."
         }
     ];
 
@@ -96,7 +96,7 @@ export const Privacy: React.FC = () => {
                         Privacy Policy
                     </h1>
                     <p className="text-xl text-primary font-semibold">
-                        SHRAWELLO Travel Hub
+                        SHRAWELLO Travel Hub and Events LLP
                     </p>
                 </div>
 
@@ -104,7 +104,7 @@ export const Privacy: React.FC = () => {
                 <div className="mb-10 text-slate-600 dark:text-slate-300 leading-relaxed">
                     <div className="p-6 bg-primary/5 rounded-xl border border-primary/10">
                         <p className="font-medium text-slate-700 dark:text-slate-200">
-                            SHRAWELLO Travel Hub (“We”, “Us”, “Our”) is committed to protecting the privacy of users who access our website and use our services. This Privacy Policy explains how we collect, use, disclose, and safeguard your information. By using our website and services, you agree to the terms of this Privacy Policy.
+                            SHRAWELLO Travel Hub and Events LLP (“We”, “Us”, “Our”) is committed to protecting the privacy of users who access our website and use our services. This Privacy Policy explains how we collect, use, disclose, and safeguard your information. By using our website and services, you agree to the terms of this Privacy Policy.
                         </p>
                     </div>
                 </div>

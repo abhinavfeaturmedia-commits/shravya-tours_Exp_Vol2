@@ -10,8 +10,42 @@ import { Booking, SupplierBooking } from '../../types';
 import { api } from '../../src/lib/api';
 import { toast } from 'sonner';
 
+// Timezone-safe Day of Tour calculation helper
+const getDayOfTour = (dateStr: string, duration: number) => {
+    const parts = dateStr.split('-');
+    if (parts.length < 3) return 1;
+    const start = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+    start.setHours(0, 0, 0, 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const diffDays = Math.floor((today.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+    return Math.min(Math.max(diffDays, 1), duration);
+};
+
+// Robust pax count extraction helper
+const extractPaxCount = (guestsStr?: string): number => {
+    if (!guestsStr) return 1;
+    const str = guestsStr.toLowerCase();
+    
+    // Check if there is a number preceding "adult", "pax", "guest", "person", "member"
+    const match = str.match(/(\d+)\s*(?:adult|pax|guest|person|member)/);
+    if (match) {
+        return parseInt(match[1]);
+    }
+    
+    // Filter out numbers related to age (year/yr) or rooms/beds
+    const cleanStr = str.replace(/\d+\s*(?:yr|year|room|bed)/g, '');
+    const nums = cleanStr.match(/\d+/g);
+    if (nums && nums.length > 0) {
+        return nums.reduce((acc, curr) => acc + parseInt(curr), 0);
+    }
+    
+    const fallbackNums = str.match(/\d+/g);
+    return fallbackNums ? parseInt(fallbackNums[0]) : 1;
+};
+
 export const Operations: React.FC = () => {
-    const { bookings, packages, vendors, addSupplierBooking } = useData();
+    const { bookings, packages, vendors, addSupplierBooking, updateSupplierBooking, updateBooking } = useData();
     const { staff, updateStaff, currentUser } = useAuth();
     const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState<'Tours' | 'Attendance'>('Tours');
@@ -43,14 +77,8 @@ export const Operations: React.FC = () => {
             end.setDate(start.getDate() + (duration - 1));
             end.setHours(23, 59, 59, 999);
 
-            // Use explicit DB field first, fall back to regex on guests string
-            let paxCount = b.paxCount ?? 0;
-            if (!paxCount && b.guests) {
-                const nums = b.guests.match(/\d+/g);
-                // Take only first number (adult count) to avoid summing room numbers
-                paxCount = nums ? parseInt(nums[0]) : 1;
-            }
-            if (!paxCount) paxCount = 1;
+            // Use explicit DB field first, fall back to robust regex on guests string
+            const paxCount = b.paxCount || extractPaxCount(b.guests);
 
             if (start <= today && end >= today && b.status === 'Confirmed' && b.liveStatus !== 'Completed' && b.liveStatus !== 'Cancelled') {
                 live.push({ ...b, paxCount, duration, endDate: end });
@@ -108,13 +136,27 @@ export const Operations: React.FC = () => {
     const handleLocationChange = async (id: number, newLocation: string) => {
         if (!isAdmin && currentUser?.id !== id) return;
         try {
+            const today = new Date().toISOString().split('T')[0];
+            const logId = `ATL-${id}-${today}`;
+            const currentStatus = staff.find(s => s.id === id)?.attendanceStatus || 'Present';
+            await api.upsertAttendanceLog({
+                id: logId,
+                staffId: id,
+                date: today,
+                status: currentStatus as any,
+                location: newLocation
+            });
             await updateStaff(id, { currentLocation: newLocation });
-        } catch (e) { console.error("Failed to update location"); }
+            toast.success("Location updated");
+        } catch (e) {
+            console.error("Failed to update location", e);
+            toast.error("Failed to update location");
+        }
     };
 
     const handleLiveStatusChange = async (bookingId: string, liveStatus: string) => {
         try {
-            await api.updateBooking(bookingId, { liveStatus } as any);
+            await updateBooking(bookingId, { liveStatus } as any);
             toast.success("Tour status updated");
         } catch { toast.error("Failed to update tour status"); }
     };
@@ -132,11 +174,12 @@ export const Operations: React.FC = () => {
 
     const openPrepModal = (booking: Booking) => {
         setSelectedBookingForPrep(booking);
-        setDriverVendorId('');
-        setDriverCost('');
-        setDriverName('');
-        setDriverPhone('');
-        setVehicleNumber('');
+        const transport = booking.supplierBookings?.find(sb => sb.serviceType === 'Transport');
+        setDriverVendorId(transport?.vendorId || '');
+        setDriverCost(transport?.cost ? String(transport.cost) : '');
+        setDriverName(transport?.driverName || '');
+        setDriverPhone(transport?.driverPhone || '');
+        setVehicleNumber(transport?.vehicleNumber || '');
         setWhatsappGroupUrl(booking.whatsappGroupUrl || '');
         setPrepModalOpen(true);
     };
@@ -144,27 +187,47 @@ export const Operations: React.FC = () => {
     const handleAssignDriver = async () => {
         if (!selectedBookingForPrep || !driverVendorId) return;
 
-        const newSupplierBooking: SupplierBooking = {
-            id: `SB-${Date.now()}`,
-            bookingId: selectedBookingForPrep.id,
-            vendorId: driverVendorId,
-            serviceType: 'Transport',
-            cost: parseFloat(driverCost) || 0,
-            paidAmount: 0,
-            paymentStatus: 'Unpaid',
-            bookingStatus: 'Confirmed',
-            notes: 'Assigned via Operations Console',
-            driverName: driverName || undefined,
-            driverPhone: driverPhone || undefined,
-            vehicleNumber: vehicleNumber || undefined
-        };
-
-        await addSupplierBooking(selectedBookingForPrep.id, newSupplierBooking);
-        // Persist WhatsApp group URL if set
-        if (whatsappGroupUrl) {
-            await api.updateBooking(selectedBookingForPrep.id, { whatsappGroupUrl } as any);
+        const costVal = parseFloat(driverCost) || 0;
+        if (costVal < 0) {
+            toast.error("Cost cannot be negative");
+            return;
         }
-        toast.success("Driver assigned successfully");
+
+        const existingTransport = selectedBookingForPrep.supplierBookings?.find(sb => sb.serviceType === 'Transport');
+
+        if (existingTransport) {
+            // Update existing supplier booking
+            await updateSupplierBooking(selectedBookingForPrep.id, existingTransport.id, {
+                vendorId: driverVendorId,
+                cost: costVal,
+                driverName: driverName || undefined,
+                driverPhone: driverPhone || undefined,
+                vehicleNumber: vehicleNumber || undefined
+            });
+        } else {
+            // Create new supplier booking
+            const newSupplierBooking: SupplierBooking = {
+                id: `SB-${Date.now()}`,
+                bookingId: selectedBookingForPrep.id,
+                vendorId: driverVendorId,
+                serviceType: 'Transport',
+                cost: costVal,
+                paidAmount: 0,
+                paymentStatus: 'Unpaid',
+                bookingStatus: 'Confirmed',
+                notes: 'Assigned via Operations Console',
+                driverName: driverName || undefined,
+                driverPhone: driverPhone || undefined,
+                vehicleNumber: vehicleNumber || undefined
+            };
+            await addSupplierBooking(selectedBookingForPrep.id, newSupplierBooking);
+        }
+
+        // Persist WhatsApp group URL if set
+        if (whatsappGroupUrl !== (selectedBookingForPrep.whatsappGroupUrl || '')) {
+            await updateBooking(selectedBookingForPrep.id, { whatsappGroupUrl } as any);
+        }
+        toast.success(existingTransport ? "Driver updated successfully" : "Driver assigned successfully");
         setPrepModalOpen(false);
     };
 
@@ -217,7 +280,9 @@ export const Operations: React.FC = () => {
                                 {tourStats.live.map(tour => {
                                     // Find Assigned Driver if any
                                     const assignedTransport = tour.supplierBookings?.find(sb => sb.serviceType === 'Transport');
-                                    const driverName = assignedTransport ? vendors.find(v => v.id === assignedTransport.vendorId)?.name : 'Not Assigned';
+                                    const transportVendor = assignedTransport ? vendors.find(v => v.id === assignedTransport.vendorId) : null;
+                                    const driverDisplayName = assignedTransport ? (transportVendor?.name || assignedTransport.driverName || 'Assigned') : 'Not Assigned';
+                                    const dayOfTour = getDayOfTour(tour.date, tour.duration);
 
                                     return (
                                         <div key={tour.id} className="bg-white dark:bg-[#1A2633] p-5 rounded-2xl border border-green-200 dark:border-green-900/30 shadow-sm relative overflow-hidden">
@@ -235,7 +300,7 @@ export const Operations: React.FC = () => {
                                                 <div className="space-y-2">
                                                     <div className="flex items-center gap-2 text-xs font-bold text-slate-600 dark:text-slate-400">
                                                         <Calendar size={14} />
-                                                        Day {Math.ceil((new Date().getTime() - new Date(tour.date).getTime()) / (1000 * 60 * 60 * 24)) + 1} of {tour.duration}
+                                                        Day {dayOfTour} of {tour.duration}
                                                         <span className="text-slate-400 font-normal ml-1">
                                                             (Ends {tour.endDate.toLocaleDateString()})
                                                         </span>
@@ -244,15 +309,27 @@ export const Operations: React.FC = () => {
                                                         <Users size={14} /> {tour.paxCount} Guests
                                                     </div>
                                                     <div className="flex items-center gap-2 text-xs font-bold text-slate-600 dark:text-slate-400">
-                                                        <Car size={14} /> {driverName}
+                                                        <Car size={14} />
+                                                        {assignedTransport && transportVendor ? (
+                                                            <button
+                                                                onClick={() => navigate(`/admin/vendors?search=${encodeURIComponent(transportVendor.name)}`)}
+                                                                className="text-blue-600 hover:text-blue-700 hover:underline font-bold text-left inline"
+                                                            >
+                                                                {driverDisplayName}
+                                                            </button>
+                                                        ) : (
+                                                            <span>{driverDisplayName}</span>
+                                                        )}
                                                     </div>
                                                 </div>
 
                                                 <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 flex gap-2 flex-wrap">
                                                     <button
                                                         onClick={() => {
-                                                            const url = tour.whatsappGroupUrl || `https://wa.me/${tour.phone?.replace(/\D/g, '')}`;
-                                                            window.open(url, '_blank');
+                                                            const formattedPhone = tour.phone?.replace(/\D/g, '');
+                                                            const waPhone = formattedPhone ? (formattedPhone.length === 10 ? `91${formattedPhone}` : formattedPhone) : '';
+                                                            const url = tour.whatsappGroupUrl || (waPhone ? `https://wa.me/${waPhone}` : '#');
+                                                            if (url !== '#') window.open(url, '_blank');
                                                         }}
                                                         className="flex-1 py-2 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 text-xs font-bold rounded-lg hover:bg-green-100 transition-colors"
                                                     >

@@ -29,7 +29,14 @@ export const PublicLayout: React.FC = () => {
     const partnerRef = params.get('ref');
     if (partnerRef) {
       sessionStorage.setItem('shravya_partner_ref', partnerRef);
-      console.log(`[Affiliate] Partner linked: ${partnerRef}`);
+      localStorage.setItem('shravya_ref_partner', partnerRef);
+      localStorage.setItem('shravya_ref_partner_time', String(Date.now()));
+      
+      const expiry = new Date();
+      expiry.setTime(expiry.getTime() + (30 * 24 * 60 * 60 * 1000)); // 30 days
+      document.cookie = `shravya_ref_partner=${partnerRef}; expires=${expiry.toUTCString()}; path=/; SameSite=Lax`;
+      
+      console.log(`[Affiliate] Partner linked (30 days persistence): ${partnerRef}`);
     }
   }, [location.search]);
 
@@ -193,7 +200,7 @@ export const PublicLayout: React.FC = () => {
             <div className="col-span-1 md:col-span-1">
               <Link to="/" className="flex items-center gap-2 mb-6 group">
                 <img src="/logo.png" alt="SHRAWELLO Travel Hub Logo" className="h-10 w-auto object-contain transition-transform duration-500 group-hover:scale-105" />
-                <span className="text-2xl font-black text-slate-900 dark:text-white tracking-tighter">SHRAWELLO Travel Hub</span>
+                <span className="text-2xl font-black text-slate-900 dark:text-white tracking-tighter">SHRAWELLO Travel Hub and Events LLP</span>
               </Link>
               <p className="text-slate-500 dark:text-slate-400 leading-relaxed mb-8 text-sm">
                 Your journey begins with a single click. Trusted by 4,500+ travelers for safe, comfortable, and unforgettable journeys.
@@ -237,7 +244,7 @@ export const PublicLayout: React.FC = () => {
             </div>
           </div>
           <div className="border-t border-slate-100 dark:border-slate-800 pt-8 flex flex-col md:flex-row justify-between items-center gap-4 text-xs font-medium text-slate-400">
-            <p>© 2025 SHRAWELLO Travel Hub. All rights reserved.</p>
+            <p>© 2025 SHRAWELLO Travel Hub and Events LLP. All rights reserved.</p>
             <div className="flex gap-6">
               <Link to="/partner/login" className="hover:text-slate-900 dark:hover:text-white transition-colors">Partner Portal</Link>
               <Link to="/admin" className="hover:text-slate-900 dark:hover:text-white transition-colors">Staff Portal</Link>

@@ -3,14 +3,75 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
     FileText, Plus, Search, MoreHorizontal,
     Edit, Trash2, Download, CheckCircle2,
-    AlertCircle, Clock, Wallet, ChevronLeft, ChevronRight
+    AlertCircle, Clock, Wallet, ChevronLeft, ChevronRight, Loader2
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useSettings } from '../../context/SettingsContext';
+import { generateTrueInvoicePDF } from '../../utils/pdfGenerator';
 
 export const InvoicesDashboard: React.FC = () => {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const bookingIdParam = searchParams.get('booking_id');
+    const { settings } = useSettings();
+    const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+    const handleDownloadPDF = async (inv: any) => {
+        if (downloadingId) return;
+        setDownloadingId(inv.id);
+        const toastId = toast.loading(`Preparing PDF for Invoice #${inv.id.substring(0, 8).toUpperCase()}...`);
+        try {
+            const token = (localStorage.getItem('shravya_jwt') || localStorage.getItem('token'));
+            const res = await fetch(`/api/crud/invoice_items?eq_invoice_id=${inv.id}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (res.ok) {
+                const itemsData = await res.json();
+                const items = itemsData.data || [];
+                
+                // Fetch full invoice record to ensure we have driver allowance and other new fields
+                const invRes = await fetch(`/api/crud/invoices/${inv.id}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const fullInv = invRes.ok ? (await invRes.json()).data : inv;
+
+                // Fetch custom fields for this invoice
+                const cfRes = await fetch(`/api/crud/invoice_custom_fields?eq_invoice_id=${inv.id}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const cfList = cfRes.ok ? ((await cfRes.json()).data || []) : [];
+                const cfMapped = cfList.map((cf: any) => ({
+                    label: cf.label || '',
+                    amount: Number(cf.amount || 0),
+                    is_deduction: Boolean(cf.is_deduction)
+                }));
+
+                // Parse custom field labels for fixed rows
+                let parsedFieldLabels: Record<string, string> = {};
+                if (fullInv.field_labels) {
+                    try { parsedFieldLabels = JSON.parse(fullInv.field_labels); } catch {}
+                }
+
+                generateTrueInvoicePDF(
+                    fullInv, 
+                    items, 
+                    settings.company, 
+                    settings.finance,
+                    cfMapped,
+                    parsedFieldLabels
+                );
+                toast.success('PDF downloaded successfully!', { id: toastId });
+            } else {
+                toast.error('Failed to fetch invoice items.', { id: toastId });
+            }
+        } catch (err) {
+            console.error('Failed to download PDF:', err);
+            toast.error('An error occurred while generating PDF.', { id: toastId });
+        } finally {
+            setDownloadingId(null);
+        }
+    };
+
     const [invoices, setInvoices] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
@@ -278,7 +339,19 @@ export const InvoicesDashboard: React.FC = () => {
                                             </span>
                                         </td>
                                         <td className="py-4 px-6 text-right">
-                                            <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <div className={`flex justify-end gap-2 transition-opacity ${downloadingId === inv.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                                                <button
+                                                    disabled={downloadingId === inv.id}
+                                                    onClick={() => handleDownloadPDF(inv)}
+                                                    className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50"
+                                                    title="Download PDF"
+                                                >
+                                                    {downloadingId === inv.id ? (
+                                                        <Loader2 size={16} className="animate-spin text-blue-600" />
+                                                    ) : (
+                                                        <Download size={16} />
+                                                    )}
+                                                </button>
                                                 <button onClick={() => navigate(`/admin/invoices/edit/${inv.id}`)} className="p-2 text-slate-400 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition-colors">
                                                     <Edit size={16} />
                                                 </button>

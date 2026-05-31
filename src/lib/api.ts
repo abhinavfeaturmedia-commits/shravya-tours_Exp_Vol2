@@ -1,5 +1,5 @@
 import imageCompression from 'browser-image-compression';
-import { Package, Booking, Lead, BookingStatus, StaffMember, Customer, MasterRoomType, MasterMealPlan, MasterActivity, MasterTransport, MasterPlan, MasterLeadSource, MasterTermsTemplate, CMSBanner, CMSTestimonial, CMSGalleryImage, CMSPost, FollowUp, Proposal, DailyTarget, TimeSession, AssignmentRule, UserActivity, Campaign, MasterHotel, Task, AuditLog, Expense, AttendanceLog } from '../../types';
+import { Package, Booking, Lead, LeadLog, BookingStatus, StaffMember, Customer, MasterRoomType, MasterMealPlan, MasterActivity, MasterTransport, MasterPlan, MasterLeadSource, MasterTermsTemplate, CMSBanner, CMSTestimonial, CMSGalleryImage, CMSPost, FollowUp, Proposal, DailyTarget, TimeSession, AssignmentRule, UserActivity, Campaign, MasterHotel, Task, AuditLog, Expense, AttendanceLog, Coupon } from '../../types';
 
 // ─── BASE API URL ───
 // In dev mode, use Vite proxy (empty string) so request goes to the same origin.
@@ -8,7 +8,10 @@ const API_BASE = import.meta.env.VITE_API_URL || '';
 
 // ─── Fetch Helper ───
 async function fetchApi(path: string, options: RequestInit = {}): Promise<any> {
-    const token = localStorage.getItem('shravya_jwt');
+    const isPartnerPath = path.startsWith('/api/partner');
+    const token = isPartnerPath
+        ? (localStorage.getItem('shrawello_partner_jwt') || localStorage.getItem('shravya_jwt'))
+        : (localStorage.getItem('shravya_jwt') || localStorage.getItem('shrawello_partner_jwt'));
     const headers: Record<string, string> = {
         'Content-Type': 'application/json',
         ...(options.headers as Record<string, string> || {}),
@@ -26,11 +29,12 @@ async function fetchApi(path: string, options: RequestInit = {}): Promise<any> {
 
 // CRUD helpers
 const crud = {
-    getAll: (table: string, opts?: { order?: string; asc?: boolean; limit?: number; filters?: Record<string, string> }) => {
+    getAll: (table: string, opts?: { order?: string; asc?: boolean; limit?: number; select?: string; filters?: Record<string, string> }) => {
         const params = new URLSearchParams();
         if (opts?.order) params.set('order', opts.order);
         if (opts?.asc !== undefined) params.set('asc', String(opts.asc));
         if (opts?.limit) params.set('limit', String(opts.limit));
+        if (opts?.select) params.set('select', opts.select);
         if (opts?.filters) {
             Object.entries(opts.filters).forEach(([k, v]) => params.set(`eq_${k}`, v));
         }
@@ -43,6 +47,7 @@ const crud = {
     remove: (table: string, id: string | number) => fetchApi(`/api/crud/${table}/${encodeURIComponent(String(id))}`, { method: 'DELETE' }),
     upsert: (table: string, body: any) => fetchApi(`/api/crud/${table}/upsert`, { method: 'POST', body: JSON.stringify(body) }),
 };
+
 
 // --- IMAGE COMPRESSION UTILITY ---
 const MAX_FILE_SIZE_KB = 800;
@@ -167,15 +172,35 @@ const mapPackage = (row: any): Package => {
         client_name: row.client_name,
         client_id: row.client_id,
         validity_date: row.validity_date,
-        terms_and_conditions: row.terms_and_conditions
+        terms_and_conditions: row.terms_and_conditions,
+        partnerCommissionType: row.partner_commission_type || undefined,
+        partnerCommissionValue: row.partner_commission_value !== null && row.partner_commission_value !== undefined ? Number(row.partner_commission_value) : undefined
     };
 };
 
 export const api = {
     // --- PACKAGES ---
+    // List call: excludes the heavy builder_data blob (~90% smaller payload, fixes ECONNRESET on large responses)
     getPackages: async (): Promise<Package[]> => {
-        const { data } = await crud.getAll('packages', { order: 'created_at', asc: false });
+        const SELECT_COLS = [
+            'id','title','days','group_size','location','description','price','original_price',
+            'pricing_mode','image','tag','tag_color','remaining_seats','highlights','features',
+            'theme','overview','status','offer_end_time','included','not_included','gallery',
+            'addons','itinerary','itinerary_status','client_name','client_id',
+            'validity_date','terms_and_conditions','created_at'
+        ].join(',');
+        const { data } = await crud.getAll('packages', { order: 'created_at', asc: false, select: SELECT_COLS });
         return (data || []).map(mapPackage);
+    },
+
+    // Full fetch for a single package – includes builder_data needed by detail/editing pages
+    getPackageById: async (id: string): Promise<Package | null> => {
+        try {
+            const { data } = await crud.getOne('packages', id);
+            return data ? mapPackage(data) : null;
+        } catch {
+            return null;
+        }
     },
 
     createPackage: async (pkg: Partial<Package>) => {
@@ -211,7 +236,9 @@ export const api = {
             client_name: (pkg as any).client_name || (pkg as any).clientName || null,
             client_id: (pkg as any).client_id || (pkg as any).clientId || null,
             validity_date: (pkg as any).validity_date || (pkg as any).validityDate || null,
-            terms_and_conditions: (pkg as any).terms_and_conditions || (pkg as any).termsAndConditions || null
+            terms_and_conditions: (pkg as any).terms_and_conditions || (pkg as any).termsAndConditions || null,
+            partner_commission_type: pkg.partnerCommissionType || null,
+            partner_commission_value: pkg.partnerCommissionValue ?? null
         };
         const { data } = await crud.create('packages', dbPkg);
         return mapPackage(data);
@@ -256,6 +283,8 @@ export const api = {
         if ((pkg as any).validityDate !== undefined) dbPkg.validity_date = (pkg as any).validityDate;
         if ((pkg as any).terms_and_conditions !== undefined) dbPkg.terms_and_conditions = (pkg as any).terms_and_conditions;
         if ((pkg as any).termsAndConditions !== undefined) dbPkg.terms_and_conditions = (pkg as any).termsAndConditions;
+        if (pkg.partnerCommissionType !== undefined) dbPkg.partner_commission_type = pkg.partnerCommissionType;
+        if (pkg.partnerCommissionValue !== undefined) dbPkg.partner_commission_value = pkg.partnerCommissionValue;
         await crud.update('packages', id, dbPkg);
     },
 
@@ -473,7 +502,7 @@ export const api = {
                 title: row.title || row.package_title || 'Unknown Package',
                 date: formattedDate,
                 endDate: formattedEndDate || formattedDate,
-                guests: row.number_of_people ? `${row.number_of_people} Adults, 0 Children` : undefined,
+                guests: row.number_of_people ? `${row.number_of_people} Adults, ${row.pax_child || 0} Children` : undefined,
                 amount: totalAmount,
                 status: (row.status ? row.status.charAt(0).toUpperCase() + row.status.slice(1) : 'Pending') as BookingStatus,
                 payment: dynamicPayment as any,
@@ -486,7 +515,20 @@ export const api = {
                 durationDays: row.duration_days ? Number(row.duration_days) : undefined,
                 paxCount: row.pax_count ? Number(row.pax_count) : undefined,
                 whatsappGroupUrl: row.whatsapp_group_url || undefined,
-                liveStatus: row.live_status as any || 'Live'
+                liveStatus: row.live_status as any || 'Live',
+                partnerId: row.partner_id || undefined,
+                partnerName: row.partner_name || undefined,
+                partnerCompanyName: row.partner_company_name || undefined,
+                
+                // Mapped Carry-Forward Fields
+                whatsapp: row.whatsapp || undefined,
+                isWhatsappSame: row.is_whatsapp_same !== null ? !!row.is_whatsapp_same : undefined,
+                altPhone: row.alt_phone || undefined,
+                paxAdult: row.pax_adult !== null ? Number(row.pax_adult) : undefined,
+                paxInfant: row.pax_infant !== null ? Number(row.pax_infant) : undefined,
+                serviceType: row.service_type || undefined,
+                residentialAddress: row.residential_address || undefined,
+                officeAddress: row.office_address || undefined
             };
         });
     },
@@ -528,10 +570,17 @@ export const api = {
     deleteSupplierBooking: async (id: string) => {
         await crud.remove('supplier_bookings', id);
     },
-
     createBooking: async (booking: Partial<Booking>) => {
-        // Map to Hostinger DB schema
-        // Note: Do NOT pass `id` — backend auto-generates UUID + booking_number
+        let adultsCount = 1;
+        let childCount = 0;
+        if (booking.guests) {
+            const parts = booking.guests.split(',');
+            parts.forEach(p => {
+                if (p.toLowerCase().includes('adult')) adultsCount = parseInt(p) || 1;
+                if (p.toLowerCase().includes('child')) childCount = parseInt(p) || 0;
+            });
+        }
+
         const dbBooking: any = {
             customer_name: booking.customer,
             customer_email: booking.email || '',
@@ -541,12 +590,24 @@ export const api = {
             type: booking.type || 'Tour',
             title: booking.title || 'Unknown',
             total_price: booking.amount || 0,
-            number_of_people: booking.guests ? parseInt(booking.guests.split(' ')[0]) || 1 : 1, // Extract count from "2 Adults" etc.
+            number_of_people: adultsCount,
+            pax_child: childCount,
+            pax_count: adultsCount + childCount,
             status: booking.status === 'Confirmed' ? 'confirmed' : 'pending',
             payment_status: booking.payment === 'Paid' ? 'paid' : 'pending', // Enums: pending, paid, failed, refunded
             notes: booking.details || '',
             assigned_to: booking.assignedTo || null,
-            partner_id: booking.partnerId || null
+            partner_id: booking.partnerId || null,
+            
+            // New Carry-Forward Fields
+            whatsapp: booking.whatsapp || null,
+            is_whatsapp_same: booking.isWhatsappSame !== undefined ? (booking.isWhatsappSame ? 1 : 0) : 1,
+            alt_phone: booking.altPhone || null,
+            pax_adult: booking.paxAdult || adultsCount,
+            pax_infant: booking.paxInfant || 0,
+            service_type: booking.serviceType || null,
+            residential_address: booking.residentialAddress || null,
+            office_address: booking.officeAddress || null
         };
 
         if (booking.packageId) dbBooking.package_id = booking.packageId;
@@ -585,7 +646,18 @@ export const api = {
             dbUpdates.partner_id = updates.partnerId || null;
         }
         if (updates.guests !== undefined) {
-            dbUpdates.number_of_people = updates.guests ? parseInt(updates.guests.split(' ')[0]) || 1 : 1;
+            let adultsCount = 1;
+            let childCount = 0;
+            if (updates.guests) {
+                const parts = updates.guests.split(',');
+                parts.forEach(p => {
+                    if (p.toLowerCase().includes('adult')) adultsCount = parseInt(p) || 1;
+                    if (p.toLowerCase().includes('child')) childCount = parseInt(p) || 0;
+                });
+            }
+            dbUpdates.number_of_people = adultsCount;
+            dbUpdates.pax_child = childCount;
+            dbUpdates.pax_count = adultsCount + childCount;
         }
         if (updates.payment !== undefined) {
             const tempMap: any = { 'Paid': 'paid', 'Unpaid': 'pending', 'Deposit': 'deposit', 'Refunded': 'refunded' };
@@ -600,6 +672,16 @@ export const api = {
         if ((updates as any).whatsappGroupUrl !== undefined) {
             dbUpdates.whatsapp_group_url = (updates as any).whatsappGroupUrl || null;
         }
+        
+        // Serialize new carry-forward fields if present in updates
+        if (updates.whatsapp !== undefined) dbUpdates.whatsapp = updates.whatsapp || null;
+        if (updates.isWhatsappSame !== undefined) dbUpdates.is_whatsapp_same = updates.isWhatsappSame ? 1 : 0;
+        if (updates.altPhone !== undefined) dbUpdates.alt_phone = updates.altPhone || null;
+        if (updates.paxAdult !== undefined) dbUpdates.pax_adult = updates.paxAdult;
+        if (updates.paxInfant !== undefined) dbUpdates.pax_infant = updates.paxInfant;
+        if (updates.serviceType !== undefined) dbUpdates.service_type = updates.serviceType || null;
+        if (updates.residentialAddress !== undefined) dbUpdates.residential_address = updates.residentialAddress || null;
+        if (updates.officeAddress !== undefined) dbUpdates.office_address = updates.officeAddress || null;
         
         await crud.update('bookings', id, dbUpdates);
     },
@@ -651,7 +733,8 @@ export const api = {
                 id: l.id,
                 type: l.type,
                 content: l.content,
-                timestamp: l.timestamp
+                timestamp: l.timestamp,
+                sender: l.sender
             })),
             avatarColor: row.avatar_color,
             assignedTo: row.assigned_to ? Number(row.assigned_to) : undefined,
@@ -665,7 +748,13 @@ export const api = {
             paxInfant: row.pax_infant,
             residentialAddress: row.residential_address,
             officeAddress: row.office_address,
-            packageId: row.package_id || undefined        // Source package that generated this lead
+            packageId: row.package_id || undefined,        // Source package that generated this lead
+            partnerId: row.partner_id || undefined,
+            partnerName: row.partner_name || undefined,
+            partnerCompanyName: row.partner_company_name || undefined,
+            
+            // New Carry-Forward Field
+            altPhone: row.alt_phone || undefined
         }));
     },
 
@@ -697,7 +786,8 @@ export const api = {
             pax_infant: lead.paxInfant,
             residential_address: lead.residentialAddress,
             office_address: lead.officeAddress,
-            package_id: lead.packageId || null          // Link back to source package
+            package_id: lead.packageId || null,          // Link back to source package
+            alt_phone: lead.altPhone || null
         });
     },
 
@@ -711,6 +801,9 @@ export const api = {
         if (updates.startDate !== undefined) dbUpdates.start_date = updates.startDate;
         if (updates.endDate !== undefined) dbUpdates.end_date = updates.endDate;
         if (updates.travelers !== undefined) dbUpdates.travelers = updates.travelers;
+        if (updates.paxAdult !== undefined) dbUpdates.pax_adult = updates.paxAdult;
+        if (updates.paxChild !== undefined) dbUpdates.pax_child = updates.paxChild;
+        if (updates.paxInfant !== undefined) dbUpdates.pax_infant = updates.paxInfant;
         if (updates.budget !== undefined) dbUpdates.budget = updates.budget;
         if (updates.type !== undefined) dbUpdates.type = updates.type;
         if (updates.status !== undefined) dbUpdates.status = updates.status;
@@ -722,11 +815,9 @@ export const api = {
         if (updates.whatsapp !== undefined) dbUpdates.whatsapp = updates.whatsapp;
         if (updates.isWhatsappSame !== undefined) dbUpdates.is_whatsapp_same = updates.isWhatsappSame;
         if (updates.serviceType !== undefined) dbUpdates.service_type = updates.serviceType;
-        if (updates.paxAdult !== undefined) dbUpdates.pax_adult = updates.paxAdult;
-        if (updates.paxChild !== undefined) dbUpdates.pax_child = updates.paxChild;
-        if (updates.paxInfant !== undefined) dbUpdates.pax_infant = updates.paxInfant;
         if (updates.residentialAddress !== undefined) dbUpdates.residential_address = updates.residentialAddress;
         if (updates.officeAddress !== undefined) dbUpdates.office_address = updates.officeAddress;
+        if (updates.altPhone !== undefined) dbUpdates.alt_phone = updates.altPhone || null;
         await crud.update('leads', id, dbUpdates);
     },
 
@@ -740,7 +831,8 @@ export const api = {
             id: row.id,
             type: row.type,
             content: row.content,
-            timestamp: row.timestamp
+            timestamp: row.timestamp,
+            sender: row.sender
         }));
     },
 
@@ -749,7 +841,15 @@ export const api = {
             lead_id: leadId,
             type: log.type,
             content: log.content,
+            sender: log.sender || 'System',
             timestamp: log.timestamp || new Date().toISOString()
+        });
+    },
+
+    sendStaffLeadMessage: async (leadId: string, content: string, type: string = 'Chat') => {
+        return fetchApi(`/api/leads/${encodeURIComponent(leadId)}/logs`, {
+            method: 'POST',
+            body: JSON.stringify({ content, type })
         });
     },
 
@@ -953,7 +1053,12 @@ export const api = {
             queryScope: s.query_scope || 'Show Assigned Query Only',
             whatsappScope: s.whatsapp_scope || 'Assigned Queries Messages',
             lastActive: s.last_active || 'Never',
-            phone: s.phone || ''
+            phone: s.phone || '',
+            attendanceStatus: s.attendance_status || 'Absent',
+            checkInTime: s.check_in_time && !isNaN(Date.parse(s.check_in_time))
+                ? new Date(s.check_in_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+                : '-',
+            currentLocation: s.current_location || ''
         }));
     },
 
@@ -976,7 +1081,12 @@ export const api = {
             queryScope: s.query_scope,
             whatsappScope: s.whatsapp_scope,
             lastActive: s.last_active,
-            phone: s.phone
+            phone: s.phone,
+            attendanceStatus: s.attendance_status || 'Absent',
+            checkInTime: s.check_in_time && !isNaN(Date.parse(s.check_in_time))
+                ? new Date(s.check_in_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+                : '-',
+            currentLocation: s.current_location || ''
         };
     },
 
@@ -1173,7 +1283,14 @@ export const api = {
             joinedDate: c.created_at,
             notes: typeof c.notes === 'string' ? JSON.parse(c.notes) : (c.notes || []),
             tags: typeof c.tags === 'string' ? JSON.parse(c.tags) : (c.tags || []),
-            preferences: typeof c.preferences === 'string' ? JSON.parse(c.preferences) : (c.preferences || {})
+            preferences: typeof c.preferences === 'string' ? JSON.parse(c.preferences) : (c.preferences || {}),
+            prefix: c.prefix || '',
+            dob: c.dob || '',
+            altPhone: c.alt_phone || '',
+            whatsapp: c.whatsapp || '',
+            isWhatsappSame: c.is_whatsapp_same === 1 || c.is_whatsapp_same === true,
+            address: c.address || '',
+            officeAddress: c.office_address || ''
         }));
     },
 
@@ -1192,7 +1309,14 @@ export const api = {
             joinedDate: c.created_at,
             notes: typeof c.notes === 'string' ? JSON.parse(c.notes) : (c.notes || []),
             tags: typeof c.tags === 'string' ? JSON.parse(c.tags) : (c.tags || []),
-            preferences: typeof c.preferences === 'string' ? JSON.parse(c.preferences) : (c.preferences || {})
+            preferences: typeof c.preferences === 'string' ? JSON.parse(c.preferences) : (c.preferences || {}),
+            prefix: c.prefix || '',
+            dob: c.dob || '',
+            altPhone: c.alt_phone || '',
+            whatsapp: c.whatsapp || '',
+            isWhatsappSame: c.is_whatsapp_same === 1 || c.is_whatsapp_same === true,
+            address: c.address || '',
+            officeAddress: c.office_address || ''
         });
         if (email) {
             const { data } = await crud.getAll('customers', { filters: { email } });
@@ -1218,7 +1342,14 @@ export const api = {
             bookings_count: customer.bookingsCount || 0,
             notes: customer.notes ? JSON.stringify(customer.notes) : '[]',
             tags: customer.tags ? JSON.stringify(customer.tags) : '[]',
-            preferences: customer.preferences ? JSON.stringify(customer.preferences) : '{}'
+            preferences: customer.preferences ? JSON.stringify(customer.preferences) : '{}',
+            prefix: customer.prefix || null,
+            dob: customer.dob || null,
+            alt_phone: customer.altPhone || null,
+            whatsapp: customer.whatsapp || null,
+            is_whatsapp_same: customer.isWhatsappSame ? 1 : 0,
+            address: customer.address || null,
+            office_address: customer.officeAddress || null
         });
         return data;
     },
@@ -1236,6 +1367,13 @@ export const api = {
         if (updates.notes !== undefined) dbUpdates.notes = JSON.stringify(updates.notes);
         if (updates.tags !== undefined) dbUpdates.tags = JSON.stringify(updates.tags);
         if (updates.preferences !== undefined) dbUpdates.preferences = JSON.stringify(updates.preferences);
+        if (updates.prefix !== undefined) dbUpdates.prefix = updates.prefix || null;
+        if (updates.dob !== undefined) dbUpdates.dob = updates.dob || null;
+        if (updates.altPhone !== undefined) dbUpdates.alt_phone = updates.altPhone || null;
+        if (updates.whatsapp !== undefined) dbUpdates.whatsapp = updates.whatsapp || null;
+        if (updates.isWhatsappSame !== undefined) dbUpdates.is_whatsapp_same = updates.isWhatsappSame ? 1 : 0;
+        if (updates.address !== undefined) dbUpdates.address = updates.address || null;
+        if (updates.officeAddress !== undefined) dbUpdates.office_address = updates.officeAddress || null;
         await crud.update('customers', id, dbUpdates);
     },
 
@@ -1610,12 +1748,25 @@ export const api = {
 
     getCMSTestimonials: async (): Promise<CMSTestimonial[]> => {
         const { data } = await crud.getAll('cms_testimonials', { order: 'created_at', asc: false });
-        return (data || []).map((r: any) => ({ ...r, customerName: r.customer_name, avatarUrl: r.avatar_url, isActive: r.is_active }));
+        return (data || []).map((r: any) => ({
+            id: r.id,
+            customerName: r.customer_name || '',
+            location: r.location || '',
+            rating: Number(r.rating) || 5,
+            text: r.content || '',
+            avatarUrl: r.avatar_url || '',
+            isActive: r.is_active === undefined ? true : Boolean(r.is_active)
+        }));
     },
     createCMSTestimonial: async (item: Partial<CMSTestimonial>) => {
         await crud.create('cms_testimonials', {
-            customer_name: item.customerName, content: item.text, rating: item.rating,
-            avatar_url: item.avatarUrl, location: item.location, is_active: item.isActive
+            id: item.id,
+            customer_name: item.customerName,
+            content: item.text,
+            rating: item.rating,
+            avatar_url: item.avatarUrl,
+            location: item.location,
+            is_active: item.isActive
         });
     },
     updateCMSTestimonial: async (id: string, updates: Partial<CMSTestimonial>) => {
@@ -1879,11 +2030,17 @@ export const api = {
                 id: r.id,
                 name: r.name,
                 tier: r.tier,
+                pricePerMonth: Number(r.price_per_month || 0),
+                pricePerQuarter: Number(r.price_per_quarter || 0),
+                pricePerHalfYear: Number(r.price_per_half_year || 0),
                 pricePerYear: Number(r.price_per_year || 0),
+                discountType: r.discount_type || 'Percentage',
                 discountPercent: Number(r.discount_percent || 0),
+                discountFlat: Number(r.discount_flat || 0),
                 hotelDiscount: Number(r.hotel_discount || 0),
                 tourDiscount: Number(r.tour_discount || 0),
                 flightDiscount: Number(r.flight_discount || 0),
+                cabDiscount: Number(r.cab_discount || 0),
                 perks: parseJsonFieldSafe(r.perks, []),
                 color: r.color || '#CD7F32',
                 isActive: Boolean(r.is_active),
@@ -1895,11 +2052,17 @@ export const api = {
             id: plan.id,
             name: plan.name,
             tier: plan.tier,
+            price_per_month: plan.pricePerMonth,
+            price_per_quarter: plan.pricePerQuarter,
+            price_per_half_year: plan.pricePerHalfYear,
             price_per_year: plan.pricePerYear,
-            discount_percent: plan.discountPercent,
-            hotel_discount: plan.hotelDiscount,
-            tour_discount: plan.tourDiscount,
-            flight_discount: plan.flightDiscount,
+            discount_type: plan.discountType || 'Percentage',
+            discount_percent: plan.discountPercent || 0,
+            discount_flat: plan.discountFlat || 0,
+            hotel_discount: plan.hotelDiscount || 0,
+            tour_discount: plan.tourDiscount || 0,
+            flight_discount: plan.flightDiscount || 0,
+            cab_discount: plan.cabDiscount || 0,
             perks: JSON.stringify(plan.perks || []),
             color: plan.color,
             is_active: plan.isActive,
@@ -1908,11 +2071,17 @@ export const api = {
     updateMembershipPlan: (id: string, plan: any) =>
         crud.update('membership_plans', id, {
             ...(plan.name !== undefined && { name: plan.name }),
+            ...(plan.pricePerMonth !== undefined && { price_per_month: plan.pricePerMonth }),
+            ...(plan.pricePerQuarter !== undefined && { price_per_quarter: plan.pricePerQuarter }),
+            ...(plan.pricePerHalfYear !== undefined && { price_per_half_year: plan.pricePerHalfYear }),
             ...(plan.pricePerYear !== undefined && { price_per_year: plan.pricePerYear }),
+            ...(plan.discountType !== undefined && { discount_type: plan.discountType }),
             ...(plan.discountPercent !== undefined && { discount_percent: plan.discountPercent }),
+            ...(plan.discountFlat !== undefined && { discount_flat: plan.discountFlat }),
             ...(plan.hotelDiscount !== undefined && { hotel_discount: plan.hotelDiscount }),
             ...(plan.tourDiscount !== undefined && { tour_discount: plan.tourDiscount }),
             ...(plan.flightDiscount !== undefined && { flight_discount: plan.flightDiscount }),
+            ...(plan.cabDiscount !== undefined && { cab_discount: plan.cabDiscount }),
             ...(plan.perks !== undefined && { perks: JSON.stringify(plan.perks) }),
             ...(plan.color !== undefined && { color: plan.color }),
             ...(plan.isActive !== undefined && { is_active: plan.isActive }),
@@ -1932,12 +2101,17 @@ export const api = {
                 planName: r.plan_name,
                 tier: r.tier,
                 status: r.status,
+                billingCycle: r.billing_cycle || 'Yearly',
+                pricePaid: Number(r.price_paid || 0),
                 enrolledOn: r.enrolled_on,
                 expiresOn: r.expires_on,
+                discountType: r.discount_type || 'Percentage',
                 discountPercent: Number(r.discount_percent || 0),
+                discountFlat: Number(r.discount_flat || 0),
                 hotelDiscount: Number(r.hotel_discount || 0),
                 tourDiscount: Number(r.tour_discount || 0),
                 flightDiscount: Number(r.flight_discount || 0),
+                cabDiscount: Number(r.cab_discount || 0),
                 notes: r.notes,
                 enrolledBy: r.enrolled_by,
             }))
@@ -1953,12 +2127,17 @@ export const api = {
             plan_name: m.planName,
             tier: m.tier,
             status: m.status,
+            billing_cycle: m.billingCycle || 'Yearly',
+            price_paid: m.pricePaid || 0,
             enrolled_on: m.enrolledOn,
             expires_on: m.expiresOn,
-            discount_percent: m.discountPercent,
-            hotel_discount: m.hotelDiscount,
-            tour_discount: m.tourDiscount,
-            flight_discount: m.flightDiscount,
+            discount_type: m.discountType || 'Percentage',
+            discount_percent: m.discountPercent || 0,
+            discount_flat: m.discountFlat || 0,
+            hotel_discount: m.hotelDiscount || 0,
+            tour_discount: m.tourDiscount || 0,
+            flight_discount: m.flightDiscount || 0,
+            cab_discount: m.cabDiscount || 0,
             notes: m.notes || null,
             enrolled_by: m.enrolledBy || null,
         }),
@@ -1970,12 +2149,96 @@ export const api = {
             ...(updates.planName !== undefined && { plan_name: updates.planName }),
             ...(updates.tier !== undefined && { tier: updates.tier }),
             ...(updates.expiresOn !== undefined && { expires_on: updates.expiresOn }),
+            ...(updates.billingCycle !== undefined && { billing_cycle: updates.billingCycle }),
+            ...(updates.pricePaid !== undefined && { price_paid: updates.pricePaid }),
+            ...(updates.discountType !== undefined && { discount_type: updates.discountType }),
             ...(updates.discountPercent !== undefined && { discount_percent: updates.discountPercent }),
+            ...(updates.discountFlat !== undefined && { discount_flat: updates.discountFlat }),
             ...(updates.hotelDiscount !== undefined && { hotel_discount: updates.hotelDiscount }),
             ...(updates.tourDiscount !== undefined && { tour_discount: updates.tourDiscount }),
             ...(updates.flightDiscount !== undefined && { flight_discount: updates.flightDiscount }),
+            ...(updates.cabDiscount !== undefined && { cab_discount: updates.cabDiscount }),
             ...(updates.notes !== undefined && { notes: updates.notes }),
         }),
 
     deleteMembership: (id: string) => crud.remove('customer_memberships', id),
+
+    fetchPartnerAnalytics: async (): Promise<{ earnings: any[]; funnel: any[]; destinations: any[] }> => {
+        return fetchApi('/api/partner/analytics');
+    },
+    fetchPartnerLeadLogs: async (leadId: string): Promise<LeadLog[]> => {
+        const { data } = await fetchApi(`/api/partner/leads/${encodeURIComponent(leadId)}/logs`);
+        return (data || []).map((l: any) => ({
+            id: String(l.id),
+            type: l.type,
+            content: l.content,
+            timestamp: l.timestamp,
+            sender: l.sender
+        }));
+    },
+    sendPartnerLeadMessage: async (leadId: string, content: string): Promise<any> => {
+        return fetchApi(`/api/partner/leads/${encodeURIComponent(leadId)}/logs`, {
+            method: 'POST',
+            body: JSON.stringify({ content })
+        });
+    },
+
+    // --- COUPONS ---
+    getCoupons: async (): Promise<Coupon[]> => {
+        const { data } = await crud.getAll('coupons', { order: 'created_at', asc: false });
+        return (data || []).map((r: any) => ({
+            id: r.id,
+            code: r.code,
+            type: r.type,
+            discountType: r.discount_type,
+            discountValue: Number(r.discount_value) || 0,
+            minBookingAmount: r.min_booking_amount !== null && r.min_booking_amount !== undefined ? Number(r.min_booking_amount) : undefined,
+            validFrom: r.valid_from ? r.valid_from.split('T')[0] : undefined,
+            validTo: r.valid_to ? r.valid_to.split('T')[0] : undefined,
+            status: r.status || 'Active',
+            isUsed: Boolean(r.is_used),
+            useCount: Number(r.use_count) || 0,
+            downloadCount: Number(r.download_count) || 0,
+            createdAt: r.created_at,
+            updatedAt: r.updated_at
+        }));
+    },
+
+    createCoupon: async (c: any) => {
+        const { data } = await crud.create('coupons', {
+            id: c.id,
+            code: c.code,
+            type: c.type,
+            discount_type: c.discountType,
+            discount_value: c.discountValue,
+            min_booking_amount: c.minBookingAmount || 0,
+            valid_from: c.validFrom || null,
+            valid_to: c.validTo || null,
+            status: c.status || 'Active',
+            is_used: c.isUsed ? 1 : 0,
+            use_count: c.useCount || 0,
+            download_count: 0
+        });
+        return data;
+    },
+
+    updateCoupon: async (id: string, updates: any) => {
+        const dbUpdates: any = {};
+        if (updates.code !== undefined) dbUpdates.code = updates.code;
+        if (updates.type !== undefined) dbUpdates.type = updates.type;
+        if (updates.discountType !== undefined) dbUpdates.discount_type = updates.discountType;
+        if (updates.discountValue !== undefined) dbUpdates.discount_value = updates.discountValue;
+        if (updates.minBookingAmount !== undefined) dbUpdates.min_booking_amount = updates.minBookingAmount;
+        if (updates.validFrom !== undefined) dbUpdates.valid_from = updates.validFrom || null;
+        if (updates.validTo !== undefined) dbUpdates.valid_to = updates.validTo || null;
+        if (updates.status !== undefined) dbUpdates.status = updates.status;
+        if (updates.isUsed !== undefined) dbUpdates.is_used = updates.isUsed ? 1 : 0;
+        if (updates.useCount !== undefined) dbUpdates.use_count = updates.useCount;
+        if (updates.downloadCount !== undefined) dbUpdates.download_count = updates.downloadCount;
+        await crud.update('coupons', id, dbUpdates);
+    },
+
+    deleteCoupon: async (id: string) => {
+        await crud.remove('coupons', id);
+    },
 };

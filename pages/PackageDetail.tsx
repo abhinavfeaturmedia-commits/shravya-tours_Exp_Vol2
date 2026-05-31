@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { useData } from '../context/DataContext';
-import { Lead } from '../types';
+import { Lead, Package } from '../types';
 import { SEO } from '../components/ui/SEO';
 import { OptimizedImage } from '../components/ui/OptimizedImage';
 import { toast } from '../components/ui/Toast';
@@ -41,7 +41,22 @@ export const PackageDetail: React.FC = () => {
   const [timeLeft, setTimeLeft] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 });
   const [offerExpired, setOfferExpired] = useState(false);
 
-  const tour = packages.find(p => p.id === id);
+  const rawTour = packages.find(p => p.id === id);
+
+  // Lazy-load full package record so builderData is available (global list omits it for speed)
+  const [fullPackageData, setFullPackageData] = useState<Package | null>(null);
+  useEffect(() => {
+    if (!id) return;
+    api.getPackageById(id).then(full => {
+      if (full) setFullPackageData(full);
+    }).catch(console.warn);
+  }, [id]);
+
+  // Merge full package's builderData into the tour object, then alias as 'tour' so JSX is unchanged
+  const tour = rawTour
+    ? { ...rawTour, builderData: fullPackageData?.builderData ?? rawTour.builderData }
+    : null;
+
 
   // Auto-advance carousel
   useEffect(() => {

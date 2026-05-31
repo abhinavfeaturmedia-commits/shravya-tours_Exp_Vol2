@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useData } from '../../context/DataContext';
 import { useBookings } from '../../src/hooks/useBookings';
 import { BookingStatus, Booking, BookingType, BookingNote } from '../../types';
+import { api } from '../../src/lib/api';
+import { generateReceiptPDF } from '../../utils/pdfGenerator';
 import { SupplierManagementModal } from '../../components/admin/SupplierManagementModal';
 import { LedgerManagementModal } from '../../components/admin/LedgerManagementModal';
 import { RequestDeletionModal } from '../../components/ui/RequestDeletionModal';
@@ -9,6 +11,7 @@ import { ActionMenu } from '../../components/ui/ActionMenu';
 import { SuggestPopup, isDismissed, isSnoozed } from '../../components/ui/SuggestPopup';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { useSettings } from '../../context/SettingsContext';
 import { toast } from 'sonner';
 import { Pagination, usePagination } from '../../components/ui/Pagination';
 import jsPDF from 'jspdf';
@@ -17,9 +20,11 @@ import { exportToExcel, ExportColumn } from '../../src/lib/exportUtils';
 import { formatPrice } from '../../utils/packageUtils';
 
 export const Bookings: React.FC = () => {
-    const { packages, customers } = useData();
+    const { packages, customers, leads, refreshData } = useData();
     const { bookings, addBooking, updateBooking, deleteBooking, isLoading } = useBookings();
-    const { currentUser, hasPermission } = useAuth();
+    const { currentUser, hasPermission, staff } = useAuth();
+    const { settings } = useSettings();
+    const fi = settings.finance;
     const location = useLocation();
     const navigate = useNavigate();
     const [viewMode, setViewMode] = useState<'list' | 'board'>('list');
@@ -31,6 +36,35 @@ export const Bookings: React.FC = () => {
     const [selectedBookingForSuppliers, setSelectedBookingForSuppliers] = useState<Booking | null>(null);
     const [bookingForLedgerId, setBookingForLedgerId] = useState<string | null>(null);
     const [viewingBookingId, setViewingBookingId] = useState<string | null>(null);
+    const [printingTxId, setPrintingTxId] = useState<string | null>(null);
+
+    const handlePrintReceiptInBookings = async (tx: any, booking: Booking) => {
+        setPrintingTxId(tx.id);
+        const toastId = toast.loading('Generating transaction receipt...');
+        try {
+            const customerDetails = customers?.find((c: any) => c.id === booking.customerId || c.email === booking.email) || null;
+            
+            const transportBooking = booking.supplierBookings?.find((sb: any) => sb.serviceType === 'Transport');
+            const vehicleDetails = transportBooking 
+                ? `${transportBooking.notes || 'AC Transport'} ${transportBooking.vehicleNumber ? `(Vehicle: ${transportBooking.vehicleNumber})` : ''}`.trim()
+                : '13 + 1 Seater AC Tempo Traveller';
+                
+            const linkedPkg = packages?.find((p: any) => p.id === booking.packageId);
+            const routeDetails = linkedPkg 
+                ? linkedPkg.location 
+                : (booking.title || 'Tour Route');
+
+            await generateReceiptPDF(booking, tx, customerDetails, vehicleDetails, routeDetails, fi);
+            toast.dismiss(toastId);
+            toast.success('Receipt downloaded successfully');
+        } catch (err: any) {
+            toast.dismiss(toastId);
+            toast.error(`Receipt generation failed: ${err.message || 'Unknown error'}`);
+            console.error('[Receipt Error]', err);
+        } finally {
+            setPrintingTxId(null);
+        }
+    };
 
     // Always derive from live bookings array so modal auto-refreshes after transactions
     const bookingForLedger = bookingForLedgerId ? bookings.find(b => b.id === bookingForLedgerId) ?? null : null;
@@ -39,6 +73,29 @@ export const Bookings: React.FC = () => {
     const [noteText, setNoteText] = useState('');
     const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
     const [editNoteText, setEditNoteText] = useState('');
+
+    const [bookingModalTab, setBookingModalTab] = useState<'info' | 'chat'>('info');
+    const [chatInput, setChatInput] = useState('');
+
+    useEffect(() => {
+        setBookingModalTab('info');
+    }, [viewingBookingId]);
+
+    const handleSendStaffMessageFromBooking = async (e: React.FormEvent, leadId: string) => {
+        e.preventDefault();
+        if (!chatInput.trim()) return;
+
+        const messageText = chatInput.trim();
+        setChatInput('');
+
+        try {
+            await api.sendStaffLeadMessage(leadId, messageText);
+            await refreshData();
+            toast.success('Message sent to partner');
+        } catch (err: any) {
+            toast.error(err.message || 'Failed to send message');
+        }
+    };
 
     const today = new Date().toISOString().split('T')[0];
 
@@ -58,28 +115,42 @@ export const Bookings: React.FC = () => {
         packageId: '',
         guests: '2 Adults, 0 Children',
         endDate: today,
-        details: ''
+        details: '',
+        whatsapp: '',
+        isWhatsappSame: true,
+        altPhone: '',
+        paxAdult: 2,
+        paxInfant: 0,
+        serviceType: 'Full package',
+        residentialAddress: '',
+        officeAddress: ''
     });
 
     // Guest State
-    const [guestCounts, setGuestCounts] = useState({ adults: 2, children: 0 });
+    const [guestCounts, setGuestCounts] = useState({ adults: 2, children: 0, infants: 0 });
 
     // Sync guestCounts to formData.guests
     useEffect(() => {
-        const guestsStr = `${guestCounts.adults} Adults, ${guestCounts.children} Children`;
-        setFormData(prev => ({ ...prev, guests: guestsStr }));
+        const guestsStr = `${guestCounts.adults} Adults, ${guestCounts.children} Children${guestCounts.infants > 0 ? `, ${guestCounts.infants} Infants` : ''}`;
+        setFormData(prev => ({ 
+            ...prev, 
+            guests: guestsStr,
+            paxAdult: guestCounts.adults,
+            paxInfant: guestCounts.infants
+        }));
     }, [guestCounts]);
 
     // Sync formData.guests to guestCounts (when editing)
     useEffect(() => {
         if (isEditMode && formData.guests) {
             const parts = formData.guests.split(',');
-            let a = 2, c = 0;
+            let a = 2, c = 0, inf = 0;
             parts.forEach(p => {
                 if (p.toLowerCase().includes('adult')) a = parseInt(p) || 2;
                 if (p.toLowerCase().includes('child')) c = parseInt(p) || 0;
+                if (p.toLowerCase().includes('infant')) inf = parseInt(p) || 0;
             });
-            setGuestCounts({ adults: a, children: c });
+            setGuestCounts({ adults: a, children: c, infants: inf });
         }
     }, [isEditMode, formData.guests]);
 
@@ -186,8 +257,17 @@ export const Bookings: React.FC = () => {
             packageId: '',
             guests: '2 Adults',
             endDate: today,
-            details: ''
+            details: '',
+            whatsapp: '',
+            isWhatsappSame: true,
+            altPhone: '',
+            paxAdult: 2,
+            paxInfant: 0,
+            serviceType: 'Full package',
+            residentialAddress: '',
+            officeAddress: ''
         });
+        setGuestCounts({ adults: 2, children: 0, infants: 0 });
         setIsModalOpen(true);
     };
 
@@ -208,8 +288,26 @@ export const Bookings: React.FC = () => {
             packageId: booking.packageId || '',
             guests: booking.guests || '2 Adults',
             endDate: booking.endDate || booking.date,
-            details: booking.details || ''
+            details: booking.details || '',
+            whatsapp: booking.whatsapp || '',
+            isWhatsappSame: booking.isWhatsappSame !== undefined ? booking.isWhatsappSame : true,
+            altPhone: booking.altPhone || '',
+            paxAdult: booking.paxAdult || 2,
+            paxInfant: booking.paxInfant || 0,
+            serviceType: booking.serviceType || 'Full package',
+            residentialAddress: booking.residentialAddress || '',
+            officeAddress: booking.officeAddress || ''
         });
+
+        const parts = (booking.guests || '2 Adults').split(',');
+        let a = 2, c = 0, inf = 0;
+        parts.forEach(p => {
+            if (p.toLowerCase().includes('adult')) a = parseInt(p) || 2;
+            if (p.toLowerCase().includes('child')) c = parseInt(p) || 0;
+            if (p.toLowerCase().includes('infant')) inf = parseInt(p) || 0;
+        });
+        setGuestCounts({ adults: a, children: c, infants: inf });
+
         setIsModalOpen(true);
     };
 
@@ -282,7 +380,15 @@ export const Bookings: React.FC = () => {
             status: formData.status,
             payment: formData.payment as any,
             guests: formData.guests,
-            details: formData.details
+            details: formData.details,
+            whatsapp: formData.isWhatsappSame ? formData.phone : formData.whatsapp,
+            isWhatsappSame: formData.isWhatsappSame,
+            altPhone: formData.altPhone,
+            paxAdult: Number(formData.paxAdult) || guestCounts.adults,
+            paxInfant: Number(formData.paxInfant) || guestCounts.infants,
+            serviceType: formData.serviceType,
+            residentialAddress: formData.residentialAddress,
+            officeAddress: formData.officeAddress
         };
 
         if (isEditMode && formData.id) {
@@ -503,6 +609,14 @@ export const Bookings: React.FC = () => {
                                         )}
                                     </div>
                                     <h2 className="text-lg font-bold text-slate-900 dark:text-white leading-snug mt-0.5">{viewingBooking.title || 'Booking Details'}</h2>
+                                    {viewingBooking.partnerId && (
+                                        <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                                            <span className="inline-flex items-center text-[9px] font-black px-1.5 py-0.5 rounded bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-400 border border-violet-200/50 uppercase tracking-wider">Partner Referral</span>
+                                            <span className="text-xs text-slate-500 font-medium">
+                                                by {viewingBooking.partnerName || 'Independent'} {viewingBooking.partnerCompanyName ? `(${viewingBooking.partnerCompanyName})` : ''}
+                                            </span>
+                                        </div>
+                                    )}
                                     {linkedPkg && (
                                         <p className="text-xs text-primary font-semibold mt-0.5 flex items-center gap-1">
                                             <span className="material-symbols-outlined text-[13px]">book_online</span>
@@ -521,6 +635,32 @@ export const Bookings: React.FC = () => {
                                 </button>
                             </div>
                         </div>
+
+                        {viewingBooking.partnerId && (
+                            <div className="flex gap-4 px-6 mt-1 border-b border-slate-100 dark:border-slate-850 pb-2">
+                                <button
+                                    onClick={() => setBookingModalTab('info')}
+                                    className={`text-xs font-bold pb-1 transition-all ${
+                                        bookingModalTab === 'info'
+                                            ? 'text-primary border-b-2 border-primary'
+                                            : 'text-slate-400 hover:text-slate-600'
+                                    }`}
+                                >
+                                    Details & Logs
+                                </button>
+                                <button
+                                    onClick={() => setBookingModalTab('chat')}
+                                    className={`text-xs font-bold pb-1 transition-all flex items-center gap-1.5 ${
+                                        bookingModalTab === 'chat'
+                                            ? 'text-primary border-b-2 border-primary'
+                                            : 'text-slate-400 hover:text-slate-600'
+                                    }`}
+                                >
+                                    <span className="material-symbols-outlined text-[16px]">forum</span>
+                                    Partner Chat
+                                </button>
+                            </div>
+                        )}
 
                         {/* ── Quick Stats Bar ── */}
                         <div className="grid grid-cols-4 divide-x divide-slate-100 dark:divide-slate-700 border-b border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/20">
@@ -546,170 +686,341 @@ export const Bookings: React.FC = () => {
                         </div>
 
                         {/* ── Scrollable Body ── */}
-                        <div className="p-6 overflow-y-auto space-y-5">
-
-                            {/* Customer Info */}
-                            <div>
-                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">Customer Information</p>
-                                <div className="flex items-center gap-4 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700">
-                                    <div className="size-12 rounded-full bg-primary/10 flex items-center justify-center font-black text-primary text-lg shrink-0">
-                                        {viewingBooking.customer?.charAt(0)?.toUpperCase()}
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <p className="text-base font-bold text-slate-900 dark:text-white">{viewingBooking.customer}</p>
-                                        <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1">
-                                            <a href={`mailto:${viewingBooking.email}`} className="text-xs text-primary hover:underline flex items-center gap-1">
-                                                <span className="material-symbols-outlined text-[13px]">mail</span>{viewingBooking.email}
-                                            </a>
-                                            {viewingBooking.phone && (
-                                                <a href={`tel:${viewingBooking.phone}`} className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 flex items-center gap-1">
-                                                    <span className="material-symbols-outlined text-[13px]">call</span>{viewingBooking.phone}
-                                                </a>
-                                            )}
-                                        </div>
-                                    </div>
-                                    {viewingBooking.customerId && (
-                                        <span className="text-[10px] font-bold bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400 px-2 py-1 rounded-lg shrink-0">Linked Customer</span>
-                                    )}
-                                </div>
-                            </div>
-
-                            {/* Trip Dates */}
-                            <div>
-                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">Trip Dates</p>
-                                <div className="grid grid-cols-3 gap-3">
-                                    <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700">
-                                        <p className="text-[10px] text-slate-400 font-bold uppercase mb-1 flex items-center gap-1"><span className="material-symbols-outlined text-[12px]">flight_takeoff</span>Start Date</p>
-                                        <p className="text-sm font-bold text-slate-800 dark:text-slate-200">{viewingBooking.date}</p>
-                                    </div>
-                                    <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700">
-                                        <p className="text-[10px] text-slate-400 font-bold uppercase mb-1 flex items-center gap-1"><span className="material-symbols-outlined text-[12px]">flight_land</span>End Date</p>
-                                        <p className="text-sm font-bold text-slate-800 dark:text-slate-200">{viewingBooking.endDate || viewingBooking.date}</p>
-                                    </div>
-                                    <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700">
-                                        <p className="text-[10px] text-slate-400 font-bold uppercase mb-1 flex items-center gap-1"><span className="material-symbols-outlined text-[12px]">schedule</span>Duration</p>
-                                        <p className="text-sm font-bold text-slate-800 dark:text-slate-200">{durationDays ? `${durationDays} Night${durationDays > 1 ? 's' : ''}` : '—'}</p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div>
-                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">Financial Breakdown</p>
-                                <div className="rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
-                                    <div className="flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-slate-800/50">
-                                        <p className="text-sm text-slate-600 dark:text-slate-300 font-medium">Total Package Amount</p>
-                                        <p className="text-sm font-bold text-slate-800 dark:text-white">{formatPrice(Number(viewingBooking.amount))}</p>
-                                    </div>
-                                    <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 dark:border-slate-700">
-                                        <p className="text-sm text-slate-600 dark:text-slate-300 font-medium">Verified Received</p>
-                                        <p className="text-sm font-bold text-green-600">{formatPrice(amountPaid)}</p>
-                                    </div>
-                                    {pendingAmount > 0 && (
-                                        <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 dark:border-slate-700 bg-amber-50 dark:bg-amber-900/10">
-                                            <p className="text-sm text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1.5">
-                                                <span className="material-symbols-outlined text-[14px]">pending_actions</span>
-                                                Pending Approval
-                                            </p>
-                                            <p className="text-sm font-bold text-amber-600 dark:text-amber-400">{formatPrice(pendingAmount)}</p>
-                                        </div>
-                                    )}
-                                    <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 dark:border-slate-700 bg-slate-900 dark:bg-slate-950">
-                                        <div className="flex items-center gap-2">
-                                            <p className="text-sm text-white font-bold">Balance Due</p>
-                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${livePaymentStatus === 'Paid' ? 'bg-green-500/20 text-green-400' : livePaymentStatus === 'Deposit' ? 'bg-yellow-500/20 text-yellow-400' : livePaymentStatus === 'Refunded' ? 'bg-purple-500/20 text-purple-300' : 'bg-red-500/20 text-red-400'}`}>{livePaymentStatus}</span>
-                                        </div>
-                                        <p className={`text-sm font-black ${balanceDue <= 0 ? 'text-green-400' : 'text-red-400'}`}>{formatPrice(Math.abs(balanceDue))}</p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Supplier & Transaction Summary */}
-                            {((viewingBooking.supplierBookings && viewingBooking.supplierBookings.length > 0) || (viewingBooking.transactions && viewingBooking.transactions.length > 0)) && (
-                                <div className="grid grid-cols-2 gap-3">
-                                    {viewingBooking.supplierBookings && viewingBooking.supplierBookings.length > 0 && (
-                                        <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700">
-                                            <p className="text-[10px] text-slate-400 font-bold uppercase mb-1 flex items-center gap-1"><span className="material-symbols-outlined text-[12px]">inventory</span>Supplier Bookings</p>
-                                            <p className="text-lg font-black text-slate-800 dark:text-white">{viewingBooking.supplierBookings.length}</p>
-                                            <p className="text-[10px] text-slate-400 mt-0.5">Linked services</p>
-                                        </div>
-                                    )}
-                                    {viewingBooking.transactions && viewingBooking.transactions.length > 0 && (
-                                        <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700">
-                                            <p className="text-[10px] text-slate-400 font-bold uppercase mb-1 flex items-center gap-1"><span className="material-symbols-outlined text-[12px]">receipt</span>Transactions</p>
-                                            <p className="text-lg font-black text-slate-800 dark:text-white">{viewingBooking.transactions.length}</p>
-                                            <p className="text-[10px] text-slate-400 mt-0.5">Payment records</p>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-
-                            {/* Internal Notes */}
-                            <div>
-                                <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3 flex items-center gap-1.5">
-                                    <span className="material-symbols-outlined text-[14px]">sticky_note_2</span>
-                                    Internal Notes
-                                </h3>
-                                
-                                <form onSubmit={(e) => handleAddNote(e, viewingBooking.id)} className="mb-4">
-                                    <textarea
-                                        value={noteText}
-                                        onChange={e => setNoteText(e.target.value)}
-                                        placeholder="Type a new internal note..."
-                                        className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-primary outline-none h-20 resize-none mb-2"
-                                    />
-                                    <div className="flex justify-end">
-                                        <button type="submit" disabled={!noteText.trim()} className="bg-primary text-white text-xs font-bold px-4 py-2 rounded-lg hover:bg-primary-dark transition-colors disabled:opacity-50">
-                                            Add Note
-                                        </button>
-                                    </div>
-                                </form>
-
-                                <div className="space-y-3">
-                                    {/* Legacy Details string compatibility */}
-                                    {viewingBooking.details && (viewingBooking.notes || []).length === 0 && (
-                                        <div className="text-sm text-slate-700 dark:text-slate-300 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/40 rounded-xl p-4 leading-relaxed whitespace-pre-wrap">
-                                            {viewingBooking.details}
-                                        </div>
-                                    )}
-
-                                    {!(viewingBooking.details && (viewingBooking.notes || []).length === 0) && (viewingBooking.notes || []).length === 0 && (
-                                        <div className="text-sm text-slate-400 italic bg-slate-50 dark:bg-slate-800/40 border border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-4 text-center">
-                                            No notes added for this booking.
-                                        </div>
-                                    )}
-
-                                    {(viewingBooking.notes || []).map(n => (
-                                        <div key={n.id} className="bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-700 rounded-xl p-4">
-                                            <div className="flex justify-between items-start mb-2">
+                        <div className={`p-6 ${bookingModalTab === 'chat' ? 'flex flex-col h-[55vh]' : 'overflow-y-auto space-y-5'}`}>
+                            {bookingModalTab === 'chat' ? (
+                                (() => {
+                                    const relatedLead = leads.find(l => 
+                                        l.partnerId === viewingBooking.partnerId && 
+                                        l.email?.toLowerCase() === viewingBooking.email?.toLowerCase()
+                                    );
+                                    if (!relatedLead) {
+                                        return (
+                                            <div className="flex-grow flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 gap-3 py-12 text-center">
+                                                <span className="material-symbols-outlined text-4xl text-slate-350 dark:text-slate-600">info</span>
                                                 <div>
-                                                    <p className="text-xs font-bold text-slate-900 dark:text-white">{n.author}</p>
-                                                    <p className="text-[10px] text-slate-400">{new Date(n.date).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</p>
-                                                </div>
-                                                <div className="flex gap-1">
-                                                    <button onClick={() => { setEditingNoteId(n.id); setEditNoteText(n.text); }} className="text-[10px] bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded font-bold transition-colors">Edit</button>
-                                                    <button onClick={() => handleDeleteNote(viewingBooking.id, n.id)} className="text-[10px] bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-800/40 text-red-600 dark:text-red-400 px-2 py-0.5 rounded font-bold transition-colors">Delete</button>
+                                                    <p className="text-sm font-bold text-slate-700 dark:text-slate-300">No Associated Lead Found</p>
+                                                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-1 max-w-sm px-6">
+                                                        We couldn't locate a partner referral lead matching this customer's email (<strong>{viewingBooking.email}</strong>). Please verify the customer details or partner assignment.
+                                                    </p>
                                                 </div>
                                             </div>
-                                            {editingNoteId === n.id ? (
-                                                <div className="mt-2">
-                                                    <textarea
-                                                        value={editNoteText}
-                                                        onChange={e => setEditNoteText(e.target.value)}
-                                                        className="w-full bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none h-16 resize-none mb-2"
-                                                    />
-                                                    <div className="flex justify-end gap-2">
-                                                        <button onClick={() => { setEditingNoteId(null); setEditNoteText(''); }} className="text-xs px-3 py-1.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">Cancel</button>
-                                                        <button onClick={() => handleUpdateNote(viewingBooking.id, n.id)} disabled={!editNoteText.trim()} className="bg-primary text-white text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-primary-dark transition-colors disabled:opacity-50">Save</button>
+                                        );
+                                    }
+
+                                    return (
+                                        <div className="flex flex-col h-full justify-between gap-4">
+                                            {/* Chat History Container */}
+                                            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50 dark:bg-slate-900/40 rounded-2xl border border-slate-100 dark:border-slate-800/80">
+                                                {relatedLead.logs && relatedLead.logs.filter(log => log.type === 'Chat').length > 0 ? (
+                                                    [...relatedLead.logs]
+                                                        .filter(log => log.type === 'Chat')
+                                                        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+                                                        .map(log => {
+                                                            const isStaff = log.sender === 'Admin' || staff.some(s => s.name === log.sender) || log.sender === currentUser?.email;
+                                                            return (
+                                                                <div key={log.id} className={`flex flex-col ${isStaff ? 'items-end' : 'items-start'}`}>
+                                                                    <div className="flex items-center gap-1.5 mb-1 px-1">
+                                                                        <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500">
+                                                                            {log.sender || 'System'}
+                                                                        </span>
+                                                                        <span className="text-[9px] text-slate-400 dark:text-slate-500">
+                                                                            • {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className={`max-w-[80%] px-4 py-2.5 rounded-2xl text-xs font-semibold leading-relaxed shadow-sm ${
+                                                                        isStaff 
+                                                                            ? 'bg-primary text-white rounded-tr-none' 
+                                                                            : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border border-slate-100 dark:border-slate-700 rounded-tl-none'
+                                                                    }`}>
+                                                                        {log.content}
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })
+                                                ) : (
+                                                    <div className="h-full flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 gap-2 py-12">
+                                                        <span className="material-symbols-outlined text-4xl text-slate-350 dark:text-slate-600">forum</span>
+                                                        <p className="text-xs italic font-medium">No messages exchanged yet. Start chatting with the partner.</p>
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {/* Chat Input Bar */}
+                                            <form onSubmit={(e) => handleSendStaffMessageFromBooking(e, relatedLead.id)} className="flex gap-2">
+                                                <input
+                                                    type="text"
+                                                    value={chatInput}
+                                                    onChange={e => setChatInput(e.target.value)}
+                                                    placeholder="Type a message to the partner..."
+                                                    className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-xs font-semibold text-slate-800 dark:text-slate-100 placeholder-slate-400 outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                                                />
+                                                <button
+                                                    type="submit"
+                                                    disabled={!chatInput.trim()}
+                                                    className="px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 shadow-md shadow-primary/10 disabled:opacity-50"
+                                                >
+                                                    <span className="material-symbols-outlined text-[16px]">send</span>
+                                                    Send
+                                                </button>
+                                            </form>
+                                        </div>
+                                    );
+                                })()
+                            ) : (
+                                <>
+                                    {/* Customer Info */}
+                                    <div>
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">Customer Information</p>
+                                        <div className="flex flex-col gap-3.5 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700">
+                                            <div className="flex items-center gap-4">
+                                                <div className="size-12 rounded-full bg-primary/10 flex items-center justify-center font-black text-primary text-lg shrink-0">
+                                                    {viewingBooking.customer?.charAt(0)?.toUpperCase()}
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="text-base font-bold text-slate-900 dark:text-white">{viewingBooking.customer}</p>
+                                                    <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1">
+                                                        <a href={`mailto:${viewingBooking.email}`} className="text-xs text-primary hover:underline flex items-center gap-1">
+                                                            <span className="material-symbols-outlined text-[13px]">mail</span>{viewingBooking.email}
+                                                        </a>
+                                                        {viewingBooking.phone && (
+                                                            <a href={`tel:${viewingBooking.phone}`} className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 flex items-center gap-1">
+                                                                <span className="material-symbols-outlined text-[13px]">call</span>{viewingBooking.phone}
+                                                            </a>
+                                                        )}
+                                                        {viewingBooking.altPhone && (
+                                                            <a href={`tel:${viewingBooking.altPhone}`} className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 flex items-center gap-1">
+                                                                <span className="material-symbols-outlined text-[13px]">phone_iphone</span>Alt: {viewingBooking.altPhone}
+                                                            </a>
+                                                        )}
+                                                        {viewingBooking.whatsapp && (
+                                                            <a href={`https://wa.me/${viewingBooking.whatsapp.replace(/\D/g, '')}`} target="_blank" className="text-xs text-green-600 dark:text-green-500 hover:underline flex items-center gap-1">
+                                                                <span className="material-symbols-outlined text-[13px]">chat</span>WA: {viewingBooking.whatsapp}
+                                                            </a>
+                                                        )}
                                                     </div>
                                                 </div>
-                                            ) : (
-                                                <p className="text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap">{n.text}</p>
+                                                {viewingBooking.customerId && (
+                                                    <span className="text-[10px] font-bold bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400 px-2 py-1 rounded-lg shrink-0">Linked Customer</span>
+                                                )}
+                                            </div>
+
+                                            {(viewingBooking.residentialAddress || viewingBooking.officeAddress) && (
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-slate-200 dark:border-slate-700">
+                                                    {viewingBooking.residentialAddress && (
+                                                        <div className="flex items-start gap-2">
+                                                            <span className="material-symbols-outlined text-primary text-[16px] mt-0.5">home</span>
+                                                            <div className="min-w-0">
+                                                                <p className="text-[9px] font-bold text-slate-400 uppercase">Home Address</p>
+                                                                <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 leading-snug break-words">{viewingBooking.residentialAddress}</p>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                    {viewingBooking.officeAddress && (
+                                                        <div className="flex items-start gap-2">
+                                                            <span className="material-symbols-outlined text-primary text-[16px] mt-0.5">business</span>
+                                                            <div className="min-w-0">
+                                                                <p className="text-[9px] font-bold text-slate-400 uppercase">Work Address</p>
+                                                                <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 leading-snug break-words">{viewingBooking.officeAddress}</p>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
                                             )}
                                         </div>
-                                    ))}
-                                </div>
-                            </div>
+                                    </div>
 
+                                    {/* Trip Dates & Service Type */}
+                                    <div>
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">Trip Details</p>
+                                        <div className="grid grid-cols-3 gap-3">
+                                            <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700">
+                                                <p className="text-[10px] text-slate-400 font-bold uppercase mb-1 flex items-center gap-1"><span className="material-symbols-outlined text-[12px]">flight_takeoff</span>Start Date</p>
+                                                <p className="text-sm font-bold text-slate-800 dark:text-slate-200">{viewingBooking.date}</p>
+                                            </div>
+                                            <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700">
+                                                <p className="text-[10px] text-slate-400 font-bold uppercase mb-1 flex items-center gap-1"><span className="material-symbols-outlined text-[12px]">flight_land</span>End Date</p>
+                                                <p className="text-sm font-bold text-slate-800 dark:text-slate-200">{viewingBooking.endDate || viewingBooking.date}</p>
+                                            </div>
+                                            <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700">
+                                                <p className="text-[10px] text-slate-400 font-bold uppercase mb-1 flex items-center gap-1"><span className="material-symbols-outlined text-[12px]">schedule</span>Duration</p>
+                                                <p className="text-sm font-bold text-slate-800 dark:text-slate-200">{durationDays ? `${durationDays} Night${durationDays > 1 ? 's' : ''}` : '—'}</p>
+                                            </div>
+                                        </div>
+                                        {viewingBooking.serviceType && (
+                                            <div className="mt-3 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700 flex items-center justify-between animate-in fade-in duration-300">
+                                                <p className="text-[10px] text-slate-400 font-bold uppercase flex items-center gap-1">
+                                                    <span className="material-symbols-outlined text-[14px] text-primary">category</span>
+                                                    Service Category
+                                                </p>
+                                                <span className="px-2.5 py-1 text-xs font-black bg-primary/10 text-primary rounded-lg uppercase tracking-wider">{viewingBooking.serviceType}</span>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div>
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">Financial Breakdown</p>
+                                        <div className="rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+                                            <div className="flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-slate-800/50">
+                                                <p className="text-sm text-slate-600 dark:text-slate-300 font-medium">Total Package Amount</p>
+                                                <p className="text-sm font-bold text-slate-800 dark:text-white">{formatPrice(Number(viewingBooking.amount))}</p>
+                                            </div>
+                                            <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 dark:border-slate-700">
+                                                <p className="text-sm text-slate-600 dark:text-slate-300 font-medium">Verified Received</p>
+                                                <p className="text-sm font-bold text-green-600">{formatPrice(amountPaid)}</p>
+                                            </div>
+                                            {pendingAmount > 0 && (
+                                                <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 dark:border-slate-700 bg-amber-50 dark:bg-amber-900/10">
+                                                    <p className="text-sm text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1.5">
+                                                        <span className="material-symbols-outlined text-[14px]">pending_actions</span>
+                                                        Pending Approval
+                                                    </p>
+                                                    <p className="text-sm font-bold text-amber-600 dark:text-amber-400">{formatPrice(pendingAmount)}</p>
+                                                </div>
+                                            )}
+                                            <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 dark:border-slate-700 bg-slate-900 dark:bg-slate-950">
+                                                <div className="flex items-center gap-2">
+                                                    <p className="text-sm text-white font-bold">Balance Due</p>
+                                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${livePaymentStatus === 'Paid' ? 'bg-green-500/20 text-green-400' : livePaymentStatus === 'Deposit' ? 'bg-yellow-500/20 text-yellow-400' : livePaymentStatus === 'Refunded' ? 'bg-purple-500/20 text-purple-300' : 'bg-red-500/20 text-red-400'}`}>{livePaymentStatus}</span>
+                                                </div>
+                                                <p className={`text-sm font-black ${balanceDue <= 0 ? 'text-green-400' : 'text-red-400'}`}>{formatPrice(Math.abs(balanceDue))}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Detailed Payment Transactions */}
+                                    {viewTxs.length > 0 && (
+                                        <div>
+                                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3 flex items-center gap-1"><span className="material-symbols-outlined text-[13px]">payments</span>Payment Transactions</p>
+                                            <div className="rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden divide-y divide-slate-100 dark:divide-slate-700 bg-slate-50/20 dark:bg-slate-800/10">
+                                                {viewTxs.map((t: any) => (
+                                                    <div key={t.id} className="flex items-center justify-between px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                                                        <div>
+                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                                <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${t.type === 'Payment' ? 'bg-green-100 text-green-700 dark:bg-green-950/30 dark:text-green-400' : 'bg-red-100 text-red-700 dark:bg-red-950/30 dark:text-red-400'}`}>
+                                                                    {t.type}
+                                                                </span>
+                                                                <span className="text-xs font-bold text-slate-800 dark:text-slate-200">{t.method}</span>
+                                                                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${t.status === 'Verified' ? 'bg-green-50 text-green-600 dark:bg-green-900/10' : t.status === 'Pending' ? 'bg-amber-50 text-amber-600 dark:bg-amber-900/10' : 'bg-red-50 text-red-600 dark:bg-red-900/10'}`}>
+                                                                    {t.status || 'Verified'}
+                                                                </span>
+                                                            </div>
+                                                            <p className="text-[10px] text-slate-400 font-medium mt-1">
+                                                                {new Date(t.date).toLocaleDateString()} {t.reference ? `· Ref: ${t.reference}` : ''}
+                                                            </p>
+                                                        </div>
+                                                        <div className="flex items-center gap-3 shrink-0">
+                                                            <span className={`text-xs font-black ${t.type === 'Payment' ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400'}`}>
+                                                                {t.type === 'Refund' ? '-' : '+'} {formatPrice(t.amount)}
+                                                            </span>
+                                                            {t.status !== 'Rejected' && (
+                                                                <button
+                                                                    onClick={() => handlePrintReceiptInBookings(t, viewingBooking)}
+                                                                    disabled={printingTxId === t.id}
+                                                                    title="Download Receipt"
+                                                                    className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-all active:scale-95 disabled:opacity-50"
+                                                                >
+                                                                    {printingTxId === t.id ? (
+                                                                        <span className="material-symbols-outlined text-[16px] animate-spin">sync</span>
+                                                                    ) : (
+                                                                        <span className="material-symbols-outlined text-[16px]">receipt</span>
+                                                                    )}
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Supplier & Transaction Summary */}
+                                    {((viewingBooking.supplierBookings && viewingBooking.supplierBookings.length > 0) || (viewingBooking.transactions && viewingBooking.transactions.length > 0)) && (
+                                        <div className="grid grid-cols-2 gap-3">
+                                            {viewingBooking.supplierBookings && viewingBooking.supplierBookings.length > 0 && (
+                                                <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700">
+                                                    <p className="text-[10px] text-slate-400 font-bold uppercase mb-1 flex items-center gap-1"><span className="material-symbols-outlined text-[12px]">inventory</span>Supplier Bookings</p>
+                                                    <p className="text-lg font-black text-slate-800 dark:text-white">{viewingBooking.supplierBookings.length}</p>
+                                                    <p className="text-[10px] text-slate-400 mt-0.5">Linked services</p>
+                                                </div>
+                                            )}
+                                            {viewingBooking.transactions && viewingBooking.transactions.length > 0 && (
+                                                <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700">
+                                                    <p className="text-[10px] text-slate-400 font-bold uppercase mb-1 flex items-center gap-1"><span className="material-symbols-outlined text-[12px]">receipt</span>Transactions</p>
+                                                    <p className="text-lg font-black text-slate-800 dark:text-white">{viewingBooking.transactions.length}</p>
+                                                    <p className="text-[10px] text-slate-400 mt-0.5">Payment records</p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {/* Internal Notes */}
+                                    <div>
+                                        <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3 flex items-center gap-1.5">
+                                            <span className="material-symbols-outlined text-[14px]">sticky_note_2</span>
+                                            Internal Notes
+                                        </h3>
+
+                                        <form onSubmit={(e) => handleAddNote(e, viewingBooking.id)} className="mb-4">
+                                            <textarea
+                                                value={noteText}
+                                                onChange={e => setNoteText(e.target.value)}
+                                                placeholder="Type a new internal note..."
+                                                className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-primary outline-none h-20 resize-none mb-2"
+                                            />
+                                            <div className="flex justify-end">
+                                                <button type="submit" disabled={!noteText.trim()} className="bg-primary text-white text-xs font-bold px-4 py-2 rounded-lg hover:bg-primary-dark transition-colors disabled:opacity-50">
+                                                    Add Note
+                                                </button>
+                                            </div>
+                                        </form>
+
+                                        <div className="space-y-3">
+                                            {/* Legacy Details string compatibility */}
+                                            {viewingBooking.details && (viewingBooking.notes || []).length === 0 && (
+                                                <div className="text-sm text-slate-700 dark:text-slate-300 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/40 rounded-xl p-4 leading-relaxed whitespace-pre-wrap">
+                                                    {viewingBooking.details}
+                                                </div>
+                                            )}
+
+                                            {!(viewingBooking.details && (viewingBooking.notes || []).length === 0) && (viewingBooking.notes || []).length === 0 && (
+                                                <div className="text-sm text-slate-400 italic bg-slate-50 dark:bg-slate-800/40 border border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-4 text-center">
+                                                    No notes added for this booking.
+                                                </div>
+                                            )}
+
+                                            {(viewingBooking.notes || []).map(n => (
+                                                <div key={n.id} className="bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-700 rounded-xl p-4">
+                                                    <div className="flex justify-between items-start mb-2">
+                                                        <div>
+                                                            <p className="text-xs font-bold text-slate-900 dark:text-white">{n.author}</p>
+                                                            <p className="text-[10px] text-slate-400">{new Date(n.date).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</p>
+                                                        </div>
+                                                        <div className="flex gap-1">
+                                                            <button onClick={() => { setEditingNoteId(n.id); setEditNoteText(n.text); }} className="text-[10px] bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded font-bold transition-colors">Edit</button>
+                                                            <button onClick={() => handleDeleteNote(viewingBooking.id, n.id)} className="text-[10px] bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-800/40 text-red-600 dark:text-red-400 px-2 py-0.5 rounded font-bold transition-colors">Delete</button>
+                                                        </div>
+                                                    </div>
+                                                    {editingNoteId === n.id ? (
+                                                        <div className="mt-2">
+                                                            <textarea
+                                                                value={editNoteText}
+                                                                onChange={e => setEditNoteText(e.target.value)}
+                                                                className="w-full bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none h-16 resize-none mb-2"
+                                                            />
+                                                            <div className="flex justify-end gap-2">
+                                                                <button onClick={() => { setEditingNoteId(null); setEditNoteText(''); }} className="text-xs px-3 py-1.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">Cancel</button>
+                                                                <button onClick={() => handleUpdateNote(viewingBooking.id, n.id)} disabled={!editNoteText.trim()} className="bg-primary text-white text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-primary-dark transition-colors disabled:opacity-50">Save</button>
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        <p className="text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap">{n.text}</p>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </>
+                            )}
                         </div>
 
                         {/* ── Footer Actions ── */}
@@ -763,19 +1074,40 @@ export const Bookings: React.FC = () => {
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div className="space-y-1">
                                         <label className="text-xs font-bold text-slate-500">Full Name</label>
-                                        <input required value={formData.customer} onChange={e => setFormData({ ...formData, customer: e.target.value })} type="text" className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                                        <input required value={formData.customer} onChange={e => setFormData({ ...formData, customer: e.target.value })} type="text" className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none font-bold" />
                                     </div>
                                     <div className="space-y-1">
                                         <label className="text-xs font-bold text-slate-500">Email Address</label>
-                                        <input required value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} type="email" className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                                        <input required value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} type="email" className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none font-bold" />
                                     </div>
                                     <div className="space-y-1">
                                         <label className="text-xs font-bold text-slate-500">Phone</label>
-                                        <input required value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} type="tel" className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                                        <input required value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value, whatsapp: formData.isWhatsappSame ? e.target.value : formData.whatsapp })} type="tel" className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none font-bold" />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-bold text-slate-500">Alternate Phone</label>
+                                        <input placeholder="Alternate Number" value={formData.altPhone} onChange={e => setFormData({ ...formData, altPhone: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none font-bold" />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <div className="flex items-center justify-between">
+                                            <label className="text-xs font-bold text-slate-500">WhatsApp Number</label>
+                                            <div className="flex items-center gap-1.5">
+                                                <input type="checkbox" id="booking-is-whatsapp-same" checked={formData.isWhatsappSame} onChange={e => {
+                                                    const checked = e.target.checked;
+                                                    setFormData(prev => ({
+                                                        ...prev,
+                                                        isWhatsappSame: checked,
+                                                        whatsapp: checked ? prev.phone : ''
+                                                    }));
+                                                }} className="rounded border-slate-300 text-primary focus:ring-primary h-3.5 w-3.5" />
+                                                <label htmlFor="booking-is-whatsapp-same" className="text-[10px] font-bold text-slate-400 cursor-pointer select-none">Same as Phone</label>
+                                            </div>
+                                        </div>
+                                        <input placeholder="WhatsApp Number" disabled={formData.isWhatsappSame} value={formData.isWhatsappSame ? formData.phone : formData.whatsapp} onChange={e => setFormData({ ...formData, whatsapp: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none font-bold disabled:opacity-55 disabled:cursor-not-allowed" />
                                     </div>
                                     <div className="space-y-1">
                                         <label className="text-xs font-bold text-slate-500">Guests</label>
-                                        <div className="grid grid-cols-2 gap-2">
+                                        <div className="grid grid-cols-3 gap-2">
                                             <div>
                                                 <label className="text-[10px] uppercase font-bold text-slate-400">Adults</label>
                                                 <input
@@ -796,7 +1128,25 @@ export const Bookings: React.FC = () => {
                                                     className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none"
                                                 />
                                             </div>
+                                            <div>
+                                                <label className="text-[10px] uppercase font-bold text-slate-400">Infants</label>
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    value={guestCounts.infants}
+                                                    onChange={e => setGuestCounts({ ...guestCounts, infants: parseInt(e.target.value) || 0 })}
+                                                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none"
+                                                />
+                                            </div>
                                         </div>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-bold text-slate-500">Residential Address</label>
+                                        <input placeholder="Home Address" value={formData.residentialAddress} onChange={e => setFormData({ ...formData, residentialAddress: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none font-bold" />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-bold text-slate-500">Office Address</label>
+                                        <input placeholder="Work Address" value={formData.officeAddress} onChange={e => setFormData({ ...formData, officeAddress: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none font-bold" />
                                     </div>
                                 </div>
                             </div>
@@ -856,6 +1206,14 @@ export const Bookings: React.FC = () => {
                                             className={`w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none ${isEditMode && currentUser?.userType !== 'Admin' ? 'opacity-60 cursor-not-allowed' : ''}`}
                                             disabled={isEditMode && currentUser?.userType !== 'Admin'}
                                         />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-bold text-slate-500">Service Category</label>
+                                        <select value={formData.serviceType} onChange={e => setFormData({ ...formData, serviceType: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none font-bold">
+                                            {['Full package', 'Hotel + Flight', 'Hotel + Transport', 'Hotel only', 'Flight only', 'Transport only', 'Activities only', 'Visa only'].map(t => (
+                                                <option key={t} value={t}>{t}</option>
+                                            ))}
+                                        </select>
                                     </div>
                                 </div>
                             </div>
@@ -997,13 +1355,21 @@ export const Bookings: React.FC = () => {
                                     <tbody className="divide-y divide-slate-100 dark:divide-slate-700 cursor-pointer">
                                         {paginatedBookings.length > 0 ? (
                                             paginatedBookings.map((booking) => (
-                                                <tr key={booking.id} onClick={() => setViewingBookingId(booking.id)} className="group hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer">
+                                                <tr 
+                                                    key={booking.id} 
+                                                    onClick={() => setViewingBookingId(booking.id)} 
+                                                    className={`group transition-colors cursor-pointer ${
+                                                        booking.partnerId 
+                                                            ? 'bg-violet-500/5 dark:bg-violet-500/10 hover:bg-violet-500/10 dark:hover:bg-violet-500/20' 
+                                                            : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                                                    }`}
+                                                >
                                                     <td className="px-6 py-4">
                                                         <div className="flex flex-col">
                                                             <span className="text-xs font-bold font-mono text-primary">{booking.bookingNumber ? `BK-${String(booking.bookingNumber).padStart(4, '0')}` : booking.id.substring(0, 8)}</span>
                                                             <div className="flex items-center gap-1 text-slate-500 mt-1">
-                                                                <span className="material-symbols-outlined text-[14px]">{getTypeIcon(booking.type)}</span>
-                                                                <span className="text-[10px] font-bold uppercase">{booking.type}</span>
+                                                                 <span className="material-symbols-outlined text-[14px]">{getTypeIcon(booking.type)}</span>
+                                                                 <span className="text-[10px] font-bold uppercase">{booking.type}</span>
                                                             </div>
                                                         </div>
                                                     </td>
@@ -1013,7 +1379,12 @@ export const Bookings: React.FC = () => {
                                                                 {booking.customer.charAt(0)}
                                                             </div>
                                                             <div>
-                                                                <p className="text-sm font-bold text-slate-900 dark:text-white">{booking.customer}</p>
+                                                                <p className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                                                                    {booking.customer}
+                                                                    {booking.partnerId && (
+                                                                        <span className="inline-flex items-center text-[9px] font-black px-1.5 py-0.5 rounded bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-400 border border-violet-200/50 uppercase tracking-wider">Partner</span>
+                                                                    )}
+                                                                </p>
                                                                 <p className="text-xs text-slate-500">{booking.email}</p>
                                                             </div>
                                                         </div>
@@ -1136,14 +1507,25 @@ export const Bookings: React.FC = () => {
                                         const liveP = booking.amount > 0 && net >= booking.amount ? 'Paid' : net > 0 ? 'Deposit' : net < 0 ? 'Refunded' : 'Unpaid';
                                         
                                         return (
-                                            <div key={booking.id} onClick={() => setViewingBookingId(booking.id)} className="p-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors active:bg-slate-100 dark:active:bg-slate-800">
+                                            <div 
+                                                key={booking.id} 
+                                                onClick={() => setViewingBookingId(booking.id)} 
+                                                className={`p-4 cursor-pointer transition-colors border-l-4 ${
+                                                    booking.partnerId 
+                                                        ? 'bg-violet-500/5 dark:bg-violet-500/10 border-violet-500 hover:bg-violet-500/10 dark:hover:bg-violet-500/20' 
+                                                        : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800/50 active:bg-slate-100 dark:active:bg-slate-800'
+                                                }`}
+                                            >
                                                 <div className="flex justify-between items-start mb-3">
                                                     <div>
-                                                        <div className="flex items-center gap-2 mb-1">
+                                                        <div className="flex items-center gap-2 mb-1 flex-wrap">
                                                             <span className="text-xs font-bold font-mono text-primary">{booking.bookingNumber ? `BK-${String(booking.bookingNumber).padStart(4, '0')}` : booking.id.substring(0, 8)}</span>
                                                             <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold border ${getStatusColor(booking.status)}`}>
                                                                 {booking.status}
                                                             </span>
+                                                            {booking.partnerId && (
+                                                                <span className="inline-flex items-center text-[9px] font-black px-1.5 py-0.5 rounded bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-400 border border-violet-200/50 uppercase tracking-wider">Partner</span>
+                                                            )}
                                                         </div>
                                                         <div className="flex items-center gap-1.5 text-slate-500">
                                                             <span className="material-symbols-outlined text-[14px]">{getTypeIcon(booking.type)}</span>
@@ -1237,10 +1619,19 @@ export const Bookings: React.FC = () => {
                                                 <div
                                                     key={booking.id}
                                                     onClick={() => openEditModal(booking)}
-                                                    className="bg-white dark:bg-[#1A2633] p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm hover:shadow-md hover:border-primary/50 transition-all cursor-pointer group"
+                                                    className={`p-4 rounded-xl shadow-sm hover:shadow-md transition-all cursor-pointer group border border-l-4 ${
+                                                        booking.partnerId 
+                                                            ? 'bg-violet-500/5 dark:bg-violet-500/10 border-slate-200 dark:border-slate-700 border-l-violet-500 hover:border-l-violet-600' 
+                                                            : 'bg-white dark:bg-[#1A2633] border-slate-200 dark:border-slate-700 border-l-transparent hover:border-primary/50'
+                                                    }`}
                                                 >
-                                                    <div className="flex justify-between items-start mb-2">
-                                                        <span className="text-[10px] font-mono font-bold text-slate-400">{booking.bookingNumber ? `BK-${String(booking.bookingNumber).padStart(4, '0')}` : booking.id.substring(0, 8)}</span>
+                                                    <div className="flex justify-between items-start mb-2 gap-2 flex-wrap">
+                                                        <div className="flex items-center gap-1.5">
+                                                            <span className="text-[10px] font-mono font-bold text-slate-400">{booking.bookingNumber ? `BK-${String(booking.bookingNumber).padStart(4, '0')}` : booking.id.substring(0, 8)}</span>
+                                                            {booking.partnerId && (
+                                                                <span className="inline-flex items-center text-[8px] font-black px-1.5 py-0.5 rounded bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-400 border border-violet-200/50 uppercase tracking-wider">Partner</span>
+                                                            )}
+                                                        </div>
                                                         <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${booking.payment === 'Paid' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>{booking.payment}</span>
                                                     </div>
                                                     <h4 className="font-bold text-slate-900 dark:text-white text-sm mb-1">{booking.customer}</h4>

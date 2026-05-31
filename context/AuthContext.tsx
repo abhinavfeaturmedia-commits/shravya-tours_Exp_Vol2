@@ -135,14 +135,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }, []);
 
     // Unified User Loading Logic
-    const loadUserProfile = useCallback(async (email: string) => {
+    const loadUserProfile = useCallback(async (email: string, isAdminOverride?: boolean) => {
         try {
             // 1. Try single fetch first
             const me = await api.getStaffByEmail(email);
             if (me) {
-                setCurrentUser({ ...me, permissions: mergePermissions(me.permissions) });
+                const userProfile = { ...me, permissions: mergePermissions(me.permissions) };
+                if (isAdminOverride) {
+                    userProfile.userType = 'Admin';
+                    userProfile.permissions = ADMIN_PERMISSIONS;
+                    if (userProfile.role !== 'Administrator') {
+                        userProfile.role = 'Administrator';
+                    }
+                }
+                setCurrentUser(userProfile);
                 // Background fetch full list
-                api.getStaff().then(all => setStaff(all.map(s => ({ ...s, permissions: mergePermissions(s.permissions) })))).catch(console.warn);
+                api.getStaff().then(all => setStaff(all.map(s => {
+                    if (s.email.toLowerCase() === email.toLowerCase() && isAdminOverride) {
+                        return { ...s, userType: 'Admin', role: 'Administrator', permissions: ADMIN_PERMISSIONS };
+                    }
+                    return { ...s, permissions: mergePermissions(s.permissions) };
+                }))).catch(console.warn);
                 return;
             }
 
@@ -152,8 +165,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const found = allStaff.find(s => s.email.toLowerCase() === email.toLowerCase());
 
             if (found) {
-                setCurrentUser({ ...found, permissions: mergePermissions(found.permissions) });
-                setStaff(allStaff.map(s => ({ ...s, permissions: mergePermissions(s.permissions) })));
+                const userProfile = { ...found, permissions: mergePermissions(found.permissions) };
+                if (isAdminOverride) {
+                    userProfile.userType = 'Admin';
+                    userProfile.permissions = ADMIN_PERMISSIONS;
+                    if (userProfile.role !== 'Administrator') {
+                        userProfile.role = 'Administrator';
+                    }
+                }
+                setCurrentUser(userProfile);
+                setStaff(allStaff.map(s => {
+                    if (s.email.toLowerCase() === email.toLowerCase() && isAdminOverride) {
+                        return { ...s, userType: 'Admin', role: 'Administrator', permissions: ADMIN_PERMISSIONS };
+                    }
+                    return { ...s, permissions: mergePermissions(s.permissions) };
+                }));
             } else {
                 // No auto-create: use basic profile from email. Admins should create staff profiles explicitly.
                 console.warn(`No staff profile found for ${email}. Using basic profile.`);
@@ -161,8 +187,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     id: 0,
                     name: email.split('@')[0],
                     email: email,
-                    role: 'Agent',
-                    userType: 'Staff',
+                    role: isAdminOverride ? 'Administrator' : 'Agent',
+                    userType: isAdminOverride ? 'Admin' : 'Staff',
                     initials: email.substring(0, 2).toUpperCase(),
                     department: 'General',
                     status: 'Active',
@@ -170,7 +196,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     color: 'indigo',
                     queryScope: 'Show All Queries',
                     whatsappScope: 'All Messages',
-                    permissions: DEFAULT_PERMISSIONS,
+                    permissions: isAdminOverride ? ADMIN_PERMISSIONS : DEFAULT_PERMISSIONS,
                 });
                 setStaff(allStaff.map(s => ({ ...s, permissions: mergePermissions(s.permissions) })));
             }
@@ -215,7 +241,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                             api.getStaff().then(setStaff).catch(console.warn);
                         } else {
                             try {
-                                await loadUserProfile(payload.email);
+                                await loadUserProfile(payload.email, payload.role === 'admin');
                             } catch (profileErr) {
                                 console.warn('Could not load staff profile on init, using basic info:', profileErr);
                                 setCurrentUser({
@@ -302,7 +328,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             } else {
                 // Load user profile from DB, fallback gracefully on error
                 try {
-                    await loadUserProfile(email);
+                    await loadUserProfile(email, data.user?.role === 'admin');
                 } catch (profileErr) {
                     console.warn('Could not load staff profile, using basic user info:', profileErr);
                     setCurrentUser({
@@ -352,7 +378,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const updateStaff = useCallback(async (id: number, member: Partial<StaffMember>) => {
         try {
-            await api.updateStaff(id, member);
+            // Only update profile database if updates contain fields other than daily attendance/operational fields
+            const hasProfileUpdates = Object.keys(member).some(
+                k => !['attendanceStatus', 'checkInTime', 'currentLocation'].includes(k)
+            );
+            if (hasProfileUpdates) {
+                await api.updateStaff(id, member);
+            }
             setStaff(prev => prev.map(s => s.id === id ? { ...s, ...member } : s));
             // Fix #2: If editing self, update currentUser immediately so changes reflect without re-login
             setCurrentUser(prev => prev && prev.id === id ? { ...prev, ...member } : prev);

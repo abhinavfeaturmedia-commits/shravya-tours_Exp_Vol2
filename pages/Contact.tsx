@@ -81,7 +81,7 @@ export const Contact: React.FC = () => {
         <>
             <SEO
                 title="Contact Us"
-                description="Get in touch with SHRAWELLO Travel Hub. Whether you have a specific destination in mind or need inspiration, our travel experts are here to help plan your dream getaway."
+                description="Get in touch with SHRAWELLO Travel Hub and Events LLP. Whether you have a specific destination in mind or need inspiration, our travel experts are here to help plan your dream getaway."
             />
 
             <div className="bg-slate-50 dark:bg-[#0B1116] min-h-screen pt-24 md:pt-32 pb-20 relative overflow-hidden">

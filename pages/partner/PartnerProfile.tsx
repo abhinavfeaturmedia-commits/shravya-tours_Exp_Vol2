@@ -127,7 +127,11 @@ export const PartnerProfile: React.FC = () => {
               { label: 'Phone', value: partner.phone || '—', icon: 'phone' },
               { label: 'Company / Agency', value: partner.companyName || '—', icon: 'business' },
               { label: 'Location', value: partner.location || '—', icon: 'location_on' },
-              { label: 'Commission Rate', value: partner.commissionType === 'Percentage' ? `${partner.commissionValue}% per booking` : `₹${partner.commissionValue} flat per booking`, icon: 'percent' },
+              { label: 'Base Commission Rate', value: partner.commissionType === 'Percentage' ? `${partner.commissionValue}% per booking` : `₹${partner.commissionValue} flat per booking`, icon: 'percent' },
+              { label: 'Cab Commission Override', value: partner.cabCommissionType === 'Percentage' ? `${partner.cabCommissionValue}% per booking` : `₹${partner.cabCommissionValue || 300} flat per booking`, icon: 'directions_car' },
+              { label: 'Bus Commission Override', value: partner.busCommissionType === 'Percentage' ? `${partner.busCommissionValue}% per booking` : `₹${partner.busCommissionValue || 150} flat per booking`, icon: 'directions_bus' },
+              { label: 'Train Commission Override', value: partner.trainCommissionType === 'Percentage' ? `${partner.trainCommissionValue}% per booking` : `₹${partner.trainCommissionValue || 100} flat per booking`, icon: 'train' },
+              { label: 'Flight Commission Override', value: partner.flightCommissionType === 'Percentage' ? `${partner.flightCommissionValue}% per booking` : `₹${partner.flightCommissionValue || 200} flat per booking`, icon: 'flight' },
             ].map(f => (
               <div key={f.label} className="flex items-start gap-3 p-3 bg-white/5 rounded-xl">
                 <span className="material-symbols-outlined text-violet-400 text-[18px] shrink-0 mt-0.5">{f.icon}</span>

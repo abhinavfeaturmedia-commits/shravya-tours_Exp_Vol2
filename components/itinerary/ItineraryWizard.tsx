@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useItinerary } from './ItineraryContext';
 import { useData } from '../../context/DataContext';
+import { api } from '../../src/lib/api';
 import { StepDayPlanner } from './steps/StepDayPlanner';
 import { StepTripDetails } from './steps/StepTripDetails';
 import { StepPricing } from './steps/StepPricing';
@@ -281,10 +282,18 @@ export const ItineraryWizard: React.FC = () => {
     useEffect(() => {
         const editId = searchParams.get('edit');
         if (editId && !isLoaded) {
-            const pkgToEdit = packages.find(p => p.id === editId);
-            // Fix 2.5: pass masterLocations so legacy destination names can be resolved to IDs
-            if (pkgToEdit) loadPackage(pkgToEdit, masterLocations || []);
-            setIsLoaded(true);
+            // Fetch the full package record (with builder_data) — the global list omits it for performance
+            api.getPackageById(editId)
+                .then(fullPkg => {
+                    const pkgToEdit = fullPkg || packages.find(p => p.id === editId);
+                    if (pkgToEdit) loadPackage(pkgToEdit, masterLocations || []);
+                })
+                .catch(() => {
+                    // Fallback: use the list-level package (no builderData, legacy migration)
+                    const pkgToEdit = packages.find(p => p.id === editId);
+                    if (pkgToEdit) loadPackage(pkgToEdit, masterLocations || []);
+                })
+                .finally(() => setIsLoaded(true));
         }
     }, [searchParams, packages, loadPackage, isLoaded]);
 

@@ -86,6 +86,35 @@ async function ensureUsersTable() {
             console.log('Added status column to staff_members.');
         } catch(err) { /* already exists */ }
 
+        // Seed default admin user into users table if not present
+        // This ensures admin@shravyatours.com can log in with a real password
+        try {
+            const [existing] = await pool.query('SELECT id FROM users WHERE email = ?', ['admin@shravyatours.com']);
+            if (existing.length === 0) {
+                const adminHash = await bcrypt.hash('Shravya@2026', 10);
+                await pool.query(
+                    'INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)',
+                    ['admin@shravyatours.com', adminHash, 'admin']
+                );
+                console.log('Seeded default admin@shravyatours.com into users table (password: Shravya@2026).');
+            }
+        } catch (seedErr) {
+            console.warn('Admin seed warning:', seedErr.message);
+        }
+
+        // Fix any existing Admin staff members whose users row has wrong role
+        // (They were created with role='Editor'/'Agent' but should be 'admin')
+        try {
+            await pool.query(`
+                UPDATE users u
+                JOIN staff_members sm ON sm.email = u.email
+                SET u.role = 'admin'
+                WHERE sm.user_type = 'Admin' AND u.role != 'admin'
+            `);
+        } catch (fixErr) {
+            console.warn('Role fix warning:', fixErr.message);
+        }
+
     } catch (err) {
         console.error('Failed to ensure users table:', err.message);
     }
@@ -129,7 +158,9 @@ async function migratePackagesColumns() {
         "ALTER TABLE packages ADD COLUMN IF NOT EXISTS original_price DECIMAL(10,2) DEFAULT NULL",
         "ALTER TABLE packages ADD COLUMN IF NOT EXISTS pricing_mode VARCHAR(50) DEFAULT 'group'",
         "ALTER TABLE packages ADD COLUMN IF NOT EXISTS highlights LONGTEXT DEFAULT NULL",
-        "ALTER TABLE packages ADD COLUMN IF NOT EXISTS itinerary LONGTEXT DEFAULT NULL"
+        "ALTER TABLE packages ADD COLUMN IF NOT EXISTS itinerary LONGTEXT DEFAULT NULL",
+        "ALTER TABLE packages ADD COLUMN IF NOT EXISTS partner_commission_type VARCHAR(50) DEFAULT NULL",
+        "ALTER TABLE packages ADD COLUMN IF NOT EXISTS partner_commission_value DECIMAL(10,2) DEFAULT NULL"
     ];
     for (const sql of alterations) {
         try {
@@ -158,6 +189,33 @@ async function migrateLeadsPackageId() {
 }
 migrateLeadsPackageId();
 
+// Ensure customers table has the new columns for extended customer profiles
+async function migrateCustomersColumns() {
+    const alterations = [
+        { col: 'prefix', sql: "ALTER TABLE customers ADD COLUMN prefix VARCHAR(20) DEFAULT NULL" },
+        { col: 'dob', sql: "ALTER TABLE customers ADD COLUMN dob VARCHAR(50) DEFAULT NULL" },
+        { col: 'alt_phone', sql: "ALTER TABLE customers ADD COLUMN alt_phone VARCHAR(50) DEFAULT NULL" },
+        { col: 'whatsapp', sql: "ALTER TABLE customers ADD COLUMN whatsapp VARCHAR(50) DEFAULT NULL" },
+        { col: 'is_whatsapp_same', sql: "ALTER TABLE customers ADD COLUMN is_whatsapp_same BOOLEAN DEFAULT FALSE" },
+        { col: 'address', sql: "ALTER TABLE customers ADD COLUMN address TEXT DEFAULT NULL" },
+        { col: 'office_address', sql: "ALTER TABLE customers ADD COLUMN office_address TEXT DEFAULT NULL" }
+    ];
+    for (const alt of alterations) {
+        try {
+            await pool.query(alt.sql);
+            console.log(`[Customers Migration] Added column ${alt.col} to customers.`);
+        } catch (err) {
+            if (err.code === 'ER_DUP_FIELDNAME' || err.message?.includes('Duplicate column') || err.message?.includes('already exists')) {
+                // Column already exists, safe to ignore
+            } else {
+                console.warn(`[Customers Migration] Failed to add ${alt.col}:`, err.message?.split('\n')[0]);
+            }
+        }
+    }
+    console.log('[Customers Migration] Column check complete.');
+}
+migrateCustomersColumns();
+
 // Ensure the settings table exists (key-value store for admin configuration)
 async function ensureSettingsTable() {
     try {
@@ -178,7 +236,7 @@ ensureSettingsTable();
 
 // ─── Migrate Staff Permissions (adds new permission keys to existing records) ───
 // Runs on every startup. Non-destructive: only adds missing keys, never overwrites.
-const NEW_PERMISSION_KEYS = ['operations', 'invoices', 'proposals', 'settings'];
+const NEW_PERMISSION_KEYS = ['operations', 'invoices', 'proposals', 'settings', 'cms', 'partners', 'memberships', 'testimonials'];
 const DEFAULT_NEW_PERMISSION = { view: false, manage: false };
 
 async function migrateStaffPermissions() {
@@ -252,12 +310,30 @@ async function ensureLiveOpsSchema() {
     const bookingAlterations = [
         "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS duration_days INT DEFAULT NULL",
         "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS pax_count INT DEFAULT NULL",
+        "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS pax_child INT DEFAULT 0",
         "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS whatsapp_group_url VARCHAR(500) DEFAULT NULL",
-        "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS live_status VARCHAR(50) DEFAULT 'Live'"
+        "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS live_status VARCHAR(50) DEFAULT 'Live'",
+        "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS whatsapp VARCHAR(50) DEFAULT NULL",
+        "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS is_whatsapp_same TINYINT(1) DEFAULT 1",
+        "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS alt_phone VARCHAR(50) DEFAULT NULL",
+        "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS residential_address TEXT DEFAULT NULL",
+        "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS office_address TEXT DEFAULT NULL",
+        "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS pax_adult INT DEFAULT 1",
+        "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS pax_infant INT DEFAULT 0",
+        "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS service_type VARCHAR(100) DEFAULT NULL"
     ];
     for (const sql of bookingAlterations) {
         try { await pool.query(sql); }
-        catch (err) { if (!err.message?.includes('Duplicate column')) console.warn('[LiveOps Migration] Bookings:', err.message?.split('\n')[0]); }
+        catch (err) { if (!err.message?.includes('Duplicate column') && err.code !== 'ER_DUP_FIELDNAME') console.warn('[LiveOps Migration] Bookings:', err.message?.split('\n')[0]); }
+    }
+
+    // 1b. New columns on leads table
+    const leadAlterations = [
+        "ALTER TABLE leads ADD COLUMN IF NOT EXISTS alt_phone VARCHAR(50) DEFAULT NULL"
+    ];
+    for (const sql of leadAlterations) {
+        try { await pool.query(sql); }
+        catch (err) { if (!err.message?.includes('Duplicate column') && err.code !== 'ER_DUP_FIELDNAME') console.warn('[LiveOps Migration] Leads:', err.message?.split('\n')[0]); }
     }
 
     // 2. New columns on supplier_bookings table
@@ -268,7 +344,7 @@ async function ensureLiveOpsSchema() {
     ];
     for (const sql of sbAlterations) {
         try { await pool.query(sql); }
-        catch (err) { if (!err.message?.includes('Duplicate column')) console.warn('[LiveOps Migration] SupplierBookings:', err.message?.split('\n')[0]); }
+        catch (err) { if (!err.message?.includes('Duplicate column') && err.code !== 'ER_DUP_FIELDNAME') console.warn('[LiveOps Migration] SupplierBookings:', err.message?.split('\n')[0]); }
     }
 
     // 3. Create attendance_logs table
@@ -393,11 +469,11 @@ async function ensureMissingTables() {
         )`,
         `CREATE TABLE IF NOT EXISTS cms_testimonials (
             id VARCHAR(255) PRIMARY KEY,
-            name VARCHAR(255),
+            customer_name VARCHAR(255),
             location VARCHAR(255),
             avatar_url TEXT,
             rating INT DEFAULT 5,
-            review TEXT,
+            content TEXT,
             package_name VARCHAR(255),
             is_active BOOLEAN DEFAULT true,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -560,6 +636,28 @@ async function ensureMissingTables() {
 }
 ensureMissingTables();
 
+// Migrate/Alter cms_testimonials columns if they are using the old schema
+async function migrateCMSTestimonials() {
+    try {
+        const [columns] = await pool.query("SHOW COLUMNS FROM cms_testimonials");
+        const columnNames = columns.map(c => c.Field);
+        
+        if (columnNames.includes('name') && !columnNames.includes('customer_name')) {
+            console.log('[Migration] Renaming cms_testimonials.name to customer_name...');
+            await pool.query("ALTER TABLE cms_testimonials CHANGE COLUMN name customer_name VARCHAR(255)");
+        }
+        
+        if (columnNames.includes('review') && !columnNames.includes('content')) {
+            console.log('[Migration] Renaming cms_testimonials.review to content...');
+            await pool.query("ALTER TABLE cms_testimonials CHANGE COLUMN review content TEXT");
+        }
+    } catch (err) {
+        console.warn('[Migration] cms_testimonials column renaming skipped/failed:', err.message);
+    }
+}
+migrateCMSTestimonials();
+
+
 // ─── Ensure Membership Tables ───
 async function ensureMembershipTables() {
     try {
@@ -568,11 +666,17 @@ async function ensureMembershipTables() {
                 id VARCHAR(255) PRIMARY KEY,
                 name VARCHAR(100) NOT NULL,
                 tier ENUM('Bronze','Silver','Gold') NOT NULL,
+                price_per_month DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+                price_per_quarter DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+                price_per_half_year DECIMAL(10,2) NOT NULL DEFAULT 0.00,
                 price_per_year DECIMAL(10,2) NOT NULL DEFAULT 0,
+                discount_type VARCHAR(50) DEFAULT 'Percentage',
                 discount_percent INT DEFAULT 0,
+                discount_flat DECIMAL(10,2) DEFAULT 0.00,
                 hotel_discount INT DEFAULT 0,
                 tour_discount INT DEFAULT 0,
                 flight_discount INT DEFAULT 0,
+                cab_discount INT DEFAULT 0,
                 perks LONGTEXT,
                 color VARCHAR(50) DEFAULT '#CD7F32',
                 is_active BOOLEAN DEFAULT true,
@@ -590,19 +694,63 @@ async function ensureMembershipTables() {
                 plan_name VARCHAR(100),
                 tier VARCHAR(50),
                 status ENUM('Active','Suspended','Expired') DEFAULT 'Active',
+                billing_cycle VARCHAR(50) DEFAULT 'Yearly',
+                price_paid DECIMAL(10,2) DEFAULT 0.00,
                 enrolled_on DATE NOT NULL,
                 expires_on DATE NOT NULL,
+                discount_type VARCHAR(50) DEFAULT 'Percentage',
                 discount_percent INT DEFAULT 0,
+                discount_flat DECIMAL(10,2) DEFAULT 0.00,
                 hotel_discount INT DEFAULT 0,
                 tour_discount INT DEFAULT 0,
                 flight_discount INT DEFAULT 0,
+                cab_discount INT DEFAULT 0,
                 notes TEXT,
                 enrolled_by VARCHAR(255),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             )
         `);
-        console.log('[Membership Migration] Tables ensured.');
+
+        // Ensure new price columns exist on membership_plans (Defensive Migrations)
+        const planAlterations = [
+            "ALTER TABLE membership_plans ADD COLUMN price_per_month DECIMAL(10,2) NOT NULL DEFAULT 0.00",
+            "ALTER TABLE membership_plans ADD COLUMN price_per_quarter DECIMAL(10,2) NOT NULL DEFAULT 0.00",
+            "ALTER TABLE membership_plans ADD COLUMN price_per_half_year DECIMAL(10,2) NOT NULL DEFAULT 0.00",
+            "ALTER TABLE membership_plans ADD COLUMN discount_type VARCHAR(50) DEFAULT 'Percentage'",
+            "ALTER TABLE membership_plans ADD COLUMN discount_flat DECIMAL(10,2) DEFAULT 0.00",
+            "ALTER TABLE membership_plans ADD COLUMN cab_discount INT DEFAULT 0"
+        ];
+        for (const sql of planAlterations) {
+            try {
+                await pool.query(sql);
+            } catch (err) {
+                // Column duplicate or duplicate column name is safe to ignore
+                if (!err.message?.includes('Duplicate column') && err.code !== 'ER_DUP_FIELDNAME') {
+                    console.warn('[Membership Migration] Plan alter warning:', err.message?.split('\n')[0]);
+                }
+            }
+        }
+
+        // Ensure new columns exist on customer_memberships (Defensive Migrations)
+        const membershipAlterations = [
+            "ALTER TABLE customer_memberships ADD COLUMN billing_cycle VARCHAR(50) DEFAULT 'Yearly'",
+            "ALTER TABLE customer_memberships ADD COLUMN price_paid DECIMAL(10,2) DEFAULT 0.00",
+            "ALTER TABLE customer_memberships ADD COLUMN discount_type VARCHAR(50) DEFAULT 'Percentage'",
+            "ALTER TABLE customer_memberships ADD COLUMN discount_flat DECIMAL(10,2) DEFAULT 0.00",
+            "ALTER TABLE customer_memberships ADD COLUMN cab_discount INT DEFAULT 0"
+        ];
+        for (const sql of membershipAlterations) {
+            try {
+                await pool.query(sql);
+            } catch (err) {
+                if (!err.message?.includes('Duplicate column') && err.code !== 'ER_DUP_FIELDNAME') {
+                    console.warn('[Membership Migration] Membership alter warning:', err.message?.split('\n')[0]);
+                }
+            }
+        }
+
+        console.log('[Membership Migration] Tables and alterations ensured.');
     } catch (err) {
         console.error('[Membership Migration] Failed:', err.message);
     }
@@ -665,12 +813,169 @@ async function ensurePartnerTables() {
             console.log('[Partner Migration] partner_id added to bookings.');
         } catch(e) { /* already exists */ }
 
+        // Add sender column to lead_logs table
+        try {
+            await pool.query("ALTER TABLE lead_logs ADD COLUMN IF NOT EXISTS sender VARCHAR(255) DEFAULT 'System'");
+            console.log('[Partner Migration] sender added to lead_logs.');
+        } catch(e) { /* already exists */ }
+
+        // Add cab_commission columns to partners table
+        try {
+            await pool.query("ALTER TABLE partners ADD COLUMN IF NOT EXISTS cab_commission_type VARCHAR(50) DEFAULT 'Flat_Amount'");
+            await pool.query("ALTER TABLE partners ADD COLUMN IF NOT EXISTS cab_commission_value DECIMAL(10,2) DEFAULT 300.00");
+            console.log('[Partner Migration] cab_commission columns added to partners.');
+        } catch(e) { /* already exists */ }
+
+        // Add bus_commission columns to partners table
+        try {
+            await pool.query("ALTER TABLE partners ADD COLUMN IF NOT EXISTS bus_commission_type VARCHAR(50) DEFAULT 'Flat_Amount'");
+            await pool.query("ALTER TABLE partners ADD COLUMN IF NOT EXISTS bus_commission_value DECIMAL(10,2) DEFAULT 150.00");
+            console.log('[Partner Migration] bus_commission columns added to partners.');
+        } catch(e) { /* already exists */ }
+
+        // Add train_commission columns to partners table
+        try {
+            await pool.query("ALTER TABLE partners ADD COLUMN IF NOT EXISTS train_commission_type VARCHAR(50) DEFAULT 'Flat_Amount'");
+            await pool.query("ALTER TABLE partners ADD COLUMN IF NOT EXISTS train_commission_value DECIMAL(10,2) DEFAULT 100.00");
+            console.log('[Partner Migration] train_commission columns added to partners.');
+        } catch(e) { /* already exists */ }
+
+        // Add flight_commission columns to partners table
+        try {
+            await pool.query("ALTER TABLE partners ADD COLUMN IF NOT EXISTS flight_commission_type VARCHAR(50) DEFAULT 'Flat_Amount'");
+            await pool.query("ALTER TABLE partners ADD COLUMN IF NOT EXISTS flight_commission_value DECIMAL(10,2) DEFAULT 200.00");
+            console.log('[Partner Migration] flight_commission columns added to partners.');
+        } catch(e) { /* already exists */ }
+
         console.log('[Partner Migration] Partner tables ensured.');
     } catch (err) {
         console.error('[Partner Migration] Failed:', err.message);
     }
 }
 ensurePartnerTables();
+
+// ─── Ensure Coupons Table ───
+async function ensureCouponsTable() {
+    try {
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS coupons (
+                id VARCHAR(255) PRIMARY KEY,
+                code VARCHAR(100) UNIQUE NOT NULL,
+                type VARCHAR(50) NOT NULL DEFAULT 'ToursOnly',
+                discount_type VARCHAR(50) NOT NULL DEFAULT 'Percentage',
+                discount_value DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+                min_booking_amount DECIMAL(10,2) DEFAULT 0.00,
+                valid_from DATE DEFAULT NULL,
+                valid_to DATE DEFAULT NULL,
+                status VARCHAR(50) DEFAULT 'Active',
+                is_used TINYINT(1) DEFAULT 0,
+                use_count INT DEFAULT 0,
+                download_count INT DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+        // Add download_count column if missing (migration for existing tables)
+        try {
+            await pool.query('ALTER TABLE coupons ADD COLUMN download_count INT DEFAULT 0');
+            console.log('[Coupons Migration] Added download_count column.');
+        } catch (e) { /* already exists */ }
+        console.log('[Coupons Migration] Coupons table ensured.');
+    } catch (err) {
+        console.error('[Coupons Migration] Failed to ensure coupons table:', err.message);
+    }
+}
+ensureCouponsTable();
+
+// ─── Database Index Migration ───
+// Creates indexes on foreign key and frequently filtered/sorted columns in MySQL
+async function addIndexSafe(table, column, indexName) {
+    try {
+        const [rows] = await pool.query(
+            `SHOW INDEX FROM \`${table}\` WHERE Key_name = ?`,
+            [indexName]
+        );
+        if (rows.length === 0) {
+            await pool.query(
+                `ALTER TABLE \`${table}\` ADD INDEX \`${indexName}\` (\`${column}\`)`
+            );
+            console.log(`[Index Migration] Created index ${indexName} on ${table}(${column})`);
+        }
+    } catch (err) {
+        console.warn(`[Index Migration] Failed/Skipped for ${table}(${column}):`, err.message?.split('\n')[0]);
+    }
+}
+
+async function ensureDatabaseIndexes() {
+    console.log('[Index Migration] Checking database indexes...');
+    
+    // Core relations & filters indexes
+    await addIndexSafe('bookings', 'assigned_to', 'idx_bookings_assigned_to');
+    await addIndexSafe('bookings', 'package_id', 'idx_bookings_package_id');
+    await addIndexSafe('bookings', 'partner_id', 'idx_bookings_partner_id');
+    
+    await addIndexSafe('booking_transactions', 'booking_id', 'idx_booking_transactions_booking_id');
+    
+    await addIndexSafe('supplier_bookings', 'booking_id', 'idx_supplier_bookings_booking_id');
+    await addIndexSafe('supplier_bookings', 'vendor_id', 'idx_supplier_bookings_vendor_id');
+    
+    await addIndexSafe('leads', 'assigned_to', 'idx_leads_assigned_to');
+    await addIndexSafe('leads', 'package_id', 'idx_leads_package_id');
+    await addIndexSafe('leads', 'partner_id', 'idx_leads_partner_id');
+    
+    await addIndexSafe('lead_logs', 'lead_id', 'idx_lead_logs_lead_id');
+    
+    await addIndexSafe('follow_ups', 'lead_id', 'idx_follow_ups_lead_id');
+    await addIndexSafe('follow_ups', 'assigned_to', 'idx_follow_ups_assigned_to');
+    
+    await addIndexSafe('tasks', 'assigned_to', 'idx_tasks_assigned_to');
+    await addIndexSafe('tasks', 'related_lead_id', 'idx_tasks_related_lead_id');
+    await addIndexSafe('tasks', 'related_booking_id', 'idx_tasks_related_booking_id');
+    
+    await addIndexSafe('proposals', 'lead_id', 'idx_proposals_lead_id');
+    await addIndexSafe('daily_targets', 'staff_id', 'idx_daily_targets_staff_id');
+    await addIndexSafe('time_sessions', 'staff_id', 'idx_time_sessions_staff_id');
+    await addIndexSafe('user_activities', 'staff_id', 'idx_user_activities_staff_id');
+    await addIndexSafe('attendance_logs', 'staff_id', 'idx_attendance_logs_staff_id');
+    await addIndexSafe('customer_memberships', 'customer_id', 'idx_customer_memberships_customer_id');
+    await addIndexSafe('customer_memberships', 'plan_id', 'idx_customer_memberships_plan_id');
+    
+    await addIndexSafe('partner_commissions', 'partner_id', 'idx_partner_commissions_partner_id');
+    await addIndexSafe('partner_commissions', 'booking_id', 'idx_partner_commissions_booking_id');
+    
+    console.log('[Index Migration] Index checks completed.');
+}
+ensureDatabaseIndexes();
+
+// ─── Ensure Invoice Custom Fields Table + field_labels column ───
+async function ensureInvoiceCustomFields() {
+    try {
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS invoice_custom_fields (
+                id VARCHAR(255) PRIMARY KEY,
+                invoice_id VARCHAR(255) NOT NULL,
+                label VARCHAR(255) NOT NULL DEFAULT '',
+                amount DECIMAL(10,2) DEFAULT 0.00,
+                is_deduction TINYINT(1) DEFAULT 0,
+                sort_order INT DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_icf_invoice_id (invoice_id)
+            )
+        `);
+        // Add field_labels JSON column to invoices if it doesn't exist
+        try {
+            await pool.query("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS field_labels TEXT DEFAULT NULL");
+        } catch(e) { /* already exists */ }
+        // Add balance_due column to invoices if it doesn't exist
+        try {
+            await pool.query("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS balance_due DECIMAL(10,2) DEFAULT 0.00");
+        } catch(e) { /* already exists */ }
+        console.log('[InvoiceCustomFields Migration] Table and columns ensured.');
+    } catch (err) {
+        console.error('[InvoiceCustomFields Migration] Failed:', err.message);
+    }
+}
+ensureInvoiceCustomFields();
 
 // Allowed tables (whitelist to prevent SQL injection)
 const ALLOWED_TABLES = new Set([
@@ -685,10 +990,11 @@ const ALLOWED_TABLES = new Set([
     'cms_banners', 'cms_testimonials', 'cms_gallery_images', 'cms_posts',
     'follow_ups', 'proposals', 'daily_targets', 'time_sessions',
     'assignment_rules', 'user_activities', 'audit_logs', 'settings',
-    'invoices', 'invoice_items',
+    'invoices', 'invoice_items', 'invoice_custom_fields',
     'attendance_logs',  // Live Operations attendance tracking
     'membership_plans', 'customer_memberships',  // Membership Module
-    'partners', 'partner_commissions'  // B2B Partner Portal
+    'partners', 'partner_commissions',  // B2B Partner Portal
+    'coupons'  // Coupon Manager
 ]);
 
 // ─── Auth Middleware ───
@@ -729,6 +1035,134 @@ function writeGuard(req, res, next) {
         return res.status(403).json({ error: 'Admin access required for this table' });
     }
     next();
+}
+
+// ─── Permissions & Scoping Helpers ───
+
+// Map DB tables to their logical permission modules in AuthContext
+const TABLE_TO_MODULE = {
+    'packages': 'inventory',
+    'daily_inventory': 'inventory',
+    'bookings': 'bookings',
+    'booking_transactions': 'invoices',
+    'supplier_bookings': 'operations',
+    'leads': 'leads',
+    'lead_logs': 'leads',
+    'vendors': 'vendors',
+    'accounts': 'finance',
+    'account_transactions': 'finance',
+    'staff_members': 'staff',
+    'customers': 'customers',
+    'campaigns': 'marketing',
+    'expenses': 'finance',
+    'master_locations': 'masters',
+    'master_hotels': 'masters',
+    'tasks': 'dashboard',
+    'master_room_types': 'masters',
+    'master_meal_plans': 'masters',
+    'master_activities': 'masters',
+    'master_transports': 'masters',
+    'master_plans': 'masters',
+    'master_lead_sources': 'masters',
+    'master_terms_templates': 'masters',
+    'cms_banners': 'cms',
+    'cms_testimonials': 'testimonials',
+    'cms_gallery_images': 'cms',
+    'cms_posts': 'cms',
+    'follow_ups': 'leads',
+    'proposals': 'proposals',
+    'daily_targets': 'dashboard',
+    'time_sessions': 'dashboard',
+    'assignment_rules': 'staff',
+    'user_activities': 'audit',
+    'audit_logs': 'audit',
+    'settings': 'settings',
+    'invoices': 'invoices',
+    'invoice_items': 'invoices',
+    'invoice_custom_fields': 'invoices',
+    'attendance_logs': 'operations',
+    'membership_plans': 'memberships',
+    'customer_memberships': 'memberships',
+    'partners': 'partners',
+    'partner_commissions': 'partners',
+    'coupons': 'marketing'
+};
+
+async function getStaffPermissionsAndScope(email) {
+    if (!email) return { permissions: {}, queryScope: 'Show Assigned Query Only', isAdmin: false };
+    const [rows] = await pool.query('SELECT permissions, query_scope, user_type FROM staff_members WHERE email = ?', [email]);
+    if (rows.length === 0) {
+        return { permissions: {}, queryScope: 'Show Assigned Query Only', isAdmin: false };
+    }
+    const row = rows[0];
+    let permissions = {};
+    try {
+        permissions = typeof row.permissions === 'string' ? JSON.parse(row.permissions) : (row.permissions || {});
+    } catch (e) {
+        permissions = {};
+    }
+    return {
+        permissions,
+        queryScope: row.query_scope || 'Show Assigned Query Only',
+        isAdmin: row.user_type === 'Admin'
+    };
+}
+
+async function permissionGuard(req, res, next) {
+    const table = req.params.table;
+    const method = req.method;
+    const action = (method === 'GET') ? 'view' : 'manage';
+
+    if (!req.user) {
+        return next();
+    }
+
+    // 1. Admin gets unrestricted access
+    if (req.user?.role === 'admin' || req.user?.role === 'Admin') {
+        return next();
+    }
+
+    const module = TABLE_TO_MODULE[table];
+    if (!module) {
+        // Table not in mapped list, allow it
+        return next();
+    }
+
+    try {
+        const { permissions, isAdmin } = await getStaffPermissionsAndScope(req.user?.email);
+        if (isAdmin) {
+            return next();
+        }
+
+        const allowed = permissions[module]?.[action] ?? false;
+        if (!allowed) {
+            console.warn(`[Permission Denied] User ${req.user?.email} lacks '${action}' permission for table '${table}' (Module: ${module})`);
+            return res.status(403).json({ error: `Unauthorized: You do not have permission to ${action} this module (${module}).` });
+        }
+
+        // Ownership checks for non-admin on write/modify actions
+        if (action === 'manage') {
+            const myDataTables = ['leads', 'bookings', 'follow_ups', 'tasks'];
+            if (myDataTables.includes(table)) {
+                // For update/delete, check that the user owns the existing record
+                if ((method === 'PUT' || method === 'DELETE') && req.params.id) {
+                    const [existing] = await pool.query(`SELECT assigned_to FROM \`${table}\` WHERE id = ?`, [req.params.id]);
+                    if (existing.length > 0) {
+                        const owner = String(existing[0].assigned_to || '');
+                        const staffId = String(req.user.staffId || '');
+                        if (owner && owner !== staffId) {
+                            return res.status(403).json({ error: `Unauthorized: You cannot modify records outside your ownership scope.` });
+                        }
+                    }
+                }
+            }
+        }
+
+        next();
+    } catch (err) {
+        console.error('Permission guard check failed:', err.message);
+        res.status(500).json({ error: 'Permission guard check failed' });
+    }
 }
 
 // ─── Server-Side Audit Logger ───
@@ -804,19 +1238,43 @@ app.post('/api/auth/login', async (req, res) => {
                 console.warn(`Login failed for ${trimmedEmail}: Invalid password`);
                 return res.status(401).json({ error: 'Invalid credentials' });
             }
+        } else if (staff.length > 0 && staff[0].password_hash) {
+            // Fallback: staff member has a password in staff_members table (no users row yet)
+            const valid = await bcrypt.compare(password, staff[0].password_hash);
+            if (!valid) {
+                console.warn(`Login failed for ${trimmedEmail}: Invalid staff password`);
+                return res.status(401).json({ error: 'Invalid credentials' });
+            }
+            // Auto-create the users row so future logins work normally
+            try {
+                await pool.query(
+                    'INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)',
+                    [trimmedEmail, staff[0].password_hash, staff[0].user_type === 'Admin' ? 'admin' : 'staff']
+                );
+                console.log(`Auto-created users record for staff: ${trimmedEmail}`);
+            } catch (insertErr) {
+                // Ignore duplicate key errors silently
+                if (insertErr.code !== 'ER_DUP_ENTRY') console.warn('Auto-create users row warning:', insertErr.message);
+            }
         } else {
             console.warn(`Login failed for ${trimmedEmail}: User record not found in users table`);
             return res.status(401).json({ error: 'Invalid credentials' });
         }
 
         const staffProfile = staff.length > 0 ? staff[0] : null;
+
+        // Derive effective role: if staff member is Admin, promote to 'admin' in JWT
+        // so the frontend isAdminOverride flag works correctly
+        const effectiveRole = (staffProfile?.user_type === 'Admin') ? 'admin' : (users[0]?.role || 'staff');
+
+        const userId = users[0]?.id || null;
         const token = jwt.sign(
-            { id: users[0].id, email: trimmedEmail, role: users[0].role, staffId: staffProfile?.id },
+            { id: userId, email: trimmedEmail, role: effectiveRole, staffId: staffProfile?.id },
             JWT_SECRET,
             { expiresIn: '7d' }
         );
 
-        // Fix #9: Update last_active on every successful login
+        // Update last_active on every successful login
         if (staffProfile) {
             await pool.query(
                 "UPDATE staff_members SET last_active = DATE_FORMAT(NOW(), '%Y-%m-%dT%H:%i:%sZ') WHERE email = ?",
@@ -824,8 +1282,8 @@ app.post('/api/auth/login', async (req, res) => {
             ).catch(e => console.error('Failed to update last_active:', e.message));
         }
 
-        console.log(`Login successful: ${trimmedEmail}`);
-        return res.json({ token, user: { id: users[0].id, email: trimmedEmail, role: users[0].role }, staff: staffProfile });
+        console.log(`Login successful: ${trimmedEmail} (role: ${effectiveRole})`);
+        return res.json({ token, user: { id: userId, email: trimmedEmail, role: effectiveRole }, staff: staffProfile });
     } catch (error) {
         console.error('Login error:', error);
         return res.status(500).json({ error: 'Login failed' });
@@ -920,11 +1378,62 @@ app.get('/api/invoices/stats', authMiddleware, async (req, res) => {
     }
 });
 
+// Dedicated staff members fetch to include today's daily attendance logs
+app.get('/api/crud/staff_members', authMiddleware, async (req, res) => {
+    // Check permission
+    if (req.user?.role !== 'admin' && req.user?.role !== 'Admin') {
+        const { permissions, isAdmin } = await getStaffPermissionsAndScope(req.user?.email);
+        if (!isAdmin && !permissions.staff?.view) {
+            return res.status(403).json({ error: 'Unauthorized: Staff view access required.' });
+        }
+    }
+
+    try {
+        let query = `
+            SELECT 
+                s.*,
+                a.status AS attendance_status,
+                a.check_in_time,
+                a.check_out_time,
+                a.location AS current_location
+            FROM \`staff_members\` s
+            LEFT JOIN \`attendance_logs\` a 
+                ON s.id = a.staff_id AND a.date = CURRENT_DATE()
+        `;
+        const params = [];
+        const whereClauses = [];
+
+        // Support standard equality filters (e.g. eq_email=...)
+        const eqFilters = Object.entries(req.query).filter(([k]) => k.startsWith('eq_'));
+        if (eqFilters.length > 0) {
+            eqFilters.forEach(([key, val]) => {
+                const col = key.replace('eq_', '');
+                if (isValidColumn(col)) {
+                    whereClauses.push(`s.\`${col}\` = ?`);
+                    params.push(val);
+                }
+            });
+        }
+
+        if (whereClauses.length > 0) {
+            query += ' WHERE ' + whereClauses.join(' AND ');
+        }
+
+        query += ' ORDER BY s.created_at DESC';
+
+        const [rows] = await pool.query(query, params);
+        res.json({ data: rows });
+    } catch (error) {
+        console.error('GET /staff_members error:', error);
+        res.status(500).json({ error: 'Failed to fetch staff members' });
+    }
+});
+
 // GET all rows from a table
 // Supports: ?order=column&asc=true&limit=100&select=col1,col2
 // Supports: ?eq_field=value for equality filters
 // Supports: ?join=related_table for left joins
-app.get('/api/crud/:table', optionalAuthMiddleware, injectPackageStatusFilter, validateTable, async (req, res) => {
+app.get('/api/crud/:table', optionalAuthMiddleware, injectPackageStatusFilter, validateTable, permissionGuard, async (req, res) => {
     const { table } = req.params;
     const { order, asc, limit, select } = req.query;
 
@@ -944,22 +1453,22 @@ app.get('/api/crud/:table', optionalAuthMiddleware, injectPackageStatusFilter, v
         // Build WHERE clauses from eq_ prefixed query params
         const whereClauses = [];
         
-        // --- RBAC Scoping: Fix #4 — respect query_scope from staff_members ---
-        if (req.user && req.user.role !== 'admin') {
+        // --- Strict RBAC Scoping & Ownership Validation ---
+        const { isAdmin } = await getStaffPermissionsAndScope(req.user?.email);
+        if (req.user && req.user.role !== 'admin' && req.user.role !== 'Admin' && !isAdmin) {
             const staffId = req.user.staffId;
-            const myDataTables = ['leads', 'bookings', 'follow_ups', 'tasks'];
-            if (myDataTables.includes(table) && staffId) {
-                // Fetch query_scope for this staff member
-                try {
-                    const [scopeRows] = await pool.query('SELECT query_scope FROM staff_members WHERE id = ?', [staffId]);
-                    const queryScope = scopeRows[0]?.query_scope || 'Show Assigned Query Only';
-                    if (queryScope !== 'Show All Queries') {
-                        whereClauses.push(`\`assigned_to\` = ?`);
-                        params.push(staffId);
-                    }
-                } catch (e) {
-                    // Fail safe: apply restriction if scope check fails
+            if (staffId) {
+                const myDataTables = ['leads', 'bookings', 'follow_ups', 'tasks'];
+                if (myDataTables.includes(table)) {
                     whereClauses.push(`\`assigned_to\` = ?`);
+                    params.push(staffId);
+                } else if (table === 'proposals' || table === 'lead_logs') {
+                    // Filter by lead ownership (optimized subquery)
+                    whereClauses.push(`\`lead_id\` IN (SELECT \`id\` FROM \`leads\` WHERE \`assigned_to\` = ?)`);
+                    params.push(staffId);
+                } else if (table === 'booking_transactions' || table === 'supplier_bookings') {
+                    // Filter by booking ownership (optimized subquery)
+                    whereClauses.push(`\`booking_id\` IN (SELECT \`id\` FROM \`bookings\` WHERE \`assigned_to\` = ?)`);
                     params.push(staffId);
                 }
             }
@@ -1008,11 +1517,36 @@ app.get('/api/crud/:table', optionalAuthMiddleware, injectPackageStatusFilter, v
 });
 
 // GET single row by ID
-app.get('/api/crud/:table/:id', optionalAuthMiddleware, validateTable, async (req, res) => {
+app.get('/api/crud/:table/:id', optionalAuthMiddleware, validateTable, permissionGuard, async (req, res) => {
     const { table, id } = req.params;
     try {
         const [rows] = await pool.query(`SELECT * FROM \`${table}\` WHERE id = ?`, [id]);
         if (rows.length === 0) return res.status(404).json({ error: 'Not found' });
+        
+        // Ownership check for non-admin users
+        const { isAdmin } = await getStaffPermissionsAndScope(req.user?.email);
+        if (req.user && req.user.role !== 'admin' && req.user.role !== 'Admin' && !isAdmin) {
+            const staffId = req.user.staffId;
+            const myDataTables = ['leads', 'bookings', 'follow_ups', 'tasks'];
+            if (myDataTables.includes(table)) {
+                if (String(rows[0].assigned_to || '') !== String(staffId)) {
+                    return res.status(403).json({ error: 'Unauthorized: You do not own this record.' });
+                }
+            } else if (table === 'proposals' || table === 'lead_logs') {
+                const leadId = rows[0].lead_id;
+                const [leadRows] = await pool.query('SELECT assigned_to FROM leads WHERE id = ?', [leadId]);
+                if (leadRows.length === 0 || String(leadRows[0].assigned_to || '') !== String(staffId)) {
+                    return res.status(403).json({ error: 'Unauthorized: You do not own this record.' });
+                }
+            } else if (table === 'booking_transactions' || table === 'supplier_bookings') {
+                const bookingId = rows[0].booking_id;
+                const [bookingRows] = await pool.query('SELECT assigned_to FROM bookings WHERE id = ?', [bookingId]);
+                if (bookingRows.length === 0 || String(bookingRows[0].assigned_to || '') !== String(staffId)) {
+                    return res.status(403).json({ error: 'Unauthorized: You do not own this record.' });
+                }
+            }
+        }
+        
         res.json({ data: rows[0] });
     } catch (error) {
         console.error(`GET /${table}/${id} error:`, error);
@@ -1028,6 +1562,11 @@ app.put('/api/crud/staff_members/:id', authMiddleware, writeGuard, async (req, r
         if (!body || Object.keys(body).length === 0) {
             return res.status(400).json({ error: 'No fields to update' });
         }
+
+        // Fetch old staff details for sync before the update is applied
+        const [oldStaffRows] = await pool.query('SELECT email, user_type FROM staff_members WHERE id = ?', [id]);
+        const oldStaff = oldStaffRows[0];
+
         const fields = Object.keys(body).filter(k => isValidColumn(k));
         if (fields.length === 0) return res.status(400).json({ error: 'No valid fields' });
         const values = fields.map(k => {
@@ -1037,12 +1576,21 @@ app.put('/api/crud/staff_members/:id', authMiddleware, writeGuard, async (req, r
         const setClause = fields.map(f => `\`${f}\` = ?`).join(', ');
         await pool.query(`UPDATE \`staff_members\` SET ${setClause} WHERE id = ?`, [...values, id]);
 
-        // Sync email change to users table
-        if (body.email) {
-            const [staffRows] = await pool.query('SELECT email FROM staff_members WHERE id = ?', [id]);
-            const oldEmail = staffRows[0]?.email;
-            if (oldEmail && oldEmail !== body.email) {
-                await pool.query('UPDATE users SET email = ? WHERE email = ?', [body.email, oldEmail]).catch(e => console.error('Email sync to users failed:', e.message));
+        // Sync email and user_type changes to the users table
+        if (oldStaff) {
+            const targetEmail = body.email || oldStaff.email;
+
+            // Sync email if changed
+            if (body.email && oldStaff.email !== body.email) {
+                await pool.query('UPDATE users SET email = ? WHERE email = ?', [body.email, oldStaff.email])
+                    .catch(e => console.error('Email sync to users failed:', e.message));
+            }
+
+            // Sync role/user_type if user_type is updated
+            if (body.user_type && oldStaff.user_type !== body.user_type) {
+                const newRole = body.user_type === 'Admin' ? 'admin' : 'staff';
+                await pool.query('UPDATE users SET role = ? WHERE email = ?', [newRole, targetEmail])
+                    .catch(e => console.error('Role sync to users failed:', e.message));
             }
         }
 
@@ -1055,7 +1603,7 @@ app.put('/api/crud/staff_members/:id', authMiddleware, writeGuard, async (req, r
 });
 
 // POST - Insert new row
-app.post('/api/crud/:table', authMiddleware, validateTable, writeGuard, async (req, res) => {
+app.post('/api/crud/:table', authMiddleware, validateTable, writeGuard, permissionGuard, async (req, res) => {
     const { table } = req.params;
     const body = req.body;
     try {
@@ -1063,6 +1611,20 @@ app.post('/api/crud/:table', authMiddleware, validateTable, writeGuard, async (r
         const autoIncrementTables = ['users', 'staff_members', 'audit_logs', 'lead_logs', 'booking_transactions', 'account_transactions'];
         if (!body.id && !autoIncrementTables.includes(table)) {
             body.id = crypto.randomUUID();
+        }
+
+        // Default auto-assignment: If a staff (non-admin) creates a record in assigned data tables without an explicit assignee, assign it to them
+        const assignedDataTables = ['leads', 'bookings', 'follow_ups', 'tasks'];
+        const { isAdmin } = await getStaffPermissionsAndScope(req.user?.email);
+        if (assignedDataTables.includes(table) && req.user && req.user.role !== 'admin' && req.user.role !== 'Admin' && !isAdmin) {
+            if (body.assigned_to === undefined || body.assigned_to === null || body.assigned_to === '') {
+                if (req.user.staffId) {
+                    body.assigned_to = req.user.staffId;
+                } else if (req.user.email) {
+                    const [staffRows] = await pool.query('SELECT id FROM staff_members WHERE email = ?', [req.user.email]);
+                    if (staffRows.length > 0) body.assigned_to = staffRows[0].id;
+                }
+            }
         }
 
         // Convert JSON objects/arrays to strings for JSON columns
@@ -1093,10 +1655,24 @@ app.post('/api/crud/:table', authMiddleware, validateTable, writeGuard, async (r
 });
 
 // PUT - Update row by ID
-app.put('/api/crud/:table/:id', authMiddleware, validateTable, writeGuard, async (req, res) => {
+app.put('/api/crud/:table/:id', authMiddleware, validateTable, writeGuard, permissionGuard, async (req, res) => {
     const { table, id } = req.params;
     const body = req.body;
     try {
+        // Enforce that regular staff cannot assign their own records to others unless they have global scope
+        const assignedDataTables = ['leads', 'bookings', 'follow_ups', 'tasks'];
+        const { isAdmin, queryScope } = await getStaffPermissionsAndScope(req.user?.email);
+        if (assignedDataTables.includes(table) && req.user && req.user.role !== 'admin' && req.user.role !== 'Admin' && !isAdmin) {
+            if ('assigned_to' in body && queryScope !== 'Global') {
+                if (req.user.staffId) {
+                    body.assigned_to = req.user.staffId;
+                } else if (req.user.email) {
+                    const [staffRows] = await pool.query('SELECT id FROM staff_members WHERE email = ?', [req.user.email]);
+                    if (staffRows.length > 0) body.assigned_to = staffRows[0].id;
+                }
+            }
+        }
+
         const setClauses = Object.keys(body).map(col => `\`${col}\` = ?`).join(', ');
         const values = Object.values(body).map(v =>
             typeof v === 'object' && v !== null ? JSON.stringify(v) : v
@@ -1121,12 +1697,13 @@ app.put('/api/crud/:table/:id', authMiddleware, validateTable, writeGuard, async
 });
 
 // DELETE - Delete row by ID
-app.delete('/api/crud/:table/:id', authMiddleware, validateTable, async (req, res) => {
+app.delete('/api/crud/:table/:id', authMiddleware, validateTable, permissionGuard, async (req, res) => {
     const { table, id } = req.params;
     
-    // Authorization check: Allow 'admin', 'Editor', or any role containing 'Admin' (case-insensitive)
+    // Authorization check: Allow 'admin', 'Editor', or any role containing 'Admin' (case-insensitive) or users with manage permission who own the record (already checked in permissionGuard!)
     const userRole = (req.user?.role || '').toLowerCase();
-    const isAuthorized = userRole === 'admin' || userRole === 'editor' || userRole.includes('admin');
+    const { permissions, isAdmin } = await getStaffPermissionsAndScope(req.user?.email);
+    const isAuthorized = isAdmin || userRole === 'admin' || userRole === 'editor' || userRole.includes('admin') || permissions[TABLE_TO_MODULE[table]]?.manage;
 
     if (!isAuthorized) {
         console.warn(`[Delete] Unauthorized attempt by ${req.user?.email} (Role: ${req.user?.role}) to delete from ${table}`);
@@ -1325,6 +1902,18 @@ app.delete('/api/bookings/:id', authMiddleware, async (req, res) => {
     const { id } = req.params;
     console.log(`[Booking Delete] Request from ${req.user?.email} (role: ${req.user?.role}) for booking: ${id}`);
 
+    // Check permission & ownership
+    const { permissions, isAdmin } = await getStaffPermissionsAndScope(req.user?.email);
+    if (req.user?.role !== 'admin' && req.user?.role !== 'Admin' && !isAdmin) {
+        if (!permissions.bookings?.manage) {
+            return res.status(403).json({ error: 'Unauthorized: Bookings manage permission required.' });
+        }
+        const [existing] = await pool.query('SELECT assigned_to FROM bookings WHERE id = ?', [id]);
+        if (existing.length > 0 && String(existing[0].assigned_to || '') !== String(req.user.staffId)) {
+            return res.status(403).json({ error: 'Unauthorized: You do not own this booking.' });
+        }
+    }
+
     try {
         // Step 1: Clear related booking_transactions
         const [txResult] = await pool.query('DELETE FROM booking_transactions WHERE booking_id = ?', [id]);
@@ -1357,6 +1946,14 @@ app.delete('/api/customers/:id', authMiddleware, async (req, res) => {
     const { id } = req.params;
     console.log(`[Customer Delete] Request from ${req.user?.email} (role: ${req.user?.role}) for customer: ${id}`);
 
+    // Check permission
+    if (req.user?.role !== 'admin' && req.user?.role !== 'Admin') {
+        const { permissions, isAdmin } = await getStaffPermissionsAndScope(req.user?.email);
+        if (!isAdmin && !permissions.customers?.manage) {
+            return res.status(403).json({ error: 'Unauthorized: Customers manage permission required.' });
+        }
+    }
+
     try {
         const [result] = await pool.query('DELETE FROM customers WHERE id = ?', [id]);
         console.log(`[Customer Delete] Deleted ${result.affectedRows} customer record(s)`);
@@ -1377,6 +1974,15 @@ app.delete('/api/customers/:id', authMiddleware, async (req, res) => {
 // Deduplicates by email (primary) or phone (fallback). Safe to run multiple times.
 app.post('/api/sync-customers-from-bookings', authMiddleware, async (req, res) => {
     console.log(`[Customer Sync] Triggered by ${req.user?.email}`);
+
+    // Check permission
+    if (req.user?.role !== 'admin' && req.user?.role !== 'Admin') {
+        const { permissions, isAdmin } = await getStaffPermissionsAndScope(req.user?.email);
+        if (!isAdmin && !permissions.customers?.manage) {
+            return res.status(403).json({ error: 'Unauthorized: Customers manage permission required.' });
+        }
+    }
+
     try {
         const [bookings] = await pool.query('SELECT * FROM bookings ORDER BY created_at ASC');
         const [existingCustomers] = await pool.query('SELECT * FROM customers');
@@ -1442,14 +2048,37 @@ app.post('/api/sync-customers-from-bookings', authMiddleware, async (req, res) =
 
 
 app.get('/api/bookings-with-package', authMiddleware, async (req, res) => {
+    // Check permission
+    const { permissions, isAdmin } = await getStaffPermissionsAndScope(req.user?.email);
+    if (req.user?.role !== 'admin' && req.user?.role !== 'Admin' && !isAdmin) {
+        if (!permissions.bookings?.view) {
+            return res.status(403).json({ error: 'Unauthorized: Bookings view access required.' });
+        }
+    }
+
     try {
-        const [bookings] = await pool.query(`
-            SELECT * 
-            FROM bookings 
-            ORDER BY created_at DESC
-        `);
-        const [transactions] = await pool.query('SELECT * FROM booking_transactions ORDER BY date DESC, created_at DESC');
-        const [supplierBookings] = await pool.query('SELECT * FROM supplier_bookings ORDER BY created_at DESC');
+        let bookingsQuery = 'SELECT b.*, p.name as partner_name, p.company_name as partner_company_name FROM bookings b LEFT JOIN partners p ON b.partner_id = p.id';
+        const params = [];
+        if (req.user?.role !== 'admin' && req.user?.role !== 'Admin' && !isAdmin) {
+            bookingsQuery += ' WHERE b.assigned_to = ?';
+            params.push(req.user.staffId);
+        }
+        bookingsQuery += ' ORDER BY b.created_at DESC';
+        const [bookings] = await pool.query(bookingsQuery, params);
+
+        const bookingIds = bookings.map(b => b.id);
+        if (bookingIds.length === 0) {
+            return res.json({ data: [] });
+        }
+
+        const [transactions] = await pool.query(
+            `SELECT * FROM booking_transactions WHERE booking_id IN (${bookingIds.map(() => '?').join(',')}) ORDER BY date DESC, created_at DESC`,
+            bookingIds
+        );
+        const [supplierBookings] = await pool.query(
+            `SELECT * FROM supplier_bookings WHERE booking_id IN (${bookingIds.map(() => '?').join(',')}) ORDER BY created_at DESC`,
+            bookingIds
+        );
 
         // Group transactions by booking_id
         const txByBooking = {};
@@ -1479,9 +2108,33 @@ app.get('/api/bookings-with-package', authMiddleware, async (req, res) => {
 
 // Leads with logs
 app.get('/api/leads-with-logs', authMiddleware, async (req, res) => {
+    // Check permission
+    const { permissions, isAdmin } = await getStaffPermissionsAndScope(req.user?.email);
+    if (req.user?.role !== 'admin' && req.user?.role !== 'Admin' && !isAdmin) {
+        if (!permissions.leads?.view) {
+            return res.status(403).json({ error: 'Unauthorized: Leads view access required.' });
+        }
+    }
+
     try {
-        const [leads] = await pool.query('SELECT * FROM leads ORDER BY created_at DESC');
-        const [logs] = await pool.query('SELECT * FROM lead_logs ORDER BY timestamp DESC');
+        let leadsQuery = 'SELECT l.*, p.name as partner_name, p.company_name as partner_company_name FROM leads l LEFT JOIN partners p ON l.partner_id = p.id';
+        const params = [];
+        if (req.user?.role !== 'admin' && req.user?.role !== 'Admin' && !isAdmin) {
+            leadsQuery += ' WHERE l.assigned_to = ?';
+            params.push(req.user.staffId);
+        }
+        leadsQuery += ' ORDER BY l.created_at DESC';
+        const [leads] = await pool.query(leadsQuery, params);
+
+        const leadIds = leads.map(l => l.id);
+        if (leadIds.length === 0) {
+            return res.json({ data: [] });
+        }
+
+        const [logs] = await pool.query(
+            `SELECT * FROM lead_logs WHERE lead_id IN (${leadIds.map(() => '?').join(',')}) ORDER BY timestamp DESC`,
+            leadIds
+        );
 
         // Group logs by lead_id
         const logsByLead = {};
@@ -1738,11 +2391,13 @@ app.post('/api/staff/create', authMiddleware, async (req, res) => {
 
         // 1. Create or update auth user
         const hash = await bcrypt.hash(password, 10);
+        // Map display role to auth role: Admin user_type → 'admin', all others → 'staff'
+        const authRole = (user_type === 'Admin') ? 'admin' : 'staff';
         const [existingUser] = await pool.query('SELECT id FROM users WHERE email = ?', [trimmedEmail]);
         if (existingUser.length > 0) {
-            await pool.query('UPDATE users SET password_hash = ?, role = ? WHERE email = ?', [hash, role || 'staff', trimmedEmail]);
+            await pool.query('UPDATE users SET password_hash = ?, role = ? WHERE email = ?', [hash, authRole, trimmedEmail]);
         } else {
-            await pool.query('INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)', [trimmedEmail, hash, role || 'staff']);
+            await pool.query('INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)', [trimmedEmail, hash, authRole]);
         }
 
         // 2. Create staff_members record
@@ -2008,13 +2663,42 @@ app.post('/api/partner/auth/change-password', partnerAuthMiddleware, async (req,
 // ═══════════════════════════════════════════
 
 // Partner: Submit a new lead
+// Partner: Submit a new lead
 app.post('/api/partner/leads', partnerAuthMiddleware, async (req, res) => {
     try {
         const lead = req.body;
+        const currentPartnerId = req.partner.partnerId;
+
+        // Smart Lead Duplication Check (Rejection if email/phone referred by another partner within 30 days and active)
+        const { email, phone } = lead;
+        if ((email && email.trim() !== '') || (phone && phone.trim() !== '')) {
+            const checkQuery = `
+                SELECT id, partner_id, created_at, status 
+                FROM leads 
+                WHERE (
+                    (email IS NOT NULL AND email != '' AND email = ?) 
+                    OR (phone IS NOT NULL AND phone != '' AND phone = ?)
+                ) 
+                AND partner_id IS NOT NULL 
+                AND partner_id != ?
+                AND status NOT IN ('Cold', 'Rejected')
+                AND created_at >= NOW() - INTERVAL 30 DAY
+                LIMIT 1
+            `;
+            const [dups] = await pool.query(checkQuery, [
+                email ? email.trim().toLowerCase() : '',
+                phone ? phone.trim() : '',
+                currentPartnerId
+            ]);
+            if (dups.length > 0) {
+                return res.status(409).json({ error: 'Lead already referred. This customer is already linked to another active B2B partner.' });
+            }
+        }
+
         const leadId = `PLEAD-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
         await pool.query(
-            `INSERT INTO leads (id, name, email, phone, location, destination, start_date, end_date, travelers, budget, type, status, priority, potential_value, source, preferences, partner_id, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'New', 'Medium', ?, 'Partner Referral', ?, ?, NOW())`,
+            `INSERT INTO leads (id, name, email, phone, location, destination, start_date, end_date, travelers, budget, type, status, priority, potential_value, source, preferences, partner_id, package_id, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'New', 'Medium', ?, 'Partner Referral', ?, ?, ?, NOW())`,
             [
                 leadId,
                 lead.name, lead.email || '', lead.phone || '',
@@ -2024,7 +2708,8 @@ app.post('/api/partner/leads', partnerAuthMiddleware, async (req, res) => {
                 lead.type || 'Tour',
                 Number(lead.potentialValue) || 0,
                 lead.preferences || '',
-                req.partner.partnerId
+                currentPartnerId,
+                lead.packageId || null
             ]
         );
         res.json({ message: 'Lead submitted successfully', leadId });
@@ -2051,6 +2736,138 @@ app.get('/api/partner/leads', partnerAuthMiddleware, async (req, res) => {
     } catch (err) {
         console.error('Partner get leads error:', err);
         res.status(500).json({ error: 'Failed to fetch leads' });
+    }
+});
+
+// Partner: Get logs/chat for a specific lead
+app.get('/api/partner/leads/:id/logs', partnerAuthMiddleware, async (req, res) => {
+    try {
+        const leadId = req.params.id;
+        const partnerId = req.partner.partnerId;
+
+        // Verify lead belongs to partner
+        const [leads] = await pool.query('SELECT id FROM leads WHERE id = ? AND partner_id = ?', [leadId, partnerId]);
+        if (leads.length === 0) {
+            return res.status(404).json({ error: 'Lead not found or unauthorized' });
+        }
+
+        const [rows] = await pool.query(
+            'SELECT * FROM lead_logs WHERE lead_id = ? ORDER BY timestamp DESC',
+            [leadId]
+        );
+        res.json({ data: rows });
+    } catch (err) {
+        console.error('Partner get lead logs error:', err);
+        res.status(500).json({ error: 'Failed to fetch lead logs' });
+    }
+});
+
+// Partner: Send a chat message/note on a lead
+app.post('/api/partner/leads/:id/logs', partnerAuthMiddleware, async (req, res) => {
+    try {
+        const leadId = req.params.id;
+        const partnerId = req.partner.partnerId;
+        const { content } = req.body;
+        if (!content || content.trim() === '') {
+            return res.status(400).json({ error: 'Message content is required' });
+        }
+
+        // Verify lead belongs to partner
+        const [leads] = await pool.query('SELECT id, name FROM leads WHERE id = ? AND partner_id = ?', [leadId, partnerId]);
+        if (leads.length === 0) {
+            return res.status(404).json({ error: 'Lead not found or unauthorized' });
+        }
+
+        // Get partner name or company name for the sender field
+        const [partners] = await pool.query('SELECT name, company_name FROM partners WHERE id = ?', [partnerId]);
+        const partnerName = partners.length > 0 ? (partners[0].company_name || partners[0].name) : 'Partner';
+
+        await pool.query(
+            `INSERT INTO lead_logs (lead_id, type, content, sender, timestamp) VALUES (?, 'Chat', ?, ?, NOW())`,
+            [leadId, content.trim(), partnerName]
+        );
+        res.json({ message: 'Message sent successfully' });
+    } catch (err) {
+        console.error('Partner send lead log error:', err);
+        res.status(500).json({ error: 'Failed to send message' });
+    }
+});
+
+// Staff/Admin: Post a log or chat message to a lead
+app.post('/api/leads/:id/logs', authMiddleware, async (req, res) => {
+    try {
+        const leadId = req.params.id;
+        const { content, type } = req.body;
+        if (!content || content.trim() === '') {
+            return res.status(400).json({ error: 'Log content is required' });
+        }
+
+        // Resolve staff name
+        let senderName = 'System';
+        if (req.user?.staffId) {
+            const [staff] = await pool.query('SELECT name FROM staff_members WHERE id = ?', [req.user.staffId]);
+            if (staff.length > 0) senderName = staff[0].name;
+        } else if (req.user?.role === 'admin') {
+            senderName = 'Admin';
+        }
+
+        await pool.query(
+            `INSERT INTO lead_logs (lead_id, type, content, sender, timestamp) VALUES (?, ?, ?, ?, NOW())`,
+            [leadId, type || 'Chat', content.trim(), senderName]
+        );
+        res.json({ message: 'Log added successfully' });
+    } catch (err) {
+        console.error('Admin add lead log error:', err);
+        res.status(500).json({ error: 'Failed to add log' });
+    }
+});
+
+// Partner: Get analytics and performance metrics
+app.get('/api/partner/analytics', partnerAuthMiddleware, async (req, res) => {
+    try {
+        const partnerId = req.partner.partnerId;
+
+        // 1. Monthly Earnings (last 6 months)
+        const earningsQuery = `
+            SELECT 
+                DATE_FORMAT(created_at, '%b %Y') as month,
+                COALESCE(SUM(commission_amount), 0) as amount
+            FROM partner_commissions
+            WHERE partner_id = ? AND status != 'Rejected'
+            GROUP BY DATE_FORMAT(created_at, '%Y-%m'), DATE_FORMAT(created_at, '%b %Y')
+            ORDER BY MIN(created_at) ASC
+            LIMIT 6
+        `;
+        const [earnings] = await pool.query(earningsQuery, [partnerId]);
+
+        // 2. Lead Conversion (count by status)
+        const funnelQuery = `
+            SELECT status, COUNT(*) as count
+            FROM leads
+            WHERE partner_id = ?
+            GROUP BY status
+        `;
+        const [funnel] = await pool.query(funnelQuery, [partnerId]);
+
+        // 3. Top Destinations Booked
+        const destinationsQuery = `
+            SELECT destination, COUNT(*) as count, COALESCE(SUM(potential_value), 0) as value
+            FROM leads
+            WHERE partner_id = ?
+            GROUP BY destination
+            ORDER BY count DESC
+            LIMIT 5
+        `;
+        const [destinations] = await pool.query(destinationsQuery, [partnerId]);
+
+        res.json({
+            earnings: earnings || [],
+            funnel: funnel || [],
+            destinations: destinations || []
+        });
+    } catch (err) {
+        console.error('Partner analytics error:', err);
+        res.status(500).json({ error: 'Failed to fetch analytics data' });
     }
 });
 
@@ -2136,14 +2953,14 @@ app.get('/api/admin/partners', authMiddleware, async (req, res) => {
 
 // Admin: Add new partner manually
 app.post('/api/admin/partners', authMiddleware, requirePartnerAdmin, async (req, res) => {
-    const { name, email, password, phone, companyName, location, commissionType, commissionValue, status } = req.body || {};
+    const { name, email, password, phone, companyName, location, commissionType, commissionValue, cabCommissionType, cabCommissionValue, busCommissionType, busCommissionValue, trainCommissionType, trainCommissionValue, flightCommissionType, flightCommissionValue, status, bankDetails } = req.body || {};
     if (!name || !email || !password) return res.status(400).json({ error: 'Name, email, and password are required' });
     
     try {
         const trimmedEmail = email.trim().toLowerCase();
         const [existing] = await pool.query('SELECT id FROM partners WHERE email = ?', [trimmedEmail]);
         if (existing.length > 0) return res.status(409).json({ error: 'Email already registered' });
-
+ 
         const hash = await bcrypt.hash(password, 10);
         const partnerId = `PART-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
         const joinedDate = new Date().toISOString().split('T')[0];
@@ -2151,10 +2968,19 @@ app.post('/api/admin/partners', authMiddleware, requirePartnerAdmin, async (req,
         const finalStatus = status || 'Active';
         const finalCommType = commissionType || 'Percentage';
         const finalCommValue = commissionValue || 5.00;
-
+        const finalCabCommType = cabCommissionType || 'Flat_Amount';
+        const finalCabCommValue = cabCommissionValue !== undefined ? cabCommissionValue : 300.00;
+        const finalBusCommType = busCommissionType || 'Flat_Amount';
+        const finalBusCommValue = busCommissionValue !== undefined ? busCommissionValue : 150.00;
+        const finalTrainCommType = trainCommissionType || 'Flat_Amount';
+        const finalTrainCommValue = trainCommissionValue !== undefined ? trainCommissionValue : 100.00;
+        const finalFlightCommType = flightCommissionType || 'Flat_Amount';
+        const finalFlightCommValue = flightCommissionValue !== undefined ? flightCommissionValue : 200.00;
+        const finalBankDetails = bankDetails ? JSON.stringify(bankDetails) : null;
+ 
         await pool.query(
-            `INSERT INTO partners (id, name, email, phone, company_name, location, status, commission_type, commission_value, joined_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [partnerId, name, trimmedEmail, phone || '', companyName || '', location || '', finalStatus, finalCommType, finalCommValue, joinedDate]
+            `INSERT INTO partners (id, name, email, phone, company_name, location, status, commission_type, commission_value, cab_commission_type, cab_commission_value, bus_commission_type, bus_commission_value, train_commission_type, train_commission_value, flight_commission_type, flight_commission_value, joined_date, bank_details) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [partnerId, name, trimmedEmail, phone || '', companyName || '', location || '', finalStatus, finalCommType, finalCommValue, finalCabCommType, finalCabCommValue, finalBusCommType, finalBusCommValue, finalTrainCommType, finalTrainCommValue, finalFlightCommType, finalFlightCommValue, joinedDate, finalBankDetails]
         );
         
         // Create partner user in users table with role 'partner'
@@ -2162,7 +2988,7 @@ app.post('/api/admin/partners', authMiddleware, requirePartnerAdmin, async (req,
             'INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE password_hash = ?, role = ?',
             [trimmedEmail, hash, 'partner', hash, 'partner']
         );
-
+ 
         await auditLog('AdminPartnerAdd', 'Partners', `Admin manually added partner: ${name} (${trimmedEmail}).`, req.user.email);
         res.json({ message: 'Partner added successfully', partnerId });
     } catch (error) {
@@ -2182,6 +3008,91 @@ app.get('/api/admin/partners/:id', authMiddleware, async (req, res) => {
         res.json({ data: { ...p, bank_details: bankDetails } });
     } catch (err) {
         res.status(500).json({ error: 'Failed to fetch partner' });
+    }
+});
+
+// Admin: Get partner details (deep-inspection for drawer/profile)
+app.get('/api/admin/partners/:id/details', authMiddleware, async (req, res) => {
+    try {
+        const partnerId = req.params.id;
+        const [partners] = await pool.query('SELECT * FROM partners WHERE id = ?', [partnerId]);
+        if (partners.length === 0) return res.status(404).json({ error: 'Partner not found' });
+        const p = partners[0];
+        
+        // Parse bank details safely
+        let bankDetails = null;
+        if (p.bank_details) {
+            try {
+                bankDetails = typeof p.bank_details === 'string' ? JSON.parse(p.bank_details) : p.bank_details;
+            } catch (e) {
+                console.error('Failed to parse bank details JSON:', e);
+            }
+        }
+
+        // Query leads
+        const [leads] = await pool.query('SELECT * FROM leads WHERE partner_id = ? ORDER BY created_at DESC', [partnerId]);
+
+        // Query bookings & commissions
+        const [commissions] = await pool.query(
+            `SELECT pc.*, b.customer_name, b.title as booking_title, b.status as booking_status, b.payment_status as booking_payment_status
+             FROM partner_commissions pc
+             LEFT JOIN bookings b ON pc.booking_id = b.id
+             WHERE pc.partner_id = ?
+             ORDER BY pc.created_at DESC`,
+            [partnerId]
+        );
+
+        // Compute live ledger financial statistics
+        const totalLeads = leads.length;
+        const bookingsConverted = commissions.filter(c => c.status !== 'Rejected').length; // count of non-rejected commissions
+        
+        let totalEarnings = 0;
+        let amountPaid = 0;
+        let amountApproved = 0;
+        let amountPending = 0;
+        let amountRejected = 0;
+
+        commissions.forEach(c => {
+            const amt = Number(c.commission_amount) || 0;
+            if (c.status === 'Paid') {
+                amountPaid += amt;
+                totalEarnings += amt;
+            } else if (c.status === 'Approved') {
+                amountApproved += amt;
+                totalEarnings += amt;
+            } else if (c.status === 'Pending') {
+                amountPending += amt;
+                totalEarnings += amt;
+            } else if (c.status === 'Rejected') {
+                amountRejected += amt;
+            }
+        });
+
+        const conversionRate = totalLeads > 0 ? Math.round((bookingsConverted / totalLeads) * 100) : 0;
+
+        res.json({
+            data: {
+                partner: {
+                    ...p,
+                    bank_details: bankDetails
+                },
+                leads,
+                commissions,
+                stats: {
+                    totalLeads,
+                    bookingsConverted,
+                    totalEarnings,
+                    amountPaid,
+                    amountApproved,
+                    amountPending,
+                    amountRejected,
+                    conversionRate
+                }
+            }
+        });
+    } catch (err) {
+        console.error('Admin get partner details error:', err);
+        res.status(500).json({ error: 'Failed to fetch partner details' });
     }
 });
 
@@ -2216,10 +3127,18 @@ app.patch('/api/admin/partners/:id/block', authMiddleware, requirePartnerAdmin, 
 // Admin: Update partner commission config
 app.put('/api/admin/partners/:id', authMiddleware, requirePartnerAdmin, async (req, res) => {
     try {
-        const { commissionType, commissionValue, status, notes, bankDetails } = req.body;
+        const { commissionType, commissionValue, cabCommissionType, cabCommissionValue, busCommissionType, busCommissionValue, trainCommissionType, trainCommissionValue, flightCommissionType, flightCommissionValue, status, notes, bankDetails } = req.body;
         const updates = {};
         if (commissionType !== undefined) updates.commission_type = commissionType;
         if (commissionValue !== undefined) updates.commission_value = commissionValue;
+        if (cabCommissionType !== undefined) updates.cab_commission_type = cabCommissionType;
+        if (cabCommissionValue !== undefined) updates.cab_commission_value = cabCommissionValue;
+        if (busCommissionType !== undefined) updates.bus_commission_type = busCommissionType;
+        if (busCommissionValue !== undefined) updates.bus_commission_value = busCommissionValue;
+        if (trainCommissionType !== undefined) updates.train_commission_type = trainCommissionType;
+        if (trainCommissionValue !== undefined) updates.train_commission_value = trainCommissionValue;
+        if (flightCommissionType !== undefined) updates.flight_commission_type = flightCommissionType;
+        if (flightCommissionValue !== undefined) updates.flight_commission_value = flightCommissionValue;
         if (status !== undefined) updates.status = status;
         if (notes !== undefined) updates.notes = notes;
         if (bankDetails !== undefined) updates.bank_details = JSON.stringify(bankDetails);
@@ -2327,17 +3246,61 @@ async function autoCalculatePartnerCommission(bookingId) {
 
         const bookingAmount = Number(booking.total_price) || 0;
         let commissionAmount = 0;
-        if (partner.commission_type === 'Percentage') {
-            commissionAmount = (bookingAmount * Number(partner.commission_value)) / 100;
+        let commissionType = partner.commission_type;
+        let commissionRate = Number(partner.commission_value);
+
+        // Check if package has override
+        if (booking.package_id) {
+            const [packages] = await pool.query('SELECT partner_commission_type, partner_commission_value FROM packages WHERE id = ?', [booking.package_id]);
+            if (packages.length > 0) {
+                const pkg = packages[0];
+                if (pkg.partner_commission_value !== null && pkg.partner_commission_value !== undefined) {
+                    commissionType = pkg.partner_commission_type || 'Percentage';
+                    commissionRate = Number(pkg.partner_commission_value);
+                    console.log(`[Commission] Using package override: ${commissionRate} (${commissionType})`);
+                }
+            }
+        } else if (booking.type === 'Car') {
+            // Check if cab-only booking (type 'Car') and has custom partner cab rate
+            if (partner.cab_commission_value !== null && partner.cab_commission_value !== undefined) {
+                commissionType = partner.cab_commission_type || 'Flat_Amount';
+                commissionRate = Number(partner.cab_commission_value);
+                console.log(`[Commission] Using partner cab booking rate: ${commissionRate} (${commissionType})`);
+            }
+        } else if (booking.type === 'Bus') {
+            // Check if bus-only booking (type 'Bus') and has custom partner bus rate
+            if (partner.bus_commission_value !== null && partner.bus_commission_value !== undefined) {
+                commissionType = partner.bus_commission_type || 'Flat_Amount';
+                commissionRate = Number(partner.bus_commission_value);
+                console.log(`[Commission] Using partner bus booking rate: ${commissionRate} (${commissionType})`);
+            }
+        } else if (booking.type === 'Train') {
+            // Check if train-only booking (type 'Train') and has custom partner train rate
+            if (partner.train_commission_value !== null && partner.train_commission_value !== undefined) {
+                commissionType = partner.train_commission_type || 'Flat_Amount';
+                commissionRate = Number(partner.train_commission_value);
+                console.log(`[Commission] Using partner train booking rate: ${commissionRate} (${commissionType})`);
+            }
+        } else if (booking.type === 'Flight') {
+            // Check if flight-only booking (type 'Flight') and has custom partner flight rate
+            if (partner.flight_commission_value !== null && partner.flight_commission_value !== undefined) {
+                commissionType = partner.flight_commission_type || 'Flat_Amount';
+                commissionRate = Number(partner.flight_commission_value);
+                console.log(`[Commission] Using partner flight booking rate: ${commissionRate} (${commissionType})`);
+            }
+        }
+
+        if (commissionType === 'Percentage') {
+            commissionAmount = (bookingAmount * commissionRate) / 100;
         } else {
-            commissionAmount = Number(partner.commission_value);
+            commissionAmount = commissionRate;
         }
 
         const commId = `COMM-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
         await pool.query(
             `INSERT INTO partner_commissions (id, partner_id, booking_id, booking_amount, commission_type, commission_rate, commission_amount, status)
              VALUES (?, ?, ?, ?, ?, ?, ?, 'Pending')`,
-            [commId, booking.partner_id, bookingId, bookingAmount, partner.commission_type, partner.commission_value, commissionAmount]
+            [commId, booking.partner_id, bookingId, bookingAmount, commissionType, commissionRate, commissionAmount]
         );
         console.log(`[Commission] Auto-created commission ${commId} for partner ${booking.partner_id}: ₹${commissionAmount.toFixed(2)}`);
     } catch (err) {

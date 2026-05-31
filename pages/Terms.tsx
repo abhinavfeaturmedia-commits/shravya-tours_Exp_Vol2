@@ -16,7 +16,7 @@ export const Terms: React.FC = () => {
             Website Terms and Conditions
           </h1>
           <p className="text-xl text-primary font-semibold">
-            SHRAWELLO Travel Hub
+            SHRAWELLO Travel Hub and Events LLP
           </p>
         </div>
 
@@ -35,7 +35,7 @@ export const Terms: React.FC = () => {
               Introduction
             </h2>
             <p>
-              SHRAWELLO Travel Hub (“Company”, “We”, “Us”, “Our”) provides travel-related services including airline ticket booking, hotel reservations, taxi/cab services, and domestic and international tour packages.
+              SHRAWELLO Travel Hub and Events LLP (“Company”, “We”, “Us”, “Our”) provides travel-related services including airline ticket booking, hotel reservations, taxi/cab services, and domestic and international tour packages.
             </p>
           </section>
 
@@ -104,7 +104,7 @@ export const Terms: React.FC = () => {
               <span className="bg-primary/10 text-primary w-8 h-8 rounded-full flex items-center justify-center text-sm">7</span>
               Limitation of Liability
             </h2>
-            <p className="mb-2 pl-11">SHRAWELLO Travel Hub shall not be responsible for:</p>
+            <p className="mb-2 pl-11">SHRAWELLO Travel Hub and Events LLP shall not be responsible for:</p>
             <ul className="list-disc pl-14 space-y-2 marker:text-primary">
               <li>Loss, injury, delay, or inconvenience caused by third-party service providers.</li>
               <li>Natural calamities, government restrictions, strikes, or unforeseen events.</li>
@@ -118,7 +118,7 @@ export const Terms: React.FC = () => {
               Intellectual Property
             </h2>
             <p className="pl-11">
-              All content, text, logos, graphics, and materials on this website are the property of SHRAWELLO Travel Hub and may not be used without prior written permission.
+              All content, text, logos, graphics, and materials on this website are the property of SHRAWELLO Travel Hub and Events LLP and may not be used without prior written permission.
             </p>
           </section>
 
@@ -158,7 +158,7 @@ export const Terms: React.FC = () => {
               Contact Information
             </h2>
             <p className="pl-11">
-              For any queries related to these Terms and Conditions, please contact SHRAWELLO Travel Hub through the details provided on the website.
+              For any queries related to these Terms and Conditions, please contact SHRAWELLO Travel Hub and Events LLP through the details provided on the website.
             </p>
           </section>
 

@@ -55,12 +55,14 @@ const AdminSettings = lazy(() => import('./pages/admin/Settings').then(module =>
 const TestimonialsManager = lazy(() => import('./pages/admin/TestimonialsManager').then(module => ({ default: module.TestimonialsManager })));
 const MembershipManager = lazy(() => import('./pages/admin/MembershipManager').then(module => ({ default: module.MembershipManager })));
 const PartnerManager = lazy(() => import('./pages/admin/PartnerManager').then(module => ({ default: module.PartnerManager })));
+const CouponManager = lazy(() => import('./pages/admin/CouponManager').then(module => ({ default: module.CouponManager })));
 
 // Partner Portal Pages
 const PartnerLogin = lazy(() => import('./pages/partner/PartnerLogin').then(m => ({ default: m.PartnerLogin })));
 const PartnerRegister = lazy(() => import('./pages/partner/PartnerRegister').then(m => ({ default: m.PartnerRegister })));
 const PartnerDashboard = lazy(() => import('./pages/partner/PartnerDashboard').then(m => ({ default: m.PartnerDashboard })));
 const PartnerLeads = lazy(() => import('./pages/partner/PartnerLeads').then(m => ({ default: m.PartnerLeads })));
+const PartnerPackages = lazy(() => import('./pages/partner/PartnerPackages').then(m => ({ default: m.PartnerPackages })));
 const PartnerSubmitLead = lazy(() => import('./pages/partner/PartnerSubmitLead').then(m => ({ default: m.PartnerSubmitLead })));
 const PartnerEarnings = lazy(() => import('./pages/partner/PartnerEarnings').then(m => ({ default: m.PartnerEarnings })));
 const PartnerProfile = lazy(() => import('./pages/partner/PartnerProfile').then(m => ({ default: m.PartnerProfile })));
@@ -136,6 +138,7 @@ const App: React.FC = () => {
                   <Route path="testimonials" element={<TestimonialsManager />} />
                   <Route path="memberships" element={<MembershipManager />} />
                   <Route path="partners" element={<PartnerManager />} />
+                  <Route path="coupons" element={<CouponManager />} />
                   <Route path="*" element={<div className="p-10">Page Under Construction</div>} />
                 </Route>
 
@@ -145,6 +148,7 @@ const App: React.FC = () => {
                 <Route path="/partner" element={<PartnerLayout />}>
                   <Route index element={<Navigate to="/partner/dashboard" replace />} />
                   <Route path="dashboard" element={<PartnerDashboard />} />
+                  <Route path="packages" element={<PartnerPackages />} />
                   <Route path="leads" element={<PartnerLeads />} />
                   <Route path="leads/new" element={<PartnerSubmitLead />} />
                   <Route path="earnings" element={<PartnerEarnings />} />

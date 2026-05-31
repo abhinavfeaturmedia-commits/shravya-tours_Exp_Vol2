@@ -9,9 +9,10 @@ import {
   FollowUp, MasterRoomType, MasterMealPlan, MasterLeadSource, MasterTermsTemplate, SupplierBooking, BookingTransaction, Proposal,
   CMSBanner, CMSTestimonial, CMSGalleryImage, CMSPost,
   Task, DailyTarget, UserActivity, TimeSession, AssignmentRule,
-  MembershipPlan, CustomerMembership
+  MembershipPlan, CustomerMembership, Coupon
 } from '../types';
 import { DeletionRequestModal } from '../components/ui/DeletionRequestModal';
+import { useAuth } from './AuthContext';
 
 // Storage helpers
 const STORAGE_KEY = 'shravya_data';
@@ -398,11 +399,18 @@ interface DataContextType {
   updateMembership: (id: string, updates: Partial<CustomerMembership>) => Promise<void>;
   deleteMembership: (id: string) => Promise<void>;
   getActiveMembershipForCustomer: (customerId: string) => CustomerMembership | undefined;
+
+  // Coupons
+  coupons: Coupon[];
+  addCoupon: (c: Coupon) => Promise<void>;
+  updateCoupon: (id: string, updates: Partial<Coupon>) => Promise<void>;
+  deleteCoupon: (id: string) => Promise<void>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { isAuthenticated } = useAuth();
   // Core Data (fetched from API)
   const [packages, setPackages] = useState<Package[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -458,6 +466,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [membershipPlans, setMembershipPlans] = useState<MembershipPlan[]>([]);
   const [customerMemberships, setCustomerMemberships] = useState<CustomerMembership[]>([]);
 
+  // Coupons
+  const [coupons, setCoupons] = useState<Coupon[]>([]);
+
   // CMS State
   const [cmsBanners, setCmsBanners] = useState<CMSBanner[]>(() => loadFromStorage(`${STORAGE_KEY}_cms_banners`, INITIAL_CMS_BANNERS));
   const [cmsTestimonials, setCmsTestimonials] = useState<CMSTestimonial[]>(() => loadFromStorage(`${STORAGE_KEY}_cms_testimonials`, INITIAL_CMS_TESTIMONIALS));
@@ -473,100 +484,118 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Load Real Data
   const refreshData = useCallback(async () => {
+    const hasToken = !!(localStorage.getItem('shravya_jwt') || localStorage.getItem('shrawello_partner_jwt'));
+
     try {
-      const [pkgs, b, l, v, a, c, locs, cam, htl, tsk, fups, inv] = await Promise.all([
+      // 1. Fetch public data immediately
+      const [pkgs, locs, htl] = await Promise.all([
         api.getPackages().catch(() => []),
-        api.getBookings().catch(() => []),
-        api.getLeads().catch(() => []),
-        api.getVendors().catch(() => []),
-        api.getAccounts().catch(() => []),
-        api.getCustomers().catch(() => []),
         api.getLocations().catch(() => []),
-        api.getCampaigns().catch(() => []),
-        api.getMasterHotels().catch(() => []),
-        api.getTasks().catch(() => []),
-        api.getFollowUps().catch(() => []),
-        api.getInventory().catch(() => ({}))
+        api.getMasterHotels().catch(() => [])
       ]);
       setPackages(pkgs);
-      setBookings(b);
-      setLeads(l);
-      setVendors(v as Vendor[]);
-      setAccounts(a as Account[]);
-      setCustomers(c);
       setMasterLocations(locs as MasterLocation[]);
-      setCampaigns(cam);
       if (htl.length > 0) setMasterHotels(htl);
-      setTasks(tsk);
-      if (fups.length > 0) setFollowUps(fups);
-      if (inv && Object.keys(inv).length > 0) setInventory(inv);
 
-      // After loading both bookings and customers, silently sync any missing customers
-      // from bookings (non-blocking — runs in background, re-fetches customers on success)
-      api.syncCustomersFromBookings()
-        .then(async (result) => {
-          if (result.created > 0) {
-            console.log(`[DataContext] Customer sync: created=${result.created}, updated=${result.updated}`);
-            // Re-fetch the updated customers list
-            const updatedCustomers = await api.getCustomers().catch(() => null);
-            if (updatedCustomers) setCustomers(updatedCustomers);
-          }
-        })
-        .catch((e) => {
-          // Silently ignore — sync will be retried on next page load
-          console.warn('[DataContext] Background customer sync skipped:', e?.message);
-        });
+      // 2. Fetch authenticated data only if token is present
+      if (hasToken) {
+        const [b, l, v, a, c, cam, tsk, fups, inv] = await Promise.all([
+          api.getBookings().catch(() => []),
+          api.getLeads().catch(() => []),
+          api.getVendors().catch(() => []),
+          api.getAccounts().catch(() => []),
+          api.getCustomers().catch(() => []),
+          api.getCampaigns().catch(() => []),
+          api.getTasks().catch(() => []),
+          api.getFollowUps().catch(() => []),
+          api.getInventory().catch(() => ({}))
+        ]);
+        setBookings(b);
+        setLeads(l);
+        setVendors(v as Vendor[]);
+        setAccounts(a as Account[]);
+        setCustomers(c);
+        setCampaigns(cam);
+        setTasks(tsk);
+        if (fups.length > 0) setFollowUps(fups);
+        if (inv && Object.keys(inv).length > 0) setInventory(inv);
+
+        // After loading both bookings and customers, silently sync any missing customers
+        // from bookings (non-blocking — runs in background, re-fetches customers on success)
+        api.syncCustomersFromBookings()
+          .then(async (result) => {
+            if (result.created > 0) {
+              console.log(`[DataContext] Customer sync: created=${result.created}, updated=${result.updated}`);
+              // Re-fetch the updated customers list
+              const updatedCustomers = await api.getCustomers().catch(() => null);
+              if (updatedCustomers) setCustomers(updatedCustomers);
+            }
+          })
+          .catch((e) => {
+            // Silently ignore — sync will be retried on next page load
+            console.warn('[DataContext] Background customer sync skipped:', e?.message);
+          });
+      }
     } catch (e) {
       console.warn("Auth required or network error for some data");
     }
 
     const loadPhase3Data = async () => {
       try {
-        const [
-          activities, transports, plans, roomTypes, mealPlans, leadSources, termsTemplates,
-          cmsBannersList, cmsTestList, cmsGalList, cmsPostsList,
-          props, targets, sessions, rules, uActs, auditList, membershipPlansList, membershipsList
-        ] = await Promise.all([
+        // Public secondary tables
+        const [activities, cmsBannersList, cmsTestList, cmsGalList, cmsPostsList] = await Promise.all([
           api.getMasterActivities().catch(() => []),
-          api.getMasterTransports().catch(() => []),
-          api.getMasterPlans().catch(() => []),
-          api.getMasterRoomTypes().catch(() => []),
-          api.getMasterMealPlans().catch(() => []),
-          api.getMasterLeadSources().catch(() => []),
-          api.getMasterTermsTemplates().catch(() => []),
           api.getCMSBanners().catch(() => []),
           api.getCMSTestimonials().catch(() => []),
           api.getCMSGalleryImages().catch(() => []),
-          api.getCMSPosts().catch(() => []),
-          api.getProposals().catch(() => []),
-          api.getDailyTargets().catch(() => []),
-          api.getTimeSessions().catch(() => []),
-          api.getAssignmentRules().catch(() => []),
-          api.getUserActivities().catch(() => []),
-          api.getAuditLogs().catch(() => []),
-          api.getMembershipPlans().catch(() => []),
-          api.getCustomerMemberships().catch(() => [])
+          api.getCMSPosts().catch(() => [])
         ]);
-
         if (activities.length > 0) setMasterActivities(activities);
-        if (transports.length > 0) setMasterTransports(transports);
-        if (plans.length > 0) setMasterPlans(plans);
-        if (roomTypes.length > 0) setMasterRoomTypes(roomTypes);
-        if (mealPlans.length > 0) setMasterMealPlans(mealPlans);
-        if (leadSources.length > 0) setMasterLeadSources(leadSources);
-        if (termsTemplates.length > 0) setMasterTermsTemplates(termsTemplates);
-
-        if (props.length > 0) setProposals(props);
-        if (targets.length > 0) setDailyTargets(targets);
-        if (sessions.length > 0) setTimeSessions(sessions);
-        if (rules.length > 0) setAssignmentRules(rules);
-        if (uActs.length > 0) setUserActivities(uActs);
-        if (auditList.length > 0) setAuditLogs(auditList);
-
         if (cmsBannersList.length > 0) setCmsBanners(cmsBannersList);
         if (cmsTestList.length > 0) setCmsTestimonials(cmsTestList);
         if (cmsGalList.length > 0) setCmsGallery(cmsGalList);
         if (cmsPostsList.length > 0) setCmsPosts(cmsPostsList);
+
+        // Authenticated secondary tables
+        if (hasToken) {
+          const [
+            transports, plans, roomTypes, mealPlans, leadSources, termsTemplates,
+            props, targets, sessions, rules, uActs, auditList, membershipPlansList, membershipsList, couponsList
+          ] = await Promise.all([
+            api.getMasterTransports().catch(() => []),
+            api.getMasterPlans().catch(() => []),
+            api.getMasterRoomTypes().catch(() => []),
+            api.getMasterMealPlans().catch(() => []),
+            api.getMasterLeadSources().catch(() => []),
+            api.getMasterTermsTemplates().catch(() => []),
+            api.getProposals().catch(() => []),
+            api.getDailyTargets().catch(() => []),
+            api.getTimeSessions().catch(() => []),
+            api.getAssignmentRules().catch(() => []),
+            api.getUserActivities().catch(() => []),
+            api.getAuditLogs().catch(() => []),
+            api.getMembershipPlans().catch(() => []),
+            api.getCustomerMemberships().catch(() => []),
+            api.getCoupons().catch(() => [])
+          ]);
+
+          if (transports.length > 0) setMasterTransports(transports);
+          if (plans.length > 0) setMasterPlans(plans);
+          if (roomTypes.length > 0) setMasterRoomTypes(roomTypes);
+          if (mealPlans.length > 0) setMasterMealPlans(mealPlans);
+          if (leadSources.length > 0) setMasterLeadSources(leadSources);
+          if (termsTemplates.length > 0) setMasterTermsTemplates(termsTemplates);
+
+          if (props.length > 0) setProposals(props);
+          if (targets.length > 0) setDailyTargets(targets);
+          if (sessions.length > 0) setTimeSessions(sessions);
+          if (rules.length > 0) setAssignmentRules(rules);
+          if (uActs.length > 0) setUserActivities(uActs);
+          if (auditList.length > 0) setAuditLogs(auditList);
+          if (membershipPlansList.length > 0) setMembershipPlans(membershipPlansList);
+          if (membershipsList.length > 0) setCustomerMemberships(membershipsList);
+          if (couponsList && couponsList.length > 0) setCoupons(couponsList);
+        }
       } catch (e) {
         console.warn("Error loading secondary Supabase data:", e);
       }
@@ -578,7 +607,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     refreshData();
-  }, [refreshData]);
+  }, [refreshData, isAuthenticated]);
 
   // Listen for the custom 'customers-changed' event to silently update the customers list
   // This is used when a customer is auto-created or updated globally outside this context (e.g., from useBookings hooks)
@@ -1020,6 +1049,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       );
 
       let finalLead = { ...lead };
+      if (!finalLead.partnerId) {
+        const storedPartner = localStorage.getItem('shravya_ref_partner');
+        if (storedPartner) {
+          finalLead.partnerId = storedPartner;
+          console.log(`[Affiliate] Attaching partner referral to lead: ${storedPartner}`);
+        }
+      }
       
       if (existingCustomer) {
         finalLead.customerId = existingCustomer.id;
@@ -1812,6 +1848,44 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return customerMemberships.find(m => m.customerId === customerId && m.status === 'Active');
   }, [customerMemberships]);
 
+  // ─── Coupons Handlers ───
+  const addCoupon = useCallback(async (coupon: Coupon) => {
+    try {
+      await api.createCoupon(coupon);
+      setCoupons(prev => [coupon, ...prev]);
+      logAction('Create', 'Marketing', `Created Coupon: ${coupon.code}`);
+      toast.success(`Coupon ${coupon.code} created`);
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to create coupon');
+      throw e;
+    }
+  }, [logAction]);
+
+  const updateCoupon = useCallback(async (id: string, updates: Partial<Coupon>) => {
+    const prev = coupons;
+    setCoupons(p => p.map(x => x.id === id ? { ...x, ...updates } : x));
+    try {
+      await api.updateCoupon(id, updates);
+      logAction('Update', 'Marketing', `Updated Coupon: ${id}`);
+    } catch (e: any) {
+      setCoupons(prev);
+      toast.error(e.message || 'Failed to update coupon');
+    }
+  }, [coupons, logAction]);
+
+  const deleteCoupon = useCallback(async (id: string) => {
+    const prev = coupons;
+    setCoupons(p => p.filter(x => x.id !== id));
+    try {
+      await api.deleteCoupon(id);
+      logAction('Delete', 'Marketing', `Deleted Coupon: ${id}`);
+      toast.success('Coupon deleted');
+    } catch (e: any) {
+      setCoupons(prev);
+      toast.error(e.message || 'Failed to delete coupon');
+    }
+  }, [coupons, logAction]);
+
   const value = useMemo(() => ({
     packages, bookings, leads, inventory, vendors, accounts, campaigns, auditLogs, logAction, customers,
     masterLocations, masterHotels, masterActivities, masterTransports, masterPlans,
@@ -1852,6 +1926,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     membershipPlans, customerMemberships,
     addMembershipPlan, updateMembershipPlan, deleteMembershipPlan,
     enrollCustomer, updateMembership, deleteMembership, getActiveMembershipForCustomer,
+    // Coupons
+    coupons, addCoupon, updateCoupon, deleteCoupon,
     refreshData
   }), [
     packages, bookings, leads, inventory, vendors, accounts, campaigns, customers,
@@ -1895,6 +1971,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     membershipPlans, customerMemberships,
     addMembershipPlan, updateMembershipPlan, deleteMembershipPlan,
     enrollCustomer, updateMembership, deleteMembership, getActiveMembershipForCustomer,
+    // Coupons deps
+    coupons, addCoupon, updateCoupon, deleteCoupon,
     refreshData
   ]);
 

@@ -153,11 +153,11 @@ export const generateProformaInvoice = (proposal: Proposal, optionId: string, le
         email: "shravyatours23@gmail.com",
         gstin: "27BKSPK0858C1Z6", // Updated Validation
         bank: {
-            name: "HDFC Bank",
-            accountName: "SHRAWELLO TRAVEL HUB",
-            accountNo: "50200088927878",
-            ifsc: "HDFC0000007",
-            branch: "Pune - Chikhali"
+            name: "KOTAK MAHINDRA BANK",
+            accountName: "SHRAWELLO TRAVELHUB AND EVENTS LLP",
+            accountNo: "4054789256",
+            ifsc: "KKBK0002119",
+            branch: "Pune"
         }
     };
 
@@ -293,11 +293,11 @@ export const generateBookingInvoice = (booking: any, customer: any) => {
         email: "shravyatours23@gmail.com",
         gstin: "27BKSPK0858C1Z6",
         bank: {
-            name: "HDFC Bank",
-            accountName: "SHRAWELLO TRAVEL HUB",
-            accountNo: "50200088927878",
-            ifsc: "HDFC0000007",
-            branch: "Pune - Chikhali"
+            name: "KOTAK MAHINDRA BANK",
+            accountName: "SHRAWELLO TRAVELHUB AND EVENTS LLP",
+            accountNo: "4054789256",
+            ifsc: "KKBK0002119",
+            branch: "Pune"
         }
     };
 
@@ -376,203 +376,1198 @@ export const generateBookingInvoice = (booking: any, customer: any) => {
     doc.save(`Invoice_${booking.invoiceNo || booking.id}.pdf`);
 };
 
-export const generateTrueInvoicePDF = (docData: any, items: any[], company: any, finance: any) => {
+const cleanText = (val: any): string => {
+    if (val === null || val === undefined) return '';
+    return String(val).replace(/[^\x00-\x7F]/g, "").trim(); // strip non-ASCII
+};
+
+export function numberToWords(amount: number): string {
+    const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+    const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+    
+    const num = Math.floor(amount);
+    const paise = Math.round((amount - num) * 100);
+    
+    if (num === 0 && paise === 0) return 'Zero Rupees Only';
+    
+    const convert = (x: number): string => {
+        if (x < 20) return ones[x];
+        if (x < 100) return tens[Math.floor(x/10)] + (x%10 ? ' ' + ones[x%10] : '');
+        if (x < 1000) return ones[Math.floor(x/100)] + ' Hundred' + (x%100 ? ' ' + convert(x%100) : '');
+        if (x < 100000) return convert(Math.floor(x/1000)) + ' Thousand' + (x%1000 ? ' ' + convert(x%1000) : '');
+        if (x < 10000000) return convert(Math.floor(x/100000)) + ' Lakh' + (x%100000 ? ' ' + convert(x%100000) : '');
+        return convert(Math.floor(x/10000000)) + ' Crore' + (x%10000000 ? ' ' + convert(x%10000000) : '');
+    };
+    
+    let words = convert(num) + ' Rupees';
+    if (paise > 0) {
+        words += ' and ' + convert(paise) + ' Paise';
+    }
+    return words + ' Only';
+}
+
+export const generateTrueInvoicePDF = async (docData: any, items: any[], company: any, finance: any, customFields?: { label: string; amount: number; is_deduction: boolean }[], fieldLabels?: Record<string, string>) => {
+    // ── Load UPI QR Code Asynchronously ──
+    const loadQrCode = (upiId: string, amount: number, customQr?: string): Promise<HTMLImageElement | null> => {
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.crossOrigin = "anonymous";
+            img.onload = () => resolve(img);
+            img.onerror = () => resolve(null);
+            if (customQr) {
+                img.src = customQr;
+            } else {
+                const upiUrl = `upi://pay?pa=${upiId}&pn=Shrawello%20Travel%20Hub&am=${amount}`;
+                img.src = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(upiUrl)}`;
+            }
+        });
+    };
+
+    const finalTotal = Number(docData.total_amount) || 0;
+    const qrAdvanceReceived = Number(docData.advance_received || 0);
+    const qrAmountPaid = Number(docData.amount_paid || 0);
+    const qrBalanceDue = finalTotal - (qrAmountPaid + qrAdvanceReceived);
+    const qrAmount = Math.max(0, qrBalanceDue);
+    const qrImageObj = await loadQrCode(finance?.upiId || 'shrawello@kotak', qrAmount, finance?.upiQrImage);
+
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.width;
+    const pageHeight = doc.internal.pageSize.height;
+
     const isProforma = docData.document_type === 'Proforma';
     const isQuote = docData.document_type === 'Quotation';
-    
-    // --- Header ---
-    doc.setFillColor(255, 255, 255);
-    doc.setFontSize(22);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(88, 28, 135); // Violet-900
-    doc.text(docData.document_type ? docData.document_type.toUpperCase() : "INVOICE", pageWidth - 15, 25, { align: 'right' });
-
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(100, 100, 100);
-    doc.text(`Date: ${new Date(docData.issue_date || new Date()).toLocaleDateString()}`, pageWidth - 15, 33, { align: 'right' });
     const prefix = finance?.invoicePrefix || (isProforma ? 'PI' : isQuote ? 'QT' : 'INV');
-    const docId = docData.id ? docData.id.slice(0, 6).toUpperCase() : 'DRAFT';
-    doc.text(`Ref No: ${prefix}-${docId}`, pageWidth - 15, 38, { align: 'right' });
-    
-    if (docData.due_date) {
-        doc.text(`Due Date: ${new Date(docData.due_date).toLocaleDateString()}`, pageWidth - 15, 43, { align: 'right' });
+    const docId = docData.id
+        ? (String(docData.id).includes('-') ? docData.id.split('-')[0].toUpperCase() : String(docData.id).slice(0, 6).toUpperCase())
+        : 'DRAFT';
+    const hasDueDate = !!docData.due_date;
+
+    // ── FIX #19: Bottom stripe helper — called on EVERY page ──
+    const drawBottomStripe = () => {
+        doc.setFillColor(9, 28, 59);
+        doc.rect(0, pageHeight - 3, pageWidth * 0.7, 3, 'F');
+        doc.setFillColor(242, 98, 34);
+        doc.rect(pageWidth * 0.7, pageHeight - 3, pageWidth * 0.3, 3, 'F');
+    };
+
+    // ── FIX #18: Compact continuation header for page 2+ ──
+    const drawCompactHeader = () => {
+        doc.setFillColor(255, 255, 255);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(15);
+        doc.setTextColor(242, 98, 34);
+        doc.text("SHRAWELLO", 15, 12);
+        const shWidth = doc.getTextWidth("SHRAWELLO");
+        doc.setTextColor(9, 28, 59);
+        doc.text(" TRAVEL HUB", 15 + shWidth, 12);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(6.5);
+        doc.setTextColor(148, 163, 184);
+        doc.text(`${prefix}-${docId}  ·  Continued`, pageWidth - 15, 12, { align: 'right' });
+        doc.setDrawColor(242, 98, 34);
+        doc.setLineWidth(0.6);
+        doc.line(15, 15, pageWidth - 15, 15);
+    };
+
+    // ═══════════════════════════════════════════════════════════
+    // PAGE 1 — BRAND HEADER
+    // ═══════════════════════════════════════════════════════════
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(26);
+    doc.setTextColor(242, 98, 34);
+    doc.text("SHRAWELLO", 15, 23);
+    doc.setTextColor(9, 28, 59);
+    doc.text("TRAVEL HUB", 15, 31);
+
+    doc.setFontSize(7.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(148, 163, 184);
+    doc.text("CORPORATE TRAVEL AND EVENTS", 15, 36);
+
+    doc.setDrawColor(242, 98, 34);
+    doc.setLineWidth(1);
+    doc.line(15, 39, 45, 39);
+
+    // ── FIX #9: Invoice type label (TAX INVOICE / PROFORMA INVOICE / QUOTATION) ──
+    const invoiceTypeLabel = isProforma ? 'PROFORMA INVOICE' : isQuote ? 'QUOTATION' : 'TAX INVOICE';
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.setTextColor(9, 28, 59);
+    doc.text(invoiceTypeLabel, 105, 10, { align: 'center' });
+
+    // ── Status Badge ──
+    const paymentStatus = docData.payment_status || 'Unpaid';
+    let badgeBg = [243, 244, 246];
+    let badgeText = [107, 114, 128];
+    let badgeBorder = [209, 213, 219];
+    let badgeLabel = paymentStatus.toUpperCase();
+    let hasIcon = false;
+
+    if (paymentStatus === 'Paid') {
+        badgeBg = [240, 253, 244]; badgeText = [22, 163, 74]; badgeBorder = [187, 247, 208];
+        badgeLabel = "INVOICE PAID"; hasIcon = true;
+    } else if (paymentStatus === 'Partially Paid') {
+        badgeBg = [255, 247, 237]; badgeText = [234, 88, 12]; badgeBorder = [254, 215, 170];
+        badgeLabel = "PARTIALLY PAID";
+    } else if (paymentStatus === 'Unpaid') {
+        badgeBg = [254, 242, 242]; badgeText = [220, 38, 38]; badgeBorder = [254, 202, 202];
+        badgeLabel = "INVOICE UNPAID"; hasIcon = true;
+    } else if (docData.status === 'Draft') {
+        badgeBg = [243, 244, 246]; badgeText = [107, 114, 128]; badgeBorder = [229, 231, 235];
+        badgeLabel = "DRAFT";
     }
 
-    // Logo / Company Name
-    doc.setFontSize(18);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(88, 28, 135);
-    doc.text(company.companyName || "SHRAWELLO TRAVEL HUB", 15, 25);
+    const badgeW = 50, badgeX = 105 - badgeW / 2;
+    doc.setFillColor(badgeBg[0], badgeBg[1], badgeBg[2]);
+    doc.setDrawColor(badgeBorder[0], badgeBorder[1], badgeBorder[2]);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(badgeX, 14, badgeW, 8, 4, 4, 'FD');
 
-    doc.setFontSize(9);
+    // ── FIX #13: Icon placement using measured offset, works for all badge types ──
+    const iconX = badgeX + 6;
+    if (paymentStatus === 'Paid') {
+        doc.setFillColor(22, 163, 74);
+        doc.circle(iconX, 18, 2.2, 'F');
+        doc.setDrawColor(255, 255, 255);
+        doc.setLineWidth(0.5);
+        doc.line(iconX - 1.2, 18, iconX - 0.2, 19.2);
+        doc.line(iconX - 0.2, 19.2, iconX + 1.2, 16.8);
+    } else if (paymentStatus === 'Unpaid') {
+        doc.setFillColor(220, 38, 38);
+        doc.circle(iconX, 18, 2.2, 'F');
+        doc.setDrawColor(255, 255, 255);
+        doc.setLineWidth(0.5);
+        doc.line(iconX - 1, 17, iconX + 1, 19);
+        doc.line(iconX + 1, 17, iconX - 1, 19);
+    }
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    doc.setTextColor(badgeText[0], badgeText[1], badgeText[2]);
+    // ── FIX #13: center label within badge accounting for icon space ──
+    const labelAreaX = hasIcon ? iconX + 4 : badgeX;
+    const labelAreaW = hasIcon ? (badgeX + badgeW) - (iconX + 4) : badgeW;
+    doc.text(badgeLabel, labelAreaX + labelAreaW / 2, 18.5, { align: 'center' });
+
     doc.setFont("helvetica", "normal");
-    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(8);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`${prefix}-${docId}`, 105, 26.5, { align: 'center' });
+
+    // ── Meta card ──
+    const metaCardH = hasDueDate ? 34 : 26; // tighter, more elegant height
+    doc.setFillColor(252, 252, 252);
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(148, 12, 47, metaCardH, 1.5, 1.5, 'FD');
+
+    let metaY = 17.5;
     
-    // Split registered address by newline if it exists
-    let startY = 32;
+    // Row 1: INVOICE NO
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(6.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`${isQuote ? 'Quote No' : isProforma ? 'Proforma No' : 'Invoice No'}:`, 152, metaY);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    doc.setTextColor(9, 28, 59);
+    const invNoStr = `${prefix}-${docId}`;
+    doc.text(invNoStr.length > 13 ? invNoStr.slice(0, 13) + '…' : invNoStr, 191, metaY, { align: 'right' });
+    metaY += 7.5;
+
+    // Row 2: INVOICE DATE
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(6.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text("Date:", 152, metaY);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    doc.setTextColor(9, 28, 59);
+    doc.text(new Date(docData.issue_date || new Date()).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }), 191, metaY, { align: 'right' });
+    metaY += 7.5;
+
+    if (hasDueDate) {
+        // Row 3: DUE DATE
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(6.5);
+        doc.setTextColor(220, 38, 38); // Highlight red
+        doc.text("Due Date:", 152, metaY);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(7.5);
+        doc.setTextColor(220, 38, 38);
+        doc.text(new Date(docData.due_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }), 191, metaY, { align: 'right' });
+        metaY += 7.5;
+    }
+
+    // Row 4 (or 3): PAGE
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(6.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text("Page:", 152, metaY);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    doc.setTextColor(9, 28, 59);
+    doc.text("1 of 1", 191, metaY, { align: 'right' });
+
+    // ═══════════════════════════════════════════════════════════
+    // BILLED BY & BILLED TO CARDS
+    // ═══════════════════════════════════════════════════════════
+    const cardY = hasDueDate ? 58 : 46;
+    const cardWidth = (pageWidth - 30 - 8) / 2; // ~86mm
+    const cardHeight = 54; // taller to accommodate GSTIN
+
+    // ── BILLED BY ──
+    doc.setFillColor(252, 252, 252);
+    doc.setDrawColor(241, 245, 249);
+    doc.roundedRect(15, cardY, cardWidth, cardHeight, 2, 2, 'FD');
+
+    // Clean Card Header Tag
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7);
+    doc.setTextColor(242, 98, 34); // Accent Orange
+    doc.text("BILLED BY", 22, cardY + 6.5);
+
+    // Subtle divider inside card
+    doc.setDrawColor(241, 245, 249);
+    doc.line(15, cardY + 9.5, 15 + cardWidth, cardY + 9.5);
+
+    // Company Name
+    doc.setFontSize(8.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(9, 28, 59);
+    const compNameRaw = company.companyName || "SHRAWELLO TRAVEL HUB";
+    const compNameLines = doc.splitTextToSize(compNameRaw, cardWidth - 14);
+    doc.text(compNameLines.slice(0, 2), 22, cardY + 15.5);
+    const compNameShift = (Math.min(compNameLines.length, 2) - 1) * 3.5;
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
+    doc.setTextColor(71, 85, 105);
+
+    let addrY = cardY + 20 + compNameShift;
     if (company.registeredAddress) {
-        const addressLines = company.registeredAddress.split('\n');
-        addressLines.forEach((line: string) => {
-            doc.text(line.trim(), 15, startY);
-            startY += 4;
+        company.registeredAddress.split('\n').slice(0, 3).forEach((line: string) => {
+            doc.text(line.trim(), 22, addrY);
+            addrY += 3.8;
         });
     } else {
-        doc.text("Pimpri chinchwad, Pune ,", 15, startY); startY += 4;
-        doc.text("Maharashtra, India - 411062", 15, startY); startY += 4;
+        doc.text("A508, Wisteria, Patil Nagar,", 22, addrY); addrY += 3.8;
+        doc.text("Chikhali, PCMC, Pune, MH - 411062", 22, addrY); addrY += 3.8;
     }
-    
-    doc.text(`Phone: ${company.phone || '+91 80109 55675'}`, 15, startY); startY += 4;
-    doc.text(`Email: ${company.email || 'hello@shrawello.com'}`, 15, startY); startY += 4;
+
+    // GSTIN Display
     if (company.gstNumber) {
-        doc.text(`GSTIN: ${company.gstNumber}`, 15, startY);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(7);
+        doc.setTextColor(100, 116, 139);
+        doc.text(`GSTIN: ${company.gstNumber}`, 22, addrY);
+        addrY += 4.2;
     }
 
-    doc.setDrawColor(200, 200, 200);
-    doc.line(15, 60, pageWidth - 15, 60);
-
-    // Bill To
-    doc.setFontSize(11);
-    doc.setFont("helvetica", "bold");
-    doc.text("Bill To:", 15, 70);
-
-    doc.setFontSize(10);
+    // Email & Phone
     doc.setFont("helvetica", "normal");
-    let billY = 76;
-    doc.text(docData.client_name || 'Valued Customer', 15, billY); billY += 5;
-    if (docData.email) { doc.text(docData.email, 15, billY); billY += 5; }
-    if (docData.phone) { doc.text(docData.phone, 15, billY); billY += 5; }
-    if (docData.address) { 
-        const addLines = doc.splitTextToSize(docData.address, 80);
-        doc.text(addLines, 15, billY);
+    doc.setFontSize(7.5);
+    doc.setTextColor(71, 85, 105);
+    doc.text(`Email: ${company.email || "hello@shrawello.com"}`, 22, addrY);
+    addrY += 4;
+    doc.text(`Phone: ${company.phone || "+91 80109 55675"}`, 22, addrY);
+
+    // ── BILLED TO ──
+    doc.setFillColor(252, 252, 252);
+    doc.setDrawColor(241, 245, 249);
+    doc.roundedRect(109, cardY, cardWidth, cardHeight, 2, 2, 'FD');
+
+    // Clean Card Header Tag
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7);
+    doc.setTextColor(242, 98, 34); // Accent Orange
+    doc.text("BILLED TO", 116, cardY + 6.5);
+
+    // Subtle divider inside card
+    doc.setDrawColor(241, 245, 249);
+    doc.line(109, cardY + 9.5, 109 + cardWidth, cardY + 9.5);
+
+    // Client Name
+    doc.setFontSize(8.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(9, 28, 59);
+    const clientNameRaw = cleanText(docData.client_name || 'Valued Customer');
+    const clientNameLines = doc.splitTextToSize(clientNameRaw, cardWidth - 14);
+    doc.text(clientNameLines.slice(0, 2), 116, cardY + 15.5);
+    const clientNameShift = (Math.min(clientNameLines.length, 2) - 1) * 3.5;
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
+    doc.setTextColor(71, 85, 105);
+
+    let clientY = cardY + 20 + clientNameShift;
+    if (docData.address) {
+        const addrLines = doc.splitTextToSize(cleanText(docData.address), cardWidth - 14);
+        addrLines.slice(0, 2).forEach((line: string) => {
+            doc.text(line.trim(), 116, clientY);
+            clientY += 3.8;
+        });
+    } else {
+        doc.text("Address not specified", 116, clientY);
+        clientY += 3.8;
     }
-    
-    // Details right column
-    let detY = 70;
-    doc.setFont("helvetica", "bold");
-    doc.text("Travel Dates:", pageWidth / 2, detY);
-    doc.setFont("helvetica", "normal");
-    doc.text(docData.travel_dates || 'TBD', pageWidth / 2, detY + 6);
-    
-    detY += 16;
-    doc.setFont("helvetica", "bold");
-    doc.text("Passengers:", pageWidth / 2, detY);
-    doc.setFont("helvetica", "normal");
-    doc.text(`${docData.adults || 0} Adults, ${docData.children || 0} Children`, pageWidth / 2, detY + 6);
 
-    // --- Table ---
+    // Email & Phone
+    const clientEmail = cleanText(docData.email || "client@email.com");
+    doc.text(`Email: ${clientEmail.length > 28 ? clientEmail.substring(0, 28) + '...' : clientEmail}`, 116, clientY);
+    clientY += 4;
+    doc.text(`Phone: ${cleanText(docData.phone || "+91 00000 00000")}`, 116, clientY);
+
+    // Travel Dates & Pax (pinned to bottom of card)
+    if (docData.travel_dates || docData.adults) {
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(7);
+        doc.setTextColor(9, 28, 59);
+        const travelY = cardY + cardHeight - 11;
+        if (docData.travel_dates) doc.text(`Travel Dates: ${cleanText(docData.travel_dates)}`, 116, travelY);
+        doc.text(`Pax: ${docData.adults || 0} Adults, ${docData.children || 0} Children`, 116, travelY + 4);
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // LINE ITEMS TABLE
+    // ═══════════════════════════════════════════════════════════
     const bodyData = items.map((item, idx) => {
         const qty = Number(item.quantity) || 1;
-        const price = Number(item.unit_price) || 0;
-        const taxRate = Number(item.tax_rate) || 0;
-        const taxableVal = qty * price;
-        const taxAmt = taxableVal * (taxRate / 100);
-        const cgst = taxAmt / 2;
-        const sgst = taxAmt / 2;
-        const total = taxableVal + taxAmt;
-        
+        const daysKm = item.total_days_km || '1';
+        const rate = Number(item.unit_price) || 0;
+        const total = qty * rate;
         return [
             (idx + 1).toString(),
-            item.description || 'Tour Service',
-            '9985',
-            taxableVal.toFixed(2),
-            taxRate > 0 ? cgst.toFixed(2) : '0.00',
-            taxRate > 0 ? sgst.toFixed(2) : '0.00',
-            total.toLocaleString('en-IN', { minimumFractionDigits: 2 })
+            item.description ? cleanText(item.description) : 'Tour Service Operator',
+            qty.toString(),
+            daysKm.toString(),
+            `Rs. ${rate.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+            `Rs. ${total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
         ];
     });
 
-    const subtotal = Number(docData.subtotal) || 0;
-    const discount = Number(docData.discount) || 0;
-    const taxTotal = Number(docData.tax_total) || 0;
-    const finalTotal = Number(docData.total_amount) || 0;
-    const amountPaid = Number(docData.amount_paid) || 0;
-    const balanceDue = finalTotal - amountPaid;
+    const totalQtyDays = items.reduce((acc, item) => acc + (Number(item.total_days_km) || 0), 0);
+    const subtotalAmount = items.reduce((acc, item) => acc + (Number(item.quantity) || 1) * (Number(item.unit_price) || 0), 0);
+    bodyData.push(['', 'TOTAL', '', totalQtyDays > 0 ? totalQtyDays.toString() : '1', '',
+        `Rs. ${subtotalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`]);
+
+    const tableStartY = cardY + cardHeight + 5;
 
     autoTable(doc, {
-        startY: 105,
-        head: [['S.No', 'Description', 'HSN/SAC', 'Taxable Val', 'CGST', 'SGST', 'Total']],
+        startY: tableStartY,
+        margin: { left: 15, right: 15 },
+        head: [['#', 'DESCRIPTION', 'QTY', 'TOTAL DAYS / KM', 'RATE', 'AMOUNT']],
         body: bodyData,
         theme: 'grid',
-        headStyles: { fillColor: [88, 28, 135], textColor: 255, halign: 'center' },
-        bodyStyles: { valign: 'middle', halign: 'center' },
+        styles: {
+            lineColor: [200, 200, 200],
+            lineWidth: 0.2
+        },
+        headStyles: { fillColor: [255, 255, 255], textColor: [9, 28, 59], fontStyle: 'bold', fontSize: 8, halign: 'center', valign: 'middle', cellPadding: 3.5, lineWidth: 0.2, lineColor: [200, 200, 200] },
+        bodyStyles: { fontSize: 7.5, valign: 'middle', halign: 'center', cellPadding: 3.5, textColor: [30, 41, 59] },
         columnStyles: {
-            1: { halign: 'left', cellWidth: 55 }
+            0: { cellWidth: 8, halign: 'center' },
+            1: { halign: 'left', cellWidth: 65 },
+            2: { cellWidth: 13, halign: 'center' },
+            3: { cellWidth: 32, halign: 'center' },
+            4: { cellWidth: 31, halign: 'right' },
+            5: { cellWidth: 31, halign: 'right' }
+            // Total = 8+65+13+32+31+31 = 180mm ✓
+        },
+        didParseCell: (data) => {
+            if (data.row.index === bodyData.length - 1) {
+                data.cell.styles.fontStyle = 'bold';
+                data.cell.styles.textColor = [9, 28, 59];
+                data.cell.styles.fillColor = [250, 250, 250];
+                if (data.column.index === 1) data.cell.styles.halign = 'left';
+            }
+        },
+        // ── FIX #18 & #19: compact header + stripe on every continuation page ──
+        didDrawPage: (data) => {
+            if (data.pageNumber > 1) drawCompactHeader();
+            drawBottomStripe();
         }
     });
 
     // @ts-ignore
-    let yPos = doc.lastAutoTable.finalY + 10;
+    let yPos = doc.lastAutoTable.finalY + 8;
+
+    // ── FIX #20: tighter overflow threshold (need ~65mm for bottom section) ──
+    if (yPos > 170) {
+        doc.addPage();
+        drawCompactHeader();
+        yPos = 22;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // TOTAL (IN WORDS) — FIX #1: dynamic height
+    // ═══════════════════════════════════════════════════════════
+    const words = numberToWords(finalTotal).toUpperCase();
+    const wrappedWords = doc.splitTextToSize(words, 78);
+    const wordsBoxH = Math.max(13, 8 + wrappedWords.length * 4.5);
+
+    doc.setFillColor(255, 255, 255);
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(15, yPos, 95, wordsBoxH, 1.5, 1.5, 'FD');
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(6);
+    doc.setTextColor(100, 116, 139);
+    doc.text("TOTAL (IN WORDS)", 27, yPos + 4.5);
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    doc.setTextColor(9, 28, 59);
+    doc.text(wrappedWords, 27, yPos + 8.5);
+
+    // ═══════════════════════════════════════════════════════════
+    // QR CODE + BANK DETAILS — FIX #2: dynamic card height
+    // ═══════════════════════════════════════════════════════════
+    const leftRowY = yPos + wordsBoxH + 4;
+    const accountName = finance?.bankAccountName || 'SHRAWELLO TRAVELHUB AND EVENTS LLP';
+    doc.setFontSize(accountName.length > 25 ? 5.8 : 6.5);
+    const wrappedAccountName = doc.splitTextToSize(accountName, 30);
+    const nameLines = wrappedAccountName.length;
+    const nameShift = (nameLines - 1) * 3.5;
+    const bankCardH = Math.max(42, 34 + nameShift);
+
+    // QR Code Card — FIX #12: real dynamic UPI QR Code loader
+    doc.setFillColor(255, 255, 255);
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(15, leftRowY, 35, bankCardH, 2, 2, 'FD');
+
+    if (qrImageObj) {
+        doc.addImage(qrImageObj, "PNG", 20.5, leftRowY + 2, 24, 24);
+    } else {
+        doc.setDrawColor(226, 232, 240);
+        doc.setLineWidth(0.4);
+        doc.roundedRect(20.5, leftRowY + 2, 24, 24, 1.5, 1.5, 'S');
+        doc.setFontSize(5.5);
+        doc.setTextColor(148, 163, 184);
+        doc.text("SCAN TO PAY", 32.5, leftRowY + 14, { align: 'center' });
+    }
+
+    doc.setFontSize(6);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(242, 98, 34);
+    doc.text("SCAN TO PAY", 32.5, leftRowY + bankCardH - 9, { align: 'center' });
     
-    // Summary Table (Aligned Right)
+    doc.setFontSize(5);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(148, 163, 184);
+    doc.text("via UPI", 32.5, leftRowY + bankCardH - 5.5, { align: 'center' });
+    
+    const upiStr = finance?.upiId || 'shrawello@kotak';
+    doc.text(upiStr.length > 16 ? upiStr.slice(0, 16) + '…' : upiStr, 32.5, leftRowY + bankCardH - 2, { align: 'center' });
+
+    // Bank Details Card — FIX #2: height matches nameShift
+    doc.setFillColor(255, 255, 255);
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(54, leftRowY, 56, bankCardH, 2, 2, 'FD');
+
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(242, 98, 34);
+    doc.text("BANK DETAILS", 58, leftRowY + 6);
+
+    doc.setDrawColor(241, 245, 249);
+    doc.setLineWidth(0.3);
+    doc.line(54, leftRowY + 8.5, 110, leftRowY + 8.5);
+
+    const bRows: [string, string | string[]][] = [
+        ["Account Name", wrappedAccountName],
+        ["Account No.", finance?.bankAccountNumber || '4054789256'],
+        ["IFSC Code",   finance?.bankIfsc || 'KKBK0002119'],
+        ["Account Type","Current"],
+        ["Bank",        finance?.bankName || 'KOTAK MAHINDRA BANK'],
+    ];
+
+    let bry = leftRowY + 12;
+    bRows.forEach(([label, val]) => {
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(6.5);
+        doc.setTextColor(100, 116, 139);
+        doc.text(label, 58, bry);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(6.5);
+        doc.setTextColor(9, 28, 59);
+        if (Array.isArray(val)) {
+            doc.setFontSize(val.join(' ').length > 25 ? 5.8 : 6.5);
+            doc.text(val, 79, bry);
+            bry += val.length * 3.8;
+        } else {
+            doc.setFontSize(String(val).length > 25 ? 5.8 : 6.5);
+            doc.text(String(val), 79, bry);
+            bry += 4.2;
+        }
+    });
+
+    // ═══════════════════════════════════════════════════════════
+    // TOTALS PANEL — FIX #3 & #10: dynamic height + subtotal row
+    // ═══════════════════════════════════════════════════════════
+    const taxTotal = Number(docData.tax_total) || 0;
+    const discountAmt = Number(docData.discount) || 0;
+    const driverStayAllowance = Number(docData.driver_stay_allowance || 0);
+    const extraKmCharges = Number(docData.extra_km_charges || 0);
+    const extraHrsCharges = Number(docData.extra_hrs_charges || 0);
+    const advanceReceived = Number(docData.advance_received || 0);
+    const amountPaid = Number(docData.amount_paid || 0);
+
+    // Resolve custom field labels (fallback to defaults)
+    const fl = fieldLabels || {};
+    const lDriver = fl['driver_stay_allowance'] || 'Driver Stay Allowance';
+    const lExtraKm = fl['extra_km_charges'] || 'Extra Km Charges';
+    const lExtraHrs = fl['extra_hrs_charges'] || 'Extra Hrs. Charges';
+    const lAdvance = fl['advance_received'] || 'Advance Received';
+    const lDiscount = fl['discount'] || 'Discount';
+
+    // Custom fields totals for balance calculation
+    const cfList = customFields || [];
+    const cfCharges = cfList.filter(cf => !cf.is_deduction).reduce((s, cf) => s + Number(cf.amount || 0), 0);
+    const cfDeductions = cfList.filter(cf => cf.is_deduction).reduce((s, cf) => s + Number(cf.amount || 0), 0);
+    const balanceDue = finalTotal - (amountPaid + advanceReceived);
+
+    // Count rows dynamically (fixed + custom + conditional)
+    let rowCount = 5; // subtotal + driver + km + hrs + advance
+    if (taxTotal > 0) rowCount++;
+    if (discountAmt > 0) rowCount++;
+    rowCount += cfList.length; // custom extra fields
+    const totalsCardH = rowCount * 4.5 + 35; // fixed bottom: divider+TOTAL+PAID+DUE ≈ 35mm
+
+    doc.setFillColor(255, 255, 255);
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(114, yPos, 81, totalsCardH, 2, 2, 'FD');
+
+    let ry = yPos + 5.5;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
+    doc.setTextColor(71, 85, 105);
+
+    const drawTotRow = (label: string, val: number, isNeg = false, bold = false, col?: [number,number,number]) => {
+        doc.setFont("helvetica", bold ? "bold" : "normal");
+        doc.setTextColor(col ? col[0] : 71, col ? col[1] : 85, col ? col[2] : 105);
+        doc.text(label, 118, ry);
+        doc.setTextColor(30, 41, 59);
+        if (bold) doc.setFont("helvetica", "bold");
+        doc.text(`${isNeg ? '-' : ''}Rs. ${val.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, 114 + 81 - 4, ry, { align: 'right' });
+        ry += 4.5;
+    };
+
+    // ── FIX #10: Subtotal row ──
+    drawTotRow("Subtotal", subtotalAmount, false, true);
+    doc.setDrawColor(241, 245, 249);
+    doc.setLineWidth(0.2);
+    doc.line(117, ry - 1.5, 191, ry - 1.5);
+
+    // Fixed fields with potentially renamed labels
+    drawTotRow(lDriver, driverStayAllowance);
+    drawTotRow(lExtraKm, extraKmCharges);
+    drawTotRow(lExtraHrs, extraHrsCharges);
+    drawTotRow(lAdvance, advanceReceived);
+    if (taxTotal > 0) drawTotRow("Tax Total", taxTotal);
+    if (discountAmt > 0) drawTotRow(lDiscount, discountAmt, true, false, [220, 38, 38]);
+
+    // ── Custom extra charge/deduction fields ──
+    cfList.forEach(cf => {
+        const cfAmt = Number(cf.amount || 0);
+        drawTotRow(
+            cf.label || 'Custom Field',
+            cfAmt,
+            Boolean(cf.is_deduction),
+            false,
+            cf.is_deduction ? [220, 38, 38] : undefined
+        );
+    });
+
+    // Divider
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.5);
+    doc.line(114, ry + 1, 195, ry + 1);
+    ry += 5;
+
+    // TOTAL (INR)
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.setTextColor(9, 28, 59);
+    doc.text("TOTAL (INR)", 118, ry);
+    doc.setFontSize(12);
+    doc.setTextColor(9, 28, 59);
+    doc.text(`Rs. ${finalTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, 191, ry + 0.5, { align: 'right' });
+    ry += 7;
+
+    // Amount Paid
+    doc.setFillColor(240, 253, 244);
+    doc.roundedRect(117, ry - 0.5, 74, 6, 1.5, 1.5, 'F');
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    doc.setTextColor(22, 163, 74);
+    doc.text("AMOUNT PAID", 121, ry + 3.5);
+    doc.setTextColor(9, 28, 59);
+    doc.text(`Rs. ${amountPaid.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, 191, ry + 3.5, { align: 'right' });
+    ry += 11;
+
+    // Balance Due
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    const balColor: [number,number,number] = balanceDue <= 0 ? [22, 163, 74] : [220, 38, 38];
+    doc.setTextColor(balColor[0], balColor[1], balColor[2]);
+    doc.text("BALANCE DUE", 118, ry);
+    doc.setTextColor(9, 28, 59);
+    doc.text(`Rs. ${Math.max(0, balanceDue).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, 191, ry, { align: 'right' });
+
+    // ═══════════════════════════════════════════════════════════
+    // TERMS & CONDITIONS
+    // ═══════════════════════════════════════════════════════════
+    const bottomSectionH = Math.max(wordsBoxH + 4 + bankCardH, totalsCardH);
+    let termsY = yPos + bottomSectionH + 6;
+
+    // ── FIX #20: stricter overflow check ──
+    if (termsY > 228) {
+        doc.addPage();
+        drawCompactHeader();
+        termsY = 22;
+    }
+
+    const defaultTerms = [
+        "Please pay within 3 days from the date of invoice, overdue interest @ 14% will be charged on delayed payments.",
+        "Additional 5% charges applicable for Credit card payments.",
+        "Additional 1200/- Night charges applicable if trip ends after 11:45PM.",
+        "For Outstation trips more than 1 day, driver stay allowance is applicable as per category of city."
+    ];
+
+    let termsToDraw = defaultTerms;
+    if (docData.notes) {
+        const splitNotes = docData.notes.split('\n')
+            .map((n: string) => n.replace(/^\d+[\.\s]*/, '').trim())
+            .filter(Boolean);
+        if (splitNotes.length > 0) termsToDraw = splitNotes.slice(0, 4);
+    }
+
+    // Calculate dynamic terms box height
+    let tempY = termsY + 11;
+    termsToDraw.forEach((term) => {
+        const wrappedTerm = doc.splitTextToSize(term, pageWidth - 30 - 15);
+        tempY += Math.max(5.5, wrappedTerm.length * 4.0);
+    });
+    const termsBoxH = tempY - termsY + 2;
+
+    doc.setFillColor(250, 250, 250);
+    doc.setDrawColor(241, 245, 249);
+    doc.roundedRect(15, termsY, pageWidth - 30, termsBoxH, 2, 2, 'FD');
+
+    doc.setFontSize(8.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(242, 98, 34);
+    doc.text("TERMS & CONDITIONS", 20, termsY + 6);
+
+    let currentTermY = termsY + 11;
+    termsToDraw.forEach((term, index) => {
+        const wrappedTerm = doc.splitTextToSize(term, pageWidth - 30 - 15);
+        const termLines = wrappedTerm.length;
+
+        // Circular orange badge
+        doc.setFillColor(242, 98, 34);
+        doc.circle(23, currentTermY + 1.2, 2.0, 'F');
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(6.5);
+        doc.setTextColor(255, 255, 255);
+        doc.text(String(index + 1).padStart(2, '0'), 23, currentTermY + 2.0, { align: 'center' });
+
+        // Term body text (size 7.8 for highly premium readability)
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(7.8);
+        doc.setTextColor(71, 85, 105);
+        doc.text(wrappedTerm, 28, currentTermY + 2.0);
+
+        currentTermY += Math.max(5.5, termLines * 4.0);
+    });
+
+    // ═══════════════════════════════════════════════════════════
+    // FOOTER
+    // ═══════════════════════════════════════════════════════════
+    const footerY = termsY + termsBoxH + 6;
+
+    if (footerY + 10 <= pageHeight - 8) {
+        // Headphone icon
+        doc.setDrawColor(242, 98, 34);
+        doc.setLineWidth(0.45);
+        doc.circle(18, footerY + 2.5, 2.5, 'S');
+        doc.setFillColor(255, 255, 255);
+        doc.rect(15, footerY + 2.6, 6, 3, 'F');
+        doc.setFillColor(242, 98, 34);
+        doc.roundedRect(15.1, footerY + 2.2, 0.8, 1.8, 0.2, 0.2, 'F');
+        doc.roundedRect(19.1, footerY + 2.2, 0.8, 1.8, 0.2, 0.2, 'F');
+        doc.setDrawColor(242, 98, 34);
+        doc.line(16, footerY + 3.8, 17.5, footerY + 4.8);
+
+        // ── FIX #15: Contact text wrapped to prevent overflow ──
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(7.5);
+        doc.setTextColor(71, 85, 105);
+        const contactStr = `For enquiries, email ${company.email || 'shravyatours23@gmail.com'}`;
+        const wrappedContact = doc.splitTextToSize(contactStr, 90);
+        doc.text(wrappedContact[0], 24, footerY + 1.5);
+        doc.text(`or call on ${company.phone || '+91 80109 55675'}`, 24, footerY + 5.2);
+
+        // Thank you — right side
+        doc.setFont("helvetica", "italic");
+        doc.setFontSize(11);
+        doc.setTextColor(9, 28, 59);
+        doc.text("Thank you", pageWidth - 15, footerY + 1, { align: 'right' });
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8);
+        doc.setTextColor(100, 116, 139);
+        doc.text("for choosing Shrawello Travel Hub!", pageWidth - 15, footerY + 5.5, { align: 'right' });
+
+        // Paper Airplane (non-overlapping)
+        doc.setDrawColor(242, 98, 34);
+        doc.setLineWidth(0.5);
+        const ax = pageWidth - 80, ay = footerY + 4;
+        doc.line(ax, ay, ax + 8, ay - 2);
+        doc.line(ax + 8, ay - 2, ax + 4, ay + 4);
+        doc.line(ax + 4, ay + 4, ax, ay);
+        doc.line(ax + 4, ay + 4, ax + 3, ay + 1.3);
+        doc.line(ax + 3, ay + 1.3, ax + 8, ay - 2);
+        doc.setLineDashPattern([0.8, 0.8], 0);
+        doc.line(ax - 4, ay + 3, ax - 0.5, ay + 1);
+        doc.setLineDashPattern([], 0);
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // PAGE NUMBER LOOP — FIX #19: stripe on ALL pages
+    // ═══════════════════════════════════════════════════════════
+    const totalPages = doc.getNumberOfPages();
+    for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i);
+
+        // Bottom stripe on every page
+        drawBottomStripe();
+
+        // Page number bottom-right
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(7);
+        doc.setTextColor(148, 163, 184);
+        doc.text(`Page ${i} of ${totalPages}`, pageWidth - 15, pageHeight - 6, { align: 'right' });
+
+        // Update PAGE cell in meta card (page 1 only)
+        if (i === 1) {
+            const pageNumY = hasDueDate ? 40 : 32.5;
+            doc.setFillColor(252, 252, 252);
+            doc.setDrawColor(252, 252, 252);
+            doc.rect(175, pageNumY - 3.5, 18, 5, 'F');
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(7.5);
+            doc.setTextColor(9, 28, 59);
+            doc.text(`${i} of ${totalPages}`, 191, pageNumY, { align: 'right' });
+        }
+    }
+
+    doc.save(`${docData.document_type || 'Invoice'}_${docData.client_name.replace(/\s+/g, '_')}_${docId}.pdf`);
+};
+
+export const generateReceiptPDF = async (
+    booking: any,
+    tx: any,
+    customerDetails: any = null,
+    vehicleDetails: string = '13 + 1 Seater AC Tempo Traveller',
+    routeDetails: string = '',
+    finance?: any
+) => {
+    // ── Load UPI QR Code Asynchronously ──
+    const loadQrCode = (upiId: string, amount: number, customQr?: string): Promise<HTMLImageElement | null> => {
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.crossOrigin = "anonymous";
+            img.onload = () => resolve(img);
+            img.onerror = () => resolve(null);
+            if (customQr) {
+                img.src = customQr;
+            } else {
+                const upiUrl = `upi://pay?pa=${upiId}&pn=Shrawello%20Travel%20Hub&am=${amount}`;
+                img.src = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(upiUrl)}`;
+            }
+        });
+    };
+
+    const qrImageObj = await loadQrCode(finance?.upiId || 'shrawello@kotak', tx.amount, finance?.upiQrImage);
+
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.width;
+    const pageHeight = doc.internal.pageSize.height;
+
+    // ── Header Brand Identity ──
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(26);
+    doc.setTextColor(11, 27, 63); // Deep Navy
+    doc.text("SHRAWELLO", 15, 22);
+
+    doc.setFontSize(16);
+    doc.setTextColor(229, 126, 37); // Accent Orange
+    doc.text("T R A V E L   H U B", 15, 30);
+
+    // Orange thin divider line
+    doc.setDrawColor(229, 126, 37);
+    doc.setLineWidth(0.4);
+    doc.line(15, 33, 40, 33);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(6.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text("CORPORATE TRAVEL & EVENTS", 45, 33.5);
+
+    // ── Top Right Document Badge & Metadata Card ──
+    doc.setFillColor(11, 27, 63);
+    doc.roundedRect(148, 10, 47, 8, 1.5, 1.5, 'F');
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.setTextColor(255, 255, 255);
+    doc.text("RECEIPT", 171.5, 15.5, { align: 'center' });
+
+    // Background Card for Metadata to keep layout extremely clean
+    doc.setFillColor(252, 252, 252);
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(148, 21, 47, 27, 1.5, 1.5, 'FD');
+
+    // Generate neat Receipt Number
+    const dateObj = new Date(tx.date || new Date());
+    const dayVal = String(dateObj.getDate()).padStart(2, '0');
+    const monthVal = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const txSeq = tx.id ? String(tx.id).replace(/\D/g, '').substring(0, 4) || '0001' : '0001';
+    const receiptNo = `RCPT/${dayVal}${monthVal}/${txSeq}`;
+
+    // Receipt No Row
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(6.5);
+    doc.setTextColor(100, 116, 139); // Slate Label
+    doc.text("Receipt No:", 152, 27);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    doc.setTextColor(11, 27, 63); // Deep Navy
+    doc.text(receiptNo, 191, 27, { align: 'right' });
+
+    // Receipt Date Row
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(6.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text("Date:", 152, 34);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    doc.setTextColor(11, 27, 63);
+    const formattedDate = dateObj.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    doc.text(formattedDate, 191, 34, { align: 'right' });
+
+    // Payment Mode Row
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(6.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text("Method:", 152, 41);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    doc.setTextColor(11, 27, 63);
+    doc.text(tx.method || 'UPI', 191, 41, { align: 'right' });
+
+    // ── Audit Control Notice for Pending Payments ──
+    if (tx.status === 'Pending') {
+        doc.setFillColor(254, 242, 242);
+        doc.setDrawColor(254, 202, 202);
+        doc.roundedRect(15, 51, 180, 5.5, 1, 1, 'FD');
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(6.2);
+        doc.setTextColor(220, 38, 38);
+        doc.text("⚠️ RECEIPT STATUS: AWAITING FINANCE VERIFICATION. THIS PAYMENT IS CURRENTLY PENDING APPROVAL.", 105, 54.8, { align: 'center' });
+    }
+
+    // ── Thank You Message & Checkmark Icon ──
+    const checkX = 105;
+    const checkY = tx.status === 'Pending' ? 64 : 58;
+    doc.setFillColor(255, 248, 242);
+    doc.setDrawColor(229, 126, 37);
+    doc.setLineWidth(0.5);
+    doc.circle(checkX, checkY, 5.5, 'FD');
+    doc.line(checkX - 2.2, checkY, checkX - 0.6, checkY + 1.6);
+    doc.line(checkX - 0.6, checkY + 1.6, checkX + 2.2, checkY - 1.6);
+
+    doc.setFont("times", "italic");
+    doc.setFontSize(22);
+    doc.setTextColor(229, 126, 37);
+    doc.text("Thank You!", 105, checkY + 12, { align: 'center' });
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text("We have received your payment", 105, checkY + 17, { align: 'center' });
+
+    // ── Symmetrical Details Cards (Side-by-side) ──
+    const boxY = checkY + 22;
+    const boxH = 38;
+    const boxW = 86;
+
+    // LEFT CARD: RECEIVED FROM (CUSTOMER DETAILS)
+    doc.setFillColor(248, 250, 252); // Flat cool Slate background
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(15, boxY, boxW, boxH, 2, 2, 'FD');
+
+    // Clean Card Header Tag (Uppercase Slate Label instead of crude vector avatars)
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7);
+    doc.setTextColor(100, 116, 139);
+    doc.text("CUSTOMER DETAILS", 22, boxY + 7);
+
+    // Subtle divider inside card
+    doc.setDrawColor(241, 245, 249);
+    doc.line(15, boxY + 10, 15 + boxW, boxY + 10);
+
+    // Customer Name
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9.5);
+    doc.setTextColor(11, 27, 63);
+    const customerLabel = booking.customer || 'Valued Customer';
+    doc.text(customerLabel.length > 30 ? customerLabel.substring(0, 30) + '...' : customerLabel, 22, boxY + 16);
+
+    // Location Address
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
+    doc.setTextColor(71, 85, 105);
+    const customerLocation = customerDetails?.location || customerDetails?.address || booking.details || 'Pune, MH, India';
+    const wrappedLocation = doc.splitTextToSize(customerLocation, boxW - 14);
+    doc.text(wrappedLocation.slice(0, 2), 22, boxY + 22.5);
+
+    // Phone Number
+    const customerPhone = booking.phone || customerDetails?.phone || '9922503357';
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(11, 27, 63);
+    doc.text(`Phone: ${customerPhone}`, 22, boxY + 32);
+
+
+    // RIGHT CARD: AGAINST (BOOKING DETAILS)
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(109, boxY, boxW, boxH, 2, 2, 'FD');
+
+    // Clean Card Header Tag
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7);
+    doc.setTextColor(100, 116, 139);
+    doc.text("BOOKING DETAILS", 116, boxY + 7);
+
+    // Subtle divider inside card
+    doc.setDrawColor(241, 245, 249);
+    doc.line(109, boxY + 10, 109 + boxW, boxY + 10);
+
+    // Against Ref Number
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9.5);
+    doc.setTextColor(11, 27, 63);
+    const againstLabel = booking.bookingNumber ? `Quotation No. ${booking.bookingNumber}` : `Booking Ref: ${booking.invoiceNo || booking.id.substring(0, 8).toUpperCase()}`;
+    doc.text(againstLabel, 116, boxY + 16);
+
+    // Journey Date
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
+    doc.setTextColor(71, 85, 105);
+    const journeyDates = `${booking.date} - ${booking.endDate || booking.date}`;
+    doc.text(`Journey Date: ${journeyDates}`, 116, boxY + 22.5);
+
+    // Vehicle transport info (Sanitized fallback for 'done' values)
+    const displayVehicle = (vehicleDetails && vehicleDetails !== 'done') ? vehicleDetails : '13 + 1 Seater AC Tempo Traveller';
+    doc.text(`Vehicle: ${displayVehicle.length > 32 ? displayVehicle.substring(0, 32) + '...' : displayVehicle}`, 116, boxY + 27);
+
+    // Route / Vehicle info (Intelligent dynamic routing label)
+    const displayRoute = routeDetails || booking.title || 'Pune Tour';
+    const isVehicleNo = /^[A-Z]{2}[-\s]?\d{2}[-\s]?[A-Z]{1,2}[-\s]?\d{4}$/i.test(displayRoute.trim()) || 
+                         displayRoute.toLowerCase().includes('carens') || 
+                         displayRoute.toLowerCase().includes('mh');
+    const routeLabel = isVehicleNo ? 'Vehicle No.' : 'Route';
+    const wrappedRoute = doc.splitTextToSize(`${routeLabel}: ${displayRoute}`, boxW - 14);
+    doc.text(wrappedRoute.slice(0, 1), 116, boxY + 31.5);
+
+    // ── Payment Details Section ──
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8.5);
+    doc.setTextColor(11, 27, 63);
+    doc.text("PAYMENT DETAILS", 15, boxY + 45);
+    
+    doc.setDrawColor(229, 126, 37);
+    doc.setLineWidth(0.8);
+    doc.line(15, boxY + 47, 30, boxY + 47);
+
+    // Resolve transaction sequence label
+    let paymentTypeLabel = 'Advance';
+    if (tx.type === 'Refund') {
+        paymentTypeLabel = 'Refund';
+    } else if (booking.transactions) {
+        const verifiedPayments = booking.transactions.filter((t: any) => t.type === 'Payment' && t.status === 'Verified');
+        if (verifiedPayments.length > 1) {
+            const isFirst = verifiedPayments.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime())[0]?.id === tx.id;
+            paymentTypeLabel = isFirst ? 'Advance' : 'Balance / Part Payment';
+        }
+    }
+
     autoTable(doc, {
-        startY: yPos,
-        margin: { left: pageWidth / 2 },
+        startY: boxY + 50,
+        margin: { left: 15, right: 15 },
+        head: [['DESCRIPTION', 'AMOUNT (INR)']],
         body: [
-            ['Subtotal:', `INR ${subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`],
-            ['Discount:', `INR ${discount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`],
-            ['Tax Total:', `INR ${taxTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`],
-            ['Grand Total:', `INR ${finalTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`],
-            ['Amount Paid:', `INR ${amountPaid.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`],
-            ['Balance Due:', `INR ${balanceDue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`]
+            ['Amount Received', `Rs. ${tx.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`],
+            ['Advance / Balance', paymentTypeLabel]
         ],
-        theme: 'plain',
-        styles: { fontSize: 10, halign: 'right' },
+        foot: [['TOTAL AMOUNT RECEIVED', `Rs. ${tx.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`]],
+        theme: 'grid',
+        headStyles: { fillColor: [11, 27, 63], textColor: 255, fontStyle: 'bold', fontSize: 8.5, halign: 'left', cellPadding: 4 },
+        bodyStyles: { fontSize: 8, halign: 'left', cellPadding: 4, textColor: [11, 27, 63] },
+        footStyles: { fillColor: [255, 255, 255], textColor: [229, 126, 37], fontStyle: 'bold', fontSize: 10, halign: 'left', cellPadding: 4 },
         columnStyles: {
-            0: { fontStyle: 'bold', textColor: [100, 100, 100] },
-            1: { fontStyle: 'bold' }
+            0: { cellWidth: 130 },
+            1: { cellWidth: 50, halign: 'right' }
         },
-        willDrawCell: (data: any) => {
-            if (data.row.index === 3 || data.row.index === 5) {
-                doc.setTextColor(88, 28, 135);
-                doc.setFont("helvetica", "bold");
+        didParseCell: (data) => {
+            if (data.row.section === 'foot') {
+                if (data.column.index === 1) {
+                    data.cell.styles.halign = 'right';
+                    data.cell.styles.fontSize = 12;
+                }
+            } else if (data.row.section === 'head' && data.column.index === 1) {
+                data.cell.styles.halign = 'right';
+            } else if (data.row.section === 'body' && data.column.index === 1) {
+                data.cell.styles.halign = 'right';
+                data.cell.styles.fontStyle = 'bold';
             }
         }
     });
 
-    // --- Bank Details ---
     // @ts-ignore
-    let leftYPos = doc.lastAutoTable.finalY - 35; // Position alongside summary if possible, or below table
-    
-    // Let's just put it below the table on the left
-    doc.setFillColor(248, 250, 252);
-    doc.roundedRect(15, yPos, (pageWidth / 2) - 10, 45, 3, 3, 'F');
+    const tableEndY = doc.lastAutoTable.finalY || (boxY + 76);
 
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(0, 0, 0);
-    doc.text("Bank Details:", 20, yPos + 8);
+    // ── Amount in Words Bar ──
+    const wordsY = tableEndY + 8; // Increased spacing for more breathing room
+    doc.setFillColor(255, 248, 242);
+    doc.setDrawColor(254, 215, 170);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(15, wordsY, 180, 12, 1.5, 1.5, 'FD');
 
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    doc.text(`Account Name: ${finance?.bankAccountName || 'SHRAWELLO TRAVEL HUB'}`, 20, yPos + 14);
-    doc.text(`Bank Name: ${finance?.bankName || 'HDFC Bank'}`, 20, yPos + 19);
-    doc.text(`Account Number: ${finance?.bankAccountNumber || '50200088927878'}`, 20, yPos + 24);
-    doc.text(`IFSC Code: ${finance?.bankIfsc || 'HDFC0000007'}`, 20, yPos + 29);
-    if (finance?.upiId) doc.text(`UPI ID: ${finance.upiId}`, 20, yPos + 34);
+    doc.setFontSize(6);
+    doc.setTextColor(148, 163, 184);
+    doc.text("AMOUNT IN WORDS", 22, wordsY + 4.5);
 
-    // --- Notes ---
-    // @ts-ignore
-    let finalY = Math.max(doc.lastAutoTable.finalY, yPos + 50) + 10;
-    
-    if (docData.notes) {
-        doc.setFontSize(10);
-        doc.setFont("helvetica", "bold");
-        doc.text("Notes & Terms:", 15, finalY);
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(8);
-        const notesLines = doc.splitTextToSize(docData.notes, pageWidth - 30);
-        doc.text(notesLines, 15, finalY + 6);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8.5);
+    doc.setTextColor(11, 27, 63);
+    const amountInWords = numberToWords(tx.amount).toUpperCase();
+    doc.text(amountInWords, 22, wordsY + 8.5);
+
+    // ── Center Dot Divider ──
+    const sepY = wordsY + 20; // Perfectly balanced vertical margins of 8mm
+    doc.setDrawColor(241, 245, 249);
+    doc.setLineWidth(0.4);
+    doc.line(15, sepY, 195, sepY);
+    doc.setFillColor(229, 126, 37);
+    doc.circle(105, sepY, 1.5, 'F');
+
+    // ── Bottom Sections (UPI & Bank Details Columns) ──
+    const bottomY = sepY + 8; // Perfectly balanced vertical margins of 8mm
+
+    // PAYMENT VIA UPI (Left Column)
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8.5);
+    doc.setTextColor(11, 27, 63);
+    doc.text("PAYMENT VIA UPI", 15, bottomY + 4);
+
+    if (qrImageObj) {
+        doc.addImage(qrImageObj, "PNG", 30, bottomY + 7, 30, 30);
+    } else {
+        doc.setDrawColor(226, 232, 240);
+        doc.setLineWidth(0.4);
+        doc.roundedRect(30, bottomY + 7, 30, 30, 1.5, 1.5, 'S');
+        doc.setFontSize(6);
+        doc.setTextColor(148, 163, 184);
+        doc.text("SCAN QR TO PAY", 45, bottomY + 22, { align: 'center' });
     }
 
-    // Footer
-    const pageHeight = doc.internal.pageSize.height;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(6.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text("UPI ID", 45, bottomY + 39.5, { align: 'center' });
     doc.setFontSize(8);
-    doc.setTextColor(150, 150, 150);
-    doc.text("Thank you for your business!", pageWidth / 2, pageHeight - 10, { align: 'center' });
+    doc.setTextColor(11, 27, 63);
+    doc.text("shrawello@kotak", 45, bottomY + 43, { align: 'center' });
 
-    doc.save(`${docData.document_type}_${docData.client_name.replace(/\\s+/g, '_')}_${docId}.pdf`);
+    // BANK DETAILS (Right Column - completely cleaned from form radio-button vectors)
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8.5);
+    doc.setTextColor(11, 27, 63);
+    doc.text("BANK DETAILS", 109, bottomY + 4);
+
+    doc.setDrawColor(229, 126, 37);
+    doc.setLineWidth(0.5);
+    doc.line(109, bottomY + 6, 124, bottomY + 6);
+
+    const bankList = [
+        { label: 'Account Name', val: 'SHRAWELLO TRAVELHUB AND EVENTS LLP' },
+        { label: 'Account Number', val: '4054789256' },
+        { label: 'IFSC Code', val: 'KKBK0002119' },
+        { label: 'Bank Name', val: 'KOTAK MAHINDRA BANK' },
+        { label: 'Branch Name', val: 'PUNE' }
+    ];
+
+    let detailY = bottomY + 11;
+    bankList.forEach(item => {
+        // Vertical slate-gray label
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(7.5);
+        doc.setTextColor(100, 116, 139);
+        doc.text(item.label, 109, detailY);
+
+        // Bold Deep Navy value left-aligned at a fixed offset for premium spacing (dynamic font-size scaling)
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(item.val.length > 25 ? 7 : 8);
+        doc.setTextColor(11, 27, 63);
+        doc.text(item.val, 142, detailY);
+
+        detailY += 5.5;
+    });
+
+    // ── Footer ──
+    const footerY = 265;
+    doc.setDrawColor(226, 232, 240); // Clean Slate border line
+    doc.setLineWidth(0.4);
+    doc.line(15, footerY, 195, footerY);
+
+    // Elegant text-only inquiry contact footer
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text("For any enquiry, reach out to us:", 15, footerY + 5);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.setTextColor(11, 27, 63);
+    doc.text("+91 99222 44412   |   shrawellotravelhub@gmail.com", 15, footerY + 9.5);
+
+    // Thank you text on right
+    doc.setFont("helvetica", "bolditalic");
+    doc.setFontSize(11);
+    doc.setTextColor(229, 126, 37);
+    doc.text("Thank you", pageWidth - 15, footerY + 5, { align: 'right' });
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text("for choosing Shrawello Travel Hub!", pageWidth - 15, footerY + 9.5, { align: 'right' });
+
+    // Double colored bottom stripe
+    doc.setFillColor(11, 27, 63);
+    doc.rect(0, pageHeight - 3, pageWidth * 0.7, 3, 'F');
+    doc.setFillColor(229, 126, 37);
+    doc.rect(pageWidth * 0.7, pageHeight - 3, pageWidth * 0.3, 3, 'F');
+
+    doc.save(`Receipt_${booking.customer ? booking.customer.replace(/\s+/g, '_') : 'Payment'}_${receiptNo.replace(/\//g, '-')}.pdf`);
 };
 

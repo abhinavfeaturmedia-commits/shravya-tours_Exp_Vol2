@@ -83,11 +83,11 @@ export const Cancellation: React.FC = () => {
         },
         {
             title: "Force Majeure",
-            content: "In case of events beyond control (natural calamities, government restrictions, strikes, pandemics, etc.), cancellation and refund policies will be subject to supplier rules, and SHRAWELLO Travel Hub shall not be held liable for additional compensation."
+            content: "In case of events beyond control (natural calamities, government restrictions, strikes, pandemics, etc.), cancellation and refund policies will be subject to supplier rules, and SHRAWELLO Travel Hub and Events LLP shall not be held liable for additional compensation."
         },
         {
             title: "Company Rights",
-            content: "SHRAWELLO Travel Hub reserve the right to modify or update this Cancellation Policy at any time without prior notice."
+            content: "SHRAWELLO Travel Hub and Events LLP reserve the right to modify or update this Cancellation Policy at any time without prior notice."
         }
     ];
 
@@ -101,7 +101,7 @@ export const Cancellation: React.FC = () => {
                         Cancellation Policy
                     </h1>
                     <p className="text-xl text-primary font-semibold">
-                        SHRAWELLO Travel Hub
+                        SHRAWELLO Travel Hub and Events LLP
                     </p>
                 </div>
 
@@ -109,7 +109,7 @@ export const Cancellation: React.FC = () => {
                 <div className="mb-10 text-slate-600 dark:text-slate-300 leading-relaxed">
                     <div className="p-6 bg-primary/5 rounded-xl border border-primary/10">
                         <p className="font-medium text-slate-700 dark:text-slate-200">
-                            At SHRAWELLO Travel Hub, we aim to provide transparent and fair cancellation terms. Cancellation charges vary depending on the type of service booked and the policies of third-party service providers.
+                            At SHRAWELLO Travel Hub and Events LLP, we aim to provide transparent and fair cancellation terms. Cancellation charges vary depending on the type of service booked and the policies of third-party service providers.
                         </p>
                     </div>
                 </div>

@@ -233,7 +233,7 @@ export const Home: React.FC = () => {
                   { id: 'hotel-booking', icon: 'hotel', label: 'Hotels' },
                   { id: 'tour-packages', icon: 'luggage', label: 'Tours' },
                   { id: 'flight-booking', icon: 'flight', label: 'Flights' },
-                  { id: 'train-booking', icon: 'train', label: 'Trains' },
+                  // { id: 'train-booking', icon: 'train', label: 'Trains' },
                   { id: 'car-booking', icon: 'directions_car', label: 'Cars' },
                   { id: 'bus-booking', icon: 'directions_bus', label: 'Buses' },
                 ].map((tab) => (
