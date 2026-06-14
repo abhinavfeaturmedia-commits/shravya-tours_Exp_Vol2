@@ -747,6 +747,7 @@ export interface TrendingDestination {
   packageCount?: number;
   sortOrder?: number;
   isActive?: boolean;
+  packageIds?: string[];
 }
 
 // --- Productivity Features Types ---

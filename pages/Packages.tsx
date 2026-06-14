@@ -6,9 +6,10 @@ import { OptimizedImage } from '../components/ui/OptimizedImage';
 import { getLocationName, formatPriceCompact } from '../utils/packageUtils';
 
 export const Packages: React.FC = () => {
-  const { packages, masterLocations } = useData();
+  const { packages, masterLocations, trendingDestinations } = useData();
   const [searchParams, setSearchParams] = useSearchParams();
   const initialSearch = searchParams.get('search') || '';
+  const destinationId = searchParams.get('destinationId') || '';
 
   // Derive max duration dynamically from actual package data
   const maxDuration = useMemo(() => {
@@ -64,6 +65,26 @@ export const Packages: React.FC = () => {
   const filteredPackages = useMemo(() => packages.filter(pkg => {
     if (pkg.status && pkg.status !== 'Active') return false;
 
+    // Filter by destinationId
+    if (destinationId) {
+      const dest = trendingDestinations.find(d => d.id === destinationId);
+      if (dest) {
+        if (dest.packageIds && dest.packageIds.length > 0) {
+          if (!dest.packageIds.includes(pkg.id)) return false;
+        } else {
+          // Fallback to location matching
+          const resolvedLocation = getLocationName(pkg.location, masterLocations);
+          const searchableContent = [
+            pkg.title,
+            resolvedLocation,
+            pkg.location
+          ].join(' ').toLowerCase();
+          
+          if (!searchableContent.includes(dest.name.toLowerCase())) return false;
+        }
+      }
+    }
+
     // Price: bypass filter entirely when slider is at max
     const matchesPrice = priceRange >= 200000 || pkg.price <= priceRange;
     // Duration: bypass when slider is at max (or null = all)
@@ -88,7 +109,7 @@ export const Packages: React.FC = () => {
     });
 
     return matchesPrice && matchesDuration && matchesTheme && matchesSearch;
-  }), [packages, priceRange, duration, maxDuration, selectedThemes, debouncedSearch, masterLocations]);
+  }), [packages, priceRange, duration, maxDuration, selectedThemes, debouncedSearch, masterLocations, destinationId, trendingDestinations]);
 
   const sortedPackages = useMemo(() => [...filteredPackages].sort((a, b) => {
     if (sortOption === 'Price: Low to High') return a.price - b.price;
@@ -275,6 +296,33 @@ export const Packages: React.FC = () => {
 
             {/* Main Grid */}
             <main className="w-full lg:w-3/4">
+              {destinationId && (() => {
+                const dest = trendingDestinations.find(d => d.id === destinationId);
+                if (!dest) return null;
+                return (
+                  <div className="mb-6 p-4 bg-gradient-to-r from-primary/10 to-accent/10 border border-primary/20 rounded-2xl flex items-center justify-between animate-in fade-in slide-in-from-top-2">
+                    <div className="flex items-center gap-3">
+                      <div className="size-10 rounded-xl bg-primary text-white flex items-center justify-center font-bold">
+                        <span className="material-symbols-outlined">explore</span>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Viewing Collection</p>
+                        <h3 className="text-sm font-black text-slate-800 dark:text-white leading-tight">{dest.name}</h3>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => {
+                        searchParams.delete('destinationId');
+                        setSearchParams(searchParams);
+                      }}
+                      className="px-4 py-2 bg-white dark:bg-[#1A2633] hover:bg-slate-50 dark:hover:bg-slate-850 text-slate-700 dark:text-slate-200 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm transition-all"
+                    >
+                      Show All Packages
+                    </button>
+                  </div>
+                );
+              })()}
+
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 lg:gap-8">
                 {sortedPackages.length > 0 ? (
                   sortedPackages.map((pkg, pkgIdx) => (

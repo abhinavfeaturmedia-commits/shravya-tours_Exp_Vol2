@@ -505,7 +505,7 @@ export const Home: React.FC = () => {
                     <div
                       key={dest.id}
                       onClick={() => {
-                        if (isCenter) navigate('/packages?search=' + encodeURIComponent(dest.name));
+                        if (isCenter) navigate('/packages?destinationId=' + encodeURIComponent(dest.id));
                         else setFanIndex(filteredDests.indexOf(dest));
                       }}
                       className={`absolute cursor-pointer transition-all duration-500 ease-out group select-none ${

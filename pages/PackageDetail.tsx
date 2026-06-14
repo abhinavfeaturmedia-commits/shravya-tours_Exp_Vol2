@@ -13,7 +13,7 @@ import { api } from '../src/lib/api';
 export const PackageDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { packages, masterLocations, addLead, updatePackage } = useData();
+  const { packages, masterLocations, addLead, updatePackage, trendingDestinations } = useData();
 
   const [guests, setGuests] = useState('2 Adults');
   const [bookingModal, setBookingModal] = useState(false);
@@ -60,6 +60,12 @@ export const PackageDetail: React.FC = () => {
       ? { ...rawTour, builderData: fullPackageData?.builderData ?? rawTour.builderData }
       : null;
   }, [rawTour, fullPackageData?.builderData]);
+
+  // Find if this package is linked to a trending destination
+  const linkedDest = useMemo(() => {
+    if (!tour || !trendingDestinations) return null;
+    return trendingDestinations.find(d => d.packageIds?.includes(tour.id));
+  }, [tour, trendingDestinations]);
 
   // Preload adjacent images in background to avoid skeleton flashes
   useEffect(() => {
@@ -552,12 +558,20 @@ export const PackageDetail: React.FC = () => {
           {/* Header Block */}
           <div className="flex flex-col xl:flex-row gap-8 mb-10">
             <div className="flex-1">
-              <div className="flex items-center gap-3 text-sm font-medium text-slate-500 dark:text-slate-400 mb-4">
+              <div className="flex items-center gap-3 text-sm font-medium text-slate-500 dark:text-slate-400 mb-4 flex-wrap">
                 <Link to="/" className="hover:text-primary transition-colors">Home</Link>
                 <span className="material-symbols-outlined text-[12px] opacity-50">arrow_forward_ios</span>
                 <Link to="/packages" className="hover:text-primary transition-colors">Packages</Link>
+                {linkedDest && (
+                  <>
+                    <span className="material-symbols-outlined text-[12px] opacity-50">arrow_forward_ios</span>
+                    <Link to={`/packages?destinationId=${linkedDest.id}`} className="hover:text-primary transition-colors flex items-center gap-1">
+                      <span className="material-symbols-outlined text-[14px]">explore</span> {linkedDest.name}
+                    </Link>
+                  </>
+                )}
                 <span className="material-symbols-outlined text-[12px] opacity-50">arrow_forward_ios</span>
-                <span className="text-slate-900 dark:text-white">{tour.title}</span>
+                <span className="text-slate-900 dark:text-white truncate max-w-[250px] md:max-w-none">{tour.title}</span>
               </div>
               <h1 className="text-4xl md:text-6xl font-black text-slate-900 dark:text-white mb-6 tracking-tight leading-[1.1]">{tour.title}</h1>
               <div className="flex flex-wrap items-center gap-4 md:gap-8">
@@ -1115,18 +1129,28 @@ export const PackageDetail: React.FC = () => {
 
         {/* Related Packages */}
         {(() => {
-          const related = packages
-            .filter(p =>
+          const related = (() => {
+            const sameDest = linkedDest
+              ? packages.filter(p => p.id !== tour.id && p.status === 'Active' && linkedDest.packageIds?.includes(p.id))
+              : [];
+            
+            const others = packages.filter(p =>
               p.id !== tour.id &&
-              p.status !== 'Inactive' &&
+              p.status === 'Active' &&
+              !sameDest.some(sd => sd.id === p.id) &&
               ((p.theme && tour.theme && p.theme.toLowerCase() === tour.theme.toLowerCase()) || 
                (p.location && tour.location && p.location.toLowerCase() === tour.location.toLowerCase()))
-            )
-            .slice(0, 3);
+            );
+            
+            return [...sameDest, ...others].slice(0, 3);
+          })();
+
           if (related.length === 0) return null;
           return (
             <div className="max-w-[1440px] mx-auto px-4 md:px-8 pb-16">
-              <h2 className="text-2xl font-black text-slate-900 dark:text-white mb-8">You Might Also Like</h2>
+              <h2 className="text-2xl font-black text-slate-900 dark:text-white mb-8">
+                {linkedDest ? `More Packages in ${linkedDest.name}` : 'You Might Also Like'}
+              </h2>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {related.map(p => (
                   <Link

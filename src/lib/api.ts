@@ -2617,6 +2617,7 @@ export const api = {
                 packageCount: r.package_count || 0,
                 sortOrder: r.sort_order || 0,
                 isActive: Boolean(r.is_active),
+                packageIds: r.package_ids || [],
             }));
         } catch {
             return [];
@@ -2638,6 +2639,7 @@ export const api = {
                 packageCount: r.package_count || 0,
                 sortOrder: r.sort_order || 0,
                 isActive: Boolean(r.is_active),
+                packageIds: r.package_ids || [],
             }));
         } catch {
             return [];
@@ -2659,9 +2661,24 @@ export const api = {
                 package_count: dest.packageCount || 0,
                 sort_order: dest.sortOrder || 0,
                 is_active: dest.isActive !== false,
+                package_ids: dest.packageIds || [],
             })
         });
-        return data;
+        if (!data) return null;
+        return {
+            id: data.id,
+            name: data.name,
+            country: data.country || undefined,
+            region: data.region || undefined,
+            imageUrl: data.image_url,
+            badge: data.badge || undefined,
+            badgeColor: data.badge_color || '#ef4444',
+            statLabel: data.stat_label || undefined,
+            packageCount: data.package_count || 0,
+            sortOrder: data.sort_order || 0,
+            isActive: Boolean(data.is_active),
+            packageIds: data.package_ids || [],
+        };
     },
 
     updateTrendingDestination: async (id: string, dest: Partial<any>): Promise<any> => {
@@ -2676,13 +2693,27 @@ export const api = {
         if (dest.packageCount !== undefined) payload.package_count = dest.packageCount;
         if (dest.sortOrder !== undefined) payload.sort_order = dest.sortOrder;
         if (dest.isActive !== undefined) payload.is_active = dest.isActive;
+        if (dest.packageIds !== undefined) payload.package_ids = dest.packageIds;
         const { data } = await fetchApi(`/api/trending-destinations/${encodeURIComponent(id)}`, {
             method: 'PUT',
             body: JSON.stringify(payload)
         });
-        return data;
+        if (!data) return null;
+        return {
+            id: data.id,
+            name: data.name,
+            country: data.country || undefined,
+            region: data.region || undefined,
+            imageUrl: data.image_url,
+            badge: data.badge || undefined,
+            badgeColor: data.badge_color || '#ef4444',
+            statLabel: data.stat_label || undefined,
+            packageCount: data.package_count || 0,
+            sortOrder: data.sort_order || 0,
+            isActive: Boolean(data.is_active),
+            packageIds: data.package_ids || [],
+        };
     },
-
     deleteTrendingDestination: async (id: string): Promise<void> => {
         await fetchApi(`/api/trending-destinations/${encodeURIComponent(id)}`, { method: 'DELETE' });
     },

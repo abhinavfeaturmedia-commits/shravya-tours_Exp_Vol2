@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useData } from '../../context/DataContext';
 import { TrendingDestination } from '../../types';
 import { api } from '../../src/lib/api';
 import { toast } from 'sonner';
+import { getLocationName } from '../../utils/packageUtils';
 
 const BADGE_PRESETS = [
   { label: 'Hot', color: '#ef4444' },
@@ -30,13 +31,17 @@ const EMPTY_FORM: Partial<TrendingDestination> = {
 };
 
 export const TrendingDestinationsManager: React.FC = () => {
-  const { trendingDestinations, addTrendingDestination, updateTrendingDestination, deleteTrendingDestination, refreshData } = useData();
+  const { trendingDestinations, addTrendingDestination, updateTrendingDestination, deleteTrendingDestination, refreshData, packages, masterLocations } = useData();
 
   const [form, setForm] = useState<Partial<TrendingDestination>>({ ...EMPTY_FORM });
   const [editId, setEditId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showForm, setShowForm] = useState(false);
+
+  // Linkages state
+  const [selectedPkgIds, setSelectedPkgIds] = useState<string[]>([]);
+  const [pkgSearch, setPkgSearch] = useState('');
 
   // Load all (including inactive) from admin endpoint
   const [adminDests, setAdminDests] = useState<TrendingDestination[]>([]);
@@ -49,6 +54,19 @@ export const TrendingDestinationsManager: React.FC = () => {
       .catch(() => setAdminDests(trendingDestinations))
       .finally(() => setLoadingAll(false));
   }, [trendingDestinations]);
+
+  // Filter available packages to select
+  const availablePkgs = useMemo(() => {
+    if (!packages) return [];
+    const activePkgs = packages.filter(p => p.status === 'Active');
+    if (!pkgSearch) return activePkgs;
+    const q = pkgSearch.toLowerCase();
+    return activePkgs.filter(p => 
+      p.title.toLowerCase().includes(q) || 
+      getLocationName(p.location, masterLocations).toLowerCase().includes(q) ||
+      p.location.toLowerCase().includes(q)
+    );
+  }, [packages, pkgSearch, masterLocations]);
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -68,6 +86,7 @@ export const TrendingDestinationsManager: React.FC = () => {
   const handleEdit = (dest: TrendingDestination) => {
     setForm({ ...dest });
     setEditId(dest.id);
+    setSelectedPkgIds(dest.packageIds || []);
     setShowForm(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -75,6 +94,8 @@ export const TrendingDestinationsManager: React.FC = () => {
   const handleReset = () => {
     setForm({ ...EMPTY_FORM });
     setEditId(null);
+    setSelectedPkgIds([]);
+    setPkgSearch('');
     setShowForm(false);
   };
 
@@ -87,7 +108,11 @@ export const TrendingDestinationsManager: React.FC = () => {
     setSaving(true);
     try {
       if (editId) {
-        await updateTrendingDestination(editId, form);
+        await updateTrendingDestination(editId, {
+          ...form,
+          packageCount: selectedPkgIds.length,
+          packageIds: selectedPkgIds
+        });
       } else {
         const newDest: TrendingDestination = {
           id: `TD-${Date.now()}`,
@@ -98,9 +123,10 @@ export const TrendingDestinationsManager: React.FC = () => {
           badge: form.badge,
           badgeColor: form.badgeColor,
           statLabel: form.statLabel,
-          packageCount: form.packageCount,
+          packageCount: selectedPkgIds.length,
           sortOrder: form.sortOrder,
           isActive: form.isActive !== false,
+          packageIds: selectedPkgIds,
         };
         await addTrendingDestination(newDest);
       }
@@ -294,8 +320,88 @@ export const TrendingDestinationsManager: React.FC = () => {
             )}
           </div>
 
+          {/* Connected Tour Packages */}
+          <div className="mt-6 border-t border-slate-200 dark:border-slate-700 pt-5">
+            <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              Connect Tour Packages
+            </label>
+            <p className="text-xs text-slate-500 mb-3">Link tour packages directly to this trending destination.</p>
+
+            {/* Search Input */}
+            <div className="relative mb-3 max-w-md">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 material-symbols-outlined text-sm">search</span>
+              <input
+                type="text"
+                placeholder="Search active packages to link..."
+                value={pkgSearch}
+                onChange={e => setPkgSearch(e.target.value)}
+                className="w-full bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-650 rounded-xl pl-9 pr-4 py-2 text-xs outline-none focus:ring-2 focus:ring-primary/20 text-slate-900 dark:text-white"
+              />
+            </div>
+
+            {/* Selected Packages List */}
+            {selectedPkgIds.length > 0 && (
+              <div className="mb-4">
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500 block mb-2">Currently Linked ({selectedPkgIds.length})</span>
+                <div className="flex flex-wrap gap-2">
+                  {selectedPkgIds.map(id => {
+                    const pkg = packages?.find(p => p.id === id);
+                    return (
+                      <div key={id} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 border border-primary/20 text-primary rounded-xl text-xs font-semibold">
+                        <span className="truncate max-w-[200px]">{pkg ? pkg.title : id}</span>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedPkgIds(prev => prev.filter(x => x !== id))}
+                          className="hover:text-primary-dark transition-colors"
+                        >
+                          <span className="material-symbols-outlined text-[14px] leading-none mt-0.5">close</span>
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Available Packages to Link */}
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500 block mb-2">Available Packages</span>
+              <div className="max-h-[200px] overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-xl divide-y divide-slate-100 dark:divide-slate-750 bg-white dark:bg-slate-800 shadow-inner scrollbar-thin">
+                {availablePkgs.length === 0 ? (
+                  <p className="p-4 text-xs text-center text-slate-405 font-medium">No matching packages found.</p>
+                ) : (
+                  availablePkgs.map(pkg => {
+                    const isLinked = selectedPkgIds.includes(pkg.id);
+                    return (
+                      <button
+                        type="button"
+                        key={pkg.id}
+                        onClick={() => {
+                          if (isLinked) {
+                            setSelectedPkgIds(prev => prev.filter(id => id !== pkg.id));
+                          } else {
+                            setSelectedPkgIds(prev => [...prev, pkg.id]);
+                          }
+                        }}
+                        className="w-full flex items-center justify-between p-3 text-left hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors"
+                      >
+                        <div className="min-w-0 pr-3">
+                          <p className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">{pkg.title}</p>
+                          <p className="text-[10px] text-slate-500 mt-0.5 font-medium">{pkg.days} Days • {getLocationName(pkg.location, masterLocations || []) || pkg.location || 'No location'}</p>
+                        </div>
+                        <div className={`size-5 rounded-md border flex items-center justify-center transition-colors flex-shrink-0 ${isLinked ? 'bg-primary border-primary' : 'border-slate-350 dark:border-slate-650 bg-white dark:bg-slate-800'}`}>
+                          {isLinked && <span className="material-symbols-outlined text-white text-[12px] leading-none font-bold">check</span>}
+                        </div>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+
           {/* Active toggle */}
-          <div className="mt-5 flex items-center gap-3">
+          <div className="mt-5 flex items-center gap-3 border-t border-slate-200 dark:border-slate-700 pt-5">
             <button
               type="button"
               onClick={() => setForm(prev => ({ ...prev, isActive: !prev.isActive }))}

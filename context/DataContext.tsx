@@ -498,15 +498,29 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const hasToken = !!(localStorage.getItem('shravya_jwt') || localStorage.getItem('shrawello_partner_jwt'));
 
     try {
-      // 1. Fetch public data immediately
-      const [pkgs, locs, htl] = await Promise.all([
+      // 1. Fetch public data immediately (including all critical homepage tables)
+      const [
+        pkgs, locs, htl, activities, cmsBannersList, cmsTestList, cmsGalList, cmsPostsList, trendingList
+      ] = await Promise.all([
         api.getPackages().catch(() => []),
         api.getLocations().catch(() => []),
-        api.getMasterHotels().catch(() => [])
+        api.getMasterHotels().catch(() => []),
+        api.getMasterActivities().catch(() => []),
+        api.getCMSBanners().catch(() => []),
+        api.getCMSTestimonials().catch(() => []),
+        api.getCMSGalleryImages().catch(() => []),
+        api.getCMSPosts().catch(() => []),
+        api.getTrendingDestinations().catch(() => [])
       ]);
       setPackages(pkgs);
       setMasterLocations(locs as MasterLocation[]);
       if (htl.length > 0) setMasterHotels(htl);
+      if (activities.length > 0) setMasterActivities(activities);
+      if (cmsBannersList.length > 0) setCmsBanners(cmsBannersList);
+      if (cmsTestList.length > 0) setCmsTestimonials(cmsTestList);
+      if (cmsGalList.length > 0) setCmsGallery(cmsGalList);
+      if (cmsPostsList.length > 0) setCmsPosts(cmsPostsList);
+      if (trendingList.length > 0) setTrendingDestinations(trendingList);
 
       // 2. Fetch authenticated data only if token is present
       if (hasToken) {
@@ -553,22 +567,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const loadPhase3Data = async () => {
       try {
-        // Public secondary tables
-        const [activities, cmsBannersList, cmsTestList, cmsGalList, cmsPostsList, trendingList] = await Promise.all([
-          api.getMasterActivities().catch(() => []),
-          api.getCMSBanners().catch(() => []),
-          api.getCMSTestimonials().catch(() => []),
-          api.getCMSGalleryImages().catch(() => []),
-          api.getCMSPosts().catch(() => []),
-          api.getTrendingDestinations().catch(() => [])
-        ]);
-        if (activities.length > 0) setMasterActivities(activities);
-        if (cmsBannersList.length > 0) setCmsBanners(cmsBannersList);
-        if (cmsTestList.length > 0) setCmsTestimonials(cmsTestList);
-        if (cmsGalList.length > 0) setCmsGallery(cmsGalList);
-        if (cmsPostsList.length > 0) setCmsPosts(cmsPostsList);
-        if (trendingList.length > 0) setTrendingDestinations(trendingList);
-
         // Authenticated secondary tables
         if (hasToken) {
           const [

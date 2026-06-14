@@ -63,6 +63,92 @@ const pool = mysql.createPool({
     keepAliveInitialDelay: 10000
 });
 
+// Helper to save uploaded file to database
+async function saveUploadedFileToDb(file) {
+    try {
+        const filePath = file.path;
+        if (!fs.existsSync(filePath)) return;
+        const fileData = fs.readFileSync(filePath);
+        const id = crypto.randomBytes(16).toString('hex');
+        await pool.query(
+            'INSERT INTO uploaded_files (id, filename, mime_type, data) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE data = VALUES(data), mime_type = VALUES(mime_type)',
+            [id, file.filename, file.mimetype, fileData]
+        );
+        console.log(`[Upload DB Sync] Saved ${file.filename} to database.`);
+    } catch (err) {
+        console.error('[Upload DB Sync Error]', err.message);
+    }
+}
+
+// Helper to sync local files to DB on startup
+async function syncLocalUploadsToDb() {
+    try {
+        if (!fs.existsSync(uploadsDir)) return;
+        const files = fs.readdirSync(uploadsDir);
+        console.log(`[Uploads Sync] Found ${files.length} files in local uploads directory.`);
+        
+        let syncedCount = 0;
+        for (const file of files) {
+            const filePath = path.join(uploadsDir, file);
+            const stat = fs.statSync(filePath);
+            if (!stat.isFile()) continue;
+
+            const [rows] = await pool.query('SELECT id FROM uploaded_files WHERE filename = ?', [file]);
+            if (rows.length === 0) {
+                const fileData = fs.readFileSync(filePath);
+                const id = crypto.randomBytes(16).toString('hex');
+                const ext = path.extname(file).toLowerCase();
+                let mimeType = 'image/jpeg';
+                if (ext === '.png') mimeType = 'image/png';
+                else if (ext === '.webp') mimeType = 'image/webp';
+                else if (ext === '.gif') mimeType = 'image/gif';
+                else if (ext === '.svg') mimeType = 'image/svg+xml';
+                
+                await pool.query(
+                    'INSERT INTO uploaded_files (id, filename, mime_type, data) VALUES (?, ?, ?, ?)',
+                    [id, file, mimeType, fileData]
+                );
+                syncedCount++;
+            }
+        }
+        if (syncedCount > 0) {
+            console.log(`[Uploads Sync] Successfully synced ${syncedCount} new local files to database.`);
+        } else {
+            console.log('[Uploads Sync] All local files are already synced with database.');
+        }
+    } catch (err) {
+        console.error('[Uploads Sync Error]', err.message);
+    }
+}
+
+// Helper to restore all files from database back to local disk cache on startup
+async function syncDbUploadsToLocal() {
+    try {
+        const [rows] = await pool.query('SELECT filename, mime_type, data FROM uploaded_files');
+        console.log(`[Uploads Restore] Found ${rows.length} files in database.`);
+        
+        if (!fs.existsSync(uploadsDir)) {
+            fs.mkdirSync(uploadsDir, { recursive: true });
+        }
+        
+        let restoredCount = 0;
+        for (const row of rows) {
+            const filePath = path.join(uploadsDir, row.filename);
+            if (!fs.existsSync(filePath)) {
+                fs.writeFileSync(filePath, row.data);
+                restoredCount++;
+            }
+        }
+        if (restoredCount > 0) {
+            console.log(`[Uploads Restore] Successfully restored ${restoredCount} files from database to disk.`);
+        } else {
+            console.log('[Uploads Restore] All database files are already present on disk.');
+        }
+    } catch (err) {
+        console.error('[Uploads Restore Error]', err.message);
+    }
+}
+
 const JWT_SECRET = process.env.JWT_SECRET || 'change-me';
 
 // Ensure the users table exists (for auth)
@@ -745,6 +831,14 @@ async function ensureMissingTables() {
             is_active BOOLEAN DEFAULT true,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )`,
+        // ─── Uploaded Files Backup (MySQL persistence) ───
+        `CREATE TABLE IF NOT EXISTS uploaded_files (
+            id VARCHAR(255) PRIMARY KEY,
+            filename VARCHAR(255) UNIQUE NOT NULL,
+            mime_type VARCHAR(100) NOT NULL,
+            data LONGBLOB NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`
     ];
 
@@ -756,6 +850,11 @@ async function ensureMissingTables() {
         }
     }
     console.log('[Tables Migration] All required tables ensured.');
+    
+    // Sync local uploads to DB on startup
+    await syncLocalUploadsToDb();
+    // Restore DB uploads to local disk on startup
+    await syncDbUploadsToLocal();
 }
 ensureMissingTables();
 
@@ -1055,6 +1154,41 @@ async function ensureTrendingDestinationsTable() {
                 } catch(e) { /* skip duplicate */ }
             }
             console.log('[TrendingDest] Seeded 8 initial trending destinations.');
+        }
+
+        // 2b. Create trending_destination_packages junction table
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS trending_destination_packages (
+                trending_destination_id VARCHAR(255) NOT NULL,
+                package_id VARCHAR(64) NOT NULL,
+                PRIMARY KEY (trending_destination_id, package_id),
+                FOREIGN KEY (trending_destination_id) REFERENCES trending_destinations(id) ON DELETE CASCADE,
+                FOREIGN KEY (package_id) REFERENCES packages(id) ON DELETE CASCADE
+            )
+        `);
+        console.log('[TrendingDest] trending_destination_packages table ensured.');
+
+        // 2c. Backfill: If junction table is completely empty, insert matches based on name/location matching
+        const [existingLinks] = await pool.query('SELECT COUNT(*) as cnt FROM trending_destination_packages');
+        if (existingLinks[0].cnt === 0) {
+            console.log('[TrendingDest] Backfilling trending_destination_packages...');
+            try {
+                await pool.query(`
+                    INSERT IGNORE INTO trending_destination_packages (trending_destination_id, package_id)
+                    SELECT d.id AS trending_destination_id, p.id AS package_id
+                    FROM trending_destinations d
+                    JOIN packages p ON (
+                        LOWER(p.location) LIKE CONCAT('%', LOWER(d.name), '%')
+                        OR p.location IN (
+                            SELECT ml.id FROM master_locations ml 
+                            WHERE LOWER(ml.name) LIKE CONCAT('%', LOWER(d.name), '%')
+                        )
+                    )
+                `);
+                console.log('[TrendingDest] Backfill completed.');
+            } catch (backfillErr) {
+                console.error('[TrendingDest] Backfill error:', backfillErr.message);
+            }
         }
 
         // 3. Migrate cms_gallery_images — add enhanced columns
@@ -1554,19 +1688,7 @@ app.get('/api/db-test', async (req, res) => {
     }
 });
 
-// ─── Static file serving for uploaded images ───
-app.use('/uploads', express.static(uploadsDir));
-
-// ─── File Upload Route ───
-app.post('/api/upload', authMiddleware, upload.single('file'), (req, res) => {
-    if (!req.file) {
-        return res.status(400).json({ error: 'No file uploaded or invalid file type' });
-    }
-    // Return a relative URL so it works in both dev and production
-    const relativeUrl = `/uploads/${req.file.filename}`;
-    console.log(`[Upload] File saved: ${req.file.filename} (${(req.file.size / 1024).toFixed(0)}KB)`);
-    res.json({ url: relativeUrl, filename: req.file.filename, size: req.file.size });
-});
+// Serving and uploads handled at the end of the file
 
 // ═══════════════════════════════════════════
 // AUTH ROUTES
@@ -4036,13 +4158,53 @@ app.post('/api/coupons/detach', authMiddleware, async (req, res) => {
 // TRENDING DESTINATIONS API
 // ═══════════════════════════════════════════
 
+// Helper to fetch destinations with dynamic package ids and count
+let trendingDestinationsCache = null;
+
+async function fetchTrendingDestinationsWithLinks(isAdmin = false) {
+    if (!isAdmin && trendingDestinationsCache) {
+        return trendingDestinationsCache;
+    }
+
+    const queryStr = isAdmin
+        ? 'SELECT * FROM trending_destinations ORDER BY sort_order ASC, created_at ASC'
+        : 'SELECT * FROM trending_destinations WHERE is_active = true ORDER BY sort_order ASC, created_at ASC';
+    const [dests] = await pool.query(queryStr);
+    
+    if (dests.length === 0) {
+        if (!isAdmin) trendingDestinationsCache = [];
+        return [];
+    }
+
+    // Fetch all package linkages
+    const [links] = await pool.query('SELECT trending_destination_id, package_id FROM trending_destination_packages');
+    
+    // Group links by destination id
+    const linksMap = {};
+    for (const link of links) {
+        const dId = link.trending_destination_id;
+        if (!linksMap[dId]) linksMap[dId] = [];
+        linksMap[dId].push(link.package_id);
+    }
+
+    // Attach package_ids and set package_count dynamically
+    for (const dest of dests) {
+        dest.package_ids = linksMap[dest.id] || [];
+        dest.package_count = dest.package_ids.length;
+    }
+
+    if (!isAdmin) {
+        trendingDestinationsCache = dests;
+    }
+
+    return dests;
+}
+
 // GET all active trending destinations (public)
 app.get('/api/trending-destinations', async (req, res) => {
     try {
-        const [rows] = await pool.query(
-            'SELECT * FROM trending_destinations WHERE is_active = true ORDER BY sort_order ASC, created_at ASC'
-        );
-        res.json({ data: rows });
+        const dests = await fetchTrendingDestinationsWithLinks(false);
+        res.json({ data: dests });
     } catch (err) {
         console.error('[TrendingDest GET]', err.message);
         res.status(500).json({ error: err.message });
@@ -4052,10 +4214,8 @@ app.get('/api/trending-destinations', async (req, res) => {
 // GET all trending destinations (admin — includes inactive)
 app.get('/api/trending-destinations/all', authMiddleware, async (req, res) => {
     try {
-        const [rows] = await pool.query(
-            'SELECT * FROM trending_destinations ORDER BY sort_order ASC, created_at ASC'
-        );
-        res.json({ data: rows });
+        const dests = await fetchTrendingDestinationsWithLinks(true);
+        res.json({ data: dests });
     } catch (err) {
         console.error('[TrendingDest GET ALL]', err.message);
         res.status(500).json({ error: err.message });
@@ -4065,15 +4225,35 @@ app.get('/api/trending-destinations/all', authMiddleware, async (req, res) => {
 // POST create trending destination (admin)
 app.post('/api/trending-destinations', authMiddleware, async (req, res) => {
     try {
-        const { id, name, country, region, image_url, badge, badge_color, stat_label, package_count, sort_order, is_active } = req.body;
+        const { id, name, country, region, image_url, badge, badge_color, stat_label, sort_order, is_active, package_ids } = req.body;
         const destId = id || crypto.randomUUID();
+        const pkgCount = Array.isArray(package_ids) ? package_ids.length : 0;
+        
         await pool.query(
             `INSERT INTO trending_destinations (id, name, country, region, image_url, badge, badge_color, stat_label, package_count, sort_order, is_active)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [destId, name, country || null, region || null, image_url, badge || null, badge_color || '#ef4444', stat_label || null, package_count || 0, sort_order || 0, is_active !== false]
+            [destId, name, country || null, region || null, image_url, badge || null, badge_color || '#ef4444', stat_label || null, pkgCount, sort_order || 0, is_active !== false]
         );
+
+        // Insert package linkages
+        if (Array.isArray(package_ids) && package_ids.length > 0) {
+            for (const pkgId of package_ids) {
+                await pool.query(
+                    'INSERT IGNORE INTO trending_destination_packages (trending_destination_id, package_id) VALUES (?, ?)',
+                    [destId, pkgId]
+                );
+            }
+        }
+
         const [rows] = await pool.query('SELECT * FROM trending_destinations WHERE id = ?', [destId]);
-        res.json({ data: rows[0] });
+        const dest = rows[0];
+        dest.package_ids = package_ids || [];
+        dest.package_count = dest.package_ids.length;
+
+        // Invalidate cache
+        trendingDestinationsCache = null;
+
+        res.json({ data: dest });
     } catch (err) {
         console.error('[TrendingDest POST]', err.message);
         res.status(500).json({ error: err.message });
@@ -4085,7 +4265,7 @@ app.put('/api/trending-destinations/:id', authMiddleware, async (req, res) => {
     try {
         const { id } = req.params;
         const fields = req.body;
-        const allowed = ['name','country','region','image_url','badge','badge_color','stat_label','package_count','sort_order','is_active'];
+        const allowed = ['name','country','region','image_url','badge','badge_color','stat_label','sort_order','is_active'];
         const updates = [];
         const values = [];
         for (const key of allowed) {
@@ -4094,11 +4274,42 @@ app.put('/api/trending-destinations/:id', authMiddleware, async (req, res) => {
                 values.push(fields[key]);
             }
         }
-        if (updates.length === 0) return res.status(400).json({ error: 'No valid fields to update' });
-        values.push(id);
-        await pool.query(`UPDATE trending_destinations SET ${updates.join(', ')} WHERE id = ?`, values);
+
+        const packageIds = fields.package_ids;
+        if (Array.isArray(packageIds)) {
+            updates.push('`package_count` = ?');
+            values.push(packageIds.length);
+        }
+
+        if (updates.length > 0) {
+            values.push(id);
+            await pool.query(`UPDATE trending_destinations SET ${updates.join(', ')} WHERE id = ?`, values);
+        }
+
+        if (Array.isArray(packageIds)) {
+            // Remove old links
+            await pool.query('DELETE FROM trending_destination_packages WHERE trending_destination_id = ?', [id]);
+            // Insert new links
+            for (const pkgId of packageIds) {
+                await pool.query(
+                    'INSERT IGNORE INTO trending_destination_packages (trending_destination_id, package_id) VALUES (?, ?)',
+                    [id, pkgId]
+                );
+            }
+        }
+
         const [rows] = await pool.query('SELECT * FROM trending_destinations WHERE id = ?', [id]);
-        res.json({ data: rows[0] });
+        if (rows.length === 0) return res.status(404).json({ error: 'Destination not found' });
+        const dest = rows[0];
+
+        const [links] = await pool.query('SELECT package_id FROM trending_destination_packages WHERE trending_destination_id = ?', [id]);
+        dest.package_ids = links.map(l => l.package_id);
+        dest.package_count = dest.package_ids.length;
+
+        // Invalidate cache
+        trendingDestinationsCache = null;
+
+        res.json({ data: dest });
     } catch (err) {
         console.error('[TrendingDest PUT]', err.message);
         res.status(500).json({ error: err.message });
@@ -4110,6 +4321,10 @@ app.delete('/api/trending-destinations/:id', authMiddleware, async (req, res) =>
     try {
         const { id } = req.params;
         await pool.query('DELETE FROM trending_destinations WHERE id = ?', [id]);
+
+        // Invalidate cache
+        trendingDestinationsCache = null;
+
         res.json({ success: true });
     } catch (err) {
         console.error('[TrendingDest DELETE]', err.message);
@@ -4122,10 +4337,14 @@ app.delete('/api/trending-destinations/:id', authMiddleware, async (req, res) =>
 // ═══════════════════════════════════════════
 // ─── File Upload Route ───
 // Accepts multipart image uploads, saves to public/uploads, returns public URL
-app.post('/api/upload', authMiddleware, upload.single('file'), (req, res) => {
+app.post('/api/upload', authMiddleware, upload.single('file'), async (req, res) => {
     if (!req.file) {
         return res.status(400).json({ error: 'No file uploaded or file type not allowed.' });
     }
+    
+    // Save to DB for persistence
+    await saveUploadedFileToDb(req.file);
+
     // Return the public-accessible URL for this file
     const fileUrl = `/uploads/${req.file.filename}`;
     res.json({ url: fileUrl });
@@ -4135,6 +4354,36 @@ app.post('/api/upload', authMiddleware, upload.single('file'), (req, res) => {
 app.use(express.static(path.join(__dirname, 'public')));
 // Explicitly serve uploads directory too
 app.use('/uploads', express.static(uploadsDir));
+
+// Fallback auto-healing route to restore deleted images from DB
+app.get('/uploads/:filename', async (req, res) => {
+    const { filename } = req.params;
+    try {
+        const [rows] = await pool.query(
+            'SELECT mime_type, data FROM uploaded_files WHERE filename = ?',
+            [filename]
+        );
+        if (rows.length > 0) {
+            const { mime_type, data } = rows[0];
+            const targetPath = path.join(uploadsDir, filename);
+            
+            // Ensure uploads directory exists
+            if (!fs.existsSync(uploadsDir)) {
+                fs.mkdirSync(uploadsDir, { recursive: true });
+            }
+            
+            // Write to local disk cache
+            fs.writeFileSync(targetPath, data);
+            console.log(`[Auto-Heal] Restored file to disk: ${filename}`);
+            
+            res.setHeader('Content-Type', mime_type);
+            return res.send(data);
+        }
+    } catch (err) {
+        console.error('[Auto-Heal Error]', err.message);
+    }
+    res.status(404).send('Not Found');
+});
 
 // Catch-all: send React's index.html for any non-API route (SPA routing)
 app.get('*', (req, res) => {
