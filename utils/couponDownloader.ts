@@ -1,18 +1,17 @@
 /**
- * couponDownloader.ts
+ * couponDownloader.ts  ─ Premium Travel Coupon Renderer
  * ─────────────────────────────────────────────────────────────────────────────
- * Utility that converts a coupon into a downloadable PNG image or a branded PDF
- * by rendering a high-fidelity off-screen DOM element and capturing it.
+ * Generates a 880×375px boarding-pass style coupon for PNG / PDF export.
+ * Fully compatible with html2canvas ^1.4.1.
  *
- * DATAFLOW:
- *  1. Caller provides a Coupon object.
- *  2. An off-screen element of exactly 880px × 375px is dynamically created.
- *  3. Injected HTML matches the high-fidelity designs perfectly.
- *  4. We wait for all Unsplash images inside the ticket to load completely.
- *  5. html2canvas renders the off-screen node at scale: 3 (crisp high-DPI).
- *  6. For PNG  → download is triggered directly from the high-res canvas.
- *  7. For PDF  → high-res image is drawn full-bleed into A5 landscape jsPDF.
- *  8. After download, database download_count is updated and DOM node is destroyed.
+ * html2canvas safe rules:
+ *  ✓ No `inset` shorthand
+ *  ✓ No flex `gap` — use margin on children
+ *  ✓ No `repeating-linear-gradient` on <4px elements
+ *  ✓ No Unicode special chars — use plain ASCII or SVG shapes
+ *  ✓ allowTaint + crossorigin on images
+ *  ✓ CSS `border-right: dashed` for the ticket stub separator
+ *  ✓ Inline SVG for decorative patterns (globe lines, routes, compass)
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
@@ -20,7 +19,18 @@ import jsPDF from 'jspdf';
 import { format } from 'date-fns';
 import { Coupon } from '../types';
 
-// ─── Helper: Increment download_count in DB ───────────────────────────────────
+// ─── Font injection ───────────────────────────────────────────────────────────
+function ensureFontsInjected(): void {
+    if (typeof document === 'undefined') return;
+    if (document.getElementById('shrawello-coupon-fonts')) return;
+    const link = document.createElement('link');
+    link.id = 'shrawello-coupon-fonts';
+    link.rel = 'stylesheet';
+    link.href = 'https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&display=swap';
+    document.head.appendChild(link);
+}
+
+// ─── DB download tracking ─────────────────────────────────────────────────────
 async function trackDownload(couponId: string, currentCount: number): Promise<void> {
     if (!couponId || couponId === 'preview') return;
     try {
@@ -28,516 +38,680 @@ async function trackDownload(couponId: string, currentCount: number): Promise<vo
         if (!token) return;
         await fetch(`/api/crud/coupons/${couponId}`, {
             method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${token}`,
-            },
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
             body: JSON.stringify({ download_count: (currentCount || 0) + 1 }),
         });
-    } catch (e) {
-        console.warn('Failed to track coupon download:', e);
-    }
+    } catch (e) { console.warn('trackDownload failed:', e); }
 }
 
-// ─── Helper: Safe date formatter ─────────────────────────────────────────────
-function fmtDate(dateStr?: string): string {
-    if (!dateStr) return '31 DEC 2026';
-    try { return format(new Date(dateStr), 'dd MMM yyyy').toUpperCase(); }
-    catch { return dateStr.toUpperCase(); }
+// ─── Date formatter ──────────────────────────────────────────────────────────
+function fmtDate(d?: string): string {
+    if (!d) return '31 DEC 2026';
+    try { return format(new Date(d), 'dd MMM yyyy').toUpperCase(); }
+    catch { return d.toUpperCase(); }
 }
 
-// ─── Helper: Generate Ticket HTML String ──────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// PIXEL LAYOUT MAP
+//
+// LEFT SECTION (598 × 375px — white, brand, slogan, icons, feature bar)
+//   Logo + brand :  18px → 72px
+//   [gap 6px]
+//   Slogan block :  78px → 190px  (32/30px, tagline, accent bar)
+//   [gap 8px]
+//   Icon row     : 198px → 258px  (40px circles + labels)
+//   [gap 8px]
+//   Feature bar  : 266px → 310px  (44px, green-tinted)
+//   T&C          : bottom 4px
+//
+// RIGHT SECTION (282 × 375px — dark emerald, discount, code, validity, expiry)
+//   Offer header :  16px → 36px
+//   Discount     :  40px → 172px  (70px number + subtitle + dots)
+//   [zone sep]   : 178px (thin white line)
+//   Code section : 186px → 252px  (badge + 46px box)
+//   Validity     : 262px → 296px  (FROM–TO dates)
+//   Expiry       : bottom 12px
+// ─────────────────────────────────────────────────────────────────────────────
 function getCouponHtml(coupon: Coupon): string {
-    const isTours = coupon.type === 'ToursOnly';
-    const discVal = coupon.discountValue || 15;
-    const isPercent = coupon.discountType === 'Percentage';
-    const promoCode = coupon.code || (isTours ? 'TOUR15' : 'SHRAVELLO015');
-    const expiryStr = fmtDate(coupon.validTo);
+    const isTours     = coupon.type === 'ToursOnly';
+    const discVal     = coupon.discountValue || 15;
+    const isPct       = coupon.discountType === 'Percentage';
+    const code        = coupon.code || (isTours ? 'TOUR15' : 'SHRAWELLO15');
+    const expiry      = fmtDate(coupon.validTo);
+    const validFrom   = fmtDate(coupon.validFrom);
+    const minSpend    = coupon.minBookingAmount || 0;
+    const logoUrl     = typeof window !== 'undefined'
+        ? `${window.location.origin}/logo.png` : '/logo.png';
 
-    // Common absolute-positioned SVGs for suitcases, passport, and boarding pass
-    const luggageSvg = `
-        <svg class="absolute bottom-[44px] right-[-10px] w-[140px] h-[95px] opacity-90 pointer-events-none z-10" viewBox="0 0 140 95" fill="none">
-            <!-- Boarding Pass -->
-            <g transform="rotate(-15, 60, 45)">
-                <rect x="35" y="10" width="70" height="40" rx="3" fill="#ffffff" />
-                <rect x="35" y="10" width="70" height="10" fill="#005B5C" rx="1.5" />
-                <circle cx="45" cy="15" r="2" fill="#ffffff" />
-                <path d="M43 15h15" stroke="#ffffff" stroke-width="1" />
-                <rect x="40" y="24" width="30" height="3" rx="1" fill="#e2e8f0" />
-                <rect x="40" y="30" width="20" height="3" rx="1" fill="#e2e8f0" />
-                <line x1="88" y1="20" x2="88" y2="45" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="1.5,1.5" />
-                <rect x="92" y="22" width="2" height="18" fill="#1e293b" />
-                <rect x="96" y="22" width="1" height="18" fill="#1e293b" />
-                <rect x="99" y="22" width="3" height="18" fill="#1e293b" />
-                <rect x="103" y="22" width="1" height="18" fill="#1e293b" />
-            </g>
-            <!-- Passport -->
-            <g transform="rotate(8, 85, 55)">
-                <rect x="70" y="25" width="45" height="60" rx="4" fill="#0E3E2B" stroke="#B08D3E" stroke-width="1.5" />
-                <text x="92.5" y="38" fill="#B08D3E" font-size="5" font-weight="bold" font-family="serif" text-anchor="middle" letter-spacing="1">PASSPORT</text>
-                <circle cx="92.5" cy="55" r="9" stroke="#B08D3E" stroke-width="1" fill="none" />
-                <circle cx="92.5" cy="55" r="6" stroke="#B08D3E" stroke-width="0.7" fill="none" stroke-dasharray="1,1" />
-                <ellipse cx="92.5" cy="55" rx="3" ry="9" stroke="#B08D3E" stroke-width="0.7" fill="none" />
-                <ellipse cx="92.5" cy="55" rx="9" ry="3" stroke="#B08D3E" stroke-width="0.7" fill="none" />
-            </g>
-            <!-- Green/Teal Suitcase -->
-            <g transform="translate(10, 30)">
-                <rect x="10" y="15" width="70" height="48" rx="10" fill="#1E3E3F" stroke="#122728" stroke-width="2" />
-                <rect x="14" y="19" width="62" height="40" rx="7" stroke="#2a5354" stroke-width="1.5" fill="none" />
-                <path d="M10 25c0-5 5-10 10-10" stroke="#0f1f20" stroke-width="3" fill="none" />
-                <path d="M80 25c0-5-5-10-10-10" stroke="#0f1f20" stroke-width="3" fill="none" />
-                <path d="M10 53c0 5 5 10 10 10" stroke="#0f1f20" stroke-width="3" fill="none" />
-                <path d="M80 53c0 5-5 10-10 10" stroke="#0f1f20" stroke-width="3" fill="none" />
-                <path d="M35 15V8c0-2.2 1.8-4 4-4h12c2.2 0 4 1.8 4 4v7" stroke="#0f1f20" stroke-width="4.5" fill="none" />
-                <rect x="33" y="12" width="6" height="4" rx="1" fill="#B08D3E" />
-                <rect x="51" y="12" width="6" height="4" rx="1" fill="#B08D3E" />
-                <rect x="24" y="15" width="6" height="48" fill="#122728" />
-                <rect x="60" y="15" width="6" height="48" fill="#122728" />
-                <rect x="23" y="30" width="8" height="6" fill="#B08D3E" rx="1" />
-                <rect x="59" y="30" width="8" height="6" fill="#B08D3E" rx="1" />
-                <rect x="36" y="28" width="18" height="18" rx="3" fill="#ffffff" />
-                <circle cx="45" cy="37" r="6" fill="#f97316" />
-                <path d="M42 35l6 4M42 39l6-4" stroke="#ffffff" stroke-width="1.5" />
-                <circle cx="20" cy="50" r="4" fill="#E11D48" />
-                <rect x="54" y="48" width="10" height="6" rx="1" fill="#2563EB" transform="rotate(-10, 59, 51)" />
-            </g>
-        </svg>
-    `;
+    const F  = "'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif";
+    const codeFs = code.length > 14 ? '11px' : code.length > 11 ? '13px' : '14px';
 
+    // ── SHARED: Min spend sub-label ───────────────────────────────────────────
+    const minSpendHtml = minSpend > 0
+        ? `<div style="text-align:center;margin-top:5px;">
+               <span style="font-family:${F};font-size:7px;font-weight:700;color:#94a3b8;letter-spacing:0.05em;white-space:nowrap;">
+                   MIN. SPEND: &#8377;${minSpend.toLocaleString('en-IN')}
+               </span>
+           </div>`
+        : '';
+
+    const dividerTop = minSpend > 0 ? 254 : 240;
+    const validityTop = dividerTop + 22;
+
+    // ── SHARED: Header branding ───────────────────────────────────────────────
+    const headerHtml = `
+        <div style="position:absolute;left:28px;top:18px;display:flex;align-items:center;">
+            <img src="${logoUrl}" crossorigin="anonymous"
+                 style="width:48px;height:48px;object-fit:contain;border-radius:10px;margin-right:13px;flex-shrink:0;" />
+            <div style="display:flex;flex-direction:column;justify-content:center;line-height:1;">
+                <div style="font-family:${F};font-size:21px;font-weight:800;color:#024430;letter-spacing:0.02em;line-height:1.1;">SHRAWELLO</div>
+                <div style="font-family:${F};font-size:14px;font-weight:800;color:#E65F2B;margin-top:2px;line-height:1.1;">TravelHub</div>
+                <div style="font-family:${F};font-size:7.5px;font-weight:700;color:#b0bcc8;letter-spacing:0.14em;text-transform:uppercase;margin-top:4px;line-height:1;">CORPORATE TRAVEL AND EVENTS</div>
+            </div>
+        </div>`;
+
+    // ── SHARED: T&C ──────────────────────────────────────────────────────────
+    const tncHtml = `
+        <div style="position:absolute;bottom:4px;left:28px;right:10px;
+                    font-family:${F};font-size:6.5px;font-weight:500;color:#b8c2cc;line-height:1.4;">
+            *Valid once per user. Non-transferable. Cannot be combined with other offers.
+        </div>`;
+
+    // ── ATMOSPHERE: Left section travel SVG background ────────────────────────
+    // Low-opacity route arcs, city dots, compass rose, mountain silhouette
+    const travelBgSvg = `
+        <svg style="position:absolute;top:0;left:0;width:598px;height:375px;z-index:1;pointer-events:none;"
+             xmlns="http://www.w3.org/2000/svg">
+            <!-- Flight route arcs -->
+            <path d="M 28 345 Q 220 135 515 95" fill="none" stroke="#024430" stroke-width="1.4"
+                  stroke-dasharray="5 9" opacity="0.06"/>
+            <path d="M 70 368 Q 295 155 568 125" fill="none" stroke="#024430" stroke-width="0.9"
+                  stroke-dasharray="3 12" opacity="0.04"/>
+            <!-- Airport/city dots -->
+            <circle cx="28" cy="345" r="3.5" fill="#E65F2B" opacity="0.10"/>
+            <circle cx="290" cy="207" r="2" fill="#024430" opacity="0.08"/>
+            <circle cx="515" cy="95" r="3.5" fill="#E65F2B" opacity="0.10"/>
+            <!-- Compass rose (right-center of white area, away from all text) -->
+            <g transform="translate(432, 215)" opacity="0.055">
+                <circle cx="0" cy="0" r="50" stroke="#024430" stroke-width="0.8" fill="none" stroke-dasharray="2 5"/>
+                <circle cx="0" cy="0" r="34" stroke="#024430" stroke-width="0.5" fill="none"/>
+                <line x1="0" y1="-50" x2="0" y2="-34" stroke="#024430" stroke-width="1.3"/>
+                <line x1="0" y1="34" x2="0" y2="50" stroke="#024430" stroke-width="1.3"/>
+                <line x1="-50" y1="0" x2="-34" y2="0" stroke="#024430" stroke-width="1.3"/>
+                <line x1="34" y1="0" x2="50" y2="0" stroke="#024430" stroke-width="1.3"/>
+                <!-- Compass diamond arrow (north) -->
+                <path d="M 0 -34 L 4 -22 L 0 -26 L -4 -22 Z" fill="#E65F2B" opacity="0.6"/>
+            </g>
+            <!-- Mountain silhouette (bottom-left) -->
+            <path d="M 0 375 L 48 318 L 88 345 L 138 295 L 188 332 L 226 375 Z"
+                  fill="#024430" opacity="0.045"/>
+        </svg>`;
+
+    // ── ATMOSPHERE: Right section globe grid SVG ──────────────────────────────
+    const globeBgSvg = `
+        <svg style="position:absolute;top:0;left:0;width:282px;height:375px;z-index:2;pointer-events:none;"
+             xmlns="http://www.w3.org/2000/svg">
+            <g fill="none" stroke="rgba(255,255,255,0.065)" stroke-width="0.7">
+                <!-- Longitude arcs -->
+                <path d="M 141 0 Q 82 188 141 375"/>
+                <path d="M 141 0 Q 200 188 141 375"/>
+                <path d="M 141 0 Q 52 188 141 375" stroke-width="0.4" stroke="rgba(255,255,255,0.04)"/>
+                <path d="M 141 0 Q 230 188 141 375" stroke-width="0.4" stroke="rgba(255,255,255,0.04)"/>
+                <!-- Latitude curves -->
+                <path d="M 0 94 Q 141 76 282 94"/>
+                <path d="M 0 188 Q 141 173 282 188"/>
+                <path d="M 0 281 Q 141 266 282 281"/>
+            </g>
+        </svg>`;
+
+    // ── RIGHT SECTION (shared for both card types) ────────────────────────────
+    const offerLabel   = isTours
+        ? '&mdash;&nbsp;SPECIAL OFFER&nbsp;&mdash;'
+        : '&#9733;&nbsp;EXCLUSIVE OFFER&nbsp;&#9733;';
+    const discSubtitle = isTours ? 'ON ALL TOUR PACKAGES' : 'ON ALL BOOKINGS';
+    const discSubline  = isTours ? '' :
+        `<div style="font-family:${F};font-size:7.5px;font-weight:700;color:#5eead4;
+                     letter-spacing:0.07em;text-transform:uppercase;margin-top:3px;white-space:nowrap;">
+             CAB &nbsp;|&nbsp; TRAIN &nbsp;|&nbsp; FLIGHTS &nbsp;|&nbsp; TOURS
+         </div>`;
+
+    const rightSection = `
+        <div style="width:282px;height:375px;background-color:#012e20;position:relative;
+                    box-sizing:border-box;overflow:hidden;font-family:${F};">
+
+            ${globeBgSvg}
+
+            <!-- Dot grid -->
+            <div style="position:absolute;top:0;left:0;width:282px;height:375px;
+                        background-image:radial-gradient(rgba(255,255,255,0.09) 1px,transparent 1px);
+                        background-size:13px 13px;pointer-events:none;z-index:3;"></div>
+
+            <!-- ── ZONE 1: Discount ─────────────────────────────────────── -->
+
+            <!-- Offer header label -->
+            <div style="position:absolute;top:16px;left:0;width:282px;text-align:center;z-index:10;">
+                <span style="font-family:${F};color:#fb923c;font-weight:800;font-size:10.5px;
+                             letter-spacing:0.14em;text-transform:uppercase;">
+                    ${offerLabel}
+                </span>
+            </div>
+
+            <!-- Discount number + symbol -->
+            <div style="position:absolute;top:40px;left:0;width:282px;
+                        display:flex;flex-direction:column;align-items:center;z-index:10;">
+                <div style="display:flex;align-items:flex-start;justify-content:center;">
+                    <span style="font-family:${F};font-size:70px;font-weight:900;color:#ffffff;
+                                 line-height:1;letter-spacing:-0.04em;min-width:82px;text-align:right;display:block;">
+                        ${discVal}
+                    </span>
+                    <div style="display:flex;flex-direction:column;align-items:flex-start;
+                                margin-left:4px;padding-top:10px;line-height:1.1;">
+                        <span style="font-family:${F};font-size:26px;font-weight:900;color:#ffffff;line-height:1;">
+                            ${isPct ? '%' : '&#8377;'}
+                        </span>
+                        <span style="font-family:${F};font-size:14px;font-weight:800;color:#fb923c;
+                                     line-height:1;margin-top:5px;text-transform:uppercase;letter-spacing:0.04em;">
+                            ${isPct ? 'OFF' : 'FLAT'}
+                        </span>
+                    </div>
+                </div>
+                <span style="font-family:${F};font-size:9.5px;font-weight:800;
+                             color:rgba(255,255,255,0.88);letter-spacing:0.13em;text-transform:uppercase;
+                             margin-top:8px;text-align:center;white-space:nowrap;">
+                    ${discSubtitle}
+                </span>
+                ${discSubline}
+                <!-- Bullet-dot separator (ASCII &bull; — always in system fonts) -->
+                <div style="margin-top:10px;display:flex;align-items:center;justify-content:center;">
+                    <div style="width:24px;height:1px;background-color:rgba(251,146,60,0.32);margin-right:8px;"></div>
+                    <span style="font-family:${F};color:#fb923c;font-size:11px;font-weight:900;
+                                 line-height:1;letter-spacing:5px;">&bull;&bull;&bull;</span>
+                    <div style="width:24px;height:1px;background-color:rgba(251,146,60,0.32);margin-left:8px;"></div>
+                </div>
+            </div>
+
+            <!-- Zone separator line -->
+            <div style="position:absolute;top:178px;left:20px;width:242px;height:1px;
+                        background-color:rgba(255,255,255,0.09);z-index:10;"></div>
+
+            <!-- ── ZONE 2: Coupon Code ──────────────────────────────────── -->
+            <div style="position:absolute;top:186px;left:24px;width:234px;z-index:10;">
+                <!-- Tab badge -->
+                <div style="display:flex;justify-content:center;">
+                    <div style="font-family:${F};background-color:#E65F2B;color:#ffffff;
+                                font-weight:800;font-size:8px;text-transform:uppercase;
+                                letter-spacing:0.18em;padding:4px 20px;
+                                border-radius:10px 10px 0 0;white-space:nowrap;line-height:1.2;">
+                        COUPON CODE
+                    </div>
+                </div>
+                <!-- Code box — elegant, thinner border -->
+                <div style="width:234px;height:46px;background-color:#ffffff;
+                            border-radius:0 12px 12px 12px;padding:3px;
+                            border:1.5px solid rgba(230,95,43,0.75);box-sizing:border-box;">
+                    <div style="border:1.5px dashed rgba(0,0,0,0.10);border-radius:9px;
+                                width:100%;height:100%;background-color:#f9fafb;
+                                display:flex;align-items:center;justify-content:center;box-sizing:border-box;">
+                        <span style="font-family:${F};font-size:${codeFs};font-weight:800;
+                                     color:#012e20;letter-spacing:0.22em;text-transform:uppercase;
+                                     white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:218px;">
+                            ${code}
+                        </span>
+                    </div>
+                </div>
+                ${minSpendHtml}
+            </div>
+
+            <!-- ── ZONE 3: Validity period ──────────────────────────────── -->
+            <div style="position:absolute;top:${validityTop}px;left:0;width:282px;z-index:10;
+                        display:flex;flex-direction:column;align-items:center;">
+                <div style="font-family:${F};font-size:6.5px;font-weight:700;
+                             color:rgba(255,255,255,0.32);letter-spacing:0.16em;
+                             text-transform:uppercase;margin-bottom:5px;">
+                    VALIDITY PERIOD
+                </div>
+                <div style="display:flex;align-items:center;justify-content:center;">
+                    <div style="text-align:center;">
+                        <div style="font-family:${F};font-size:8.5px;font-weight:700;
+                                     color:rgba(255,255,255,0.62);white-space:nowrap;">${validFrom}</div>
+                        <div style="font-family:${F};font-size:6px;font-weight:600;
+                                     color:rgba(255,255,255,0.32);letter-spacing:0.1em;margin-top:2px;">FROM</div>
+                    </div>
+                    <div style="width:28px;height:1px;background-color:rgba(251,146,60,0.38);
+                                margin-left:8px;margin-right:8px;"></div>
+                    <div style="text-align:center;">
+                        <div style="font-family:${F};font-size:8.5px;font-weight:700;
+                                     color:rgba(255,255,255,0.62);white-space:nowrap;">${expiry}</div>
+                        <div style="font-family:${F};font-size:6px;font-weight:600;
+                                     color:rgba(255,255,255,0.32);letter-spacing:0.1em;margin-top:2px;">TILL</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── ZONE 4: Expiry badge ─────────────────────────────────── -->
+            <div style="position:absolute;bottom:12px;left:0;width:282px;
+                        display:flex;align-items:center;justify-content:center;z-index:10;">
+                <div style="display:flex;align-items:center;background-color:rgba(251,146,60,0.16);
+                            border:1.5px solid #fb923c;border-radius:20px;padding:5px 16px;">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" fill="none"
+                         stroke="#fb923c" stroke-width="2.5" viewBox="0 0 24 24"
+                         style="flex-shrink:0;margin-right:6px;">
+                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+                        <line x1="16" y1="2" x2="16" y2="6"/>
+                        <line x1="8" y1="2" x2="8" y2="6"/>
+                        <line x1="3" y1="10" x2="21" y2="10"/>
+                    </svg>
+                    <span style="font-family:${F};color:#fb923c;font-weight:800;font-size:10px;
+                                 letter-spacing:0.08em;white-space:nowrap;line-height:1;">
+                        EXPIRES ${expiry}
+                    </span>
+                </div>
+            </div>
+        </div>`;
+
+    // ─────────────────────────────────────────────────────────────────────────
     if (isTours) {
-        /* --- Tours Only Card Template --- */
-        return `
-            <div class="w-[880px] h-[375px] shrink-0 relative flex rounded-[32px] overflow-hidden shadow-2xl bg-[#0B1116] border border-slate-800/80 font-sans" style="box-sizing: border-box;">
-                
-                <!-- Notches -->
-                <div class="absolute -top-[16px] left-[68%] w-[32px] h-[32px] rounded-full bg-[#151d29] border-b border-slate-800/85 z-30"></div>
-                <div className="absolute -bottom-[16px] left-[68%] w-[32px] h-[32px] rounded-full bg-[#151d29] border-t border-slate-800/85 z-30"></div>
-                
-                <!-- Perforated separator -->
-                <div class="absolute top-0 bottom-0 left-[68%] flex flex-col justify-between py-6 pointer-events-none z-30 -translate-x-0.5">
-                    ${Array.from({ length: 16 }).map(() => '<div class="w-1.5 h-1.5 rounded-full bg-white/90 shadow-sm"></div>').join('')}
+        /* ══════════════════════════════════════════════════════════════════════
+           TOURS EXCLUSIVE VOUCHER
+        ══════════════════════════════════════════════════════════════════════ */
+        const leftSection = `
+            <div style="width:598px;height:375px;background-color:#ffffff;position:relative;
+                        box-sizing:border-box;overflow:hidden;
+                        border-right:2px dashed rgba(0,0,0,0.13);">
+
+                ${travelBgSvg}
+
+                <!-- z-index:5 on all visible content so it sits above the bg SVG -->
+                <div style="position:relative;z-index:5;">
+                    ${headerHtml}
                 </div>
 
-                <!-- Left Section - Scenic beach couple background -->
-                <div class="w-[68%] h-full relative p-8 flex flex-col justify-between overflow-hidden text-white" style="box-sizing: border-box;">
-                    <div class="absolute inset-0 -z-10 bg-[url('https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&q=80&w=1000')] bg-cover bg-center brightness-[0.85] saturate-[1.1]"></div>
-                    <div class="absolute inset-0 bg-gradient-to-r from-[#012521]/95 via-[#012521]/60 to-transparent -z-10"></div>
+                <!-- Slogan block: top 78px — tight below header -->
+                <div style="position:absolute;left:36px;top:78px;width:490px;
+                            display:flex;flex-direction:column;z-index:5;">
+                    <div style="font-family:${F};font-size:32px;font-weight:800;color:#024430;
+                                line-height:1.05;letter-spacing:-0.02em;">EXPLORE MORE.</div>
+                    <div style="font-family:${F};font-size:30px;font-weight:800;color:#E65F2B;
+                                line-height:1.05;letter-spacing:-0.02em;margin-top:2px;">PAY LESS.</div>
+                    <!-- Accent bar -->
+                    <div style="display:block;width:48px;height:3px;background-color:#E65F2B;
+                                margin-top:9px;border-radius:2px;"></div>
+                    <!-- Tagline — refined copy, medium weight -->
+                    <div style="font-family:${F};font-size:12px;font-weight:500;color:#5a6a7a;
+                                margin-top:8px;line-height:1.45;letter-spacing:0.01em;">
+                        Luxury journeys at smarter prices.
+                    </div>
+                </div>
+                <!-- Slogan bottom: 78+34+2+32+9+3+8+17 = ~183px -->
 
-                    <!-- Header branding logo -->
-                    <div class="flex justify-between items-start">
-                        <div class="flex items-center gap-3">
-                            <div class="w-11 h-11 rounded-xl bg-gradient-to-tr from-amber-400 to-orange-500 flex items-center justify-center text-white shadow-lg border border-amber-300/30">
-                                <span class="material-symbols-outlined text-[24px]">beach_access</span>
-                            </div>
-                            <div>
-                                <div class="flex items-baseline gap-1 leading-none">
-                                    <span class="text-lg font-black tracking-tight text-orange-400 font-display">SHRAWELLO</span>
-                                    <span class="text-sm font-bold tracking-tight text-white font-display">TravelHub</span>
-                                </div>
-                                <span class="text-[7.5px] font-black text-white/50 tracking-[0.25em] uppercase block mt-1 leading-none">— CORPORATE TRAVEL AND EVENTS —</span>
-                            </div>
-                        </div>
+                <!-- Category icons: top 198px (15px below slogan) -->
+                <div style="position:absolute;left:28px;top:198px;width:534px;
+                            display:flex;justify-content:space-between;align-items:flex-start;z-index:5;">
 
-                        <!-- Flying plane trail -->
-                        <div class="relative pr-6 pt-1 select-none">
-                            <span class="text-amber-300 font-semibold text-xs tracking-wider italic block" style="font-family: 'Dancing Script', 'Brush Script MT', cursive;">
-                                Explore the World. Create Memories.
-                            </span>
-                            <svg class="absolute top-2.5 right-[-10px] w-48 h-8 opacity-40 pointer-events-none" viewBox="0 0 200 40">
-                                <path d="M10 30 C 50 10, 100 0, 180 20" fill="none" stroke="#ffffff" stroke-width="1" stroke-dasharray="3,3" />
-                                <path d="M180 20 L174 15 L178 19 Z" fill="#ffffff" />
+                    <div style="width:116px;display:flex;flex-direction:column;align-items:center;text-align:center;">
+                        <div style="width:42px;height:42px;border-radius:21px;background-color:#024430;
+                                    display:flex;align-items:center;justify-content:center;margin-bottom:5px;flex-shrink:0;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none"
+                                 stroke="#ffffff" stroke-width="2.5" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                    d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/>
                             </svg>
                         </div>
+                        <div style="font-family:${F};font-size:8px;font-weight:700;color:#334155;
+                                    line-height:1.3;max-width:90px;">Customized Tours</div>
                     </div>
 
-                    <!-- Slogan -->
-                    <div class="my-auto pt-4 pl-2 space-y-1">
-                        <h2 class="text-4xl font-extrabold tracking-tight leading-none">
-                            <span class="block text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]">EXPLORE MORE.</span>
-                            <span class="block text-orange-400 drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)] mt-1">PAY LESS.</span>
-                        </h2>
-                        <p class="text-amber-200 font-bold text-xs tracking-wider pl-0.5 pt-1.5" style="font-family: 'Dancing Script', 'Brush Script MT', cursive, serif;">
-                            Create Memories That Last Forever
-                        </p>
-                    </div>
-
-                    <!-- Category badges & Bottom feature bar -->
-                    <div class="space-y-4">
-                        <div class="flex gap-5 pl-2 select-none">
-                            ${[
-                                { label: 'Customized Tours', icon: 'map' },
-                                { label: 'Family Packages', icon: 'family_restroom' },
-                                { label: 'Honeymoon Packages', icon: 'favorite' },
-                                { label: 'Group Tours', icon: 'groups' }
-                            ].map(cat => `
-                                <div class="flex flex-col items-center gap-1.5">
-                                    <div class="w-[50px] h-[50px] rounded-full bg-[#012521]/70 backdrop-blur-sm border border-orange-400/50 flex items-center justify-center text-orange-400 shadow-md">
-                                        <span class="material-symbols-outlined text-[22px]">${cat.icon}</span>
-                                    </div>
-                                    <span class="text-[9px] font-black text-white/90 text-center tracking-wide block leading-tight">${cat.label}</span>
-                                </div>
-                            `).join('')}
+                    <div style="width:116px;display:flex;flex-direction:column;align-items:center;text-align:center;">
+                        <div style="width:42px;height:42px;border-radius:21px;background-color:#E65F2B;
+                                    display:flex;align-items:center;justify-content:center;margin-bottom:5px;flex-shrink:0;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none"
+                                 stroke="#ffffff" stroke-width="2.5" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                    d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
+                            </svg>
                         </div>
+                        <div style="font-family:${F};font-size:8px;font-weight:700;color:#334155;
+                                    line-height:1.3;max-width:90px;">Family Packages</div>
+                    </div>
 
-                        <div class="bg-[#002622]/80 backdrop-blur-sm border border-emerald-800/40 rounded-2xl h-11 px-6 flex items-center justify-between text-white text-[10px] font-black tracking-wider shadow-lg" style="box-sizing: border-box;">
-                            <div class="flex items-center gap-2">
-                                <span class="material-symbols-outlined text-orange-400 text-sm">percent</span>
-                                <span>BEST PRICES <span class="text-orange-400 font-medium">Guaranteed</span></span>
-                            </div>
-                            <div class="w-px h-4 bg-emerald-800/40"></div>
-                            <div class="flex items-center gap-2">
-                                <span class="material-symbols-outlined text-orange-400 text-sm">verified_user</span>
-                                <span>TRUSTED & SAFE <span class="text-orange-400 font-medium">Our Priority</span></span>
-                            </div>
-                            <div class="w-px h-4 bg-emerald-800/40"></div>
-                            <div class="flex items-center gap-2">
-                                <span class="material-symbols-outlined text-orange-400 text-sm">headset_mic</span>
-                                <span>24/7 SUPPORT <span className="text-orange-400 font-medium">We're Always Here</span></span>
-                            </div>
-                            <div class="w-px h-4 bg-emerald-800/40"></div>
-                            <div class="flex items-center gap-2">
-                                <span class="material-symbols-outlined text-orange-400 text-sm">luggage</span>
-                                <span>HASSLE FREE <span class="text-orange-400 font-medium">Travel Experience</span></span>
-                            </div>
+                    <div style="width:116px;display:flex;flex-direction:column;align-items:center;text-align:center;">
+                        <div style="width:42px;height:42px;border-radius:21px;background-color:#024430;
+                                    display:flex;align-items:center;justify-content:center;margin-bottom:5px;flex-shrink:0;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="19" height="19" fill="#ffffff" viewBox="0 0 24 24">
+                                <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                            </svg>
+                        </div>
+                        <div style="font-family:${F};font-size:8px;font-weight:700;color:#334155;
+                                    line-height:1.3;max-width:90px;">Honeymoon Packages</div>
+                    </div>
+
+                    <div style="width:116px;display:flex;flex-direction:column;align-items:center;text-align:center;">
+                        <div style="width:42px;height:42px;border-radius:21px;background-color:#E65F2B;
+                                    display:flex;align-items:center;justify-content:center;margin-bottom:5px;flex-shrink:0;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="#ffffff" viewBox="0 0 24 24">
+                                <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>
+                            </svg>
+                        </div>
+                        <div style="font-family:${F};font-size:8px;font-weight:700;color:#334155;
+                                    line-height:1.3;max-width:90px;">Group Tours</div>
+                    </div>
+                </div>
+                <!-- Icons bottom: 198+42+5+12 = ~257px -->
+
+                <!-- Feature bar: top 266px — green-tinted premium feel -->
+                <div style="position:absolute;left:28px;top:266px;width:534px;height:44px;
+                            background-color:rgba(2,68,48,0.055);border:1.5px solid rgba(2,68,48,0.14);
+                            border-radius:12px;box-sizing:border-box;
+                            display:flex;align-items:center;justify-content:space-between;
+                            padding-left:20px;padding-right:20px;z-index:5;">
+
+                    <div style="display:flex;align-items:center;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" fill="none"
+                             stroke="#024430" stroke-width="2" viewBox="0 0 24 24" style="flex-shrink:0;margin-right:8px;">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+                        </svg>
+                        <div>
+                            <div style="font-family:${F};font-size:10px;font-weight:700;color:#24433a;white-space:nowrap;line-height:1.3;">Best Prices</div>
+                            <div style="font-family:${F};font-size:7.5px;font-weight:600;color:#7a9a8f;white-space:nowrap;line-height:1.2;">Guaranteed</div>
+                        </div>
+                    </div>
+
+                    <div style="width:1px;height:22px;background-color:rgba(2,68,48,0.18);flex-shrink:0;"></div>
+
+                    <div style="display:flex;align-items:center;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" fill="none"
+                             stroke="#E65F2B" stroke-width="2" viewBox="0 0 24 24" style="flex-shrink:0;margin-right:8px;">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                d="M18 18h2a2 2 0 002-2v-3a2 2 0 00-2-2h-2m-12 7h-2a2 2 0 01-2-2v-3a2 2 0 012-2h2m12 5V9a6 6 0 00-12 0v8"/>
+                        </svg>
+                        <div>
+                            <div style="font-family:${F};font-size:10px;font-weight:700;color:#24433a;white-space:nowrap;line-height:1.3;">24/7 Support</div>
+                            <div style="font-family:${F};font-size:7.5px;font-weight:600;color:#7a9a8f;white-space:nowrap;line-height:1.2;">Always Here</div>
+                        </div>
+                    </div>
+
+                    <div style="width:1px;height:22px;background-color:rgba(2,68,48,0.18);flex-shrink:0;"></div>
+
+                    <div style="display:flex;align-items:center;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" fill="none"
+                             stroke="#024430" stroke-width="2" viewBox="0 0 24 24" style="flex-shrink:0;margin-right:8px;">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                d="M20 7H4a2 2 0 00-2 2v10a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2zM9 7V4a2 2 0 012-2h2a2 2 0 012 2v3"/>
+                        </svg>
+                        <div>
+                            <div style="font-family:${F};font-size:10px;font-weight:700;color:#24433a;white-space:nowrap;line-height:1.3;">Hassle Free</div>
+                            <div style="font-family:${F};font-size:7.5px;font-weight:600;color:#7a9a8f;white-space:nowrap;line-height:1.2;">Travel</div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Right Section - Coupon Stub -->
-                <div class="w-[32%] h-full bg-[#03231D] relative p-6 flex flex-col justify-between items-center text-center overflow-hidden" style="box-sizing: border-box;">
-                    <div class="absolute inset-0 bg-[radial-gradient(#ffffff_1px,transparent_1px)] [background-size:12px_12px] opacity-5 pointer-events-none"></div>
+                ${tncHtml}
+            </div>`;
 
-                    <div class="pt-2">
-                        <span class="text-amber-300 font-bold text-xs block tracking-wider" style="font-family: 'Dancing Script', 'Brush Script MT', cursive;">
-                            ★ Special Offer ★
-                        </span>
-                    </div>
-
-                    <div class="my-auto pt-2 flex flex-col items-center">
-                        <div class="flex items-baseline justify-center select-none">
-                            <span class="text-7xl font-black text-white tracking-tighter leading-none drop-shadow-[0_2px_10px_rgba(0,0,0,0.3)]">
-                                ${discVal}
-                            </span>
-                            <div class="flex flex-col items-start ml-1 leading-none">
-                                <span class="text-3xl font-black text-white">${isPercent ? '%' : '₹'}</span>
-                                <span class="text-xl font-black text-orange-500 tracking-wider">${isPercent ? 'OFF' : 'FLAT'}</span>
-                            </div>
-                        </div>
-                        <span class="text-[10px] font-black text-white/80 tracking-widest uppercase block mt-1">ON ALL TOUR PACKAGES</span>
-                    </div>
-
-                    <div class="w-full relative px-2 my-auto" style="box-sizing: border-box;">
-                        <div class="absolute top-[-9px] left-1/2 -translate-x-1/2 bg-gradient-to-r from-orange-500 to-amber-500 text-white font-black text-[7.5px] uppercase tracking-widest px-3 py-0.5 rounded-full z-15 shadow">
-                            COUPON CODE
-                        </div>
-                        <div class="w-full bg-white rounded-2xl p-2.5 border-[3px] border-double border-orange-400 shadow-xl flex items-center justify-center relative overflow-hidden" style="box-sizing: border-box;">
-                            <div class="absolute inset-0.5 border border-dashed border-slate-300 rounded-xl pointer-events-none"></div>
-                            <span class="font-mono text-base font-extrabold text-[#03231D] tracking-widest uppercase block z-10">
-                                ${promoCode}
-                            </span>
-                        </div>
-                    </div>
-
-                    <div class="w-full bg-gradient-to-r from-orange-500 to-amber-500 text-white font-black text-[10.5px] tracking-wider py-2 px-3 rounded-xl shadow flex items-center justify-center gap-2 select-none" style="box-sizing: border-box;">
-                        <span class="material-symbols-outlined text-[15px] font-black">calendar_today</span>
-                        <span>VALID TILL: ${expiryStr}</span>
-                      </div>
-
-                    ${luggageSvg}
-                </div>
-            </div>
-        `;
-    } else {
-        /* --- Multi-Category Card Template --- */
         return `
-            <div class="w-[880px] h-[375px] shrink-0 relative flex rounded-[32px] overflow-hidden shadow-2xl bg-[#0B1116] border border-slate-800/80 font-sans" style="box-sizing: border-box;">
-                
-                <!-- Notches -->
-                <div class="absolute -top-[16px] left-[68%] w-[32px] h-[32px] rounded-full bg-[#151d29] border-b border-slate-800/85 z-30"></div>
-                <div class="absolute -bottom-[16px] left-[68%] w-[32px] h-[32px] rounded-full bg-[#151d29] border-t border-slate-800/85 z-30"></div>
-                
-                <!-- Perforated separator -->
-                <div class="absolute top-0 bottom-0 left-[68%] flex flex-col justify-between py-6 pointer-events-none z-30 -translate-x-0.5">
-                    ${Array.from({ length: 16 }).map(() => '<div class="w-1.5 h-1.5 rounded-full bg-white/90 shadow-sm"></div>').join('')}
+            <div style="width:880px;height:375px;display:flex;border-radius:28px;overflow:hidden;
+                        background-color:#ffffff;border:1.5px solid #d1d9e0;
+                        font-family:${F};position:relative;box-sizing:border-box;">
+                <!-- Ticket notch circles -->
+                <div style="position:absolute;top:-14px;left:583px;width:28px;height:28px;
+                            border-radius:50%;background-color:#d8dde4;z-index:30;box-sizing:border-box;"></div>
+                <div style="position:absolute;bottom:-14px;left:583px;width:28px;height:28px;
+                            border-radius:50%;background-color:#d8dde4;z-index:30;box-sizing:border-box;"></div>
+                ${leftSection}
+                ${rightSection}
+            </div>`;
+
+    } else {
+        /* ══════════════════════════════════════════════════════════════════════
+           MULTI-CATEGORY PREMIUM PASS
+        ══════════════════════════════════════════════════════════════════════ */
+        const leftSection = `
+            <div style="width:598px;height:375px;background-color:#ffffff;position:relative;
+                        box-sizing:border-box;overflow:hidden;
+                        border-right:2px dashed rgba(0,0,0,0.13);">
+
+                ${travelBgSvg}
+
+                <div style="position:relative;z-index:5;">
+                    ${headerHtml}
                 </div>
 
-                <!-- Left Section - Branded Cream & Slanted Categories -->
-                <div class="w-[68%] h-full bg-gradient-to-br from-[#FCFBF9] to-[#F3EFE9] text-slate-800 relative p-8 flex flex-col justify-between overflow-hidden" style="box-sizing: border-box;">
-                    
-                    <!-- Dotted Route Map Path -->
-                    <svg class="absolute inset-0 w-full h-full opacity-[0.12] pointer-events-none" viewBox="0 0 600 375">
-                        <path d="M30 60 Q 150 140, 220 70 T 400 120" fill="none" stroke="#FF6A00" stroke-width="2.5" stroke-dasharray="5,5" />
-                        <circle cx="30" cy="60" r="5" fill="#FF6A00" />
-                        <circle cx="220" cy="70" r="5" fill="#008060" />
-                        <circle cx="400" cy="120" r="5" fill="#0066CC" />
-                    </svg>
-
-                    <!-- Header Logo -->
-                    <div class="flex justify-between items-start">
-                        <div class="flex items-center gap-3">
-                            <div class="w-11 h-11 rounded-xl bg-gradient-to-tr from-amber-400 to-orange-500 flex items-center justify-center text-white shadow-lg border border-amber-300/30">
-                                <span class="material-symbols-outlined text-[24px]">beach_access</span>
-                            </div>
-                            <div>
-                                <div class="flex items-baseline gap-1 leading-none">
-                                    <span class="text-lg font-black tracking-tight text-[#FF6A00] font-display">SHRAWELLO</span>
-                                    <span class="text-sm font-bold tracking-tight text-[#008060] font-display">TravelHub</span>
-                                </div>
-                                <span class="text-[7.5px] font-black text-slate-400 tracking-[0.25em] uppercase block mt-1 leading-none">— CORPORATE TRAVEL AND EVENTS —</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Middle Area - Slogan + Slants -->
-                    <div class="flex justify-between items-center my-auto pt-2 pl-1 select-none">
-                        
-                        <div class="space-y-4 max-w-[280px]">
-                            <div>
-                                <h2 class="text-[28px] font-black tracking-tight leading-none text-[#003632]">ONE DESTINATION.</h2>
-                                <h2 class="text-[28px] font-black tracking-tight leading-none text-[#FF6A00] mt-1.5">ENDLESS JOURNEYS.</h2>
-                                <p class="text-xs text-slate-500 font-bold mt-2.5">
-                                    Travel <span class="text-emerald-600">Smart</span>. Book <span class="text-[#003632]">Easy</span>. Save <span class="text-orange-500">More</span>.
-                                </p>
-                            </div>
-
-                            <div class="space-y-1.5">
-                                ${['Easy Bookings', 'Best Prices', 'Verified Partners', '24/7 Support'].map(feat => `
-                                    <div class="flex items-center gap-2 text-[10.5px] font-extrabold text-slate-700">
-                                        <span class="w-4 h-4 rounded-full bg-emerald-600 flex items-center justify-center text-white">
-                                            <span class="material-symbols-outlined text-[11px] font-black">check</span>
-                                        </span>
-                                        <span>${feat}</span>
-                                    </div>
-                                `).join('')}
-                            </div>
-                        </div>
-
-                        <!-- Slants -->
-                        <div class="flex gap-2.5 h-[165px] pl-6 pr-2">
-                            ${[
-                                { title: 'CAB BOOKING', text: 'Safe. Reliable. Rides.', icon: 'local_taxi', color: 'bg-orange-500', img: 'https://images.unsplash.com/photo-1549880181-56a44cf8a4a1?auto=format&fit=crop&q=80&w=300' },
-                                { title: 'TRAIN BOOKING', text: 'Comfortable. Connected.', icon: 'train', color: 'bg-emerald-600', img: 'https://images.unsplash.com/photo-1532103054090-334e6e60ab29?auto=format&fit=crop&q=80&w=300' },
-                                { title: 'FLIGHT BOOKING', text: 'Best Fares. Fly High.', icon: 'flight', color: 'bg-blue-600', img: 'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?auto=format&fit=crop&q=80&w=300' },
-                                { title: 'TOUR PACKAGES', text: 'Explore. Create Memories.', icon: 'beach_access', color: 'bg-purple-600', img: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&q=80&w=300' }
-                            ].map(col => `
-                                <div class="w-[66px] h-[155px] -skew-x-12 overflow-hidden rounded-xl border border-white shadow-md relative transition-all duration-300">
-                                    <div class="absolute inset-0 -skew-x-12">
-                                        <img src="${col.img}" class="absolute inset-0 w-full h-full object-cover brightness-[0.8]" />
-                                        <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-black/30"></div>
-                                    </div>
-                                    <div class="skew-x-12 w-[110px] h-[155px] absolute left-[-22px] top-0 flex flex-col justify-between p-2.5" style="box-sizing: border-box;">
-                                        <div class="flex flex-col items-center select-none pt-1">
-                                            <div class="w-6 h-6 rounded-full ${col.color} flex items-center justify-center text-white shadow-sm">
-                                                <span class="material-symbols-outlined text-[14px]">${col.icon}</span>
-                                            </div>
-                                            <span class="text-[7.5px] font-black text-white text-center tracking-wider block mt-1">${col.title}</span>
-                                        </div>
-                                        <div class="${col.color} text-white text-[7px] font-black leading-tight py-1 px-1 rounded text-center shadow-md select-none">
-                                            ${col.text}
-                                        </div>
-                                    </div>
-                                </div>
-                            `).join('')}
-                        </div>
-                    </div>
-
-                    <!-- Bottom feature rounded bar -->
-                    <div class="bg-white/90 border border-slate-200/50 rounded-2xl h-11 px-6 flex items-center justify-between text-slate-700 text-[10px] font-black tracking-wider shadow-md select-none" style="box-sizing: border-box;">
-                        <div class="flex items-center gap-2">
-                            <span class="material-symbols-outlined text-[#008060] text-sm">verified</span>
-                            <span>BEST PRICES <span class="text-slate-400 font-medium">Guaranteed</span></span>
-                        </div>
-                        <div class="w-px h-4 bg-slate-200"></div>
-                        <div class="flex items-center gap-2">
-                            <span class="material-symbols-outlined text-[#008060] text-sm">security</span>
-                            <span>TRUSTED & SAFE <span class="text-slate-400 font-medium">Our Priority</span></span>
-                        </div>
-                        <div class="w-px h-4 bg-slate-200"></div>
-                        <div class="flex items-center gap-2">
-                            <span class="material-symbols-outlined text-[#008060] text-sm">support_agent</span>
-                            <span>24/7 SUPPORT <span class="text-slate-400 font-medium">Always Here</span></span>
-                        </div>
-                        <div class="w-px h-4 bg-slate-200"></div>
-                        <div class="flex items-center gap-2">
-                          <span class="material-symbols-outlined text-[#008060] text-sm">local_offer</span>
-                          <span>EXCLUSIVE OFFERS <span class="text-slate-400 font-medium">More Savings</span></span>
-                        </div>
+                <!-- Slogan -->
+                <div style="position:absolute;left:36px;top:78px;width:490px;
+                            display:flex;flex-direction:column;z-index:5;">
+                    <div style="font-family:${F};font-size:30px;font-weight:800;color:#024430;
+                                line-height:1.05;letter-spacing:-0.02em;">ONE PLATFORM.</div>
+                    <div style="font-family:${F};font-size:28px;font-weight:800;color:#E65F2B;
+                                line-height:1.05;letter-spacing:-0.02em;margin-top:2px;">ALL YOUR JOURNEYS.</div>
+                    <div style="display:block;width:48px;height:3px;background-color:#E65F2B;
+                                margin-top:9px;border-radius:2px;"></div>
+                    <div style="font-family:${F};font-size:11px;font-weight:500;color:#5a6a7a;
+                                margin-top:7px;line-height:1.45;letter-spacing:0.01em;">
+                        Smart bookings. Premium travel experiences made affordable.
                     </div>
                 </div>
 
-                <!-- Right Section - Coupon Stub -->
-                <div class="w-[32%] h-full bg-[#03231D] relative p-6 flex flex-col justify-between items-center text-center overflow-hidden" style="box-sizing: border-box;">
-                    <div class="absolute inset-0 bg-[radial-gradient(#ffffff_1px,transparent_1px)] [background-size:12px_12px] opacity-5 pointer-events-none"></div>
+                <!-- 4 icon tiles: top 198px -->
+                <div style="position:absolute;left:28px;top:198px;width:534px;
+                            display:flex;justify-content:space-between;align-items:flex-start;z-index:5;">
 
-                    <div class="pt-2 select-none">
-                        <span class="text-amber-300 font-black text-[10px] block tracking-[0.2em] uppercase leading-none">
-                            ★ SPECIAL DISCOUNT ★
-                        </span>
-                      </div>
-
-                    <div class="my-auto pt-2 flex flex-col items-center">
-                        <div class="flex items-baseline justify-center select-none">
-                            <span class="text-7xl font-black text-white tracking-tighter leading-none drop-shadow-[0_2px_10px_rgba(0,0,0,0.3)]">
-                                ${discVal}
-                            </span>
-                            <div class="flex flex-col items-start ml-1 leading-none">
-                                <span class="text-3xl font-black text-white">${isPercent ? '%' : '₹'}</span>
-                                <span class="text-xl font-black text-orange-500 tracking-wider">${isPercent ? 'OFF' : 'FLAT'}</span>
-                            </div>
+                    <div style="width:116px;display:flex;flex-direction:column;align-items:center;text-align:center;">
+                        <div style="width:42px;height:42px;border-radius:12px;background-color:#fff7ed;
+                                    border:1.5px solid #fed7aa;display:flex;align-items:center;justify-content:center;
+                                    margin-bottom:5px;flex-shrink:0;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="19" height="19" fill="none"
+                                 stroke="#E65F2B" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                    d="M19 17h2a1 1 0 001-1v-3a1 1 0 00-1-1h-2.28a2 2 0 01-1.68-.9l-.96-1.44A2 2 0 0014.4 9H9.6a2 2 0 00-1.68.9l-.96 1.44a2 2 0 01-1.68.9H3a1 1 0 00-1 1v3a1 1 0 001 1h2"/>
+                                <path d="M5 18h14" stroke-linecap="round"/>
+                            </svg>
                         </div>
-                        <span class="text-[10px] font-black text-white/95 tracking-[0.15em] uppercase block mt-1">ON ALL BOOKINGS</span>
-                        <span class="text-[8px] font-bold text-orange-400/80 tracking-widest block mt-0.5">CAB | TRAIN | FLIGHTS | TOURS</span>
+                        <div style="font-family:${F};font-size:8px;font-weight:800;color:#334155;line-height:1.2;max-width:90px;">CAB BOOKING</div>
+                        <div style="font-family:${F};font-size:7px;color:#94a3b8;font-weight:500;line-height:1.3;margin-top:2px;">Local &bull; Outstation</div>
                     </div>
 
-                    <div class="w-full relative px-2 my-auto" style="box-sizing: border-box;">
-                        <div class="absolute top-[-9px] left-1/2 -translate-x-1/2 bg-gradient-to-r from-orange-500 to-amber-500 text-white font-black text-[7.5px] uppercase tracking-widest px-3 py-0.5 rounded-full z-15 shadow">
-                            COUPON CODE
+                    <div style="width:116px;display:flex;flex-direction:column;align-items:center;text-align:center;">
+                        <div style="width:42px;height:42px;border-radius:12px;background-color:#f0fdf4;
+                                    border:1.5px solid #bbf7d0;display:flex;align-items:center;justify-content:center;
+                                    margin-bottom:5px;flex-shrink:0;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="19" height="19" fill="none"
+                                 stroke="#008060" stroke-width="2" viewBox="0 0 24 24">
+                                <rect x="5" y="3" width="14" height="15" rx="3"/>
+                                <rect x="7" y="5" width="10" height="5" rx="1"/>
+                                <circle cx="9" cy="14" r="1.5" fill="#008060"/>
+                                <circle cx="15" cy="14" r="1.5" fill="#008060"/>
+                            </svg>
                         </div>
-                        <div class="w-full bg-white rounded-2xl p-2.5 border-[3px] border-double border-orange-400 shadow-xl flex items-center justify-center relative overflow-hidden" style="box-sizing: border-box;">
-                            <div class="absolute inset-0.5 border border-dashed border-slate-300 rounded-xl pointer-events-none"></div>
-                            <span class="font-mono text-base font-extrabold text-[#03231D] tracking-widest uppercase block z-10">
-                                ${promoCode}
-                            </span>
+                        <div style="font-family:${F};font-size:8px;font-weight:800;color:#334155;line-height:1.2;max-width:90px;">TRAIN BOOKING</div>
+                        <div style="font-family:${F};font-size:7px;color:#94a3b8;font-weight:500;line-height:1.3;margin-top:2px;">All Classes &bull; Tatkal</div>
+                    </div>
+
+                    <div style="width:116px;display:flex;flex-direction:column;align-items:center;text-align:center;">
+                        <div style="width:42px;height:42px;border-radius:12px;background-color:#eff6ff;
+                                    border:1.5px solid #bfdbfe;display:flex;align-items:center;justify-content:center;
+                                    margin-bottom:5px;flex-shrink:0;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="19" height="19" fill="none"
+                                 stroke="#2563eb" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                    d="M12 19l9 2-9-16-9 16 9-2zm0 0v-8"/>
+                            </svg>
                         </div>
+                        <div style="font-family:${F};font-size:8px;font-weight:800;color:#334155;line-height:1.2;max-width:90px;">FLIGHT BOOKING</div>
+                        <div style="font-family:${F};font-size:7px;color:#94a3b8;font-weight:500;line-height:1.3;margin-top:2px;">Domestic &bull; Intl</div>
                     </div>
 
-                    <div class="flex justify-around items-center w-full px-2 py-1 bg-[#011B16] rounded-xl border border-white/5 shadow-inner select-none my-auto" style="box-sizing: border-box;">
-                        <span class="material-symbols-outlined text-orange-400 text-base font-bold">local_taxi</span>
-                        <div class="w-px h-3 bg-white/10"></div>
-                        <span class="material-symbols-outlined text-orange-400 text-base font-bold">train</span>
-                        <div class="w-px h-3 bg-white/10"></div>
-                        <span class="material-symbols-outlined text-orange-400 text-base font-bold">flight</span>
-                        <div class="w-px h-3 bg-white/10"></div>
-                        <span class="material-symbols-outlined text-orange-400 text-base font-bold">luggage</span>
+                    <div style="width:116px;display:flex;flex-direction:column;align-items:center;text-align:center;">
+                        <div style="width:42px;height:42px;border-radius:12px;background-color:#faf5ff;
+                                    border:1.5px solid #ddd6fe;display:flex;align-items:center;justify-content:center;
+                                    margin-bottom:5px;flex-shrink:0;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="19" height="19" fill="none"
+                                 stroke="#7c3aed" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                    d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/>
+                            </svg>
+                        </div>
+                        <div style="font-family:${F};font-size:8px;font-weight:800;color:#334155;line-height:1.2;max-width:90px;">TOUR PACKAGES</div>
+                        <div style="font-family:${F};font-size:7px;color:#94a3b8;font-weight:500;line-height:1.3;margin-top:2px;">Honeymoon &bull; Family</div>
                     </div>
-
-                    <div class="w-full bg-gradient-to-r from-orange-500 to-amber-500 text-white font-black text-[10.5px] tracking-wider py-2 px-3 rounded-xl shadow flex items-center justify-center gap-2 select-none" style="box-sizing: border-box;">
-                        <span class="material-symbols-outlined text-[15px] font-black">calendar_today</span>
-                        <span>VALID TILL: ${expiryStr}</span>
-                    </div>
-
-                    ${luggageSvg}
                 </div>
-            </div>
-        `;
+
+                <!-- Feature bar: top 266px, 4 cols, green tint -->
+                <div style="position:absolute;left:28px;top:266px;width:534px;height:44px;
+                            background-color:rgba(2,68,48,0.055);border:1.5px solid rgba(2,68,48,0.14);
+                            border-radius:12px;box-sizing:border-box;
+                            display:flex;align-items:center;justify-content:space-between;
+                            padding-left:14px;padding-right:14px;z-index:5;">
+
+                    <div style="display:flex;align-items:center;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="none"
+                             stroke="#008060" stroke-width="2.5" viewBox="0 0 24 24" style="flex-shrink:0;margin-right:6px;">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                        <div>
+                            <div style="font-family:${F};font-size:8px;font-weight:800;color:#24433a;white-space:nowrap;line-height:1.3;">TRUSTED &amp; SAFE</div>
+                            <div style="font-family:${F};font-size:7px;font-weight:600;color:#7a9a8f;white-space:nowrap;line-height:1.2;">Verified</div>
+                        </div>
+                    </div>
+                    <div style="width:1px;height:22px;background-color:rgba(2,68,48,0.18);flex-shrink:0;"></div>
+                    <div style="display:flex;align-items:center;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="none"
+                             stroke="#E65F2B" stroke-width="2.5" viewBox="0 0 24 24" style="flex-shrink:0;margin-right:6px;">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8V6m0 12v-2"/>
+                        </svg>
+                        <div>
+                            <div style="font-family:${F};font-size:8px;font-weight:800;color:#24433a;white-space:nowrap;line-height:1.3;">BEST PRICES</div>
+                            <div style="font-family:${F};font-size:7px;font-weight:600;color:#7a9a8f;white-space:nowrap;line-height:1.2;">Guaranteed</div>
+                        </div>
+                    </div>
+                    <div style="width:1px;height:22px;background-color:rgba(2,68,48,0.18);flex-shrink:0;"></div>
+                    <div style="display:flex;align-items:center;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="none"
+                             stroke="#008060" stroke-width="2.5" viewBox="0 0 24 24" style="flex-shrink:0;margin-right:6px;">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                d="M18 18h2a2 2 0 002-2v-3a2 2 0 00-2-2h-2m-12 7h-2a2 2 0 01-2-2v-3a2 2 0 012-2h2m12 5V9a6 6 0 00-12 0v8"/>
+                        </svg>
+                        <div>
+                            <div style="font-family:${F};font-size:8px;font-weight:800;color:#24433a;white-space:nowrap;line-height:1.3;">24/7 SUPPORT</div>
+                            <div style="font-family:${F};font-size:7px;font-weight:600;color:#7a9a8f;white-space:nowrap;line-height:1.2;">Always Here</div>
+                        </div>
+                    </div>
+                    <div style="width:1px;height:22px;background-color:rgba(2,68,48,0.18);flex-shrink:0;"></div>
+                    <div style="display:flex;align-items:center;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="none"
+                             stroke="#E65F2B" stroke-width="2.5" viewBox="0 0 24 24" style="flex-shrink:0;margin-right:6px;">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                        </svg>
+                        <div>
+                            <div style="font-family:${F};font-size:8px;font-weight:800;color:#24433a;white-space:nowrap;line-height:1.3;">EASY BOOKING</div>
+                            <div style="font-family:${F};font-size:7px;font-weight:600;color:#7a9a8f;white-space:nowrap;line-height:1.2;">Quick &amp; Free</div>
+                        </div>
+                    </div>
+                </div>
+
+                ${tncHtml}
+            </div>`;
+
+        return `
+            <div style="width:880px;height:375px;display:flex;border-radius:28px;overflow:hidden;
+                        background-color:#ffffff;border:1.5px solid #d1d9e0;
+                        font-family:${F};position:relative;box-sizing:border-box;">
+                <div style="position:absolute;top:-14px;left:583px;width:28px;height:28px;
+                            border-radius:50%;background-color:#d8dde4;z-index:30;box-sizing:border-box;"></div>
+                <div style="position:absolute;bottom:-14px;left:583px;width:28px;height:28px;
+                            border-radius:50%;background-color:#d8dde4;z-index:30;box-sizing:border-box;"></div>
+                ${leftSection}
+                ${rightSection}
+            </div>`;
     }
 }
 
-// ─── PNG DOWNLOAD via html2canvas ─────────────────────────────────────────────
+// ─── PNG DOWNLOAD ─────────────────────────────────────────────────────────────
 export async function downloadCouponAsImage(
     coupon: Coupon,
     elementRef: HTMLElement | null
 ): Promise<void> {
     const html2canvas = (await import('html2canvas')).default;
+    ensureFontsInjected();
 
-    let targetElement = elementRef;
-    let isOffscreen = false;
+    let target = elementRef;
+    let offscreen = false;
 
-    // If no DOM element is provided (e.g. from row download), build a high-fidelity off-screen card
-    if (!targetElement) {
-        targetElement = document.createElement('div');
-        targetElement.style.position = 'absolute';
-        targetElement.style.left = '-9999px';
-        targetElement.style.top = '-9999px';
-        targetElement.style.width = '880px';
-        targetElement.style.height = '375px';
-        targetElement.style.overflow = 'hidden';
-        targetElement.innerHTML = getCouponHtml(coupon);
-        document.body.appendChild(targetElement);
-        isOffscreen = true;
+    if (!target) {
+        target = document.createElement('div');
+        target.style.cssText = 'position:absolute;left:-9999px;top:-9999px;width:880px;height:375px;overflow:hidden;';
+        target.innerHTML = getCouponHtml(coupon);
+        document.body.appendChild(target);
+        offscreen = true;
 
-        // Preload image assets inside the ticket to avoid blank spaces
-        const images = Array.from(targetElement.querySelectorAll('img'));
-        await Promise.all(images.map(img => {
-            if (img.complete) return Promise.resolve();
-            return new Promise((resolve) => {
-                img.onload = resolve;
-                img.onerror = resolve; // avoid getting stuck
-            });
-        }));
+        await Promise.all(Array.from(target.querySelectorAll('img')).map(img =>
+            img.complete ? Promise.resolve() : new Promise<void>(r => { img.onload = () => r(); img.onerror = () => r(); })
+        ));
+        try { await document.fonts.ready; } catch (_) { /* skip */ }
+        await new Promise(r => setTimeout(r, 500));
     }
 
     try {
-        const canvas = await html2canvas(targetElement, {
-            backgroundColor: null,
-            scale: 3, // scale up for high-DPI crisp print quality
+        const canvas = await html2canvas(target, {
+            backgroundColor: '#ffffff',
+            scale: 3,
             useCORS: true,
+            allowTaint: true,
             logging: false,
-            allowTaint: false,
+            imageTimeout: 8000,
         });
-
         const link = document.createElement('a');
-        link.download = `COUPON_${coupon.code}_${Date.now()}.png`;
+        link.download = `SHRAWELLO_COUPON_${coupon.code || 'PREVIEW'}.png`;
         link.href = canvas.toDataURL('image/png');
         link.click();
-
         await trackDownload(coupon.id, coupon.downloadCount || 0);
     } catch (err) {
-        console.error('Image download failed:', err);
+        console.error('[downloadCouponAsImage]', err);
         throw err;
     } finally {
-        if (isOffscreen && targetElement && targetElement.parentNode) {
-            targetElement.parentNode.removeChild(targetElement);
-        }
+        if (offscreen && target?.parentNode) target.parentNode.removeChild(target);
     }
 }
 
-// ─── PDF DOWNLOAD via html2canvas + jsPDF ──────────────────────────────────────
+// ─── PDF DOWNLOAD ─────────────────────────────────────────────────────────────
 export async function downloadCouponAsPDF(coupon: Coupon): Promise<void> {
     const html2canvas = (await import('html2canvas')).default;
+    ensureFontsInjected();
 
-    // Card dimensions for A5 print format (landscape aspect 1.6)
-    const doc = new jsPDF({
-        orientation: 'landscape',
-        unit: 'mm',
-        format: [210, 130], // aspect-ratio calibrated exactly for A5
-    });
-
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [210, 89.5] });
     const W = doc.internal.pageSize.getWidth();
     const H = doc.internal.pageSize.getHeight();
 
-    // Render high-fidelity card in absolute off-screen container
     const container = document.createElement('div');
-    container.style.position = 'absolute';
-    container.style.left = '-9999px';
-    container.style.top = '-9999px';
-    container.style.width = '880px';
-    container.style.height = '375px';
-    container.style.overflow = 'hidden';
+    container.style.cssText = 'position:absolute;left:-9999px;top:-9999px;width:880px;height:375px;overflow:hidden;';
     container.innerHTML = getCouponHtml(coupon);
     document.body.appendChild(container);
 
-    // Preload image assets inside the ticket to avoid blank spaces
-    const images = Array.from(container.querySelectorAll('img'));
-    await Promise.all(images.map(img => {
-        if (img.complete) return Promise.resolve();
-        return new Promise((resolve) => {
-            img.onload = resolve;
-            img.onerror = resolve; // avoid getting stuck
-        });
-    }));
+    await Promise.all(Array.from(container.querySelectorAll('img')).map(img =>
+        img.complete ? Promise.resolve() : new Promise<void>(r => { img.onload = () => r(); img.onerror = () => r(); })
+    ));
+    try { await document.fonts.ready; } catch (_) { /* skip */ }
+    await new Promise(r => setTimeout(r, 500));
 
     try {
         const canvas = await html2canvas(container, {
-            backgroundColor: null,
-            scale: 3.5, // 3.5x scale to guarantee extremely crisp high-resolution PDF print exports
+            backgroundColor: '#ffffff',
+            scale: 3.5,
             useCORS: true,
+            allowTaint: true,
             logging: false,
-            allowTaint: false,
+            imageTimeout: 8000,
         });
-
-        // Insert the high-resolution captured canvas image full-bleed into the PDF
-        const imgData = canvas.toDataURL('image/png');
-        doc.addImage(imgData, 'PNG', 0, 0, W, H);
-
-        doc.save(`COUPON_${coupon.code}_Shrawello.pdf`);
+        doc.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, W, H);
+        const tag = coupon.type === 'ToursOnly' ? 'TOURS' : 'ALLPASS';
+        doc.save(`SHRAWELLO_${tag}_${coupon.code || 'COUPON'}.pdf`);
         await trackDownload(coupon.id, coupon.downloadCount || 0);
     } catch (err) {
-        console.error('PDF generation failed:', err);
+        console.error('[downloadCouponAsPDF]', err);
         throw err;
     } finally {
-        if (container && container.parentNode) {
-            container.parentNode.removeChild(container);
-        }
+        if (container?.parentNode) container.parentNode.removeChild(container);
     }
 }

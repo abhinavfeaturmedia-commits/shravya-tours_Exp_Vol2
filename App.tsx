@@ -56,6 +56,8 @@ const TestimonialsManager = lazy(() => import('./pages/admin/TestimonialsManager
 const MembershipManager = lazy(() => import('./pages/admin/MembershipManager').then(module => ({ default: module.MembershipManager })));
 const PartnerManager = lazy(() => import('./pages/admin/PartnerManager').then(module => ({ default: module.PartnerManager })));
 const CouponManager = lazy(() => import('./pages/admin/CouponManager').then(module => ({ default: module.CouponManager })));
+const MarketingLogs = lazy(() => import('./pages/admin/MarketingLogs').then(module => ({ default: module.MarketingLogs })));
+const TrendingDestinationsManager = lazy(() => import('./pages/admin/TrendingDestinationsManager').then(module => ({ default: module.TrendingDestinationsManager })));
 
 // Partner Portal Pages
 const PartnerLogin = lazy(() => import('./pages/partner/PartnerLogin').then(m => ({ default: m.PartnerLogin })));
@@ -139,6 +141,8 @@ const App: React.FC = () => {
                   <Route path="memberships" element={<MembershipManager />} />
                   <Route path="partners" element={<PartnerManager />} />
                   <Route path="coupons" element={<CouponManager />} />
+                  <Route path="marketing-logs" element={<MarketingLogs />} />
+                  <Route path="trending" element={<TrendingDestinationsManager />} />
                   <Route path="*" element={<div className="p-10">Page Under Construction</div>} />
                 </Route>
 

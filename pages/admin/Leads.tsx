@@ -1,10 +1,10 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useData } from '../../context/DataContext';
 import { useLeads } from '../../src/hooks/useLeads';
 import { useBookings } from '../../src/hooks/useBookings';
 import { useAuth } from '../../context/AuthContext';
-import { Lead, BookingStatus, FollowUpType, Customer } from '../../types'; // Removed unused imports
+import { Lead, BookingStatus, FollowUpType, Customer, BookingType, Task } from '../../types'; // Removed unused imports
 import { api } from '../../src/lib/api';
 import { toast } from 'sonner'; // Use sonner for consistency if available, or keep existing toast
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -38,7 +38,7 @@ const StatusBadge = ({ status }: { status: string }) => {
 };
 
 export const Leads: React.FC = () => {
-    const { addFollowUp, followUps, customers, addCustomer } = useData();
+    const { addFollowUp, followUps, customers, addCustomer, tasks, updateTask, addTask } = useData();
     const { leads, addLead, updateLead, deleteLead, addLeadLog, updateLeadLog, deleteLeadLog, isLoading, refetchLeads } = useLeads();
     const { addBooking } = useBookings();
     const { currentUser, staff, hasPermission } = useAuth();
@@ -95,12 +95,62 @@ export const Leads: React.FC = () => {
 
     const selectedLead = leads.find(l => l.id === selectedLeadId);
 
-    const [leadModalTab, setLeadModalTab] = useState<'info' | 'chat'>('info');
+    const [leadModalTab, setLeadModalTab] = useState<'info' | 'tasks' | 'chat'>('info');
     const [chatInput, setChatInput] = useState('');
+
+    const [manualTaskTitle, setManualTaskTitle] = useState('');
+    const [manualTaskDueDate, setManualTaskDueDate] = useState('');
+    const [selectedPredefinedPlaybookStatus, setSelectedPredefinedPlaybookStatus] = useState<string>('');
 
     useEffect(() => {
         setLeadModalTab('info');
-    }, [selectedLeadId]);
+        if (selectedLead) {
+            setSelectedPredefinedPlaybookStatus(selectedLead.status);
+        }
+    }, [selectedLeadId, selectedLead]);
+
+    const handleAddManualTask = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!selectedLead || !manualTaskTitle.trim()) return;
+
+        const newTask: Partial<Task> = {
+            id: `TSK-${Date.now()}`,
+            title: manualTaskTitle.trim(),
+            description: 'Manually added checklist task',
+            status: 'Pending',
+            priority: 'Medium',
+            dueDate: manualTaskDueDate || new Date().toISOString().split('T')[0],
+            category: 'checklist',
+            relatedLeadId: selectedLead.id,
+            assignedTo: selectedLead.assignedTo || currentUser?.id || staff?.[0]?.id || 'System',
+            assignedBy: currentUser?.id || staff?.[0]?.id || 'System',
+            createdAt: new Date().toISOString()
+        };
+
+        try {
+            await addTask(newTask as Task);
+            setManualTaskTitle('');
+            setManualTaskDueDate('');
+            window.dispatchEvent(new CustomEvent('tasks-changed'));
+            toast.success('Manual task added successfully');
+        } catch (err) {
+            console.error('Failed to add manual task:', err);
+            toast.error('Failed to add task');
+        }
+    };
+
+    const handleGeneratePlaybook = async () => {
+        if (!selectedLead) return;
+        const statusToUse = selectedPredefinedPlaybookStatus || selectedLead.status;
+        try {
+            await api.generateLeadPlaybook(selectedLead.id, statusToUse);
+            window.dispatchEvent(new CustomEvent('tasks-changed'));
+            toast.success(`Checklist loaded successfully`);
+        } catch (err) {
+            console.error('Failed to generate playbook:', err);
+            toast.error('Failed to load playbook checklist');
+        }
+    };
 
     const handleSendStaffMessage = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -333,7 +383,7 @@ export const Leads: React.FC = () => {
         try {
             await addBooking({
                 id: '', // Will be set by DB (UUID auto-generated)
-                type: 'Tour',
+                type: (selectedLead.type && ['Tour', 'Hotel', 'Car', 'Bus', 'Train', 'Flight'].includes(selectedLead.type) ? selectedLead.type : 'Tour') as BookingType,
                 customer: selectedLead.name,
                 customerId: targetCustomerId, // Linked Customer
                 email: selectedLead.email,
@@ -354,6 +404,7 @@ export const Leads: React.FC = () => {
                 isWhatsappSame: selectedLead.isWhatsappSame,
                 altPhone: selectedLead.altPhone,
                 paxAdult: selectedLead.paxAdult,
+                paxChild: selectedLead.paxChild,
                 paxInfant: selectedLead.paxInfant,
                 serviceType: selectedLead.serviceType,
                 residentialAddress: selectedLead.residentialAddress,
@@ -458,6 +509,29 @@ export const Leads: React.FC = () => {
                 return new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime();
             });
     })();
+    const leadChecklist = useMemo(() => {
+        if (!selectedLead) return [];
+        return (tasks || []).filter(t => t.relatedLeadId === selectedLead.id && t.category === 'checklist');
+    }, [tasks, selectedLead]);
+
+    const completedLeadCount = leadChecklist.filter(t => t.status === 'Completed').length;
+    const leadChecklistProgress = leadChecklist.length > 0 ? Math.round((completedLeadCount / leadChecklist.length) * 100) : 0;
+
+    const handleToggleTask = async (task: Task) => {
+        const newStatus = task.status === 'Completed' ? 'Pending' : 'Completed';
+        const completedAt = newStatus === 'Completed' ? new Date().toISOString() : undefined;
+        try {
+            await updateTask(task.id, {
+                status: newStatus,
+                completedAt
+            });
+            window.dispatchEvent(new CustomEvent('tasks-changed'));
+            toast.success(`Task marked as ${newStatus.toLowerCase()}`);
+        } catch (e) {
+            console.error('Failed to toggle task:', e);
+            toast.error('Failed to update task status');
+        }
+    };
 
     return (
         <div className="flex h-full admin-page-bg">
@@ -821,18 +895,29 @@ export const Leads: React.FC = () => {
                                 </span>
                             )}
                         </div>
-                        {selectedLead.partnerId && (
-                            <div className="flex gap-4 mt-4 border-b border-slate-100 dark:border-slate-800 pb-2">
-                                <button
-                                    onClick={() => setLeadModalTab('info')}
-                                    className={`text-xs font-bold pb-1 transition-all ${
-                                        leadModalTab === 'info'
-                                            ? 'text-primary border-b-2 border-primary'
-                                            : 'text-slate-400 hover:text-slate-600'
-                                    }`}
-                                >
-                                    Details & Timeline
-                                </button>
+                        <div className="flex gap-4 mt-4 border-b border-slate-100 dark:border-slate-800 pb-2">
+                            <button
+                                onClick={() => setLeadModalTab('info')}
+                                className={`text-xs font-bold pb-1 transition-all ${
+                                    leadModalTab === 'info'
+                                        ? 'text-primary border-b-2 border-primary'
+                                        : 'text-slate-400 hover:text-slate-600'
+                                }`}
+                            >
+                                Details & Timeline
+                            </button>
+                            <button
+                                onClick={() => setLeadModalTab('tasks')}
+                                className={`text-xs font-bold pb-1 transition-all flex items-center gap-1.5 ${
+                                    leadModalTab === 'tasks'
+                                        ? 'text-primary border-b-2 border-primary'
+                                        : 'text-slate-400 hover:text-slate-600'
+                                }`}
+                            >
+                                <span className="material-symbols-outlined text-[16px]">playlist_add_check</span>
+                                Tasks & Playbook
+                            </button>
+                            {selectedLead.partnerId && (
                                 <button
                                     onClick={() => setLeadModalTab('chat')}
                                     className={`text-xs font-bold pb-1 transition-all flex items-center gap-1.5 ${
@@ -847,8 +932,8 @@ export const Leads: React.FC = () => {
                                         <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse"></span>
                                     )}
                                 </button>
-                            </div>
-                        )}
+                            )}
+                        </div>
                     </div>
 
                     {/* Content Body */}
@@ -905,6 +990,169 @@ export const Leads: React.FC = () => {
                                         className="bg-primary hover:bg-primary-dark text-white px-5 rounded-xl font-bold text-xs flex items-center justify-center shadow-md active:scale-95 transition-all"
                                     >
                                         Send
+                                    </button>
+                                </form>
+                            </div>
+                        ) : leadModalTab === 'tasks' ? (
+                            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
+                                {/* Playbook Header Card */}
+                                <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                    <div>
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-primary/10 text-primary">
+                                                Active Playbook
+                                            </span>
+                                            <span className="text-xs text-slate-400">•</span>
+                                            <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                                                {selectedLead.status} Stage
+                                            </span>
+                                        </div>
+                                        <h3 className="text-sm font-black text-slate-800 dark:text-white uppercase tracking-tight">
+                                            {selectedLead.status} Playbook Action Plan
+                                        </h3>
+                                    </div>
+                                    <div className="flex items-center gap-3 shrink-0">
+                                        <div className="text-right">
+                                            <p className="text-[10px] text-slate-400 font-bold uppercase">Progress</p>
+                                            <p className="text-sm font-black text-slate-800 dark:text-white">
+                                                {completedLeadCount}/{leadChecklist.length} ({leadChecklistProgress}%)
+                                            </p>
+                                        </div>
+                                        <div className="w-20 bg-slate-200 dark:bg-slate-700 h-2 rounded-full overflow-hidden">
+                                            <div
+                                                className="bg-primary h-full rounded-full transition-all duration-500"
+                                                style={{ width: `${leadChecklistProgress}%` }}
+                                            ></div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Predefined Playbook Loader */}
+                                <div className="p-4 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-sm">
+                                    <div className="flex items-center gap-2">
+                                        <span className="material-symbols-outlined text-[20px] text-primary">auto_awesome</span>
+                                        <div>
+                                            <p className="text-xs font-bold text-slate-800 dark:text-slate-100">Load Predefined Checklist Template</p>
+                                            <p className="text-[10px] text-slate-400">Initialize tasks for any Lead Stage or Booking Type</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-2 w-full sm:w-auto">
+                                        <select
+                                            value={selectedPredefinedPlaybookStatus}
+                                            onChange={e => setSelectedPredefinedPlaybookStatus(e.target.value)}
+                                            className="flex-1 sm:flex-none bg-slate-50 dark:bg-slate-900 border border-slate-250 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-350 outline-none w-full sm:w-44"
+                                        >
+                                            <optgroup label="Lead Stages">
+                                                {['New', 'Warm', 'Hot', 'Offer Sent', 'Converted', 'Cold'].map(s => (
+                                                    <option key={s} value={s}>{s} Playbook</option>
+                                                ))}
+                                            </optgroup>
+                                            <optgroup label="Service Types">
+                                                {['Tour', 'Hotel', 'Car', 'Bus', 'Train', 'Flight'].map(t => (
+                                                    <option key={t} value={t}>{t === 'Car' ? 'Cab (Car)' : t} Playbook</option>
+                                                ))}
+                                            </optgroup>
+                                        </select>
+                                        <button
+                                            onClick={handleGeneratePlaybook}
+                                            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white dark:bg-slate-700 dark:hover:bg-slate-600 rounded-xl text-xs font-bold shadow-sm transition-all"
+                                        >
+                                            Load
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Task Checklist Items */}
+                                <div className="space-y-3">
+                                    {leadChecklist.length > 0 ? (
+                                        leadChecklist.map((task) => {
+                                            const isCompleted = task.status === 'Completed';
+                                            return (
+                                                <div
+                                                    key={task.id}
+                                                    onClick={() => handleToggleTask(task)}
+                                                    className={`group p-4 rounded-xl border transition-all duration-200 cursor-pointer flex items-start gap-4 select-none ${
+                                                        isCompleted
+                                                            ? 'bg-slate-50/50 dark:bg-slate-900/20 border-slate-100 dark:border-slate-800/80 opacity-70'
+                                                            : 'bg-white dark:bg-[#1E293B] border-slate-100 dark:border-slate-800 hover:border-primary/40 dark:hover:border-primary/40 hover:shadow-sm'
+                                                    }`}
+                                                >
+                                                    <div className="mt-0.5 shrink-0">
+                                                        <div className={`w-5 h-5 rounded-md border flex items-center justify-center transition-all ${
+                                                            isCompleted
+                                                                ? 'bg-primary border-primary text-white'
+                                                                : 'border-slate-300 dark:border-slate-600 group-hover:border-primary'
+                                                        }`}>
+                                                            {isCompleted && (
+                                                                <span className="material-symbols-outlined text-[16px] font-black">check</span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className={`text-xs font-bold leading-snug transition-all ${
+                                                            isCompleted
+                                                                ? 'text-slate-400 dark:text-slate-500 line-through'
+                                                                : 'text-slate-800 dark:text-slate-200'
+                                                        }`}>
+                                                            {task.title}
+                                                        </p>
+                                                        {task.description && (
+                                                            <p className={`text-[10px] mt-1 leading-relaxed ${
+                                                                isCompleted
+                                                                    ? 'text-slate-400 dark:text-slate-600'
+                                                                    : 'text-slate-500 dark:text-slate-400'
+                                                            }`}>
+                                                                {task.description}
+                                                            </p>
+                                                        )}
+                                                    </div>
+                                                    {task.assignedTo && (
+                                                        <div className="shrink-0 flex flex-col items-end gap-1.5">
+                                                            <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[9px] font-bold">
+                                                                Owner: {staff.find(s => String(s.id) === String(task.assignedTo))?.name || 'System'}
+                                                            </span>
+                                                            {task.dueDate && (
+                                                                <span className="text-[8px] text-slate-400 dark:text-slate-500 font-mono">
+                                                                    Due: {new Date(task.dueDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })
+                                    ) : (
+                                        <div className="p-8 text-center border-2 border-dashed border-slate-100 dark:border-slate-800 rounded-2xl">
+                                            <span className="material-symbols-outlined text-4xl text-slate-300 dark:text-slate-700 mb-2">assignment_late</span>
+                                            <p className="text-xs font-bold text-slate-500 dark:text-slate-400">No Playbook checklist tasks</p>
+                                            <p className="text-[10px] text-slate-400 mt-1 max-w-sm mx-auto">
+                                                Checklist playbooks are automatically generated when a lead enters a stage (e.g. Warm, Hot, Offer Sent). Change the lead status to initialize tasks.
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Add Manual Task Form */}
+                                <form onSubmit={handleAddManualTask} className="mt-4 flex flex-col sm:flex-row gap-2 border-t border-slate-100 dark:border-slate-800 pt-4">
+                                    <input
+                                        type="text"
+                                        value={manualTaskTitle}
+                                        onChange={e => setManualTaskTitle(e.target.value)}
+                                        placeholder="Add a custom checklist task..."
+                                        className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-250 dark:border-slate-700 rounded-xl px-4 py-2.5 text-xs font-semibold text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-primary/20"
+                                        required
+                                    />
+                                    <input
+                                        type="date"
+                                        value={manualTaskDueDate}
+                                        onChange={e => setManualTaskDueDate(e.target.value)}
+                                        className="bg-slate-50 dark:bg-slate-900 border border-slate-250 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 dark:text-slate-350 outline-none focus:ring-2 focus:ring-primary/20 w-full sm:w-36"
+                                    />
+                                    <button
+                                        type="submit"
+                                        className="bg-primary hover:bg-primary-dark text-white px-5 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-1 shadow-md active:scale-95 transition-all shrink-0"
+                                    >
+                                        <Plus size={14} /> Add Task
                                     </button>
                                 </form>
                             </div>
@@ -1282,7 +1530,7 @@ export const Leads: React.FC = () => {
                                 <div className="col-span-1">
                                     <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Trip Type</label>
                                     <select value={leadForm.type || 'Tour'} onChange={e => setLeadForm({ ...leadForm, type: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary">
-                                        {['Tour', 'Hotel', 'Car', 'Bus', 'Flight', 'Custom Package'].map(t => <option key={t} value={t}>{t}</option>)}
+                                        {['Tour', 'Hotel', 'Car', 'Bus', 'Train', 'Flight', 'Custom Package'].map(t => <option key={t} value={t}>{t}</option>)}
                                     </select>
                                 </div>
                                 <div className="col-span-1">

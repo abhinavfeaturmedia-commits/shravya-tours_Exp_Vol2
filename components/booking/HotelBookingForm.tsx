@@ -121,7 +121,7 @@ export const HotelBookingForm: React.FC<HotelBookingFormProps> = ({ onSubmit }) 
                     </button>
 
                     {showGuestMenu && (
-                        <div className="absolute top-[calc(100%+8px)] left-0 right-0 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-100 dark:border-slate-700 p-4 z-50 animate-in fade-in slide-in-from-top-2">
+                        <div className="absolute top-[calc(100%+8px)] right-0 w-full min-w-[280px] bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-100 dark:border-slate-700 p-4 z-50 animate-in fade-in slide-in-from-top-2">
                             {(['adults', 'children', 'rooms'] as const).map((type) => (
                                 <div key={type} className="flex items-center justify-between py-3 border-b border-slate-100 dark:border-slate-700 last:border-0">
                                     <div className="capitalize font-bold text-slate-700 dark:text-slate-200 text-sm">{type}</div>

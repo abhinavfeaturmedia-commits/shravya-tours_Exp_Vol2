@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useData } from '../../context/DataContext';
 import { useBookings } from '../../src/hooks/useBookings';
-import { BookingStatus, Booking, BookingType, BookingNote } from '../../types';
+import { BookingStatus, Booking, BookingType, BookingNote, Task } from '../../types';
 import { api } from '../../src/lib/api';
 import { generateReceiptPDF } from '../../utils/pdfGenerator';
 import { SupplierManagementModal } from '../../components/admin/SupplierManagementModal';
@@ -20,7 +20,7 @@ import { exportToExcel, ExportColumn } from '../../src/lib/exportUtils';
 import { formatPrice } from '../../utils/packageUtils';
 
 export const Bookings: React.FC = () => {
-    const { packages, customers, leads, refreshData } = useData();
+    const { packages, customers, leads, refreshData, coupons, applyCoupon, detachCoupon, tasks, updateTask, addTask } = useData();
     const { bookings, addBooking, updateBooking, deleteBooking, isLoading } = useBookings();
     const { currentUser, hasPermission, staff } = useAuth();
     const { settings } = useSettings();
@@ -74,12 +74,62 @@ export const Bookings: React.FC = () => {
     const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
     const [editNoteText, setEditNoteText] = useState('');
 
-    const [bookingModalTab, setBookingModalTab] = useState<'info' | 'chat'>('info');
+    const [bookingModalTab, setBookingModalTab] = useState<'info' | 'checklist' | 'chat'>('info');
     const [chatInput, setChatInput] = useState('');
+
+    const [manualTaskTitle, setManualTaskTitle] = useState('');
+    const [manualTaskDueDate, setManualTaskDueDate] = useState('');
+    const [selectedPredefinedPlaybookType, setSelectedPredefinedPlaybookType] = useState<string>('');
 
     useEffect(() => {
         setBookingModalTab('info');
-    }, [viewingBookingId]);
+        if (viewingBooking) {
+            setSelectedPredefinedPlaybookType(viewingBooking.type);
+        }
+    }, [viewingBookingId, viewingBooking]);
+
+    const handleAddManualBookingTask = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!viewingBooking || !manualTaskTitle.trim()) return;
+
+        const newTask: Partial<Task> = {
+            id: `TSK-${Date.now()}`,
+            title: manualTaskTitle.trim(),
+            description: 'Manually added checklist task',
+            status: 'Pending',
+            priority: 'Medium',
+            dueDate: manualTaskDueDate || new Date().toISOString().split('T')[0],
+            category: 'checklist',
+            relatedBookingId: viewingBooking.id,
+            assignedTo: viewingBooking.assignedTo || currentUser?.id || staff?.[0]?.id || 'System',
+            assignedBy: currentUser?.id || staff?.[0]?.id || 'System',
+            createdAt: new Date().toISOString()
+        };
+
+        try {
+            await addTask(newTask as Task);
+            setManualTaskTitle('');
+            setManualTaskDueDate('');
+            window.dispatchEvent(new CustomEvent('tasks-changed'));
+            toast.success('Manual task added successfully');
+        } catch (err) {
+            console.error('Failed to add manual task:', err);
+            toast.error('Failed to add task');
+        }
+    };
+
+    const handleGenerateBookingPlaybook = async () => {
+        if (!viewingBooking) return;
+        const typeToUse = selectedPredefinedPlaybookType || viewingBooking.type;
+        try {
+            await api.generateBookingPlaybook(viewingBooking.id, typeToUse);
+            window.dispatchEvent(new CustomEvent('tasks-changed'));
+            toast.success(`Checklist loaded successfully`);
+        } catch (err) {
+            console.error('Failed to generate playbook:', err);
+            toast.error('Failed to load playbook checklist');
+        }
+    };
 
     const handleSendStaffMessageFromBooking = async (e: React.FormEvent, leadId: string) => {
         e.preventDefault();
@@ -490,7 +540,32 @@ export const Bookings: React.FC = () => {
             case 'Bus': return 'directions_bus';
             case 'Hotel': return 'hotel';
             case 'Tour': return 'travel_explore';
+            case 'Train': return 'train';
+            case 'Flight': return 'flight_takeoff';
             default: return 'confirmation_number';
+        }
+    };
+    const bookingChecklist = useMemo(() => {
+        if (!viewingBooking) return [];
+        return (tasks || []).filter(t => t.relatedBookingId === viewingBooking.id && t.category === 'checklist');
+    }, [tasks, viewingBooking]);
+
+    const completedBookingCount = bookingChecklist.filter(t => t.status === 'Completed').length;
+    const bookingChecklistProgress = bookingChecklist.length > 0 ? Math.round((completedBookingCount / bookingChecklist.length) * 100) : 0;
+
+    const handleToggleBookingTask = async (task: Task) => {
+        const newStatus = task.status === 'Completed' ? 'Pending' : 'Completed';
+        const completedAt = newStatus === 'Completed' ? new Date().toISOString() : undefined;
+        try {
+            await updateTask(task.id, {
+                status: newStatus,
+                completedAt
+            });
+            window.dispatchEvent(new CustomEvent('tasks-changed'));
+            toast.success(`Task marked as ${newStatus.toLowerCase()}`);
+        } catch (e) {
+            console.error('Failed to toggle booking task:', e);
+            toast.error('Failed to update task status');
         }
     };
 
@@ -636,18 +711,29 @@ export const Bookings: React.FC = () => {
                             </div>
                         </div>
 
-                        {viewingBooking.partnerId && (
-                            <div className="flex gap-4 px-6 mt-1 border-b border-slate-100 dark:border-slate-850 pb-2">
-                                <button
-                                    onClick={() => setBookingModalTab('info')}
-                                    className={`text-xs font-bold pb-1 transition-all ${
-                                        bookingModalTab === 'info'
-                                            ? 'text-primary border-b-2 border-primary'
-                                            : 'text-slate-400 hover:text-slate-600'
-                                    }`}
-                                >
-                                    Details & Logs
-                                </button>
+                        <div className="flex gap-4 px-6 mt-1 border-b border-slate-100 dark:border-slate-850 pb-2">
+                            <button
+                                onClick={() => setBookingModalTab('info')}
+                                className={`text-xs font-bold pb-1 transition-all ${
+                                    bookingModalTab === 'info'
+                                        ? 'text-primary border-b-2 border-primary'
+                                        : 'text-slate-400 hover:text-slate-600'
+                                }`}
+                            >
+                                Details & Logs
+                            </button>
+                            <button
+                                onClick={() => setBookingModalTab('checklist')}
+                                className={`text-xs font-bold pb-1 transition-all flex items-center gap-1.5 ${
+                                    bookingModalTab === 'checklist'
+                                        ? 'text-primary border-b-2 border-primary'
+                                        : 'text-slate-400 hover:text-slate-600'
+                                }`}
+                            >
+                                <span className="material-symbols-outlined text-[16px]">playlist_add_check</span>
+                                Operations Checklist
+                            </button>
+                            {viewingBooking.partnerId && (
                                 <button
                                     onClick={() => setBookingModalTab('chat')}
                                     className={`text-xs font-bold pb-1 transition-all flex items-center gap-1.5 ${
@@ -659,15 +745,15 @@ export const Bookings: React.FC = () => {
                                     <span className="material-symbols-outlined text-[16px]">forum</span>
                                     Partner Chat
                                 </button>
-                            </div>
-                        )}
+                            )}
+                        </div>
 
                         {/* ── Quick Stats Bar ── */}
                         <div className="grid grid-cols-4 divide-x divide-slate-100 dark:divide-slate-700 border-b border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/20">
                             <div className="px-4 py-3 text-center">
                                 <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">Type</p>
                                 <div className="flex items-center justify-center gap-1">
-                                    <span className="material-symbols-outlined text-[14px] text-primary">{viewingBooking.type === 'Car' ? 'directions_car' : viewingBooking.type === 'Bus' ? 'directions_bus' : viewingBooking.type === 'Hotel' ? 'hotel' : 'travel_explore'}</span>
+                                    <span className="material-symbols-outlined text-[14px] text-primary">{getTypeIcon(viewingBooking.type)}</span>
                                     <p className="text-sm font-bold text-slate-700 dark:text-slate-300">{viewingBooking.type}</p>
                                 </div>
                             </div>
@@ -766,6 +852,169 @@ export const Bookings: React.FC = () => {
                                         </div>
                                     );
                                 })()
+                            ) : bookingModalTab === 'checklist' ? (
+                                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
+                                    {/* Playbook Progress Card */}
+                                    <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                        <div>
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                                                    Operations playbook
+                                                </span>
+                                                <span className="text-xs text-slate-400">•</span>
+                                                <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                                                    {viewingBooking.type} Booking
+                                                </span>
+                                            </div>
+                                            <h3 className="text-sm font-black text-slate-800 dark:text-white uppercase tracking-tight">
+                                                {viewingBooking.type} Operational Action Checklist
+                                            </h3>
+                                        </div>
+                                        <div className="flex items-center gap-3 shrink-0">
+                                            <div className="text-right">
+                                                <p className="text-[10px] text-slate-400 font-bold uppercase">Completion</p>
+                                                <p className="text-sm font-black text-slate-800 dark:text-white">
+                                                    {completedBookingCount}/{bookingChecklist.length} ({bookingChecklistProgress}%)
+                                                </p>
+                                            </div>
+                                            <div className="w-24 bg-slate-200 dark:bg-slate-700 h-2 rounded-full overflow-hidden">
+                                                <div
+                                                    className="bg-emerald-500 h-full rounded-full transition-all duration-500"
+                                                    style={{ width: `${bookingChecklistProgress}%` }}
+                                                ></div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Predefined Playbook Loader */}
+                                    <div className="p-4 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-sm">
+                                        <div className="flex items-center gap-2">
+                                            <span className="material-symbols-outlined text-[20px] text-emerald-500">auto_awesome</span>
+                                            <div>
+                                                <p className="text-xs font-bold text-slate-800 dark:text-slate-100">Load Predefined Checklist Template</p>
+                                                <p className="text-[10px] text-slate-400">Initialize tasks for any Service Type or Lead Stage</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex gap-2 w-full sm:w-auto">
+                                            <select
+                                                value={selectedPredefinedPlaybookType}
+                                                onChange={e => setSelectedPredefinedPlaybookType(e.target.value)}
+                                                className="flex-1 sm:flex-none bg-slate-50 dark:bg-slate-900 border border-slate-250 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-355 outline-none w-full sm:w-44"
+                                            >
+                                                <optgroup label="Service Types">
+                                                    {['Tour', 'Hotel', 'Car', 'Bus', 'Train', 'Flight'].map(t => (
+                                                        <option key={t} value={t}>{t === 'Car' ? 'Cab (Car)' : t} Playbook</option>
+                                                    ))}
+                                                </optgroup>
+                                                <optgroup label="Lead Stages">
+                                                    {['New', 'Warm', 'Hot', 'Offer Sent', 'Converted', 'Cold'].map(s => (
+                                                        <option key={s} value={s}>{s} Playbook</option>
+                                                    ))}
+                                                </optgroup>
+                                            </select>
+                                            <button
+                                                onClick={handleGenerateBookingPlaybook}
+                                                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white dark:bg-slate-700 dark:hover:bg-slate-600 rounded-xl text-xs font-bold shadow-sm transition-all"
+                                            >
+                                                Load
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Operations Checklist Items */}
+                                    <div className="space-y-3">
+                                        {bookingChecklist.length > 0 ? (
+                                            bookingChecklist.map((task) => {
+                                                const isCompleted = task.status === 'Completed';
+                                                return (
+                                                    <div
+                                                        key={task.id}
+                                                        onClick={() => handleToggleBookingTask(task)}
+                                                        className={`group p-4 rounded-xl border transition-all duration-200 cursor-pointer flex items-start gap-4 select-none ${
+                                                            isCompleted
+                                                                ? 'bg-slate-50/50 dark:bg-slate-900/20 border-slate-100 dark:border-slate-850 opacity-70'
+                                                                : 'bg-white dark:bg-[#1E293B] border-slate-100 dark:border-slate-800 hover:border-emerald-500/40 hover:shadow-sm'
+                                                        }`}
+                                                    >
+                                                        <div className="mt-0.5 shrink-0">
+                                                            <div className={`w-5 h-5 rounded-md border flex items-center justify-center transition-all ${
+                                                                isCompleted
+                                                                    ? 'bg-emerald-500 border-emerald-500 text-white'
+                                                                    : 'border-slate-300 dark:border-slate-600 group-hover:border-emerald-500'
+                                                            }`}>
+                                                                {isCompleted && (
+                                                                    <span className="material-symbols-outlined text-[16px] font-black">check</span>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex-1 min-w-0">
+                                                            <p className={`text-xs font-bold leading-snug transition-all ${
+                                                                isCompleted
+                                                                    ? 'text-slate-400 dark:text-slate-500 line-through'
+                                                                    : 'text-slate-850 dark:text-slate-200'
+                                                            }`}>
+                                                                {task.title}
+                                                            </p>
+                                                            {task.description && (
+                                                                <p className={`text-[10px] mt-1 leading-relaxed ${
+                                                                    isCompleted
+                                                                        ? 'text-slate-400 dark:text-slate-600'
+                                                                        : 'text-slate-500 dark:text-slate-400'
+                                                                }`}>
+                                                                    {task.description}
+                                                                </p>
+                                                            )}
+                                                        </div>
+                                                        {task.assignedTo && (
+                                                            <div className="shrink-0 flex flex-col items-end gap-1.5">
+                                                                <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-855 text-slate-500 dark:text-slate-400 text-[9px] font-bold">
+                                                                    Owner: {staff.find(s => String(s.id) === String(task.assignedTo))?.name || 'System'}
+                                                                </span>
+                                                                {task.dueDate && (
+                                                                    <span className="text-[8px] text-slate-400 dark:text-slate-500 font-mono">
+                                                                        Due: {new Date(task.dueDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })
+                                        ) : (
+                                            <div className="p-8 text-center border-2 border-dashed border-slate-100 dark:border-slate-800 rounded-2xl">
+                                                <span className="material-symbols-outlined text-4xl text-slate-350 dark:text-slate-700 mb-2">assignment_late</span>
+                                                <p className="text-xs font-bold text-slate-500 dark:text-slate-400">No Operations checklist tasks</p>
+                                                <p className="text-[10px] text-slate-400 mt-1 max-w-sm mx-auto">
+                                                    Operations checklists are automatically generated based on the service type (e.g. Tour, Hotel, Car). Ensure booking details are correct.
+                                                </p>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Add Manual Task Form */}
+                                    <form onSubmit={handleAddManualBookingTask} className="mt-4 flex flex-col sm:flex-row gap-2 border-t border-slate-100 dark:border-slate-800 pt-4">
+                                        <input
+                                            type="text"
+                                            value={manualTaskTitle}
+                                            onChange={e => setManualTaskTitle(e.target.value)}
+                                            placeholder="Add a custom checklist task..."
+                                            className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-250 dark:border-slate-700 rounded-xl px-4 py-2.5 text-xs font-semibold text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500/20"
+                                            required
+                                        />
+                                        <input
+                                            type="date"
+                                            value={manualTaskDueDate}
+                                            onChange={e => setManualTaskDueDate(e.target.value)}
+                                            className="bg-slate-50 dark:bg-slate-900 border border-slate-250 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 dark:text-slate-350 outline-none focus:ring-2 focus:ring-emerald-500/20 w-full sm:w-36"
+                                        />
+                                        <button
+                                            type="submit"
+                                            className="bg-emerald-500 hover:bg-emerald-600 text-white px-5 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-1 shadow-md active:scale-95 transition-all shrink-0"
+                                        >
+                                            <span className="material-symbols-outlined text-[14px]">add</span> Add Task
+                                        </button>
+                                    </form>
+                                </div>
                             ) : (
                                 <>
                                     {/* Customer Info */}
@@ -853,6 +1102,86 @@ export const Bookings: React.FC = () => {
                                                     Service Category
                                                 </p>
                                                 <span className="px-2.5 py-1 text-xs font-black bg-primary/10 text-primary rounded-lg uppercase tracking-wider">{viewingBooking.serviceType}</span>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Coupon Promotion Card */}
+                                    <div className="p-4 bg-slate-50/50 dark:bg-slate-800/20 border border-slate-200 dark:border-slate-700 rounded-xl space-y-3.5">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1.5 leading-none">
+                                            <span className="material-symbols-outlined text-[15px] text-primary">local_offer</span>
+                                            Promotion & Coupons
+                                        </p>
+
+                                        {viewingBooking.appliedCouponCode ? (
+                                            <div className="flex items-center justify-between p-3.5 bg-gradient-to-r from-emerald-500/10 to-teal-500/10 border border-emerald-500/20 rounded-xl animate-in fade-in">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="size-9 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-650 dark:text-emerald-450">
+                                                        <span className="material-symbols-outlined text-[20px]">verified</span>
+                                                    </div>
+                                                    <div>
+                                                         <div className="flex items-center gap-1.5 flex-wrap">
+                                                             <span className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-wider">{viewingBooking.appliedCouponCode}</span>
+                                                             <span className="text-[9px] font-black bg-emerald-500 text-white px-1.5 py-0.5 rounded uppercase">Applied</span>
+                                                         </div>
+                                                         <p className="text-[10px] text-slate-500 mt-0.5">Discount: <span className="font-extrabold text-slate-900 dark:text-white">₹{viewingBooking.couponDiscountAmount?.toLocaleString() || '0'}</span></p>
+                                                         {viewingBooking.originalPrice && (
+                                                             <p className="text-[9.5px] text-slate-400">Original price was ₹{viewingBooking.originalPrice.toLocaleString()}</p>
+                                                         )}
+                                                    </div>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={async () => {
+                                                        if (confirm(`Remove promotion code ${viewingBooking.appliedCouponCode} from this booking?`)) {
+                                                            try {
+                                                                await detachCoupon(viewingBooking.id);
+                                                            } catch (err) {
+                                                                // Handled in context
+                                                            }
+                                                        }
+                                                    }}
+                                                    className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors"
+                                                    title="Remove Coupon"
+                                                >
+                                                    <span className="material-symbols-outlined text-[20px]">close</span>
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-2">
+                                                <div className="flex gap-2">
+                                                    <div className="relative flex-1">
+                                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 material-symbols-outlined text-[18px]">password</span>
+                                                        <input
+                                                            type="text"
+                                                            id="retro-coupon-input"
+                                                            placeholder="Enter coupon code..."
+                                                            className="w-full h-10 pl-9 pr-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-bold uppercase tracking-wider outline-none focus:ring-2 focus:ring-primary/20 text-slate-900 dark:text-white"
+                                                        />
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={async () => {
+                                                            const input = document.getElementById('retro-coupon-input') as HTMLInputElement;
+                                                            const code = input?.value?.trim()?.toUpperCase();
+                                                            if (!code) {
+                                                                toast.error('Please enter a coupon code');
+                                                                return;
+                                                            }
+                                                            try {
+                                                                await applyCoupon(code, viewingBooking.id);
+                                                                if (input) input.value = '';
+                                                            } catch (err) {
+                                                                // Handled in context
+                                                            }
+                                                        }}
+                                                        className="h-10 px-4 bg-slate-900 dark:bg-slate-800 text-white border border-slate-700 dark:border-slate-700 rounded-xl text-xs font-bold hover:bg-slate-800 dark:hover:bg-slate-700 active:scale-[0.98] transition-all flex items-center justify-center gap-1.5 shadow"
+                                                    >
+                                                        <span className="material-symbols-outlined text-[16px]">check_circle</span>
+                                                        Apply
+                                                     </button>
+                                                </div>
+                                                <p className="text-[10px] text-slate-450 dark:text-slate-500 font-semibold pl-1">Apply promo code retrospectively to recalculate totals and update accounts.</p>
                                             </div>
                                         )}
                                     </div>
@@ -1162,6 +1491,8 @@ export const Bookings: React.FC = () => {
                                             <option value="Hotel">Hotel Stay</option>
                                             <option value="Car">Car Rental</option>
                                             <option value="Bus">Bus Ticket</option>
+                                            <option value="Train">Train Ticket</option>
+                                            <option value="Flight">Flight Ticket</option>
                                         </select>
                                     </div>
                                     <div className="space-y-1">

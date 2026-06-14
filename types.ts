@@ -94,10 +94,14 @@ export interface Booking {
   isWhatsappSame?: boolean;    // Is WhatsApp same as primary phone number
   altPhone?: string;           // Alternate Phone Number
   paxAdult?: number;           // Number of adults
+  paxChild?: number;           // Number of children
   paxInfant?: number;          // Number of infants
   serviceType?: string;        // Category of service requested
   residentialAddress?: string; // Residential Address
   officeAddress?: string;      // Office Address
+  appliedCouponCode?: string;
+  couponDiscountAmount?: number;
+  originalPrice?: number;
 }
 
 export interface BookingNote {
@@ -709,6 +713,12 @@ export interface CMSGalleryImage {
   title: string;
   imageUrl: string;
   category: 'Landscape' | 'Hotel' | 'Activity' | 'Other';
+  // Enhanced fields (v2)
+  tag?: string;
+  linkUrl?: string;
+  featured?: boolean;
+  sortOrder?: number;
+  isActive?: boolean;
 }
 
 export interface CMSPost {
@@ -722,6 +732,21 @@ export interface CMSPost {
   publishedDate: string;
   status: 'Draft' | 'Published';
   tags: string[];
+}
+
+// --- Trending Destinations ---
+export interface TrendingDestination {
+  id: string;
+  name: string;
+  country?: string;
+  region?: string;
+  imageUrl: string;
+  badge?: string;
+  badgeColor?: string;
+  statLabel?: string;
+  packageCount?: number;
+  sortOrder?: number;
+  isActive?: boolean;
 }
 
 // --- Productivity Features Types ---
@@ -745,8 +770,8 @@ export interface Task {
   id: string;
   title: string;
   description?: string;
-  assignedTo: number;
-  assignedBy: number;
+  assignedTo: number | string;
+  assignedBy: number | string;
   status: TaskStatus;
   priority: TaskPriority;
   dueDate: string;
@@ -754,6 +779,7 @@ export interface Task {
   completedAt?: string;
   relatedLeadId?: string;
   relatedBookingId?: string;
+  category?: string;
 }
 
 // Daily Targets
@@ -953,4 +979,74 @@ export interface Coupon {
   createdAt?: string;
   updatedAt?: string;
 }
+
+export interface DailyMarketingLog {
+  id: string;
+  date: string;              // YYYY-MM-DD
+  staffId: number;           // Mapped to staff_id in DB
+  staffName?: string;        // Mapped for display
+  momentumScore: number;     // calculated
+  rating: 'sluggish' | 'steady' | 'high-momentum' | 'unstoppable';
+  emailsSent: number;
+  socialDms: number;
+  callsMade: number;
+  followUps: number;
+  proposalsSent: number;
+  dealsClosed: number;
+  revenueGenerated: number;
+  metaSpend: number;
+  metaLeads: number;
+  adCreativeNotes?: string;
+  dailySummary?: string;
+  keyLearnings?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  taggedLeads?: string[];     // Lead IDs tagged in this log
+  taggedBookings?: string[];  // Booking IDs tagged in this log
+  comments?: LogComment[];    // Comments on this log
+  reactions?: LogReaction[];  // Reactions on this log
+}
+
+export interface MarketingTarget {
+  id: string;
+  staffId: number;
+  date: string;              // YYYY-MM-DD
+  targetEmails: number;
+  targetDms: number;
+  targetCalls: number;
+  targetSpend: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface LogComment {
+  id: string;
+  logId: string;
+  staffId: number;
+  staffName?: string;
+  commentText: string;
+  createdAt?: string;
+}
+
+export interface LogReaction {
+  id: string;
+  logId: string;
+  staffId: number;
+  reactionType: string;
+  createdAt?: string;
+}
+
+export interface InAppNotification {
+  id: string;
+  staffId: number;
+  senderId: number;
+  senderName?: string;
+  title: string;
+  message: string;
+  type: string;
+  isRead: boolean;
+  createdAt?: string;
+}
+
+
 

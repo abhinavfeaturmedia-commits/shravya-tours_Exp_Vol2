@@ -7,7 +7,7 @@ import {
   Package, Booking, BookingStatus, DailySlot, Lead, LeadLog, Vendor, VendorDocument, VendorTransaction, VendorNote, Account, AccountTransaction, Campaign,
   MasterLocation, MasterHotel, MasterActivity, MasterTransport, MasterPlan, AuditLog, Customer,
   FollowUp, MasterRoomType, MasterMealPlan, MasterLeadSource, MasterTermsTemplate, SupplierBooking, BookingTransaction, Proposal,
-  CMSBanner, CMSTestimonial, CMSGalleryImage, CMSPost,
+  CMSBanner, CMSTestimonial, CMSGalleryImage, CMSPost, TrendingDestination,
   Task, DailyTarget, UserActivity, TimeSession, AssignmentRule,
   MembershipPlan, CustomerMembership, Coupon
 } from '../types';
@@ -405,6 +405,14 @@ interface DataContextType {
   addCoupon: (c: Coupon) => Promise<void>;
   updateCoupon: (id: string, updates: Partial<Coupon>) => Promise<void>;
   deleteCoupon: (id: string) => Promise<void>;
+  applyCoupon: (couponCode: string, bookingId: string) => Promise<void>;
+  detachCoupon: (bookingId: string) => Promise<void>;
+
+  // Trending Destinations
+  trendingDestinations: TrendingDestination[];
+  addTrendingDestination: (dest: TrendingDestination) => Promise<void>;
+  updateTrendingDestination: (id: string, updates: Partial<TrendingDestination>) => Promise<void>;
+  deleteTrendingDestination: (id: string) => Promise<void>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -475,6 +483,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [cmsGallery, setCmsGallery] = useState<CMSGalleryImage[]>(() => loadFromStorage(`${STORAGE_KEY}_cms_gallery`, INITIAL_CMS_GALLERY));
   const [cmsPosts, setCmsPosts] = useState<CMSPost[]>(() => loadFromStorage(`${STORAGE_KEY}_cms_posts`, INITIAL_CMS_POSTS));
 
+  // Trending Destinations State
+  const [trendingDestinations, setTrendingDestinations] = useState<TrendingDestination[]>([]);
+
   // Inventory
   const [inventory, setInventory] = useState<Record<string, DailySlot>>(() => {
     const saved = loadFromStorage<Record<string, DailySlot> | null>(`${STORAGE_KEY}_inventory_v2`, null);
@@ -543,18 +554,20 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const loadPhase3Data = async () => {
       try {
         // Public secondary tables
-        const [activities, cmsBannersList, cmsTestList, cmsGalList, cmsPostsList] = await Promise.all([
+        const [activities, cmsBannersList, cmsTestList, cmsGalList, cmsPostsList, trendingList] = await Promise.all([
           api.getMasterActivities().catch(() => []),
           api.getCMSBanners().catch(() => []),
           api.getCMSTestimonials().catch(() => []),
           api.getCMSGalleryImages().catch(() => []),
-          api.getCMSPosts().catch(() => [])
+          api.getCMSPosts().catch(() => []),
+          api.getTrendingDestinations().catch(() => [])
         ]);
         if (activities.length > 0) setMasterActivities(activities);
         if (cmsBannersList.length > 0) setCmsBanners(cmsBannersList);
         if (cmsTestList.length > 0) setCmsTestimonials(cmsTestList);
         if (cmsGalList.length > 0) setCmsGallery(cmsGalList);
         if (cmsPostsList.length > 0) setCmsPosts(cmsPostsList);
+        if (trendingList.length > 0) setTrendingDestinations(trendingList);
 
         // Authenticated secondary tables
         if (hasToken) {
@@ -622,6 +635,20 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
     window.addEventListener('customers-changed', handleCustomersChanged);
     return () => window.removeEventListener('customers-changed', handleCustomersChanged);
+  }, []);
+
+  // Listen for the custom 'tasks-changed' event to silently update the tasks list
+  useEffect(() => {
+    const handleTasksChanged = async () => {
+      try {
+        const t = await api.getTasks();
+        setTasks(t);
+      } catch (e) {
+        console.error("Failed to refresh tasks on 'tasks-changed' event:", e);
+      }
+    };
+    window.addEventListener('tasks-changed', handleTasksChanged);
+    return () => window.removeEventListener('tasks-changed', handleTasksChanged);
   }, []);
 
   // Persistence Effects (Only for non-migrated data)
@@ -1354,8 +1381,27 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [vendors, accounts, logAction]);
 
-  const addVendorDocument = useCallback(() => { }, []);
-  const deleteVendorDocument = useCallback(() => { }, []);
+  const addVendorDocument = useCallback(async (vendorId: string, doc: VendorDocument) => {
+    setVendors(prev => prev.map(v => {
+      if (v.id === vendorId) {
+        const updatedDocs = [doc, ...(v.documents || [])];
+        api.updateVendor(vendorId, { documents: updatedDocs }).catch(console.error);
+        return { ...v, documents: updatedDocs };
+      }
+      return v;
+    }));
+  }, []);
+
+  const deleteVendorDocument = useCallback(async (vendorId: string, docId: string) => {
+    setVendors(prev => prev.map(v => {
+      if (v.id === vendorId) {
+        const updatedDocs = (v.documents || []).filter(d => d.id !== docId);
+        api.updateVendor(vendorId, { documents: updatedDocs }).catch(console.error);
+        return { ...v, documents: updatedDocs };
+      }
+      return v;
+    }));
+  }, []);
   
   const addVendorNote = useCallback(async (vendorId: string, note: import('../types').VendorNote) => {
     setVendors(prev => prev.map(v => {
@@ -1886,6 +1932,62 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [coupons, logAction]);
 
+  const applyCoupon = useCallback(async (couponCode: string, bookingId: string) => {
+    try {
+      const res = await api.applyCoupon(couponCode, bookingId);
+      
+      // Update booking and coupon in local state
+      setBookings(prev => prev.map(b => b.id === bookingId ? {
+        ...b,
+        amount: Number(res.booking.total_price),
+        appliedCouponCode: res.booking.applied_coupon_code,
+        couponDiscountAmount: Number(res.booking.coupon_discount_amount),
+        originalPrice: Number(res.booking.original_price)
+      } : b));
+
+      setCoupons(prev => prev.map(c => c.code.toUpperCase() === couponCode.trim().toUpperCase() ? {
+        ...c,
+        useCount: c.useCount + 1
+      } : c));
+
+      toast.success(res.message || 'Coupon applied successfully');
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to apply coupon');
+      throw e;
+    }
+  }, []);
+
+  const detachCoupon = useCallback(async (bookingId: string) => {
+    try {
+      const res = await api.detachCoupon(bookingId);
+      
+      // Find the coupon that was applied
+      const booking = bookings.find(b => b.id === bookingId);
+      const prevCouponCode = booking?.appliedCouponCode;
+
+      // Update booking and coupon in local state
+      setBookings(prev => prev.map(b => b.id === bookingId ? {
+        ...b,
+        amount: Number(res.booking.total_price),
+        appliedCouponCode: undefined,
+        couponDiscountAmount: undefined,
+        originalPrice: undefined
+      } : b));
+
+      if (prevCouponCode) {
+        setCoupons(prev => prev.map(c => c.code.toUpperCase() === prevCouponCode.toUpperCase() ? {
+          ...c,
+          useCount: Math.max(0, c.useCount - 1)
+        } : c));
+      }
+
+      toast.success(res.message || 'Coupon removed successfully');
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to detach coupon');
+      throw e;
+    }
+  }, [bookings]);
+
   const value = useMemo(() => ({
     packages, bookings, leads, inventory, vendors, accounts, campaigns, auditLogs, logAction, customers,
     masterLocations, masterHotels, masterActivities, masterTransports, masterPlans,
@@ -1927,7 +2029,30 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     addMembershipPlan, updateMembershipPlan, deleteMembershipPlan,
     enrollCustomer, updateMembership, deleteMembership, getActiveMembershipForCustomer,
     // Coupons
-    coupons, addCoupon, updateCoupon, deleteCoupon,
+    coupons, addCoupon, updateCoupon, deleteCoupon, applyCoupon, detachCoupon,
+    // Trending Destinations
+    trendingDestinations,
+    addTrendingDestination: async (dest: TrendingDestination) => {
+      try {
+        const saved = await api.createTrendingDestination(dest);
+        setTrendingDestinations(prev => [saved || dest, ...prev]);
+        toast.success('Destination added');
+      } catch (e: any) { toast.error(e.message || 'Failed to add destination'); throw e; }
+    },
+    updateTrendingDestination: async (id: string, updates: Partial<TrendingDestination>) => {
+      try {
+        await api.updateTrendingDestination(id, updates);
+        setTrendingDestinations(prev => prev.map(d => d.id === id ? { ...d, ...updates } : d));
+        toast.success('Destination updated');
+      } catch (e: any) { toast.error(e.message || 'Failed to update destination'); throw e; }
+    },
+    deleteTrendingDestination: async (id: string) => {
+      try {
+        await api.deleteTrendingDestination(id);
+        setTrendingDestinations(prev => prev.filter(d => d.id !== id));
+        toast.success('Destination deleted');
+      } catch (e: any) { toast.error(e.message || 'Failed to delete destination'); throw e; }
+    },
     refreshData
   }), [
     packages, bookings, leads, inventory, vendors, accounts, campaigns, customers,
@@ -1972,7 +2097,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     addMembershipPlan, updateMembershipPlan, deleteMembershipPlan,
     enrollCustomer, updateMembership, deleteMembership, getActiveMembershipForCustomer,
     // Coupons deps
-    coupons, addCoupon, updateCoupon, deleteCoupon,
+    coupons, addCoupon, updateCoupon, deleteCoupon, applyCoupon, detachCoupon,
+    // Trending Destinations deps
+    trendingDestinations,
     refreshData
   ]);
 

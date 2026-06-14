@@ -142,7 +142,7 @@ export const PartnerSubmitLead: React.FC = () => {
             <div>
               <label className="block text-xs font-bold text-white/60 mb-1.5 uppercase tracking-wide">Trip Type</label>
               <select name="type" value={form.type} onChange={handleChange} className={selectClass}>
-                <option>Tour</option><option>Hotel</option><option>Car</option><option>Bus</option><option>Flight</option>
+                <option>Tour</option><option>Hotel</option><option>Car</option><option>Bus</option><option>Train</option><option>Flight</option>
               </select>
             </div>
             <div>

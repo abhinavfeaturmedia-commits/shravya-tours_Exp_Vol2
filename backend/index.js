@@ -16,6 +16,16 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+
+// Redirect shrawello.com to shravyatours.com
+app.use((req, res, next) => {
+    const host = req.headers.host || '';
+    if (host.includes('shrawello.com')) {
+        return res.redirect(301, `https://shravyatours.com${req.originalUrl}`);
+    }
+    next();
+});
+
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
@@ -160,7 +170,8 @@ async function migratePackagesColumns() {
         "ALTER TABLE packages ADD COLUMN IF NOT EXISTS highlights LONGTEXT DEFAULT NULL",
         "ALTER TABLE packages ADD COLUMN IF NOT EXISTS itinerary LONGTEXT DEFAULT NULL",
         "ALTER TABLE packages ADD COLUMN IF NOT EXISTS partner_commission_type VARCHAR(50) DEFAULT NULL",
-        "ALTER TABLE packages ADD COLUMN IF NOT EXISTS partner_commission_value DECIMAL(10,2) DEFAULT NULL"
+        "ALTER TABLE packages ADD COLUMN IF NOT EXISTS partner_commission_value DECIMAL(10,2) DEFAULT NULL",
+        "ALTER TABLE packages ADD COLUMN IF NOT EXISTS gallery LONGTEXT DEFAULT NULL"
     ];
     for (const sql of alterations) {
         try {
@@ -215,6 +226,28 @@ async function migrateCustomersColumns() {
     console.log('[Customers Migration] Column check complete.');
 }
 migrateCustomersColumns();
+
+// Ensure vendors table has services and documents columns
+async function migrateVendorsColumns() {
+    const alterations = [
+        { col: 'services', sql: "ALTER TABLE vendors ADD COLUMN services LONGTEXT DEFAULT NULL" },
+        { col: 'documents', sql: "ALTER TABLE vendors ADD COLUMN documents LONGTEXT DEFAULT NULL" }
+    ];
+    for (const alt of alterations) {
+        try {
+            await pool.query(alt.sql);
+            console.log(`[Vendors Migration] Added column ${alt.col} to vendors.`);
+        } catch (err) {
+            if (err.code === 'ER_DUP_FIELDNAME' || err.message?.includes('Duplicate column') || err.message?.includes('already exists')) {
+                // Column already exists, safe to ignore
+            } else {
+                console.warn(`[Vendors Migration] Failed to add ${alt.col}:`, err.message?.split('\n')[0]);
+            }
+        }
+    }
+    console.log('[Vendors Migration] Column check complete.');
+}
+migrateVendorsColumns();
 
 // Ensure the settings table exists (key-value store for admin configuration)
 async function ensureSettingsTable() {
@@ -320,7 +353,10 @@ async function ensureLiveOpsSchema() {
         "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS office_address TEXT DEFAULT NULL",
         "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS pax_adult INT DEFAULT 1",
         "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS pax_infant INT DEFAULT 0",
-        "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS service_type VARCHAR(100) DEFAULT NULL"
+        "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS service_type VARCHAR(100) DEFAULT NULL",
+        "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS applied_coupon_code VARCHAR(100) DEFAULT NULL",
+        "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS coupon_discount_amount DECIMAL(10,2) DEFAULT 0.00",
+        "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS original_price DECIMAL(10,2) DEFAULT NULL"
     ];
     for (const sql of bookingAlterations) {
         try { await pool.query(sql); }
@@ -622,6 +658,93 @@ async function ensureMissingTables() {
             details TEXT,
             ip_address VARCHAR(100),
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE TABLE IF NOT EXISTS marketing_logs (
+            id VARCHAR(255) PRIMARY KEY,
+            date DATE NOT NULL,
+            staff_id INT NOT NULL,
+            momentum_score INT DEFAULT 0,
+            rating VARCHAR(50) DEFAULT 'steady',
+            emails_sent INT DEFAULT 0,
+            social_dms INT DEFAULT 0,
+            calls_made INT DEFAULT 0,
+            follow_ups INT DEFAULT 0,
+            proposals_sent INT DEFAULT 0,
+            deals_closed INT DEFAULT 0,
+            revenue_generated DECIMAL(15,2) DEFAULT 0.00,
+            meta_spend DECIMAL(15,2) DEFAULT 0.00,
+            meta_leads INT DEFAULT 0,
+            ad_creative_notes TEXT,
+            daily_summary TEXT,
+            key_learnings TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY unique_staff_date (staff_id, date)
+        )`,
+        `CREATE TABLE IF NOT EXISTS marketing_targets (
+            id VARCHAR(255) PRIMARY KEY,
+            staff_id INT NOT NULL,
+            date DATE NOT NULL,
+            target_emails INT DEFAULT 0,
+            target_dms INT DEFAULT 0,
+            target_calls INT DEFAULT 0,
+            target_spend DECIMAL(15,2) DEFAULT 0.00,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY unique_staff_target_date (staff_id, date)
+        )`,
+        `CREATE TABLE IF NOT EXISTS marketing_log_comments (
+            id VARCHAR(255) PRIMARY KEY,
+            log_id VARCHAR(255) NOT NULL,
+            staff_id INT NOT NULL,
+            comment_text TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE TABLE IF NOT EXISTS marketing_log_reactions (
+            id VARCHAR(255) PRIMARY KEY,
+            log_id VARCHAR(255) NOT NULL,
+            staff_id INT NOT NULL,
+            reaction_type VARCHAR(50) NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY unique_log_staff_reaction (log_id, staff_id, reaction_type)
+        )`,
+        `CREATE TABLE IF NOT EXISTS marketing_log_leads (
+            id VARCHAR(255) PRIMARY KEY,
+            log_id VARCHAR(255) NOT NULL,
+            lead_id VARCHAR(255) NOT NULL,
+            UNIQUE KEY unique_log_lead (log_id, lead_id)
+        )`,
+        `CREATE TABLE IF NOT EXISTS marketing_log_bookings (
+            id VARCHAR(255) PRIMARY KEY,
+            log_id VARCHAR(255) NOT NULL,
+            booking_id VARCHAR(255) NOT NULL,
+            UNIQUE KEY unique_log_booking (log_id, booking_id)
+        )`,
+        `CREATE TABLE IF NOT EXISTS in_app_notifications (
+            id VARCHAR(255) PRIMARY KEY,
+            staff_id INT NOT NULL,
+            sender_id INT NOT NULL,
+            title VARCHAR(255) NOT NULL,
+            message TEXT NOT NULL,
+            type VARCHAR(50) DEFAULT 'info',
+            is_read BOOLEAN DEFAULT false,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        // ─── Trending Destinations ───
+        `CREATE TABLE IF NOT EXISTS trending_destinations (
+            id VARCHAR(255) PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            country VARCHAR(100) DEFAULT NULL,
+            region VARCHAR(100) DEFAULT NULL,
+            image_url TEXT NOT NULL,
+            badge VARCHAR(100) DEFAULT NULL,
+            badge_color VARCHAR(50) DEFAULT '#ef4444',
+            stat_label VARCHAR(255) DEFAULT NULL,
+            package_count INT DEFAULT 0,
+            sort_order INT DEFAULT 0,
+            is_active BOOLEAN DEFAULT true,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         )`
     ];
 
@@ -887,6 +1010,77 @@ async function ensureCouponsTable() {
 }
 ensureCouponsTable();
 
+// ─── Ensure Trending Destinations Table + cms_gallery_images migration ───
+async function ensureTrendingDestinationsTable() {
+    try {
+        // 1. Create trending_destinations table
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS trending_destinations (
+                id VARCHAR(255) PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                country VARCHAR(255) DEFAULT NULL,
+                region VARCHAR(255) DEFAULT NULL,
+                image_url TEXT NOT NULL,
+                badge VARCHAR(100) DEFAULT NULL,
+                badge_color VARCHAR(50) DEFAULT '#ef4444',
+                stat_label VARCHAR(255) DEFAULT NULL,
+                package_count INT DEFAULT 0,
+                sort_order INT DEFAULT 0,
+                is_active BOOLEAN DEFAULT true,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+        console.log('[TrendingDest] trending_destinations table ensured.');
+
+        // 2. Seed initial destinations if table is empty
+        const [existing] = await pool.query('SELECT COUNT(*) as cnt FROM trending_destinations');
+        if (existing[0].cnt === 0) {
+            const seeds = [
+                { id: 'TD-001', name: 'Goa', country: 'India', region: 'West India', image_url: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800&q=80', badge: 'Most Popular', badge_color: '#f59e0b', stat_label: '12,400+ travelers visited', package_count: 8, sort_order: 1 },
+                { id: 'TD-002', name: 'Manali', country: 'India', region: 'Himachal Pradesh', image_url: 'https://images.unsplash.com/photo-1626621341517-bbf3d9990a23?w=800&q=80', badge: 'Trending', badge_color: '#8b5cf6', stat_label: '8,200+ travelers visited', package_count: 6, sort_order: 2 },
+                { id: 'TD-003', name: 'Kerala', country: 'India', region: 'South India', image_url: 'https://images.unsplash.com/photo-1602216056096-3b40cc0c9944?w=800&q=80', badge: 'Top Rated', badge_color: '#10b981', stat_label: '9,800+ travelers visited', package_count: 7, sort_order: 3 },
+                { id: 'TD-004', name: 'Dubai', country: 'UAE', region: 'Middle East', image_url: 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=800&q=80', badge: 'International', badge_color: '#3b82f6', stat_label: '6,500+ travelers visited', package_count: 5, sort_order: 4 },
+                { id: 'TD-005', name: 'Bali', country: 'Indonesia', region: 'South-East Asia', image_url: 'https://images.unsplash.com/photo-1537996194471-e657df975ab4?w=800&q=80', badge: 'Hot', badge_color: '#ef4444', stat_label: '7,100+ travelers visited', package_count: 4, sort_order: 5 },
+                { id: 'TD-006', name: 'Jaipur', country: 'India', region: 'Rajasthan', image_url: 'https://images.unsplash.com/photo-1477587458883-47145ed6979c?w=800&q=80', badge: 'Cultural', badge_color: '#ec4899', stat_label: '5,900+ travelers visited', package_count: 4, sort_order: 6 },
+                { id: 'TD-007', name: 'Ladakh', country: 'India', region: 'Jammu & Kashmir', image_url: 'https://images.unsplash.com/photo-1598091383021-15ddea10925d?w=800&q=80', badge: 'Adventure', badge_color: '#06b6d4', stat_label: '3,400+ travelers visited', package_count: 3, sort_order: 7 },
+                { id: 'TD-008', name: 'Maldives', country: 'Maldives', region: 'Indian Ocean', image_url: 'https://images.unsplash.com/photo-1573843981267-be1999ff37cd?w=800&q=80', badge: 'Luxury', badge_color: '#f59e0b', stat_label: '4,200+ travelers visited', package_count: 3, sort_order: 8 }
+            ];
+            for (const s of seeds) {
+                try {
+                    await pool.query(
+                        'INSERT INTO trending_destinations (id, name, country, region, image_url, badge, badge_color, stat_label, package_count, sort_order) VALUES (?,?,?,?,?,?,?,?,?,?)',
+                        [s.id, s.name, s.country, s.region, s.image_url, s.badge, s.badge_color, s.stat_label, s.package_count, s.sort_order]
+                    );
+                } catch(e) { /* skip duplicate */ }
+            }
+            console.log('[TrendingDest] Seeded 8 initial trending destinations.');
+        }
+
+        // 3. Migrate cms_gallery_images — add enhanced columns
+        const galleryMigrations = [
+            "ALTER TABLE cms_gallery_images ADD COLUMN IF NOT EXISTS title VARCHAR(255) DEFAULT NULL",
+            "ALTER TABLE cms_gallery_images ADD COLUMN IF NOT EXISTS image_url TEXT DEFAULT NULL",
+            "ALTER TABLE cms_gallery_images ADD COLUMN IF NOT EXISTS tag VARCHAR(100) DEFAULT NULL",
+            "ALTER TABLE cms_gallery_images ADD COLUMN IF NOT EXISTS link_url VARCHAR(500) DEFAULT NULL",
+            "ALTER TABLE cms_gallery_images ADD COLUMN IF NOT EXISTS featured BOOLEAN DEFAULT false"
+        ];
+        for (const sql of galleryMigrations) {
+            try { await pool.query(sql); }
+            catch (e) { /* column already exists — safe to ignore */ }
+        }
+        // Backfill: copy caption → title and url → image_url for existing rows
+        try {
+            await pool.query("UPDATE cms_gallery_images SET title = caption WHERE title IS NULL AND caption IS NOT NULL");
+            await pool.query("UPDATE cms_gallery_images SET image_url = url WHERE image_url IS NULL AND url IS NOT NULL");
+        } catch(e) { /* safe */ }
+        console.log('[TrendingDest] cms_gallery_images enhanced columns ensured.');
+    } catch (err) {
+        console.error('[TrendingDest] Migration failed:', err.message);
+    }
+}
+ensureTrendingDestinationsTable();
+
 // ─── Database Index Migration ───
 // Creates indexes on foreign key and frequently filtered/sorted columns in MySQL
 async function addIndexSafe(table, column, indexName) {
@@ -977,6 +1171,154 @@ async function ensureInvoiceCustomFields() {
 }
 ensureInvoiceCustomFields();
 
+// Ensure tasks table has category column
+// Ensure tasks table has category column
+async function ensureTasksCategoryColumn() {
+    try {
+        await pool.query("ALTER TABLE tasks ADD COLUMN category VARCHAR(100) DEFAULT NULL");
+        console.log('[Tasks Migration] Category column ensured.');
+    } catch (err) {
+        // Ignored if column already exists
+        console.log('[Tasks Migration] Category column already exists or migration skipped.');
+    }
+}
+ensureTasksCategoryColumn();
+
+// ─── Playbooks & Checklists Mapping ───
+const LEAD_STAGE_PLAYBOOKS = {
+    'New': [
+        { title: 'Send WhatsApp greeting message', description: 'Introduce Shravya Tours and acknowledge receipt of inquiry.' },
+        { title: 'Call customer to qualify requirements', description: 'Understand duration, pax count, budget, and destinations.' },
+        { title: 'Update lead source and assignment', description: 'Ensure source tracking and owner details are correct.' }
+    ],
+    'Warm': [
+        { title: 'Research destination & plan options', description: 'Review flight connections and hotel options for traveler details.' },
+        { title: 'Create initial itinerary draft', description: 'Design a draft itinerary matching the client requirements.' },
+        { title: 'Send initial pricing estimate', description: 'Provide a ballpark figure for client review.' }
+    ],
+    'Hot': [
+        { title: 'Customize itinerary based on feedback', description: 'Adjust activities, hotels, and timing.' },
+        { title: 'Verify supplier/hotel availability', description: 'Double check rooms and services for selected dates.' },
+        { title: 'Prepare final official proposal', description: 'Build formal proposal with final pricing and inclusions.' }
+    ],
+    'Offer Sent': [
+        { title: 'Follow up on proposal acceptance', description: 'Call or message the traveler to review the sent proposal.' },
+        { title: 'Offer flexible payment terms', description: 'Explain deposit options and balance payment timeline.' },
+        { title: 'Address customization requests', description: 'Modify details if they request last-minute tweaks.' }
+    ],
+    'Converted': [
+        { title: 'Verify payment receipt & confirmation', description: 'Confirm that deposit/advance payment is received in accounts.' },
+        { title: 'Sync lead data to booking', description: 'Verify all travel documents and contact details.' },
+        { title: 'Send official confirmation voucher', description: 'Issue tour confirmation voucher to client.' }
+    ],
+    'Cold': [
+        { title: 'Send final re-engagement offer', description: 'Send a special coupon code or limited-time discount.' },
+        { title: 'Document lost reasons', description: 'Log why the lead was lost or went cold.' }
+    ]
+};
+
+const BOOKING_TYPE_PLAYBOOKS = {
+    'Tour': [
+        { title: 'Create WhatsApp group for group tours', description: 'Include travelers, tour leader, and support contacts.' },
+        { title: 'Issue tour vouchers and itinerary details', description: 'Provide PDF vouchers for all booked elements.' },
+        { title: 'Assign tour coordinator / guide', description: 'Confirm guide availability and share contact info.' },
+        { title: 'Coordinate transport operator details', description: 'Confirm pickup times and driver information.' },
+        { title: 'Re-confirm hotel bookings', description: 'Ensure hotels are ready for check-in.' }
+    ],
+    'Hotel': [
+        { title: 'Send booking details to hotel', description: 'Confirm room category and meal plan details.' },
+        { title: 'Obtain hotel voucher reference ID', description: 'Confirm room booking is registered in hotel PMS.' },
+        { title: 'Verify special requests (bedding/check-in)', description: 'Confirm king bed, twin beds, or early arrival if requested.' }
+    ],
+    'Car': [
+        { title: 'Assign driver and share contact details', description: 'Share contact information with traveler via WhatsApp.' },
+        { title: 'Inspect vehicle cleanliness & condition', description: 'Ensure the assigned vehicle is serviced and clean.' },
+        { title: 'Confirm pick-up time and location details', description: 'Send exact coordinates and time to driver.' }
+    ],
+    'Bus': [
+        { title: 'Confirm seat numbers and boarding point', description: 'Provide boarding point map and timing to passenger.' },
+        { title: 'Share bus operator tracking link', description: 'Enable tracking for traveler on travel day.' }
+    ],
+    'Train': [
+        { title: 'Verify PNR status', description: 'Check seat numbers, coach numbers, and confirmation status.' },
+        { title: 'Send ticket PDF to customer', description: 'Share confirmation via email/WhatsApp.' }
+    ],
+    'Flight': [
+        { title: 'Generate & send air tickets', description: 'Email e-ticket to traveler.' },
+        { title: 'Perform web check-in', description: 'Select preferred seats and retrieve boarding passes 24 hours prior.' },
+        { title: 'Verify terminal & flight status', description: 'Check for delays or terminal updates 4 hours before departure.' }
+    ]
+};
+
+async function generateLeadPlaybook(leadId, status, assignedTo, userEmail) {
+    const playbookKey = status;
+    const tasksToInsert = LEAD_STAGE_PLAYBOOKS[playbookKey] || BOOKING_TYPE_PLAYBOOKS[playbookKey];
+    if (!playbookKey || !tasksToInsert) return;
+    try {
+        let staffId = 'System';
+        if (userEmail) {
+            const [staffRows] = await pool.query('SELECT id FROM staff_members WHERE email = ?', [userEmail]);
+            if (staffRows.length > 0) staffId = String(staffRows[0].id);
+        }
+        
+        // Delete existing pending checklist tasks for this lead
+        await pool.query(
+            "DELETE FROM tasks WHERE related_lead_id = ? AND category = 'checklist' AND status = 'Pending'",
+            [leadId]
+        );
+        
+        const today = new Date().toISOString().split('T')[0];
+        const defaultAssignee = assignedTo || staffId;
+        
+        for (const t of tasksToInsert) {
+            const taskId = crypto.randomUUID();
+            await pool.query(
+                `INSERT INTO tasks (id, title, description, assigned_to, assigned_by, status, priority, due_date, category, related_lead_id, created_at)
+                 VALUES (?, ?, ?, ?, ?, 'Pending', 'Medium', ?, 'checklist', ?, NOW())`,
+                [taskId, t.title, t.description, defaultAssignee, staffId, today, leadId]
+            );
+        }
+        console.log(`[Lead Playbook] Generated ${tasksToInsert.length} checklist tasks for lead ${leadId} (key: ${playbookKey})`);
+    } catch (err) {
+        console.error('[Lead Playbook Error] Failed to generate playbook:', err);
+    }
+}
+
+async function generateBookingPlaybook(bookingId, type, assignedTo, userEmail) {
+    const playbookKey = type;
+    const tasksToInsert = BOOKING_TYPE_PLAYBOOKS[playbookKey] || LEAD_STAGE_PLAYBOOKS[playbookKey];
+    if (!playbookKey || !tasksToInsert) return;
+    try {
+        let staffId = 'System';
+        if (userEmail) {
+            const [staffRows] = await pool.query('SELECT id FROM staff_members WHERE email = ?', [userEmail]);
+            if (staffRows.length > 0) staffId = String(staffRows[0].id);
+        }
+        
+        // Delete existing pending checklist tasks for this booking
+        await pool.query(
+            "DELETE FROM tasks WHERE related_booking_id = ? AND category = 'checklist' AND status = 'Pending'",
+            [bookingId]
+        );
+        
+        const today = new Date().toISOString().split('T')[0];
+        const defaultAssignee = assignedTo || staffId;
+        
+        for (const t of tasksToInsert) {
+            const taskId = crypto.randomUUID();
+            await pool.query(
+                `INSERT INTO tasks (id, title, description, assigned_to, assigned_by, status, priority, due_date, category, related_booking_id, created_at)
+                 VALUES (?, ?, ?, ?, ?, 'Pending', 'Medium', ?, 'checklist', ?, NOW())`,
+                [taskId, t.title, t.description, defaultAssignee, staffId, today, bookingId]
+            );
+        }
+        console.log(`[Booking Playbook] Generated ${tasksToInsert.length} checklist tasks for booking ${bookingId} (key: ${playbookKey})`);
+    } catch (err) {
+        console.error('[Booking Playbook Error] Failed to generate playbook:', err);
+    }
+}
+
+
 // Allowed tables (whitelist to prevent SQL injection)
 const ALLOWED_TABLES = new Set([
     'packages', 'bookings', 'booking_transactions', 'supplier_bookings',
@@ -994,7 +1336,10 @@ const ALLOWED_TABLES = new Set([
     'attendance_logs',  // Live Operations attendance tracking
     'membership_plans', 'customer_memberships',  // Membership Module
     'partners', 'partner_commissions',  // B2B Partner Portal
-    'coupons'  // Coupon Manager
+    'coupons',  // Coupon Manager
+    'marketing_logs',
+    'marketing_targets', 'marketing_log_comments', 'marketing_log_reactions',
+    'marketing_log_leads', 'marketing_log_bookings', 'in_app_notifications'
 ]);
 
 // ─── Auth Middleware ───
@@ -1085,7 +1430,14 @@ const TABLE_TO_MODULE = {
     'customer_memberships': 'memberships',
     'partners': 'partners',
     'partner_commissions': 'partners',
-    'coupons': 'marketing'
+    'coupons': 'marketing',
+    'marketing_logs': 'marketing',
+    'marketing_targets': 'marketing',
+    'marketing_log_comments': 'marketing',
+    'marketing_log_reactions': 'marketing',
+    'marketing_log_leads': 'marketing',
+    'marketing_log_bookings': 'marketing',
+    'in_app_notifications': 'dashboard'
 };
 
 async function getStaffPermissionsAndScope(email) {
@@ -1120,6 +1472,16 @@ async function permissionGuard(req, res, next) {
     // 1. Admin gets unrestricted access
     if (req.user?.role === 'admin' || req.user?.role === 'Admin') {
         return next();
+    }
+
+    // Self-access bypass for staff_members table (allows any staff to view their own profile/record)
+    if (table === 'staff_members') {
+        const isSelf = (req.params.id && String(req.params.id) === String(req.user.staffId)) ||
+                       (req.query.eq_email && req.query.eq_email === req.user.email) ||
+                       (req.query.eq_id && String(req.query.eq_id) === String(req.user.staffId));
+        if (isSelf) {
+            return next();
+        }
     }
 
     const module = TABLE_TO_MODULE[table];
@@ -1382,9 +1744,15 @@ app.get('/api/invoices/stats', authMiddleware, async (req, res) => {
 app.get('/api/crud/staff_members', authMiddleware, async (req, res) => {
     // Check permission
     if (req.user?.role !== 'admin' && req.user?.role !== 'Admin') {
-        const { permissions, isAdmin } = await getStaffPermissionsAndScope(req.user?.email);
-        if (!isAdmin && !permissions.staff?.view) {
-            return res.status(403).json({ error: 'Unauthorized: Staff view access required.' });
+        // Allow if querying for their own email or ID (self-access bypass)
+        const isSelfQuery = (req.query.eq_email && req.query.eq_email === req.user.email) ||
+                            (req.query.eq_id && String(req.query.eq_id) === String(req.user.staffId));
+
+        if (!isSelfQuery) {
+            const { permissions, isAdmin } = await getStaffPermissionsAndScope(req.user?.email);
+            if (!isAdmin && !permissions.staff?.view) {
+                return res.status(403).json({ error: 'Unauthorized: Staff view access required.' });
+            }
         }
     }
 
@@ -1647,6 +2015,96 @@ app.post('/api/crud/:table', authMiddleware, validateTable, writeGuard, permissi
         // Server-side audit log
         auditLog('Create', table, `Created record ${fetchedId}`, req.user?.email);
 
+        // Auto-create user record for partners if created via CRUD
+        if (table === 'partners' && body.email) {
+            const trimmedEmail = body.email.trim().toLowerCase();
+            const [existingUser] = await pool.query('SELECT id FROM users WHERE email = ?', [trimmedEmail]);
+            if (existingUser.length === 0) {
+                const defaultHash = await bcrypt.hash('password123', 10);
+                await pool.query(
+                    'INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)',
+                    [trimmedEmail, defaultHash, 'partner']
+                );
+                console.log(`Auto-created users record for partner: ${trimmedEmail} (default password: password123)`);
+            }
+        }
+
+        // Auto-create system note in lead_logs when a lead is tagged in marketing_logs
+        if (table === 'marketing_log_leads' && body.lead_id && body.log_id) {
+            try {
+                const senderEmail = req.user?.email || 'System';
+                let senderName = 'System';
+                if (req.user?.staffId) {
+                    const [[staffMember]] = await pool.query('SELECT name FROM staff_members WHERE id = ?', [req.user.staffId]);
+                    if (staffMember) senderName = staffMember.name;
+                } else {
+                    senderName = senderEmail.split('@')[0];
+                }
+                const [[log]] = await pool.query('SELECT date FROM marketing_logs WHERE id = ?', [body.log_id]);
+                const formattedDate = log && log.date ? new Date(log.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : new Date().toDateString();
+                
+                await pool.query(
+                    `INSERT INTO lead_logs (lead_id, type, content, sender, timestamp) VALUES (?, 'Activity', ?, ?, NOW())`,
+                    [body.lead_id, `Touched during daily marketing log on ${formattedDate} by ${senderName}`, senderName]
+                );
+            } catch (err) {
+                console.warn('[Lead Logs Hook] Failed to auto-create lead activity log:', err.message);
+            }
+        }
+
+        // Auto-create system note in booking_notes when a booking is tagged in marketing_logs
+        if (table === 'marketing_log_bookings' && body.booking_id && body.log_id) {
+            try {
+                const senderEmail = req.user?.email || 'System';
+                let senderName = 'System';
+                if (req.user?.staffId) {
+                    const [[staffMember]] = await pool.query('SELECT name FROM staff_members WHERE id = ?', [req.user.staffId]);
+                    if (staffMember) senderName = staffMember.name;
+                } else {
+                    senderName = senderEmail.split('@')[0];
+                }
+                const [[log]] = await pool.query('SELECT date FROM marketing_logs WHERE id = ?', [body.log_id]);
+                const formattedDate = log && log.date ? new Date(log.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : new Date().toDateString();
+                
+                // Fetch existing booking notes
+                const [[booking]] = await pool.query('SELECT booking_notes FROM bookings WHERE id = ?', [body.booking_id]);
+                let notes = [];
+                if (booking && booking.booking_notes) {
+                    try {
+                        notes = typeof booking.booking_notes === 'string' ? JSON.parse(booking.booking_notes) : booking.booking_notes;
+                    } catch (e) {
+                        notes = [];
+                    }
+                }
+                if (!Array.isArray(notes)) notes = [];
+
+                // Append new system note
+                const noteId = crypto.randomUUID();
+                notes.push({
+                    id: noteId,
+                    text: `Touched during daily marketing log on ${formattedDate} by ${senderName}`,
+                    date: new Date().toISOString(),
+                    author: senderName,
+                    isPinned: false
+                });
+
+                // Save back to bookings table
+                await pool.query(
+                    'UPDATE bookings SET booking_notes = ? WHERE id = ?',
+                    [JSON.stringify(notes), body.booking_id]
+                );
+            } catch (err) {
+                console.warn('[Booking Notes Hook] Failed to auto-create booking log note:', err.message);
+            }
+        }
+
+        // Lead & Booking Playbook Triggers on Creation
+        if (table === 'leads' && inserted[0]) {
+            await generateLeadPlaybook(fetchedId, inserted[0].status, inserted[0].assigned_to, req.user?.email);
+        } else if (table === 'bookings' && inserted[0]) {
+            await generateBookingPlaybook(fetchedId, inserted[0].type, inserted[0].assigned_to, req.user?.email);
+        }
+
         res.status(201).json({ data: inserted[0] || { id: fetchedId } });
     } catch (error) {
         console.error(`POST /${table} error:`, error);
@@ -1673,6 +2131,17 @@ app.put('/api/crud/:table/:id', authMiddleware, validateTable, writeGuard, permi
             }
         }
 
+        // Lead & Booking Playbook Triggers on Update (fetch old record before update)
+        let oldLead = null;
+        let oldBooking = null;
+        if (table === 'leads') {
+            const [[row]] = await pool.query('SELECT status, assigned_to FROM leads WHERE id = ?', [id]);
+            oldLead = row;
+        } else if (table === 'bookings') {
+            const [[row]] = await pool.query('SELECT type, assigned_to FROM bookings WHERE id = ?', [id]);
+            oldBooking = row;
+        }
+
         const setClauses = Object.keys(body).map(col => `\`${col}\` = ?`).join(', ');
         const values = Object.values(body).map(v =>
             typeof v === 'object' && v !== null ? JSON.stringify(v) : v
@@ -1680,6 +2149,60 @@ app.put('/api/crud/:table/:id', authMiddleware, validateTable, writeGuard, permi
         values.push(id);
 
         await pool.query(`UPDATE \`${table}\` SET ${setClauses} WHERE id = ?`, values);
+
+        // Trigger Lead Playbook if status or assignment changes
+        if (table === 'leads') {
+            const newStatus = body.status !== undefined ? body.status : (oldLead ? oldLead.status : null);
+            const newAssignee = body.assigned_to !== undefined ? body.assigned_to : (oldLead ? oldLead.assigned_to : null);
+            
+            const statusChanged = oldLead && oldLead.status !== body.status && body.status !== undefined;
+            const assigneeChanged = oldLead && oldLead.assigned_to !== body.assigned_to && body.assigned_to !== undefined;
+            
+            if (statusChanged) {
+                await generateLeadPlaybook(id, newStatus, newAssignee, req.user?.email);
+            } else if (assigneeChanged) {
+                await pool.query(
+                    "UPDATE tasks SET assigned_to = ? WHERE related_lead_id = ? AND category = 'checklist' AND status = 'Pending'",
+                    [newAssignee, id]
+                );
+            }
+            
+            // Fallback: if no checklist tasks exist, generate them
+            const [existingChecklists] = await pool.query(
+                "SELECT id FROM tasks WHERE related_lead_id = ? AND category = 'checklist'",
+                [id]
+            );
+            if (existingChecklists.length === 0 && newStatus) {
+                await generateLeadPlaybook(id, newStatus, newAssignee, req.user?.email);
+            }
+        }
+
+        // Trigger Booking Playbook if type or assignment changes
+        if (table === 'bookings') {
+            const newType = body.type !== undefined ? body.type : (oldBooking ? oldBooking.type : null);
+            const newAssignee = body.assigned_to !== undefined ? body.assigned_to : (oldBooking ? oldBooking.assigned_to : null);
+            
+            const typeChanged = oldBooking && oldBooking.type !== body.type && body.type !== undefined;
+            const assigneeChanged = oldBooking && oldBooking.assigned_to !== body.assigned_to && body.assigned_to !== undefined;
+            
+            if (typeChanged) {
+                await generateBookingPlaybook(id, newType, newAssignee, req.user?.email);
+            } else if (assigneeChanged) {
+                await pool.query(
+                    "UPDATE tasks SET assigned_to = ? WHERE related_booking_id = ? AND category = 'checklist' AND status = 'Pending'",
+                    [newAssignee, id]
+                );
+            }
+            
+            // Fallback: if no checklist tasks exist, generate them
+            const [existingChecklists] = await pool.query(
+                "SELECT id FROM tasks WHERE related_booking_id = ? AND category = 'checklist'",
+                [id]
+            );
+            if (existingChecklists.length === 0 && newType) {
+                await generateBookingPlaybook(id, newType, newAssignee, req.user?.email);
+            }
+        }
 
         // Auto-Commission Trigger
         if (table === 'bookings' && (body.status === 'confirmed' || body.status === 'completed' || body.payment_status === 'paid')) {
@@ -1773,6 +2296,35 @@ app.patch('/api/packages/:id/decrement-seats', async (req, res) => {
     } catch (error) {
         console.error('[DecrementSeats] Error:', error.message);
         res.status(500).json({ error: 'Failed to decrement seats', details: error.message });
+    }
+});
+
+// On-demand playbook generation endpoints
+app.post('/api/leads/:id/generate-playbook', authMiddleware, async (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body;
+    try {
+        const [[lead]] = await pool.query('SELECT status, assigned_to FROM leads WHERE id = ?', [id]);
+        if (!lead) return res.status(404).json({ error: 'Lead not found' });
+        const targetStatus = status || lead.status;
+        await generateLeadPlaybook(id, targetStatus, lead.assigned_to, req.user?.email);
+        res.json({ message: 'Lead playbook generated successfully' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/bookings/:id/generate-playbook', authMiddleware, async (req, res) => {
+    const { id } = req.params;
+    const { type } = req.body;
+    try {
+        const [[booking]] = await pool.query('SELECT type, assigned_to FROM bookings WHERE id = ?', [id]);
+        if (!booking) return res.status(404).json({ error: 'Booking not found' });
+        const targetType = type || booking.type;
+        await generateBookingPlaybook(id, targetType, booking.assigned_to, req.user?.email);
+        res.json({ message: 'Booking playbook generated successfully' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
 });
 
@@ -2532,10 +3084,10 @@ app.post('/api/partner/auth/register', async (req, res) => {
             `INSERT INTO partners (id, name, email, phone, company_name, location, status, commission_type, commission_value, joined_date) VALUES (?, ?, ?, ?, ?, ?, 'Pending Approval', 'Percentage', 5.00, ?)`,
             [partnerId, name, trimmedEmail, phone || '', companyName || '', location || '', joinedDate]
         );
-        // Create partner user in users table with role 'partner'
+        // Create partner user in users table. If email already exists, preserve its existing role!
         await pool.query(
-            'INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE password_hash = ?, role = ?',
-            [trimmedEmail, hash, 'partner', hash, 'partner']
+            'INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE password_hash = ?',
+            [trimmedEmail, hash, 'partner', hash]
         );
 
         await auditLog('PartnerRegister', 'Partners', `New partner registered: ${name} (${trimmedEmail}). Pending admin approval.`, 'System');
@@ -2554,14 +3106,17 @@ app.post('/api/partner/auth/login', async (req, res) => {
     if (!email || !password) return res.status(400).json({ error: 'Email and password are required' });
     try {
         const trimmedEmail = email.trim().toLowerCase();
-        const [users] = await pool.query("SELECT * FROM users WHERE email = ? AND role = 'partner'", [trimmedEmail]);
+        // 1. Look up user by email only (allows admins who also have a partner profile to log in)
+        const [users] = await pool.query("SELECT * FROM users WHERE email = ?", [trimmedEmail]);
         if (users.length === 0) return res.status(401).json({ error: 'Invalid credentials or account not a partner account' });
 
+        // 2. Validate password
         const valid = await bcrypt.compare(password, users[0].password_hash);
         if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
 
+        // 3. Ensure they have a valid partner profile
         const [partners] = await pool.query('SELECT * FROM partners WHERE email = ?', [trimmedEmail]);
-        if (partners.length === 0) return res.status(404).json({ error: 'Partner profile not found' });
+        if (partners.length === 0) return res.status(401).json({ error: 'Invalid credentials or account not a partner account' });
 
         const partner = partners[0];
         if (partner.status === 'Blocked') return res.status(403).json({ error: 'Your partner account has been blocked. Please contact support.' });
@@ -3307,6 +3862,260 @@ async function autoCalculatePartnerCommission(bookingId) {
         console.error('[Commission] Auto-calculate failed:', err.message);
     }
 }
+
+// ─── Coupons Application & Detachment Endpoints ───
+
+// POST /api/coupons/apply
+app.post('/api/coupons/apply', authMiddleware, async (req, res) => {
+    const { couponCode, bookingId } = req.body || {};
+    if (!couponCode || !bookingId) {
+        return res.status(400).json({ error: 'couponCode and bookingId are required' });
+    }
+
+    try {
+        // 1. Get booking
+        const [[booking]] = await pool.query('SELECT * FROM bookings WHERE id = ?', [bookingId]);
+        if (!booking) {
+            return res.status(404).json({ error: 'Booking not found' });
+        }
+
+        // 2. Get coupon
+        const [[coupon]] = await pool.query('SELECT * FROM coupons WHERE code = ?', [couponCode.trim().toUpperCase()]);
+        if (!coupon) {
+            return res.status(404).json({ error: 'Coupon code not found' });
+        }
+
+        // 3. Validation Checks
+        if (coupon.status !== 'Active') {
+            return res.status(400).json({ error: `Coupon is not active (Status: ${coupon.status})` });
+        }
+
+        const currentDate = new Date().toISOString().split('T')[0];
+        if (coupon.valid_from) {
+            const validFromStr = new Date(coupon.valid_from).toISOString().split('T')[0];
+            if (currentDate < validFromStr) {
+                return res.status(400).json({ error: 'Coupon validity period has not started yet' });
+            }
+        }
+        if (coupon.valid_to) {
+            const validToStr = new Date(coupon.valid_to).toISOString().split('T')[0];
+            if (currentDate > validToStr) {
+                return res.status(400).json({ error: 'Coupon has expired' });
+            }
+        }
+
+        if (coupon.is_used) {
+            return res.status(400).json({ error: 'This coupon has been locked or already used' });
+        }
+
+        // Determine current booking price (use original_price if already discounted, else total_price)
+        const currentBasePrice = Number(booking.original_price !== null ? booking.original_price : booking.total_price) || 0;
+
+        if (coupon.min_booking_amount && currentBasePrice < Number(coupon.min_booking_amount)) {
+            return res.status(400).json({ error: `Booking amount (₹${currentBasePrice}) is less than the minimum required spend (₹${coupon.min_booking_amount})` });
+        }
+
+        if (coupon.type === 'ToursOnly' && booking.type !== 'Tour') {
+            return res.status(400).json({ error: 'This coupon can only be applied to Tour bookings' });
+        }
+
+        // 4. Calculate discount
+        let discount = 0;
+        if (coupon.discount_type === 'Percentage') {
+            discount = currentBasePrice * (Number(coupon.discount_value) / 100);
+        } else {
+            discount = Number(coupon.discount_value);
+        }
+        // Cap discount at total price
+        if (discount > currentBasePrice) {
+            discount = currentBasePrice;
+        }
+
+        const newTotalPrice = currentBasePrice - discount;
+
+        // 5. Run DB Transaction to Apply
+        await pool.query('START TRANSACTION');
+
+        // Update booking
+        await pool.query(
+            `UPDATE bookings 
+             SET original_price = ?, coupon_discount_amount = ?, applied_coupon_code = ?, total_price = ? 
+             WHERE id = ?`,
+            [currentBasePrice, discount, coupon.code, newTotalPrice, bookingId]
+        );
+
+        // Update coupon usage count
+        await pool.query(
+            `UPDATE coupons SET use_count = use_count + 1 WHERE id = ?`,
+            [coupon.id]
+        );
+
+        await pool.query('COMMIT');
+
+        // Audit Log
+        await auditLog('Apply Coupon', 'bookings', `Applied coupon ${coupon.code} to booking ${booking.id} (Saved ₹${discount})`, req.user?.email);
+
+        // Fetch updated booking
+        const [[updatedBooking]] = await pool.query('SELECT * FROM bookings WHERE id = ?', [bookingId]);
+        res.json({
+            status: 'success',
+            message: `Coupon ${coupon.code} successfully applied! Discount of ₹${discount} applied.`,
+            booking: updatedBooking
+        });
+
+    } catch (error) {
+        await pool.query('ROLLBACK').catch(() => {});
+        console.error('[Apply Coupon Error]:', error.message);
+        res.status(500).json({ error: 'Failed to apply coupon', details: error.message });
+    }
+});
+
+// POST /api/coupons/detach
+app.post('/api/coupons/detach', authMiddleware, async (req, res) => {
+    const { bookingId } = req.body || {};
+    if (!bookingId) {
+        return res.status(400).json({ error: 'bookingId is required' });
+    }
+
+    try {
+        // 1. Get booking
+        const [[booking]] = await pool.query('SELECT * FROM bookings WHERE id = ?', [bookingId]);
+        if (!booking) {
+            return res.status(404).json({ error: 'Booking not found' });
+        }
+
+        if (!booking.applied_coupon_code) {
+            return res.status(400).json({ error: 'No coupon is currently applied to this booking' });
+        }
+
+        // 2. Get coupon
+        const [[coupon]] = await pool.query('SELECT * FROM coupons WHERE code = ?', [booking.applied_coupon_code]);
+
+        // 3. Run DB Transaction to Detach
+        await pool.query('START TRANSACTION');
+
+        const originalPrice = booking.original_price !== null ? booking.original_price : booking.total_price;
+
+        // Restore booking values
+        await pool.query(
+            `UPDATE bookings 
+             SET total_price = ?, original_price = NULL, coupon_discount_amount = 0.00, applied_coupon_code = NULL 
+             WHERE id = ?`,
+            [originalPrice, bookingId]
+        );
+
+        // Decrement coupon usage if coupon exists
+        if (coupon) {
+            await pool.query(
+                `UPDATE coupons SET use_count = GREATEST(0, use_count - 1) WHERE id = ?`,
+                [coupon.id]
+            );
+        }
+
+        await pool.query('COMMIT');
+
+        // Audit Log
+        await auditLog('Detach Coupon', 'bookings', `Removed coupon ${booking.applied_coupon_code} from booking ${booking.id}`, req.user?.email);
+
+        // Fetch updated booking
+        const [[updatedBooking]] = await pool.query('SELECT * FROM bookings WHERE id = ?', [bookingId]);
+        res.json({
+            status: 'success',
+            message: 'Coupon removed successfully. Price restored.',
+            booking: updatedBooking
+        });
+
+    } catch (error) {
+        await pool.query('ROLLBACK').catch(() => {});
+        console.error('[Detach Coupon Error]:', error.message);
+        res.status(500).json({ error: 'Failed to detach coupon', details: error.message });
+    }
+});
+
+// ═══════════════════════════════════════════
+// TRENDING DESTINATIONS API
+// ═══════════════════════════════════════════
+
+// GET all active trending destinations (public)
+app.get('/api/trending-destinations', async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            'SELECT * FROM trending_destinations WHERE is_active = true ORDER BY sort_order ASC, created_at ASC'
+        );
+        res.json({ data: rows });
+    } catch (err) {
+        console.error('[TrendingDest GET]', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET all trending destinations (admin — includes inactive)
+app.get('/api/trending-destinations/all', authMiddleware, async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            'SELECT * FROM trending_destinations ORDER BY sort_order ASC, created_at ASC'
+        );
+        res.json({ data: rows });
+    } catch (err) {
+        console.error('[TrendingDest GET ALL]', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST create trending destination (admin)
+app.post('/api/trending-destinations', authMiddleware, async (req, res) => {
+    try {
+        const { id, name, country, region, image_url, badge, badge_color, stat_label, package_count, sort_order, is_active } = req.body;
+        const destId = id || crypto.randomUUID();
+        await pool.query(
+            `INSERT INTO trending_destinations (id, name, country, region, image_url, badge, badge_color, stat_label, package_count, sort_order, is_active)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [destId, name, country || null, region || null, image_url, badge || null, badge_color || '#ef4444', stat_label || null, package_count || 0, sort_order || 0, is_active !== false]
+        );
+        const [rows] = await pool.query('SELECT * FROM trending_destinations WHERE id = ?', [destId]);
+        res.json({ data: rows[0] });
+    } catch (err) {
+        console.error('[TrendingDest POST]', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// PUT update trending destination (admin)
+app.put('/api/trending-destinations/:id', authMiddleware, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const fields = req.body;
+        const allowed = ['name','country','region','image_url','badge','badge_color','stat_label','package_count','sort_order','is_active'];
+        const updates = [];
+        const values = [];
+        for (const key of allowed) {
+            if (fields[key] !== undefined) {
+                updates.push(`\`${key}\` = ?`);
+                values.push(fields[key]);
+            }
+        }
+        if (updates.length === 0) return res.status(400).json({ error: 'No valid fields to update' });
+        values.push(id);
+        await pool.query(`UPDATE trending_destinations SET ${updates.join(', ')} WHERE id = ?`, values);
+        const [rows] = await pool.query('SELECT * FROM trending_destinations WHERE id = ?', [id]);
+        res.json({ data: rows[0] });
+    } catch (err) {
+        console.error('[TrendingDest PUT]', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// DELETE trending destination (admin)
+app.delete('/api/trending-destinations/:id', authMiddleware, async (req, res) => {
+    try {
+        const { id } = req.params;
+        await pool.query('DELETE FROM trending_destinations WHERE id = ?', [id]);
+        res.json({ success: true });
+    } catch (err) {
+        console.error('[TrendingDest DELETE]', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
 
 // ═══════════════════════════════════════════
 // SERVE REACT FRONTEND (Production)

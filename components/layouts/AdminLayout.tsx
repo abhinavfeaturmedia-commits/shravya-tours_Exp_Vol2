@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
@@ -7,6 +7,8 @@ import { useSettings } from '../../context/SettingsContext';
 import { toast } from 'sonner';
 import { SuggestPopup, isDismissed, isSnoozed, dismissSuggestion, snoozeSuggestion } from '../../components/ui/SuggestPopup';
 import { getPaymentDueBookings } from '../../src/hooks/useSuggestions';
+import { api } from '../../src/lib/api';
+import { InAppNotification } from '../../types';
 
 const NAV_GROUPS = [
   {
@@ -36,6 +38,7 @@ const NAV_GROUPS = [
       { name: 'Memberships', path: '/admin/memberships', icon: 'card_membership', module: 'memberships' },
       { name: 'Partners', path: '/admin/partners', icon: 'handshake', module: 'partners' },
       { name: 'Coupons', path: '/admin/coupons', icon: 'local_offer', module: 'marketing' },
+      { name: 'Marketing Logs', path: '/admin/marketing-logs', icon: 'edit_note', module: 'marketing' },
       { name: 'Accounts', path: '/admin/accounts', icon: 'account_balance', module: 'finance' },
       { name: 'Expenses', path: '/admin/expenses', icon: 'receipt_long', module: 'finance' },
       { name: 'Payment Approvals', path: '/admin/finance-verification', icon: 'fact_check', module: 'invoices' },
@@ -50,6 +53,7 @@ const NAV_GROUPS = [
       { name: 'Team Performance', path: '/admin/team-performance', icon: 'monitoring', module: 'staff' },
       { name: 'Packages', path: '/admin/packages', icon: 'inventory_2', module: 'inventory' },
       { name: 'Testimonials', path: '/admin/testimonials', icon: 'rate_review', module: 'testimonials' },
+      { name: 'Trending Destinations', path: '/admin/trending', icon: 'trending_up', module: 'cms' },
     ]
   },
   {
@@ -80,8 +84,41 @@ export const AdminLayout: React.FC = () => {
   const [isUserIdle, setIsUserIdle] = useState(false);
   const [sessionBookingsProcessed, setSessionBookingsProcessed] = useState(0);
   const [showPositiveReinforcement, setShowPositiveReinforcement] = useState(false);
+  const [inAppNotifications, setInAppNotifications] = useState<InAppNotification[]>([]);
   const location = useLocation();
   const navigate = useNavigate();
+
+  const fetchNotifications = useCallback(async () => {
+    if (!currentUser?.staffId) return;
+    try {
+      const data = await api.getInAppNotifications();
+      const myNotifs = data.filter(n => n.staffId === currentUser.staffId);
+      setInAppNotifications(myNotifs);
+
+      // Trigger standard notifications toast for any new unread notifications
+      const unread = myNotifs.filter(n => !n.isRead && !notifiedIds.has(n.id));
+      unread.forEach(n => {
+        toast.info(n.title, {
+          description: n.message,
+          duration: 8000
+        });
+        setNotifiedIds(prev => {
+          const next = new Set(prev);
+          next.add(n.id);
+          return next;
+        });
+      });
+    } catch (e) {
+      console.error("Failed to load in-app notifications:", e);
+    }
+  }, [currentUser, notifiedIds]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    fetchNotifications();
+    const interval = setInterval(fetchNotifications, 30000);
+    return () => clearInterval(interval);
+  }, [isAuthenticated, fetchNotifications]);
 
   // Global Notification Check for Follow-ups — guarded by isAuthenticated
   useEffect(() => {
@@ -197,6 +234,66 @@ export const AdminLayout: React.FC = () => {
   const handleNotifications = () => {
     setIsNotificationsOpen((prev) => !prev);
   };
+
+  const handleMarkNotificationRead = async (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    try {
+      await api.markNotificationRead(id);
+      fetchNotifications();
+    } catch (err) {
+      console.error("Failed to mark notification as read:", err);
+    }
+  };
+
+  const handleMarkAllNotificationsRead = async () => {
+    try {
+      const unread = inAppNotifications.filter(n => !n.isRead);
+      await Promise.all(unread.map(n => api.markNotificationRead(n.id)));
+      fetchNotifications();
+    } catch (err) {
+      console.error("Failed to mark all notifications as read:", err);
+    }
+  };
+
+  const unifiedItems = useMemo(() => {
+    const list: any[] = [];
+    
+    // 1. Follow-ups
+    const pendingFollowUps = followUps.filter(f =>
+      f.status === 'Pending' &&
+      f.reminderEnabled &&
+      f.scheduledAt &&
+      new Date(f.scheduledAt) <= new Date() &&
+      !dismissedIds.has(f.id)
+    );
+    pendingFollowUps.forEach(f => {
+      list.push({
+        id: f.id,
+        title: `Follow-up: ${f.leadName || 'Unknown Lead'}`,
+        message: f.description || f.notes || 'No notes provided.',
+        date: f.scheduledAt || '',
+        type: 'followup',
+        isRead: false,
+        rawItem: f
+      });
+    });
+
+    // 2. In-app Notifications
+    inAppNotifications.forEach(n => {
+      list.push({
+        id: n.id,
+        title: n.title,
+        message: n.message,
+        date: n.createdAt || '',
+        type: n.type || 'info',
+        isRead: n.isRead,
+        rawItem: n
+      });
+    });
+
+    // Sort by date descending
+    return list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [followUps, dismissedIds, inAppNotifications]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -437,7 +534,8 @@ export const AdminLayout: React.FC = () => {
             <div className="relative">
               <button onClick={handleNotifications} className="relative p-2.5 rounded-full text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors border border-transparent hover:border-slate-200 dark:hover:border-slate-700">
                 <span className="material-symbols-outlined text-[22px]">notifications</span>
-                {followUps.filter(f => f.status === 'Pending' && f.reminderEnabled && f.scheduledAt && new Date(f.scheduledAt) <= new Date() && !dismissedIds.has(f.id)).length > 0 && (
+                {(followUps.some(f => f.status === 'Pending' && f.reminderEnabled && f.scheduledAt && new Date(f.scheduledAt) <= new Date() && !dismissedIds.has(f.id)) ||
+                  inAppNotifications.some(n => !n.isRead)) && (
                   <span className="absolute top-2.5 right-2.5 size-2.5 bg-red-500 rounded-full border-2 border-white dark:border-[#151d29] animate-pulse"></span>
                 )}
               </button>
@@ -456,8 +554,10 @@ export const AdminLayout: React.FC = () => {
                       <div className="flex items-center gap-2">
                         {(() => {
                           const count = followUps.filter(f => f.status === 'Pending' && f.reminderEnabled && f.scheduledAt && new Date(f.scheduledAt) <= new Date() && !dismissedIds.has(f.id)).length;
-                          return count > 0 ? (
-                            <span className="text-xs font-bold px-2 py-0.5 bg-red-500 text-white rounded-full">{count} overdue</span>
+                          const unreadNotifs = inAppNotifications.filter(n => !n.isRead).length;
+                          const total = count + unreadNotifs;
+                          return total > 0 ? (
+                            <span className="text-xs font-bold px-2 py-0.5 bg-red-500 text-white rounded-full">{total} new</span>
                           ) : null;
                         })()}
                       </div>
@@ -466,121 +566,161 @@ export const AdminLayout: React.FC = () => {
                     {/* Notification List */}
                     <div className="max-h-[60vh] overflow-y-auto overscroll-contain divide-y divide-slate-50 dark:divide-slate-800/50">
                       {(() => {
-                        const pendingFollowUps = followUps
-                          .filter(f =>
-                            f.status === 'Pending' &&
-                            f.reminderEnabled &&
-                            f.scheduledAt &&
-                            new Date(f.scheduledAt) <= new Date() &&
-                            !dismissedIds.has(f.id)
-                          )
-                          .sort((a, b) => {
-                            const priorityVal: Record<string, number> = { 'High': 3, 'Medium': 2, 'Low': 1 };
-                            const pDiff = (priorityVal[b.priority || 'Medium'] as number) - (priorityVal[a.priority || 'Medium'] as number);
-                            if (pDiff !== 0) return pDiff;
-                            return new Date(a.scheduledAt!).getTime() - new Date(b.scheduledAt!).getTime();
-                          });
-
                         const getRelativeTime = (dateStr: string) => {
+                          if (!dateStr) return '';
                           const diff = Date.now() - new Date(dateStr).getTime();
                           const mins = Math.floor(diff / 60000);
                           const hrs = Math.floor(mins / 60);
                           const days = Math.floor(hrs / 24);
-                          if (days > 0) return `${days}d overdue`;
-                          if (hrs > 0) return `${hrs}h overdue`;
-                          if (mins > 0) return `${mins}m overdue`;
+                          if (days > 0) return `${days}d ago`;
+                          if (hrs > 0) return `${hrs}h ago`;
+                          if (mins > 0) return `${mins}m ago`;
                           return 'Just now';
                         };
 
-                        if (pendingFollowUps.length === 0) {
+                        if (unifiedItems.length === 0) {
                           return (
                             <div className="py-10 text-center flex flex-col items-center justify-center gap-2">
                               <div className="size-14 rounded-2xl bg-gradient-to-br from-emerald-100 to-teal-100 dark:from-emerald-900/20 dark:to-teal-900/20 flex items-center justify-center">
                                 <span className="material-symbols-outlined text-3xl text-emerald-500">check_circle</span>
                               </div>
                               <p className="text-sm font-bold text-slate-700 dark:text-slate-200 mt-1">All caught up!</p>
-                              <p className="text-xs text-slate-400 dark:text-slate-500">No pending follow-ups</p>
+                              <p className="text-xs text-slate-400 dark:text-slate-500">No pending notifications</p>
                             </div>
                           );
                         }
 
-                        return pendingFollowUps.map((f, idx) => (
-                          <div
-                            key={f.id}
-                            className={`p-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group ${
-                              idx === 0 ? 'bg-indigo-50/40 dark:bg-indigo-900/10' : ''
-                            }`}
-                          >
-                            <div className="flex gap-3">
-                              {/* Icon */}
-                              <div className={`size-9 rounded-xl flex items-center justify-center text-white shrink-0 shadow-sm ${
-                                f.priority === 'High'
-                                  ? 'bg-gradient-to-br from-red-500 to-rose-600'
-                                  : f.priority === 'Low'
-                                  ? 'bg-gradient-to-br from-emerald-400 to-teal-500'
-                                  : 'bg-gradient-to-br from-indigo-500 to-purple-600'
-                              }`}>
-                                <span className="material-symbols-outlined text-[16px]">alarm</span>
-                              </div>
+                        return unifiedItems.map((item, idx) => {
+                          const isFollowUp = item.type === 'followup';
+                          const isUnread = !item.isRead;
 
-                              {/* Content */}
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-start justify-between gap-1">
-                                  <p className="text-sm font-bold text-slate-900 dark:text-white leading-tight">
-                                    {f.leadName || 'Unknown Lead'}
-                                  </p>
-                                  {/* Dismiss X */}
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setDismissedIds(prev => new Set(prev).add(f.id));
-                                    }}
-                                    className="shrink-0 size-5 rounded-full text-slate-300 hover:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-center transition-colors opacity-0 group-hover:opacity-100"
-                                    title="Dismiss"
-                                  >
-                                    <span className="material-symbols-outlined text-[14px]">close</span>
-                                  </button>
+                          // Icon styling
+                          let iconName = 'notifications';
+                          let iconBg = 'bg-gradient-to-br from-blue-500 to-indigo-600';
+                          
+                          if (isFollowUp) {
+                            const p = item.rawItem.priority;
+                            iconName = 'alarm';
+                            iconBg = p === 'High'
+                              ? 'bg-gradient-to-br from-red-500 to-rose-600'
+                              : p === 'Low'
+                              ? 'bg-gradient-to-br from-emerald-400 to-teal-500'
+                              : 'bg-gradient-to-br from-indigo-500 to-purple-600';
+                          } else {
+                            if (item.type === 'nudge') {
+                              iconName = 'campaign';
+                              iconBg = 'bg-gradient-to-br from-amber-500 to-orange-600';
+                            } else if (item.type === 'milestone') {
+                              iconName = 'celebration';
+                              iconBg = 'bg-gradient-to-br from-emerald-500 to-teal-600';
+                            } else if (item.type === 'alert') {
+                              iconName = 'warning';
+                              iconBg = 'bg-gradient-to-br from-red-500 to-rose-600';
+                            }
+                          }
+
+                          return (
+                            <div
+                              key={item.id}
+                              onClick={() => {
+                                if (!isFollowUp && isUnread) {
+                                  handleMarkNotificationRead(item.id);
+                                }
+                                if (isFollowUp) {
+                                  navigate('/admin/leads');
+                                  setIsNotificationsOpen(false);
+                                }
+                              }}
+                              className={`p-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group cursor-pointer ${
+                                isUnread || (isFollowUp && idx === 0) ? 'bg-indigo-50/40 dark:bg-indigo-900/10' : ''
+                              }`}
+                            >
+                              <div className="flex gap-3">
+                                {/* Icon */}
+                                <div className={`size-9 rounded-xl flex items-center justify-center text-white shrink-0 shadow-sm ${iconBg}`}>
+                                  <span className="material-symbols-outlined text-[16px]">{iconName}</span>
                                 </div>
 
-                                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2 leading-relaxed">
-                                  {f.description || f.notes || 'No description provided.'}
-                                </p>
-
-                                <div className="flex items-center justify-between mt-2">
-                                  <div className="flex items-center gap-1.5">
-                                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${
-                                      f.priority === 'High' ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400'
-                                      : f.priority === 'Low' ? 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400'
-                                      : 'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400'
-                                    }`}>
-                                      {f.priority || 'Med'}
-                                    </span>
-                                    <span className="text-[10px] font-semibold text-slate-400 flex items-center gap-0.5">
-                                      <span className="material-symbols-outlined text-[11px]">schedule</span>
-                                      {getRelativeTime(f.scheduledAt!)}
-                                    </span>
+                                {/* Content */}
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-start justify-between gap-1">
+                                    <p className={`text-sm leading-tight text-slate-900 dark:text-white ${isUnread || isFollowUp ? 'font-bold' : 'font-medium'}`}>
+                                      {item.title}
+                                    </p>
+                                    {/* Dismiss / Mark Read X */}
+                                    {isFollowUp ? (
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setDismissedIds(prev => new Set(prev).add(item.id));
+                                        }}
+                                        className="shrink-0 size-5 rounded-full text-slate-300 hover:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-center transition-colors opacity-0 group-hover:opacity-100"
+                                        title="Dismiss"
+                                      >
+                                        <span className="material-symbols-outlined text-[14px]">close</span>
+                                      </button>
+                                    ) : (
+                                      isUnread && (
+                                        <button
+                                          onClick={(e) => handleMarkNotificationRead(item.id, e)}
+                                          className="shrink-0 size-5 rounded-full text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50 dark:hover:bg-indigo-950 flex items-center justify-center transition-colors"
+                                          title="Mark Read"
+                                        >
+                                          <span className="material-symbols-outlined text-[14px]">check</span>
+                                        </button>
+                                      )
+                                    )}
                                   </div>
 
-                                  {/* Mark Done button */}
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      updateFollowUp(f.id, { 
-                                        status: 'Done', 
-                                        completedAt: new Date().toISOString() 
-                                      });
-                                    }}
-                                    className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 bg-emerald-50 dark:bg-emerald-900/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 px-2 py-1 rounded-lg transition-colors flex items-center gap-1"
-                                    title="Mark as Done"
-                                  >
-                                    <span className="material-symbols-outlined text-[12px]">check</span>
-                                    Done
-                                  </button>
+                                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2 leading-relaxed">
+                                    {item.message}
+                                  </p>
+
+                                  <div className="flex items-center justify-between mt-2">
+                                    <div className="flex items-center gap-1.5">
+                                      {isFollowUp && (
+                                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${
+                                          item.rawItem.priority === 'High' ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400'
+                                          : item.rawItem.priority === 'Low' ? 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400'
+                                          : 'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400'
+                                        }`}>
+                                          {item.rawItem.priority || 'Med'}
+                                        </span>
+                                      )}
+                                      {!isFollowUp && (
+                                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400`}>
+                                          {item.type}
+                                        </span>
+                                      )}
+                                      <span className="text-[10px] font-semibold text-slate-400 flex items-center gap-0.5">
+                                        <span className="material-symbols-outlined text-[11px]">schedule</span>
+                                        {getRelativeTime(item.date)}
+                                      </span>
+                                    </div>
+
+                                    {/* Action button */}
+                                    {isFollowUp && (
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          updateFollowUp(item.id, { 
+                                            status: 'Done', 
+                                            completedAt: new Date().toISOString() 
+                                          });
+                                        }}
+                                        className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 bg-emerald-50 dark:bg-emerald-900/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 px-2 py-1 rounded-lg transition-colors flex items-center gap-1"
+                                        title="Mark as Done"
+                                      >
+                                        <span className="material-symbols-outlined text-[12px]">check</span>
+                                        Done
+                                      </button>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
                             </div>
-                          </div>
-                        ));
+                          );
+                        });
                       })()}
                     </div>
 
@@ -588,17 +728,19 @@ export const AdminLayout: React.FC = () => {
                     <div className="p-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 flex items-center gap-2">
                       <button
                         onClick={() => {
-                          // Mark all visible (non-dismissed, pending) as Completed
+                          // Mark all visible followups as Completed
                           followUps
                             .filter(f => f.status === 'Pending' && f.reminderEnabled && f.scheduledAt && new Date(f.scheduledAt) <= new Date() && !dismissedIds.has(f.id))
                             .forEach(f => updateFollowUp(f.id, { 
                               status: 'Done', 
                               completedAt: new Date().toISOString() 
                             }));
+                          // Mark all unread notifications as read
+                          handleMarkAllNotificationsRead();
                         }}
                         className="flex-1 py-2 text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-xl transition-all border border-emerald-200 dark:border-emerald-800/50"
                       >
-                        ✓ Mark All Done
+                        ✓ Mark All Done/Read
                       </button>
                       <button
                         onClick={() => {

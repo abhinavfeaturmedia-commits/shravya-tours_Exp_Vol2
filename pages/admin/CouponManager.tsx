@@ -4,10 +4,11 @@ import { Coupon } from '../../types';
 import { v4 as uuidv4 } from 'uuid';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
+import { Link } from 'react-router-dom';
 import { downloadCouponAsImage, downloadCouponAsPDF } from '../../utils/couponDownloader';
 
 export const CouponManager: React.FC = () => {
-  const { coupons, addCoupon, updateCoupon, deleteCoupon } = useData();
+  const { coupons, bookings, addCoupon, updateCoupon, deleteCoupon, applyCoupon } = useData();
 
   // Form State
   const [form, setForm] = useState<Partial<Coupon>>({
@@ -26,6 +27,13 @@ export const CouponManager: React.FC = () => {
   // Editor and Modals state
   const [isEditing, setIsEditing] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  // Apply Coupon Modal State
+  const [selectedCouponToApply, setSelectedCouponToApply] = useState<Coupon | null>(null);
+  const [isApplyModalOpen, setIsApplyModalOpen] = useState(false);
+  const [selectedBookingId, setSelectedBookingId] = useState('');
+  const [isSubmittingApply, setIsSubmittingApply] = useState(false);
+  const [applySearchQuery, setApplySearchQuery] = useState('');
 
   // Download state
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
@@ -218,12 +226,8 @@ export const CouponManager: React.FC = () => {
   };
 
   // ─── Download Handlers ────────────────────────────────────────────────────
-  // PNG download: captures the live preview card DOM node via html2canvas
+  // PNG download: always uses clean off-screen render (null forces getCouponHtml path, avoids scale artifacts)
   const handleDownloadPreviewImage = useCallback(async () => {
-    if (!previewRef.current) {
-      toast.error('Preview not ready. Please wait.');
-      return;
-    }
     const fakeCoupon: Coupon = {
       id: editingId || 'preview',
       code: form.code || 'PREVIEW',
@@ -240,7 +244,7 @@ export const CouponManager: React.FC = () => {
     };
     setDownloadingId('preview');
     try {
-      await downloadCouponAsImage(fakeCoupon, previewRef.current);
+      await downloadCouponAsImage(fakeCoupon, null); // null = use clean off-screen 880×375 renderer
       toast.success(`Coupon image saved as PNG!`);
     } catch (e) {
       toast.error('Image download failed. Try PDF instead.');
@@ -600,439 +604,307 @@ export const CouponManager: React.FC = () => {
           </div>
 
           {/* Interactive Card Rendering — ref attached for html2canvas capture */}
-          {/* Interactive Card Rendering — ref attached for html2canvas capture */}
           <div className="w-full flex justify-center items-center overflow-hidden py-4 select-none">
             <div className="origin-center scale-[0.45] sm:scale-[0.55] md:scale-[0.65] lg:scale-[0.75] xl:scale-[0.52] 2xl:scale-[0.68] my-[-100px] sm:my-[-80px] md:my-[-60px] xl:my-[-90px] 2xl:my-[-60px] shrink-0">
-              <div ref={previewRef} className="w-[880px] h-[375px] shrink-0 relative flex rounded-[32px] overflow-hidden shadow-2xl bg-[#0B1116] border border-slate-800/80 font-sans">
+              <div ref={previewRef} className="w-[880px] h-[375px] shrink-0 relative flex rounded-[32px] overflow-hidden shadow-2xl bg-white border border-slate-200 font-sans">
                 
-                {/* Custom circular notch cutouts at the tear-off boundary */}
-                <div className="absolute -top-[16px] left-[68%] w-[32px] h-[32px] rounded-full bg-[#151d29] border-b border-slate-800/85 z-30" />
-                <div className="absolute -bottom-[16px] left-[68%] w-[32px] h-[32px] rounded-full bg-[#151d29] border-t border-slate-800/85 z-30" />
-                
-                {/* White Perforated Dotted Separator Line */}
-                <div className="absolute top-0 bottom-0 left-[68%] flex flex-col justify-between py-6 pointer-events-none z-30 -translate-x-0.5">
-                  {Array.from({ length: 16 }).map((_, i) => (
-                    <div key={i} className="w-1.5 h-1.5 rounded-full bg-white/90 shadow-sm" />
-                  ))}
-                </div>
+                {/* Notch cutouts — centered exactly on the 598px boundary (left: 582px, width: 32px) */}
+                <div style={{ position: 'absolute', top: '-16px', left: '582px', width: '32px', height: '32px', borderRadius: '50%', backgroundColor: '#ffffff', border: '1px solid #e2e8f0', zIndex: 30, boxSizing: 'border-box' }} />
+                <div style={{ position: 'absolute', bottom: '-16px', left: '582px', width: '32px', height: '32px', borderRadius: '50%', backgroundColor: '#ffffff', border: '1px solid #e2e8f0', zIndex: 30, boxSizing: 'border-box' }} />
 
-                {form.type === 'ToursOnly' ? (
-                  /* ─── TOURS EXCLUSIVE PREMIUM VOUCHER (Image 2) ─── */
+                {/* Perforated dashed separator — centered at 598px boundary */}
+                <div style={{ position: 'absolute', top: '16px', bottom: '16px', left: '597px', width: '2px', borderLeft: '2px dashed rgba(0,0,0,0.12)', zIndex: 30, pointerEvents: 'none' }} />
+
+                                {form.type === 'ToursOnly' ? (
+                  /* ─── TOURS EXCLUSIVE PREMIUM VOUCHER ─── */
                   <>
-                    {/* Left Section - Full-bleed Tropical Scenery */}
-                    <div className="w-[68%] h-full relative p-8 flex flex-col justify-between overflow-hidden text-white">
-                      
-                      {/* Premium Scenic Background */}
-                      <div className="absolute inset-0 -z-10 bg-[url('https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&q=80&w=1000')] bg-cover bg-center brightness-[0.85] saturate-[1.1]" />
-                      {/* Deep Emerald-Teal Vignette and Overlay to ensure absolute readability */}
-                      <div className="absolute inset-0 bg-gradient-to-r from-[#012521]/95 via-[#012521]/60 to-transparent -z-10" />
+                    {/* Left Section */}
+                    <div style={{ width: '598px', height: '375px', backgroundColor: '#ffffff', position: 'relative', boxSizing: 'border-box', overflow: 'hidden' }}>
 
-                      {/* Header Logo */}
-                      <div className="flex justify-between items-start">
-                        <div className="flex items-center gap-3">
-                          <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-amber-400 to-orange-500 flex items-center justify-center text-white shadow-lg border border-amber-300/30">
-                            <span className="material-symbols-outlined text-[24px]">beach_access</span>
-                          </div>
-                          <div>
-                            <div className="flex items-baseline gap-1 leading-none">
-                              <span className="text-lg font-black tracking-tight text-orange-400 font-display">SHRAWELLO</span>
-                              <span className="text-sm font-bold tracking-tight text-white font-display">TravelHub</span>
-                            </div>
-                            <span className="text-[7.5px] font-black text-white/50 tracking-[0.25em] uppercase block mt-1 leading-none">— CORPORATE TRAVEL AND EVENTS —</span>
-                          </div>
-                        </div>
+                      {/* Dotted Flight Path SVG */}
+                      <div style={{ position: 'absolute', top: '35px', right: '25px', pointerEvents: 'none', zIndex: 10 }}>
+                        <svg width="192px" height="48px" viewBox="0 0 200 50" style={{ opacity: 0.8 }}>
+                          <path d="M10 40 C 60 20, 110 5, 170 25" fill="none" stroke="#024430" strokeWidth={1.8} strokeDasharray="4,4" />
+                          <g transform="translate(170, 25) rotate(15) scale(0.9)">
+                            <path d="M12,0 L-4,-12 L-2,-3 L-14,0 L-2,3 L-4,12 Z" fill="#024430" />
+                          </g>
+                        </svg>
+                      </div>
 
-                        {/* Top Cursive Text + Dotted Flight Path */}
-                        <div className="relative pr-6 pt-1 select-none">
-                          <span className="text-amber-300 font-semibold text-xs tracking-wider font-serif italic block" style={{ fontFamily: "'Dancing Script', 'Brush Script MT', cursive" }}>
-                            Explore the World. Create Memories.
-                          </span>
-                          <svg className="absolute top-2.5 right-[-10px] w-48 h-8 opacity-40 pointer-events-none" viewBox="0 0 200 40">
-                            <path d="M10 30 C 50 10, 100 0, 180 20" fill="none" stroke="#ffffff" strokeWidth="1" strokeDasharray="3,3" />
-                            <path d="M180 20 L174 15 L178 19 Z" fill="#ffffff" />
-                          </svg>
+                      {/* Header Branding — flex row, no absolute text stacking */}
+                      <div style={{ position: 'absolute', left: '32px', top: '32px', height: '48px', display: 'flex', alignItems: 'center', boxSizing: 'border-box' }}>
+                        <img src="/logo.png" style={{ width: '48px', height: '48px', objectFit: 'contain', borderRadius: '12px', marginRight: '12px', flexShrink: 0 }} />
+                        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                          <span style={{ fontSize: '20px', fontWeight: 800, color: '#024430', lineHeight: 1.1, letterSpacing: '0.02em', display: 'block' }}>SHRAWELLO</span>
+                          <span style={{ fontSize: '14px', fontWeight: 800, color: '#E65F2B', lineHeight: 1.1, marginTop: '1px', display: 'block' }}>TravelHub</span>
+                          <span style={{ fontSize: '7.5px', fontWeight: 700, color: '#94a3b8', letterSpacing: '0.15em', textTransform: 'uppercase', lineHeight: 1.1, marginTop: '2px', display: 'block' }}>CORPORATE TRAVEL AND EVENTS —</span>
                         </div>
                       </div>
 
-                      {/* Middle Slogan */}
-                      <div className="my-auto pt-4 pl-2 space-y-1">
-                        <h2 className="text-4xl font-extrabold tracking-tight leading-none">
-                          <span className="block text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]">EXPLORE MORE.</span>
-                          <span className="block text-orange-400 drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)] mt-1">PAY LESS.</span>
-                        </h2>
-                        <p className="text-amber-200 font-bold text-xs tracking-wider pl-0.5 pt-1.5" style={{ fontFamily: "'Dancing Script', 'Brush Script MT', cursive, serif" }}>
-                          Create Memories That Last Forever
-                        </p>
+                      {/* Slogan — flex-column stack, no absolute overlapping */}
+                      <div style={{ position: 'absolute', left: '40px', top: '105px', width: '518px', display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontSize: '34px', fontWeight: 800, color: '#024430', lineHeight: 1.1, letterSpacing: '-0.01em' }}>EXPLORE MORE.</span>
+                        <span style={{ fontSize: '34px', fontWeight: 800, color: '#E65F2B', lineHeight: 1.1, letterSpacing: '-0.01em', marginTop: '1px' }}>PAY LESS.</span>
+                        <div style={{ width: '48px', height: '3px', backgroundColor: '#E65F2B', marginTop: '8px' }}></div>
+                        <span style={{ fontSize: '15px', fontWeight: 600, color: '#64748b', fontStyle: 'italic', lineHeight: 1.2, marginTop: '6px' }}>Create Memories That Last Forever</span>
                       </div>
 
-                      {/* Category Circular Badges & Bottom bar */}
-                      <div className="space-y-4">
-                        <div className="flex gap-5 pl-2 select-none">
-                          {[
-                            { label: 'Customized Tours', icon: 'map' },
-                            { label: 'Family Packages', icon: 'family_restroom' },
-                            { label: 'Honeymoon Packages', icon: 'favorite' },
-                            { label: 'Group Tours', icon: 'groups' }
-                          ].map((cat, i) => (
-                            <div key={i} className="flex flex-col items-center gap-1.5">
-                              <div className="w-[50px] h-[50px] rounded-full bg-[#012521]/70 backdrop-blur-sm border border-orange-400/50 flex items-center justify-center text-orange-400 shadow-md">
-                                <span className="material-symbols-outlined text-[22px]">{cat.icon}</span>
-                              </div>
-                              <span className="text-[9px] font-black text-white/90 text-center tracking-wide block leading-tight">{cat.label}</span>
+                      {/* Category Badges — flex row, space-between */}
+                      <div style={{ position: 'absolute', left: '40px', top: '220px', width: '518px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        {[
+                          { label: 'Customized Tours', color: '#024430', icon: <svg width="24" height="24" fill="none" stroke="#ffffff" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" /></svg> },
+                          { label: 'Family Packages', color: '#E65F2B', icon: <svg width="22" height="22" fill="none" stroke="#ffffff" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg> },
+                          { label: 'Honeymoon Packages', color: '#024430', icon: <svg width="20" height="20" fill="#ffffff" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg> },
+                          { label: 'Group Tours', color: '#E65F2B', icon: <svg width="22" height="22" fill="#ffffff" viewBox="0 0 24 24"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg> },
+                        ].map((cat, i) => (
+                          <div key={i} style={{ width: '110px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
+                            <div style={{ width: '50px', height: '50px', borderRadius: '25px', backgroundColor: cat.color, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', marginBottom: '6px', flexShrink: 0 }}>
+                              {cat.icon}
                             </div>
-                          ))}
-                        </div>
+                            <span style={{ fontSize: '9px', fontWeight: 700, color: '#1e293b', lineHeight: 1.1, letterSpacing: '0.01em', whiteSpace: 'nowrap' }}>{cat.label}</span>
+                          </div>
+                        ))}
+                      </div>
 
-                        {/* Bottom Feature Pill Bar */}
-                        <div className="bg-[#002622]/80 backdrop-blur-sm border border-emerald-800/40 rounded-2xl h-11 px-6 flex items-center justify-between text-white text-[10px] font-black tracking-wider shadow-lg">
-                          <div className="flex items-center gap-2">
-                            <span className="material-symbols-outlined text-orange-400 text-sm">percent</span>
-                            <span>BEST PRICES <span className="text-orange-400 font-medium">Guaranteed</span></span>
+                      {/* Bottom Feature Pill Bar — flex space-between */}
+                      <div style={{ position: 'absolute', left: '40px', top: '302px', width: '518px', height: '48px', backgroundColor: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <svg width="16" height="16" fill="none" stroke="#024430" strokeWidth={2} viewBox="0 0 24 24" style={{ flexShrink: 0 }}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+                          <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.1 }}>
+                            <span style={{ fontSize: '10px', fontWeight: 700, color: '#334155', whiteSpace: 'nowrap' }}>Best Prices</span>
+                            <span style={{ fontSize: '8px', fontWeight: 600, color: '#94a3b8', whiteSpace: 'nowrap', marginTop: '1px' }}>Guaranteed</span>
                           </div>
-                          <div className="w-px h-4 bg-emerald-800/40" />
-                          <div className="flex items-center gap-2">
-                            <span className="material-symbols-outlined text-orange-400 text-sm">verified_user</span>
-                            <span>TRUSTED & SAFE <span className="text-orange-400 font-medium">Our Priority</span></span>
+                        </div>
+                        <div style={{ width: '1px', height: '16px', backgroundColor: '#e2e8f0', flexShrink: 0 }}></div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <svg width="16" height="16" fill="none" stroke="#E65F2B" strokeWidth={2} viewBox="0 0 24 24" style={{ flexShrink: 0 }}><path strokeLinecap="round" strokeLinejoin="round" d="M18 18h2a2 2 0 002-2v-3a2 2 0 00-2-2h-2m-12 7h-2a2 2 0 01-2-2v-3a2 2 0 012-2h2m12 5V9a6 6 0 00-12 0v8" /></svg>
+                          <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.1 }}>
+                            <span style={{ fontSize: '10px', fontWeight: 700, color: '#334155', whiteSpace: 'nowrap' }}>24/7 Support</span>
+                            <span style={{ fontSize: '8px', fontWeight: 600, color: '#94a3b8', whiteSpace: 'nowrap', marginTop: '1px' }}>We're Always Here</span>
                           </div>
-                          <div className="w-px h-4 bg-emerald-800/40" />
-                          <div className="flex items-center gap-2">
-                            <span className="material-symbols-outlined text-orange-400 text-sm">headset_mic</span>
-                            <span>24/7 SUPPORT <span className="text-orange-400 font-medium">We're Always Here</span></span>
-                          </div>
-                          <div className="w-px h-4 bg-emerald-800/40" />
-                          <div className="flex items-center gap-2">
-                            <span className="material-symbols-outlined text-orange-400 text-sm">luggage</span>
-                            <span>HASSLE FREE <span className="text-orange-400 font-medium">Travel Experience</span></span>
+                        </div>
+                        <div style={{ width: '1px', height: '16px', backgroundColor: '#e2e8f0', flexShrink: 0 }}></div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <svg width="16" height="16" fill="none" stroke="#024430" strokeWidth={2} viewBox="0 0 24 24" style={{ flexShrink: 0 }}><path strokeLinecap="round" strokeLinejoin="round" d="M20 7H4a2 2 0 00-2 2v10a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2zM9 7V4a2 2 0 012-2h2a2 2 0 012 2v3" /></svg>
+                          <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.1 }}>
+                            <span style={{ fontSize: '10px', fontWeight: 700, color: '#334155', whiteSpace: 'nowrap' }}>Hassle Free</span>
+                            <span style={{ fontSize: '8px', fontWeight: 600, color: '#94a3b8', whiteSpace: 'nowrap', marginTop: '1px' }}>Travel Experience</span>
                           </div>
                         </div>
                       </div>
                     </div>
 
-                    {/* Right Section - Ticket Stub (Deep Pine Green) */}
-                    <div className="w-[32%] h-full bg-[#03231D] relative p-6 flex flex-col justify-between items-center text-center overflow-hidden">
-                      
-                      {/* Background Micro Dots pattern overlay */}
-                      <div className="absolute inset-0 bg-[radial-gradient(#ffffff_1px,transparent_1px)] [background-size:12px_12px] opacity-5 pointer-events-none" />
+                    {/* Right Section - Ticket Stub */}
+                    <div style={{ width: '282px', height: '375px', backgroundColor: '#024430', position: 'relative', boxSizing: 'border-box', overflow: 'hidden' }}>
+                      <div style={{ position: 'absolute', inset: 0, backgroundImage: 'radial-gradient(rgba(255,255,255,0.06) 1px, transparent 1px)', backgroundSize: '12px 12px', pointerEvents: 'none', zIndex: 1 }} />
 
-                      {/* Header script banner */}
-                      <div className="pt-2">
-                        <span className="text-amber-300 font-bold text-xs block tracking-wider" style={{ fontFamily: "'Dancing Script', 'Brush Script MT', cursive" }}>
-                          ★ Special Offer ★
-                        </span>
+                      <div style={{ position: 'absolute', top: '24px', left: 0, width: '282px', textAlign: 'center', zIndex: 5 }}>
+                        <span style={{ color: '#fb923c', fontWeight: 800, fontSize: '11px', letterSpacing: '0.15em', textTransform: 'uppercase' }}>— SPECIAL OFFER —</span>
                       </div>
 
-                      {/* Giant Savings Benefit */}
-                      <div className="my-auto pt-2 flex flex-col items-center">
-                        <div className="flex items-baseline justify-center select-none">
-                          <span className="text-7xl font-black text-white tracking-tighter leading-none drop-shadow-[0_2px_10px_rgba(0,0,0,0.3)]">
-                            {form.discountValue}
-                          </span>
-                          <div className="flex flex-col items-start ml-1 leading-none">
-                            <span className="text-3xl font-black text-white">%</span>
-                            <span className="text-xl font-black text-orange-500 tracking-wider">OFF</span>
+                      {/* Discount Number + Symbol — flex centered row */}
+                      <div style={{ position: 'absolute', top: '52px', left: 0, width: '282px', display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: 5 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '72px' }}>
+                          <span style={{ fontSize: '64px', fontWeight: 800, color: '#ffffff', lineHeight: 1, letterSpacing: '-0.04em', marginRight: '6px' }}>{form.discountValue}</span>
+                          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'flex-start', lineHeight: 1.1 }}>
+                            <span style={{ fontSize: '24px', fontWeight: 800, color: '#ffffff' }}>{form.discountType === 'Percentage' ? '%' : '₹'}</span>
+                            <span style={{ fontSize: '13px', fontWeight: 800, color: '#fb923c', textTransform: 'uppercase', marginTop: '1px' }}>{form.discountType === 'Percentage' ? 'OFF' : 'FLAT'}</span>
                           </div>
                         </div>
-                        <span className="text-[10px] font-black text-white/80 tracking-widest uppercase block mt-1">ON ALL TOUR PACKAGES</span>
-                      </div>
-
-                      {/* Coupon Code Section */}
-                      <div className="w-full relative px-2 my-auto">
-                        {/* Orange Floating badge */}
-                        <div className="absolute top-[-9px] left-1/2 -translate-x-1/2 bg-gradient-to-r from-orange-500 to-amber-500 text-white font-black text-[7.5px] uppercase tracking-widest px-3 py-0.5 rounded-full z-15 shadow">
-                          COUPON CODE
-                        </div>
-
-                        {/* White Coupon Box */}
-                        <div className="w-full bg-white rounded-2xl p-2.5 border-[3px] border-double border-orange-400 shadow-xl flex items-center justify-center relative overflow-hidden">
-                          {/* Dotted inner line and scissor icon */}
-                          <div className="absolute inset-0.5 border border-dashed border-slate-300 rounded-xl pointer-events-none" />
-                          <span className="font-mono text-base font-extrabold text-[#03231D] tracking-widest select-all uppercase block z-10">
-                            {form.code || 'TOUR15'}
-                          </span>
+                        <span style={{ fontSize: '10px', fontWeight: 800, color: 'rgba(255,255,255,0.9)', letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: '6px', textAlign: 'center', lineHeight: 1.2, whiteSpace: 'nowrap' }}>ON ALL TOUR PACKAGES</span>
+                        <div style={{ marginTop: '8px', height: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <svg width="16" height="16" fill="#fb923c" viewBox="0 0 24 24"><path d="M12 3c.5 3 2.5 5 5.5 5.5-3 .5-5 2.5-5.5 5.5-.5-3-2.5-5-5.5-5.5 3-.5 5-2.5 5.5-5.5z" /></svg>
                         </div>
                       </div>
 
-                      {/* Valid Expiry Banner */}
-                      <div className="w-full bg-gradient-to-r from-orange-500 to-amber-500 text-white font-black text-[10.5px] tracking-wider py-2 px-3 rounded-xl shadow flex items-center justify-center gap-2 select-none">
-                        <span className="material-symbols-outlined text-[15px] font-black">calendar_today</span>
-                        <span>VALID TILL: {form.validTo ? format(new Date(form.validTo), 'dd MMM yyyy').toUpperCase() : '31 DEC 2026'}</span>
+                      {/* Coupon Code */}
+                      <div style={{ position: 'absolute', top: '198px', left: '24px', width: '234px', height: '54px', zIndex: 5 }}>
+                        <div style={{ position: 'absolute', top: '-10px', left: '57px', width: '120px', height: '20px', background: 'linear-gradient(to right, #f97316, #E65F2B)', color: '#ffffff', fontWeight: 700, fontSize: '8px', textTransform: 'uppercase', letterSpacing: '0.15em', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '12px', whiteSpace: 'nowrap', zIndex: 15 }}>COUPON CODE</div>
+                        <div style={{ position: 'absolute', left: 0, top: 0, width: '234px', height: '54px', backgroundColor: '#ffffff', borderRadius: '16px', padding: '4px', border: '2px solid #E65F2B', boxSizing: 'border-box' }}>
+                          <div style={{ border: '1px dashed #cbd5e1', borderRadius: '12px', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box' }}>
+                            <span style={{ fontFamily: 'monospace', fontSize: form.code && form.code.length > 10 ? '13px' : '16px', fontWeight: 700, color: '#024430', letterSpacing: '0.1em', textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '200px' }}>{form.code || 'TOUR15'}</span>
+                          </div>
+                        </div>
                       </div>
 
-                      {/* Premium Luggage SVGs illustration absolute in background */}
-                      <svg className="absolute bottom-[44px] right-[-10px] w-[140px] h-[95px] opacity-90 pointer-events-none z-10" viewBox="0 0 140 95" fill="none">
-                        {/* Boarding Pass */}
-                        <g transform="rotate(-15, 60, 45)">
-                          <rect x="35" y="10" width="70" height="40" rx="3" fill="#ffffff" />
-                          <rect x="35" y="10" width="70" height="10" fill="#005B5C" rx="1.5" />
-                          <circle cx="45" cy="15" r="2" fill="#ffffff" />
-                          <path d="M43 15h15" stroke="#ffffff" strokeWidth="1" />
-                          <rect x="40" y="24" width="30" height="3" rx="1" fill="#e2e8f0" />
-                          <rect x="40" y="30" width="20" height="3" rx="1" fill="#e2e8f0" />
-                          <line x1="88" y1="20" x2="88" y2="45" stroke="#cbd5e1" strokeWidth="1" strokeDasharray="1.5,1.5" />
-                          <rect x="92" y="22" width="2" height="18" fill="#1e293b" />
-                          <rect x="96" y="22" width="1" height="18" fill="#1e293b" />
-                          <rect x="99" y="22" width="3" height="18" fill="#1e293b" />
-                          <rect x="103" y="22" width="1" height="18" fill="#1e293b" />
-                        </g>
-                        {/* Passport */}
-                        <g transform="rotate(8, 85, 55)">
-                          <rect x="70" y="25" width="45" height="60" rx="4" fill="#0E3E2B" stroke="#B08D3E" strokeWidth="1.5" />
-                          <text x="92.5" y="38" fill="#B08D3E" fontSize="5" fontWeight="bold" fontFamily="serif" textAnchor="middle" letterSpacing="1">PASSPORT</text>
-                          <circle cx="92.5" cy="55" r="9" stroke="#B08D3E" strokeWidth="1" fill="none" />
-                          <circle cx="92.5" cy="55" r="6" stroke="#B08D3E" strokeWidth="0.7" fill="none" strokeDasharray="1,1" />
-                          <ellipse cx="92.5" cy="55" rx="3" ry="9" stroke="#B08D3E" strokeWidth="0.7" fill="none" />
-                          <ellipse cx="92.5" cy="55" rx="9" ry="3" stroke="#B08D3E" strokeWidth="0.7" fill="none" />
-                        </g>
-                        {/* Green/Teal Suitcase */}
-                        <g transform="translate(10, 30)">
-                          <rect x="10" y="15" width="70" height="48" rx="10" fill="#1E3E3F" stroke="#122728" strokeWidth="2" />
-                          <rect x="14" y="19" width="62" height="40" rx="7" stroke="#2a5354" strokeWidth="1.5" fill="none" />
-                          <path d="M10 25c0-5 5-10 10-10" stroke="#0f1f20" strokeWidth="3" fill="none" />
-                          <path d="M80 25c0-5-5-10-10-10" stroke="#0f1f20" strokeWidth="3" fill="none" />
-                          <path d="M10 53c0 5 5 10 10 10" stroke="#0f1f20" strokeWidth="3" fill="none" />
-                          <path d="M80 53c0 5-5 10-10 10" stroke="#0f1f20" strokeWidth="3" fill="none" />
-                          <path d="M35 15V8c0-2.2 1.8-4 4-4h12c2.2 0 4 1.8 4 4v7" stroke="#0f1f20" strokeWidth="4.5" fill="none" />
-                          <rect x="33" y="12" width="6" height="4" rx="1" fill="#B08D3E" />
-                          <rect x="51" y="12" width="6" height="4" rx="1" fill="#B08D3E" />
-                          <rect x="24" y="15" width="6" height="48" fill="#122728" />
-                          <rect x="60" y="15" width="6" height="48" fill="#122728" />
-                          <rect x="23" y="30" width="8" height="6" fill="#B08D3E" rx="1" />
-                          <rect x="59" y="30" width="8" height="6" fill="#B08D3E" rx="1" />
-                          <rect x="36" y="28" width="18" height="18" rx="3" fill="#ffffff" />
-                          <circle cx="45" cy="37" r="6" fill="#f97316" />
-                          <path d="M42 35l6 4M42 39l6-4" stroke="#ffffff" strokeWidth="1.5" />
-                          <circle cx="20" cy="50" r="4" fill="#E11D48" />
-                          <rect x="54" y="48" width="10" height="6" rx="1" fill="#2563EB" transform="rotate(-10, 59, 51)" />
-                        </g>
-                      </svg>
+                      {/* Airplane Divider */}
+                      <div style={{ position: 'absolute', top: '268px', left: '24px', width: '234px', height: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 5 }}>
+                        <div style={{ height: '1px', backgroundColor: 'rgba(249, 115, 22, 0.2)', flex: 1 }}></div>
+                        <svg width="14" height="14" fill="#fb923c" viewBox="0 0 24 24" style={{ transform: 'rotate(90deg)', margin: '0 8px', flexShrink: 0 }}><path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L14 19v-5.5L21 16z" /></svg>
+                        <div style={{ height: '1px', backgroundColor: 'rgba(249, 115, 22, 0.2)', flex: 1 }}></div>
+                      </div>
+
+                      {/* Expiry */}
+                      <div style={{ position: 'absolute', bottom: '24px', left: 0, width: '282px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fb923c', fontWeight: 800, fontSize: '11px', letterSpacing: '0.05em', zIndex: 5 }}>
+                        <svg width="14" height="14" fill="none" stroke="#fb923c" strokeWidth="2.5" viewBox="0 0 24 24" style={{ marginRight: '6px', flexShrink: 0 }}>
+                          <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                          <line x1="16" y1="2" x2="16" y2="6" />
+                          <line x1="8" y1="2" x2="8" y2="6" />
+                          <line x1="3" y1="10" x2="21" y2="10" />
+                        </svg>
+                        <span style={{ whiteSpace: 'nowrap', lineHeight: 1 }}>VALID TILL: {form.validTo ? format(new Date(form.validTo), 'dd MMM yyyy').toUpperCase() : '31 DEC 2026'}</span>
+                      </div>
                     </div>
                   </>
                 ) : (
-                  /* ─── MULTI-CATEGORY PREMIUM PASS (Image 1) ─── */
+                  /* ─── MULTI-CATEGORY PREMIUM PASS ─── */
                   <>
-                    {/* Left Section - Branded Cream & Slanted Category Tiles */}
-                    <div className="w-[68%] h-full bg-gradient-to-br from-[#FCFBF9] to-[#F3EFE9] text-slate-800 relative p-8 flex flex-col justify-between overflow-hidden">
-                      
-                      {/* Background route mapping design */}
-                      <svg className="absolute inset-0 w-full h-full opacity-[0.12] pointer-events-none" viewBox="0 0 600 375">
-                        <path d="M30 60 Q 150 140, 220 70 T 400 120" fill="none" stroke="#FF6A00" strokeWidth="2.5" strokeDasharray="5,5" />
-                        <circle cx="30" cy="60" r="5" fill="#FF6A00" />
-                        <circle cx="220" cy="70" r="5" fill="#008060" />
-                        <circle cx="400" cy="120" r="5" fill="#0066CC" />
-                      </svg>
+                    {/* Left Section */}
+                    <div style={{ width: '598px', height: '375px', backgroundColor: '#ffffff', position: 'relative', boxSizing: 'border-box', overflow: 'hidden' }}>
 
-                      {/* Header Logo */}
-                      <div className="flex justify-between items-start">
-                        <div className="flex items-center gap-3">
-                          <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-amber-400 to-orange-500 flex items-center justify-center text-white shadow-lg border border-amber-300/30">
-                            <span className="material-symbols-outlined text-[24px]">beach_access</span>
-                          </div>
-                          <div>
-                            <div className="flex items-baseline gap-1 leading-none">
-                              <span className="text-lg font-black tracking-tight text-[#FF6A00] font-display">SHRAWELLO</span>
-                              <span className="text-sm font-bold tracking-tight text-[#008060] font-display">TravelHub</span>
-                            </div>
-                            <span className="text-[7.5px] font-black text-slate-400 tracking-[0.25em] uppercase block mt-1 leading-none">— CORPORATE TRAVEL AND EVENTS —</span>
-                          </div>
+                      {/* Dotted Flight Path SVG */}
+                      <div style={{ position: 'absolute', top: '35px', right: '25px', pointerEvents: 'none', zIndex: 10 }}>
+                        <svg width="192px" height="48px" viewBox="0 0 200 50" style={{ opacity: 0.8 }}>
+                          <path d="M10 40 C 60 20, 110 5, 170 25" fill="none" stroke="#024430" strokeWidth={1.8} strokeDasharray="4,4" />
+                          <g transform="translate(170, 25) rotate(15) scale(0.9)">
+                            <path d="M12,0 L-4,-12 L-2,-3 L-14,0 L-2,3 L-4,12 Z" fill="#024430" />
+                          </g>
+                        </svg>
+                      </div>
+
+                      {/* Header Logo — flex row */}
+                      <div style={{ position: 'absolute', left: '32px', top: '32px', height: '48px', display: 'flex', alignItems: 'center', boxSizing: 'border-box' }}>
+                        <img src="/logo.png" style={{ width: '48px', height: '48px', objectFit: 'contain', borderRadius: '12px', marginRight: '12px', flexShrink: 0 }} />
+                        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                          <span style={{ fontSize: '20px', fontWeight: 800, color: '#024430', lineHeight: 1.1, letterSpacing: '0.02em', display: 'block' }}>SHRAWELLO</span>
+                          <span style={{ fontSize: '14px', fontWeight: 800, color: '#E65F2B', lineHeight: 1.1, marginTop: '1px', display: 'block' }}>TravelHub</span>
+                          <span style={{ fontSize: '7.5px', fontWeight: 700, color: '#94a3b8', letterSpacing: '0.15em', textTransform: 'uppercase', lineHeight: 1.1, marginTop: '2px', display: 'block' }}>CORPORATE TRAVEL AND EVENTS —</span>
                         </div>
                       </div>
 
-                      {/* Middle Area: Slogan Left, Slanted Tiles Right */}
-                      <div className="flex justify-between items-center my-auto pt-2 pl-1 select-none">
-                        
-                        {/* Vertical Slogans & Features */}
-                        <div className="space-y-4 max-w-[280px]">
-                          <div>
-                            <h2 className="text-[28px] font-black tracking-tight leading-none text-[#003632]">ONE DESTINATION.</h2>
-                            <h2 className="text-[28px] font-black tracking-tight leading-none text-[#FF6A00] mt-1.5">ENDLESS JOURNEYS.</h2>
-                            <p className="text-xs text-slate-500 font-bold mt-2.5">
-                              Travel <span className="text-emerald-600">Smart</span>. Book <span className="text-[#003632]">Easy</span>. Save <span className="text-orange-500">More</span>.
-                            </p>
-                          </div>
-
-                          {/* Features Checklist */}
-                          <div className="space-y-1.5">
-                            {['Easy Bookings', 'Best Prices', 'Verified Partners', '24/7 Support'].map((feat, idx) => (
-                              <div key={idx} className="flex items-center gap-2 text-[10.5px] font-extrabold text-slate-700">
-                                <span className="w-4 h-4 rounded-full bg-emerald-600 flex items-center justify-center text-white">
-                                  <span className="material-symbols-outlined text-[11px] font-black">check</span>
-                                </span>
-                                <span>{feat}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* Slanted category cards */}
-                        <div className="flex gap-2.5 h-[165px] pl-6 pr-2">
-                          {[
-                            { title: 'CAB BOOKING', text: 'Safe. Reliable. Comfortable Rides.', icon: 'local_taxi', color: 'bg-orange-500', img: 'https://images.unsplash.com/photo-1549880181-56a44cf8a4a1?auto=format&fit=crop&q=80&w=300' },
-                            { title: 'TRAIN BOOKING', text: 'Comfortable Journeys. Connect Beyond.', icon: 'train', color: 'bg-emerald-600', img: 'https://images.unsplash.com/photo-1532103054090-334e6e60ab29?auto=format&fit=crop&q=80&w=300' },
-                            { title: 'FLIGHT BOOKING', text: 'Best Fares. Fly to Your Dreams.', icon: 'flight', color: 'bg-blue-600', img: 'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?auto=format&fit=crop&q=80&w=300' },
-                            { title: 'TOUR PACKAGES', text: 'Explore More. Create Memories.', icon: 'beach_access', color: 'bg-purple-600', img: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&q=80&w=300' }
-                          ].map((col, idx) => (
-                            <div key={idx} className="w-[66px] h-[155px] -skew-x-12 overflow-hidden rounded-xl border border-white shadow-md relative group/item transition-all duration-300 hover:w-[110px]">
-                              
-                              {/* Background card image & dark overlay */}
-                              <div className="absolute inset-0 -skew-x-12">
-                                <img src={col.img} className="absolute inset-0 w-full h-full object-cover brightness-[0.8]" />
-                                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-black/30" />
-                              </div>
-
-                              {/* Un-skewed inner content wrapper */}
-                              <div className="skew-x-12 w-[110px] h-[155px] absolute left-[-22px] top-0 flex flex-col justify-between p-2.5">
-                                {/* Top Badge & Icon */}
-                                <div className="flex flex-col items-center select-none pt-1">
-                                  <div className={`w-6 h-6 rounded-full ${col.color} flex items-center justify-center text-white shadow-sm`}>
-                                    <span className="material-symbols-outlined text-[14px]">{col.icon}</span>
-                                  </div>
-                                  <span className="text-[7.5px] font-black text-white text-center tracking-wider block mt-1">{col.title}</span>
-                                </div>
-                                {/* Bottom slogan label */}
-                                <div className={`${col.color} text-white text-[7px] font-black leading-tight py-1 px-1 rounded text-center shadow-md select-none`}>
-                                  {col.text}
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
+                      {/* Slogan — flex-column stack */}
+                      <div style={{ position: 'absolute', left: '40px', top: '105px', width: '518px', display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontSize: '30px', fontWeight: 800, color: '#024430', lineHeight: 1.1, letterSpacing: '-0.01em' }}>ONE PLATFORM.</span>
+                        <span style={{ fontSize: '30px', fontWeight: 800, color: '#E65F2B', lineHeight: 1.1, letterSpacing: '-0.01em', marginTop: '1px' }}>ALL YOUR JOURNEYS.</span>
+                        <span style={{ fontSize: '11px', fontWeight: 700, color: '#94a3b8', lineHeight: 1.2, marginTop: '6px' }}>Smart bookings. Best prices. Hassle free travel.</span>
                       </div>
 
-                      {/* Bottom Feature Rounded Bar */}
-                      <div className="bg-white/90 border border-slate-200/50 rounded-2xl h-11 px-6 flex items-center justify-between text-slate-700 text-[10px] font-black tracking-wider shadow-md select-none">
-                        <div className="flex items-center gap-2">
-                          <span className="material-symbols-outlined text-[#008060] text-sm">verified</span>
-                          <span>BEST PRICES <span className="text-slate-400 font-medium">Guaranteed</span></span>
+                      {/* 4 Categories — flex space-between */}
+                      <div style={{ position: 'absolute', left: '40px', top: '205px', width: '518px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        {[
+                          { title: 'CAB BOOKING', sub1: 'Local • Outstation', sub2: 'Airport Transfers', icon: <svg width="20" height="20" fill="none" stroke="#E65F2B" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 17h2a1 1 0 001-1v-3a1 1 0 00-1-1h-2.28a2 2 0 01-1.68-.9l-.96-1.44A2 2 0 0014.4 9H9.6a2 2 0 00-1.68.9l-.96 1.44a2 2 0 01-1.68.9H3a1 1 0 00-1 1v3a1 1 0 001 1h2" /><path d="M5 18h14M5 18v3h2v-3h10v3h2v-3M5 11h14v7H5v-7" strokeLinecap="round" strokeLinejoin="round" /></svg> },
+                          { title: 'TRAIN BOOKING', sub1: 'All Classes', sub2: 'Tatkal Booking', icon: <svg width="20" height="20" fill="none" stroke="#008060" strokeWidth={2} viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="15" rx="3" /><rect x="7" y="5" width="10" height="5" rx="1" /><circle cx="9" cy="14" r="1.5" fill="#008060" /><circle cx="15" cy="14" r="1.5" fill="#008060" /><path d="M7 21l2-3m6 3l-2-3" strokeLinecap="round" /></svg> },
+                          { title: 'FLIGHT BOOKING', sub1: 'Domestic • Intl', sub2: 'Best Fares', icon: <svg width="20" height="20" fill="none" stroke="#2563eb" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-16-9 16 9-2zm0 0v-8" /></svg> },
+                          { title: 'TOUR PACKAGES', sub1: 'Honeymoon • Family', sub2: 'Group Tours', icon: <svg width="20" height="20" fill="none" stroke="#7c3aed" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 22a10 10 0 006-7c0-2-1.5-4-3.5-4.5.5-1.5 0-3-1.5-4C12 5.5 10.5 6 9.5 7.5 9 6.5 8 6 7 6.5c-1.5.5-2 2-1.5 3.5C3.5 10.5 2.5 12 3 14c1.5 3.5 5 6 9 8zM12 12v10" /></svg> },
+                        ].map((cat, i) => (
+                          <div key={i} style={{ width: '110px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
+                            <div style={{ width: '36px', height: '36px', borderRadius: '12px', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 2px rgba(0,0,0,0.05)', marginBottom: '6px', flexShrink: 0 }}>
+                              {cat.icon}
+                            </div>
+                            <span style={{ fontSize: '9px', fontWeight: 800, color: '#1e293b', letterSpacing: '0.01em', display: 'block', lineHeight: 1.1, whiteSpace: 'nowrap' }}>{cat.title}</span>
+                            <span style={{ fontSize: '7.5px', color: '#94a3b8', fontWeight: 700, display: 'block', lineHeight: 1.2, marginTop: '3px', whiteSpace: 'nowrap' }}>{cat.sub1}</span>
+                            <span style={{ fontSize: '7.5px', color: '#94a3b8', fontWeight: 700, display: 'block', lineHeight: 1.2, whiteSpace: 'nowrap' }}>{cat.sub2}</span>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Bottom Feature Bar — flex space-between */}
+                      <div style={{ position: 'absolute', left: '40px', top: '302px', width: '518px', height: '48px', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '16px', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 12px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <svg width="14" height="14" fill="none" stroke="#008060" strokeWidth={2.5} viewBox="0 0 24 24" style={{ flexShrink: 0 }}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                          <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.1 }}>
+                            <span style={{ color: '#334155', fontWeight: 800, fontSize: '8.5px', whiteSpace: 'nowrap' }}>TRUSTED & SAFE</span>
+                            <span style={{ color: '#94a3b8', fontWeight: 600, fontSize: '7.5px', whiteSpace: 'nowrap', marginTop: '1px' }}>Verified Partners</span>
+                          </div>
                         </div>
-                        <div className="w-px h-4 bg-slate-200" />
-                        <div className="flex items-center gap-2">
-                          <span className="material-symbols-outlined text-[#008060] text-sm">security</span>
-                          <span>TRUSTED & SAFE <span className="text-slate-400 font-medium">Our Priority</span></span>
+                        <div style={{ width: '1px', height: '16px', backgroundColor: '#e2e8f0', flexShrink: 0 }}></div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <svg width="14" height="14" fill="none" stroke="#E65F2B" strokeWidth={2.5} viewBox="0 0 24 24" style={{ flexShrink: 0 }}><path strokeLinecap="round" strokeLinejoin="round" d="M7 7h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                          <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.1 }}>
+                            <span style={{ color: '#334155', fontWeight: 800, fontSize: '8.5px', whiteSpace: 'nowrap' }}>BEST PRICES</span>
+                            <span style={{ color: '#94a3b8', fontWeight: 600, fontSize: '7.5px', whiteSpace: 'nowrap', marginTop: '1px' }}>Guaranteed</span>
+                          </div>
                         </div>
-                        <div className="w-px h-4 bg-slate-200" />
-                        <div className="flex items-center gap-2">
-                          <span className="material-symbols-outlined text-[#008060] text-sm">support_agent</span>
-                          <span>24/7 SUPPORT <span className="text-slate-400 font-medium">Always Here</span></span>
+                        <div style={{ width: '1px', height: '16px', backgroundColor: '#e2e8f0', flexShrink: 0 }}></div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <svg width="14" height="14" fill="none" stroke="#008060" strokeWidth={2.5} viewBox="0 0 24 24" style={{ flexShrink: 0 }}><path strokeLinecap="round" strokeLinejoin="round" d="M18 18h2a2 2 0 002-2v-3a2 2 0 00-2-2h-2m-12 7h-2a2 2 0 01-2-2v-3a2 2 0 012-2h2m12 5V9a6 6 0 00-12 0v8" /></svg>
+                          <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.1 }}>
+                            <span style={{ color: '#334155', fontWeight: 800, fontSize: '8.5px', whiteSpace: 'nowrap' }}>24/7 SUPPORT</span>
+                            <span style={{ color: '#94a3b8', fontWeight: 600, fontSize: '7.5px', whiteSpace: 'nowrap', marginTop: '1px' }}>Always Here</span>
+                          </div>
                         </div>
-                        <div className="w-px h-4 bg-slate-200" />
-                        <div className="flex items-center gap-2">
-                          <span className="material-symbols-outlined text-[#008060] text-sm">local_offer</span>
-                          <span>EXCLUSIVE OFFERS <span className="text-slate-400 font-medium">More Savings</span></span>
+                        <div style={{ width: '1px', height: '16px', backgroundColor: '#e2e8f0', flexShrink: 0 }}></div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <svg width="14" height="14" fill="none" stroke="#E65F2B" strokeWidth={2.5} viewBox="0 0 24 24" style={{ flexShrink: 0 }}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4" /><circle cx="12" cy="12" r={9} /></svg>
+                          <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.1 }}>
+                            <span style={{ color: '#334155', fontWeight: 800, fontSize: '8.5px', whiteSpace: 'nowrap' }}>EASY BOOKING</span>
+                            <span style={{ color: '#94a3b8', fontWeight: 600, fontSize: '7.5px', whiteSpace: 'nowrap', marginTop: '1px' }}>Quick & Free</span>
+                          </div>
                         </div>
                       </div>
                     </div>
 
-                    {/* Right Section - Ticket Stub (Deep Pine Green) */}
-                    <div className="w-[32%] h-full bg-[#03231D] relative p-6 flex flex-col justify-between items-center text-center overflow-hidden">
-                      
-                      {/* Micro Dot pattern overlay */}
-                      <div className="absolute inset-0 bg-[radial-gradient(#ffffff_1px,transparent_1px)] [background-size:12px_12px] opacity-5 pointer-events-none" />
+                    {/* Right Section - Coupon Stub */}
+                    <div style={{ width: '282px', height: '375px', backgroundColor: '#024430', position: 'relative', boxSizing: 'border-box', overflow: 'hidden' }}>
+                      <div style={{ position: 'absolute', inset: 0, backgroundImage: 'radial-gradient(rgba(255,255,255,0.06) 1px, transparent 1px)', backgroundSize: '12px 12px', pointerEvents: 'none', zIndex: 1 }} />
 
-                      {/* Header script banner */}
-                      <div className="pt-2 select-none">
-                        <span className="text-amber-300 font-black text-[10px] block tracking-[0.2em] uppercase leading-none">
-                          ★ SPECIAL DISCOUNT ★
-                        </span>
+                      <div style={{ position: 'absolute', top: '24px', left: 0, width: '282px', textAlign: 'center', zIndex: 5 }}>
+                        <span style={{ color: '#fb923c', fontWeight: 800, fontSize: '11px', letterSpacing: '0.15em', textTransform: 'uppercase' }}>★ EXCLUSIVE OFFER ★</span>
                       </div>
 
-                      {/* Giant Savings Benefit */}
-                      <div className="my-auto pt-2 flex flex-col items-center">
-                        <div className="flex items-baseline justify-center select-none">
-                          <span className="text-7xl font-black text-white tracking-tighter leading-none drop-shadow-[0_2px_10px_rgba(0,0,0,0.3)]">
-                            {form.discountValue}
-                          </span>
-                          <div className="flex flex-col items-start ml-1 leading-none">
-                            <span className="text-3xl font-black text-white">%</span>
-                            <span className="text-xl font-black text-orange-500 tracking-wider">OFF</span>
+                      {/* Discount Number + Symbol */}
+                      <div style={{ position: 'absolute', top: '52px', left: 0, width: '282px', display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: 5 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '72px' }}>
+                          <span style={{ fontSize: '64px', fontWeight: 800, color: '#ffffff', lineHeight: 1, letterSpacing: '-0.04em', marginRight: '6px' }}>{form.discountValue}</span>
+                          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'flex-start', lineHeight: 1.1 }}>
+                            <span style={{ fontSize: '24px', fontWeight: 800, color: '#ffffff' }}>{form.discountType === 'Percentage' ? '%' : '₹'}</span>
+                            <span style={{ fontSize: '13px', fontWeight: 800, color: '#fb923c', textTransform: 'uppercase', marginTop: '1px' }}>{form.discountType === 'Percentage' ? 'OFF' : 'FLAT'}</span>
                           </div>
                         </div>
-                        <span className="text-[10px] font-black text-white/95 tracking-[0.15em] uppercase block mt-1">ON ALL BOOKINGS</span>
-                        <span className="text-[8px] font-bold text-orange-400/80 tracking-widest block mt-0.5">CAB | TRAIN | FLIGHTS | TOURS</span>
+                        <span style={{ fontSize: '10px', fontWeight: 800, color: 'rgba(255,255,255,0.95)', letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: '6px', textAlign: 'center', lineHeight: 1.2, whiteSpace: 'nowrap' }}>ON ALL BOOKINGS</span>
+                        <span style={{ fontSize: '8px', fontWeight: 800, color: '#5eead4', letterSpacing: '0.05em', textTransform: 'uppercase', marginTop: '3px', textAlign: 'center', lineHeight: 1.2, whiteSpace: 'nowrap' }}>CAB | TRAIN | FLIGHTS | TOURS</span>
                       </div>
 
-                      {/* Coupon Code Section */}
-                      <div className="w-full relative px-2 my-auto">
-                        {/* Orange Floating badge */}
-                        <div className="absolute top-[-9px] left-1/2 -translate-x-1/2 bg-gradient-to-r from-orange-500 to-amber-500 text-white font-black text-[7.5px] uppercase tracking-widest px-3 py-0.5 rounded-full z-15 shadow">
-                          COUPON CODE
-                        </div>
-
-                        {/* White Coupon Box */}
-                        <div className="w-full bg-white rounded-2xl p-2.5 border-[3px] border-double border-orange-400 shadow-xl flex items-center justify-center relative overflow-hidden">
-                          {/* Dotted inner line */}
-                          <div className="absolute inset-0.5 border border-dashed border-slate-300 rounded-xl pointer-events-none" />
-                          <span className="font-mono text-base font-extrabold text-[#03231D] tracking-widest select-all uppercase block z-10">
-                            {form.code || 'SHRAVELLO015'}
-                          </span>
+                      {/* Coupon Code */}
+                      <div style={{ position: 'absolute', top: '198px', left: '24px', width: '234px', height: '54px', zIndex: 5 }}>
+                        <div style={{ position: 'absolute', top: '-10px', left: '57px', width: '120px', height: '20px', background: 'linear-gradient(to right, #f97316, #E65F2B)', color: '#ffffff', fontWeight: 700, fontSize: '8px', textTransform: 'uppercase', letterSpacing: '0.15em', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '12px', whiteSpace: 'nowrap', zIndex: 15 }}>COUPON CODE</div>
+                        <div style={{ position: 'absolute', left: 0, top: 0, width: '234px', height: '54px', backgroundColor: '#ffffff', borderRadius: '16px', padding: '4px', border: '2px solid #E65F2B', boxSizing: 'border-box' }}>
+                          <div style={{ border: '1px dashed #cbd5e1', borderRadius: '12px', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box' }}>
+                            <span style={{ fontFamily: 'monospace', fontSize: form.code && form.code.length > 10 ? '13px' : '16px', fontWeight: 700, color: '#024430', letterSpacing: '0.1em', textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '200px' }}>{form.code || 'SHRAWELLO15'}</span>
+                          </div>
                         </div>
                       </div>
 
-                      {/* Yellow Category Icon Bar */}
-                      <div className="flex justify-around items-center w-full px-2 py-1 bg-[#011B16] rounded-xl border border-white/5 shadow-inner select-none my-auto">
-                        <span className="material-symbols-outlined text-orange-400 text-base font-bold">local_taxi</span>
-                        <div className="w-px h-3 bg-white/10" />
-                        <span className="material-symbols-outlined text-orange-400 text-base font-bold">train</span>
-                        <div className="w-px h-3 bg-white/10" />
-                        <span className="material-symbols-outlined text-orange-400 text-base font-bold">flight</span>
-                        <div className="w-px h-3 bg-white/10" />
-                        <span className="material-symbols-outlined text-orange-400 text-base font-bold">luggage</span>
+                      {/* Airplane Divider */}
+                      <div style={{ position: 'absolute', top: '268px', left: '24px', width: '234px', height: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 5 }}>
+                        <div style={{ height: '1px', backgroundColor: 'rgba(249, 115, 22, 0.2)', flex: 1 }}></div>
+                        <svg width="14" height="14" fill="#fb923c" viewBox="0 0 24 24" style={{ transform: 'rotate(90deg)', margin: '0 8px', flexShrink: 0 }}><path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L14 19v-5.5L21 16z" /></svg>
+                        <div style={{ height: '1px', backgroundColor: 'rgba(249, 115, 22, 0.2)', flex: 1 }}></div>
                       </div>
 
-                      {/* Valid Expiry Banner */}
-                      <div className="w-full bg-gradient-to-r from-orange-500 to-amber-500 text-white font-black text-[10.5px] tracking-wider py-2 px-3 rounded-xl shadow flex items-center justify-center gap-2 select-none">
-                        <span className="material-symbols-outlined text-[15px] font-black">calendar_today</span>
-                        <span>VALID TILL: {form.validTo ? format(new Date(form.validTo), 'dd MMM yyyy').toUpperCase() : '31 DEC 2026'}</span>
+                      {/* Expiry */}
+                      <div style={{ position: 'absolute', bottom: '24px', left: 0, width: '282px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fb923c', fontWeight: 800, fontSize: '11px', letterSpacing: '0.05em', zIndex: 5 }}>
+                        <svg width="14" height="14" fill="none" stroke="#fb923c" strokeWidth="2.5" viewBox="0 0 24 24" style={{ marginRight: '6px', flexShrink: 0 }}>
+                          <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                          <line x1="16" y1="2" x2="16" y2="6" />
+                          <line x1="8" y1="2" x2="8" y2="6" />
+                          <line x1="3" y1="10" x2="21" y2="10" />
+                        </svg>
+                        <span style={{ whiteSpace: 'nowrap', lineHeight: 1 }}>VALID TILL: {form.validTo ? format(new Date(form.validTo), 'dd MMM yyyy').toUpperCase() : '31 DEC 2026'}</span>
                       </div>
-
-                      {/* Premium Luggage SVGs illustration absolute in background */}
-                      <svg className="absolute bottom-[44px] right-[-10px] w-[140px] h-[95px] opacity-90 pointer-events-none z-10" viewBox="0 0 140 95" fill="none">
-                        {/* Boarding Pass */}
-                        <g transform="rotate(-15, 60, 45)">
-                          <rect x="35" y="10" width="70" height="40" rx="3" fill="#ffffff" />
-                          <rect x="35" y="10" width="70" height="10" fill="#005B5C" rx="1.5" />
-                          <circle cx="45" cy="15" r="2" fill="#ffffff" />
-                          <path d="M43 15h15" stroke="#ffffff" strokeWidth="1" />
-                          <rect x="40" y="24" width="30" height="3" rx="1" fill="#e2e8f0" />
-                          <rect x="40" y="30" width="20" height="3" rx="1" fill="#e2e8f0" />
-                          <line x1="88" y1="20" x2="88" y2="45" stroke="#cbd5e1" strokeWidth="1" strokeDasharray="1.5,1.5" />
-                          <rect x="92" y="22" width="2" height="18" fill="#1e293b" />
-                          <rect x="96" y="22" width="1" height="18" fill="#1e293b" />
-                          <rect x="99" y="22" width="3" height="18" fill="#1e293b" />
-                          <rect x="103" y="22" width="1" height="18" fill="#1e293b" />
-                        </g>
-                        {/* Passport */}
-                        <g transform="rotate(8, 85, 55)">
-                          <rect x="70" y="25" width="45" height="60" rx="4" fill="#0E3E2B" stroke="#B08D3E" strokeWidth="1.5" />
-                          <text x="92.5" y="38" fill="#B08D3E" fontSize="5" fontWeight="bold" fontFamily="serif" textAnchor="middle" letterSpacing="1">PASSPORT</text>
-                          <circle cx="92.5" cy="55" r="9" stroke="#B08D3E" strokeWidth="1" fill="none" />
-                          <circle cx="92.5" cy="55" r="6" stroke="#B08D3E" strokeWidth="0.7" fill="none" strokeDasharray="1,1" />
-                          <ellipse cx="92.5" cy="55" rx="3" ry="9" stroke="#B08D3E" strokeWidth="0.7" fill="none" />
-                          <ellipse cx="92.5" cy="55" rx="9" ry="3" stroke="#B08D3E" strokeWidth="0.7" fill="none" />
-                        </g>
-                        {/* Green/Teal Suitcase */}
-                        <g transform="translate(10, 30)">
-                          <rect x="10" y="15" width="70" height="48" rx="10" fill="#1E3E3F" stroke="#122728" strokeWidth="2" />
-                          <rect x="14" y="19" width="62" height="40" rx="7" stroke="#2a5354" strokeWidth="1.5" fill="none" />
-                          <path d="M10 25c0-5 5-10 10-10" stroke="#0f1f20" strokeWidth="3" fill="none" />
-                          <path d="M80 25c0-5-5-10-10-10" stroke="#0f1f20" strokeWidth="3" fill="none" />
-                          <path d="M10 53c0 5 5 10 10 10" stroke="#0f1f20" strokeWidth="3" fill="none" />
-                          <path d="M80 53c0 5-5 10-10 10" stroke="#0f1f20" strokeWidth="3" fill="none" />
-                          <path d="M35 15V8c0-2.2 1.8-4 4-4h12c2.2 0 4 1.8 4 4v7" stroke="#0f1f20" strokeWidth="4.5" fill="none" />
-                          <rect x="33" y="12" width="6" height="4" rx="1" fill="#B08D3E" />
-                          <rect x="51" y="12" width="6" height="4" rx="1" fill="#B08D3E" />
-                          <rect x="24" y="15" width="6" height="48" fill="#122728" />
-                          <rect x="60" y="15" width="6" height="48" fill="#122728" />
-                          <rect x="23" y="30" width="8" height="6" fill="#B08D3E" rx="1" />
-                          <rect x="59" y="30" width="8" height="6" fill="#B08D3E" rx="1" />
-                          <rect x="36" y="28" width="18" height="18" rx="3" fill="#ffffff" />
-                          <circle cx="45" cy="37" r="6" fill="#f97316" />
-                          <path d="M42 35l6 4M42 39l6-4" stroke="#ffffff" strokeWidth="1.5" />
-                          <circle cx="20" cy="50" r="4" fill="#E11D48" />
-                          <rect x="54" y="48" width="10" height="6" rx="1" fill="#2563EB" transform="rotate(-10, 59, 51)" />
-                        </g>
-                      </svg>
                     </div>
                   </>
+                )}
+
+                {/* Expired / Used glassmorphic live watermark overlay */}
+                {(form.isUsed || (form.validTo && new Date(form.validTo) < new Date())) && (
+                  <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] z-50 flex items-center justify-center pointer-events-none select-none">
+                    <div className={`border-4 border-dashed px-8 py-3 rounded-2xl transform -rotate-12 bg-black/35 shadow-2xl animate-pulse ${form.isUsed ? 'border-amber-500/40' : 'border-red-500/40'}`}>
+                      <span className="text-4xl font-black tracking-widest uppercase text-center block">
+                        {form.isUsed ? (
+                          <span className="text-amber-500 flex items-center gap-2">
+                            <span className="material-symbols-outlined text-[36px]">lock</span>
+                            LOCKED / USED
+                          </span>
+                        ) : (
+                          <span className="text-red-500 flex items-center gap-2">
+                            <span className="material-symbols-outlined text-[36px]">event_busy</span>
+                            EXPIRED
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  </div>
                 )}
 
               </div>
@@ -1182,6 +1054,26 @@ export const CouponManager: React.FC = () => {
                             {c.code}
                           </span>
                           <span className="text-[9px] text-slate-400 font-medium">Click to Copy</span>
+                          {/* List linked bookings */}
+                          {(() => {
+                            const applied = bookings.filter(b => b.appliedCouponCode?.toUpperCase() === c.code.toUpperCase());
+                            if (applied.length > 0) {
+                              return (
+                                <div className="mt-2 space-y-1.5 border-t border-slate-100 dark:border-slate-800 pt-1.5 max-w-[200px]">
+                                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Linked Bookings:</span>
+                                  {applied.map(b => (
+                                    <div key={b.id} className="flex items-center gap-1 text-[11px] text-indigo-500 dark:text-indigo-400 font-black hover:underline leading-none">
+                                      <span className="material-symbols-outlined text-[12px] font-black">book</span>
+                                      <Link to={`/admin/bookings?search=${b.bookingNumber ? `BK-${String(b.bookingNumber).padStart(4, '0')}` : b.id}`} className="truncate block max-w-[170px]">
+                                        {b.bookingNumber ? `BK-${String(b.bookingNumber).padStart(4, '0')}` : 'View Booking'} ({b.customer})
+                                      </Link>
+                                    </div>
+                                  ))}
+                                </div>
+                              );
+                            }
+                            return null;
+                          })()}
                         </div>
                       </div>
                     </td>
@@ -1272,6 +1164,20 @@ export const CouponManager: React.FC = () => {
                     <td className="p-4 pr-6 text-right">
                       <div className="flex justify-end gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                         
+                        {/* Apply Coupon button */}
+                        <button
+                          onClick={() => {
+                            setSelectedCouponToApply(c);
+                            setIsApplyModalOpen(true);
+                            setSelectedBookingId('');
+                            setApplySearchQuery('');
+                          }}
+                          className="p-2 bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-indigo-500 rounded-xl transition-all"
+                          title="Apply Coupon to Booking"
+                        >
+                          <span className="material-symbols-outlined text-[18px]">local_offer</span>
+                        </button>
+
                         {/* Toggle used option shortcut */}
                         <button
                           onClick={() => handleToggleUsed(c)}
@@ -1330,6 +1236,210 @@ export const CouponManager: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {/* Apply Coupon Modal */}
+      {isApplyModalOpen && selectedCouponToApply && (
+        <div className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in" onClick={() => setIsApplyModalOpen(false)}>
+          <div className="bg-white dark:bg-[#151d29] w-full max-w-lg rounded-t-3xl sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 sm:zoom-in-95 max-h-[85vh] border border-slate-200 dark:border-slate-800" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800/40">
+              <h2 className="text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
+                <span className="material-symbols-outlined text-primary text-[24px]">local_offer</span>
+                <span className="font-display">Apply Coupon: {selectedCouponToApply.code}</span>
+              </h2>
+              <button onClick={() => setIsApplyModalOpen(false)} className="text-slate-400 hover:text-slate-655 dark:hover:text-slate-200">
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 space-y-6 overflow-y-auto">
+              <div className="p-4 bg-slate-50 dark:bg-slate-850/50 border border-slate-150 dark:border-slate-800/60 rounded-2xl space-y-2 text-xs font-bold text-slate-500">
+                <div className="flex justify-between items-center">
+                  <span>DISCOUNT VALUE:</span>
+                  <span className="text-slate-900 dark:text-white font-extrabold">
+                    {selectedCouponToApply.discountType === 'Percentage' ? `${selectedCouponToApply.discountValue}%` : `₹${selectedCouponToApply.discountValue}`}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span>CATEGORY TYPE:</span>
+                  <span className="text-slate-900 dark:text-white font-extrabold">
+                    {selectedCouponToApply.type === 'ToursOnly' ? 'Tours Exclusive' : 'Multi-Category'}
+                  </span>
+                </div>
+                {selectedCouponToApply.minBookingAmount && selectedCouponToApply.minBookingAmount > 0 ? (
+                  <div className="flex justify-between items-center">
+                    <span>MINIMUM SPEND:</span>
+                    <span className="text-slate-900 dark:text-white font-extrabold">₹{selectedCouponToApply.minBookingAmount.toLocaleString()}</span>
+                  </div>
+                ) : null}
+              </div>
+
+              {/* Search Booking */}
+              <div className="space-y-2">
+                <label className="text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest block">Select Active Booking</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-450 material-symbols-outlined text-[18px]">search</span>
+                  <input
+                    type="text"
+                    placeholder="Search by Booking Number, Customer Name, or Email..."
+                    value={applySearchQuery}
+                    onChange={e => setApplySearchQuery(e.target.value)}
+                    className="w-full h-10 pl-9 pr-4 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-150 dark:border-slate-800 text-xs font-bold outline-none focus:ring-2 focus:ring-primary/20 text-slate-900 dark:text-white"
+                  />
+                </div>
+              </div>
+
+              {/* Bookings List */}
+              <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1 border border-slate-150 dark:border-slate-800 rounded-xl divide-y divide-slate-100 dark:divide-slate-800/40">
+                {(() => {
+                  const filtered = bookings.filter(b => {
+                    const bNum = b.bookingNumber ? `BK-${String(b.bookingNumber).padStart(4, '0')}` : b.id;
+                    const query = applySearchQuery.toLowerCase();
+                    const matchesSearch = bNum.toLowerCase().includes(query) ||
+                      b.customer.toLowerCase().includes(query) ||
+                      b.email.toLowerCase().includes(query) ||
+                      b.title.toLowerCase().includes(query);
+
+                    const isNotCancelled = b.status !== 'Cancelled';
+                    
+                    return matchesSearch && isNotCancelled;
+                  });
+
+                  if (filtered.length === 0) {
+                    return (
+                      <p className="p-8 text-center text-xs text-slate-405 font-bold italic">No active bookings found matching search.</p>
+                    );
+                  }
+
+                  return filtered.map(b => {
+                    const pricingForCheck = b.originalPrice || b.amount;
+                    const isAmountEligible = !selectedCouponToApply.minBookingAmount || pricingForCheck >= selectedCouponToApply.minBookingAmount;
+                    const isCategoryEligible = selectedCouponToApply.type !== 'ToursOnly' || b.type === 'Tour';
+
+                    const isEligible = isAmountEligible && isCategoryEligible;
+
+                    let previewDiscount = 0;
+                    if (selectedCouponToApply.discountType === 'Percentage') {
+                      previewDiscount = Math.round(pricingForCheck * (selectedCouponToApply.discountValue / 100));
+                    } else {
+                      previewDiscount = selectedCouponToApply.discountValue;
+                    }
+                    previewDiscount = Math.min(previewDiscount, pricingForCheck);
+                    const discountedTotal = Math.max(0, pricingForCheck - previewDiscount);
+
+                    const isSelected = selectedBookingId === b.id;
+
+                    return (
+                      <div
+                        key={b.id}
+                        onClick={() => isEligible && setSelectedBookingId(b.id)}
+                        className={`p-3 transition-all flex items-center justify-between text-left ${
+                          isEligible ? 'cursor-pointer hover:bg-slate-50/60 dark:hover:bg-slate-800/30' : 'opacity-40 cursor-not-allowed'
+                        } ${isSelected ? 'bg-indigo-500/5 dark:bg-indigo-500/10 border-l-4 border-indigo-500 pl-2' : ''}`}
+                      >
+                        <div className="flex-1 min-w-0 pr-4">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-xs font-black text-slate-900 dark:text-white">
+                              {b.bookingNumber ? `BK-${String(b.bookingNumber).padStart(4, '0')}` : b.id.substring(0, 8)}
+                            </span>
+                            <span className="text-[10px] font-black bg-slate-100 dark:bg-slate-800 text-slate-500 px-1.5 py-0.5 rounded uppercase border border-slate-200/50 dark:border-slate-700/50">
+                              {b.type}
+                            </span>
+                            {b.appliedCouponCode && (
+                              <span className="text-[9px] font-black bg-amber-500/10 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded flex items-center gap-0.5 border border-amber-500/10">
+                                <span className="material-symbols-outlined text-[10px] font-black">local_offer</span>
+                                {b.appliedCouponCode}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-800 dark:text-slate-250 font-bold mt-1 truncate">{b.customer} ({b.email})</p>
+                          <p className="text-[10px] text-slate-400 mt-0.5">{b.title} · Date: {b.date}</p>
+                          
+                          {!isEligible && (
+                            <div className="mt-1 flex flex-col gap-0.5">
+                              {!isAmountEligible && (
+                                <span className="text-[9px] font-bold text-red-500 dark:text-red-400 flex items-center gap-0.5">
+                                  <span className="material-symbols-outlined text-[10px] font-black">warning</span>
+                                  Booking Value (₹{pricingForCheck.toLocaleString()}) below Min Spend ₹{selectedCouponToApply.minBookingAmount?.toLocaleString()}
+                                </span>
+                              )}
+                              {!isCategoryEligible && (
+                                <span className="text-[9px] font-bold text-red-500 dark:text-red-400 flex items-center gap-0.5">
+                                  <span className="material-symbols-outlined text-[10px] font-black">warning</span>
+                                  ToursOnly coupon cannot apply to {b.type} booking
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Price Preview */}
+                        <div className="text-right shrink-0 flex flex-col items-end">
+                          {isEligible ? (
+                            <>
+                              <div className="text-xs font-black text-slate-900 dark:text-white">
+                                ₹{discountedTotal.toLocaleString()}
+                              </div>
+                              <div className="text-[10px] text-green-650 dark:text-green-400 font-black flex items-center gap-0.5">
+                                <span>-₹{previewDiscount.toLocaleString()}</span>
+                              </div>
+                              <div className="text-[9px] text-slate-400 font-semibold line-through">
+                                ₹{pricingForCheck.toLocaleString()}
+                              </div>
+                            </>
+                          ) : (
+                            <div className="text-xs font-bold text-slate-450 dark:text-slate-500">
+                              ₹{pricingForCheck.toLocaleString()}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-6 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setIsApplyModalOpen(false)}
+                className="flex-1 h-11 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-xs hover:bg-slate-100 dark:hover:bg-slate-800 transition-all active:scale-[0.99]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!selectedBookingId || isSubmittingApply}
+                onClick={async () => {
+                  if (!selectedBookingId || !selectedCouponToApply) return;
+                  setIsSubmittingApply(true);
+                  try {
+                    await applyCoupon(selectedCouponToApply.code, selectedBookingId);
+                    setIsApplyModalOpen(false);
+                    setSelectedBookingId('');
+                    setSelectedCouponToApply(null);
+                  } catch (err) {
+                    // Handled in context
+                  } finally {
+                    setIsSubmittingApply(false);
+                  }
+                }}
+                className="flex-1 h-11 bg-primary hover:bg-primary-dark text-white rounded-xl font-bold text-xs shadow-md shadow-primary/10 transition-all flex items-center justify-center gap-2 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSubmittingApply ? (
+                  <span className="material-symbols-outlined text-[16px] animate-spin">progress_activity</span>
+                ) : (
+                  <span className="material-symbols-outlined text-[16px]">check_circle</span>
+                )}
+                Confirm Apply
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

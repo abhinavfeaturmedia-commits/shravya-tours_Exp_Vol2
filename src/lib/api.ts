@@ -1,5 +1,5 @@
 import imageCompression from 'browser-image-compression';
-import { Package, Booking, Lead, LeadLog, BookingStatus, StaffMember, Customer, MasterRoomType, MasterMealPlan, MasterActivity, MasterTransport, MasterPlan, MasterLeadSource, MasterTermsTemplate, CMSBanner, CMSTestimonial, CMSGalleryImage, CMSPost, FollowUp, Proposal, DailyTarget, TimeSession, AssignmentRule, UserActivity, Campaign, MasterHotel, Task, AuditLog, Expense, AttendanceLog, Coupon } from '../../types';
+import { Package, Booking, Lead, LeadLog, BookingStatus, StaffMember, Customer, MasterRoomType, MasterMealPlan, MasterActivity, MasterTransport, MasterPlan, MasterLeadSource, MasterTermsTemplate, CMSBanner, CMSTestimonial, CMSGalleryImage, CMSPost, FollowUp, Proposal, DailyTarget, TimeSession, AssignmentRule, UserActivity, Campaign, MasterHotel, Task, AuditLog, Expense, AttendanceLog, Coupon, DailyMarketingLog, MarketingTarget, LogComment, LogReaction, InAppNotification } from '../../types';
 
 // ─── BASE API URL ───
 // In dev mode, use Vite proxy (empty string) so request goes to the same origin.
@@ -525,10 +525,14 @@ export const api = {
                 isWhatsappSame: row.is_whatsapp_same !== null ? !!row.is_whatsapp_same : undefined,
                 altPhone: row.alt_phone || undefined,
                 paxAdult: row.pax_adult !== null ? Number(row.pax_adult) : undefined,
+                paxChild: row.pax_child !== null ? Number(row.pax_child) : undefined,
                 paxInfant: row.pax_infant !== null ? Number(row.pax_infant) : undefined,
                 serviceType: row.service_type || undefined,
                 residentialAddress: row.residential_address || undefined,
-                officeAddress: row.office_address || undefined
+                officeAddress: row.office_address || undefined,
+                appliedCouponCode: row.applied_coupon_code || undefined,
+                couponDiscountAmount: row.coupon_discount_amount !== null ? Number(row.coupon_discount_amount) : undefined,
+                originalPrice: row.original_price !== null ? Number(row.original_price) : undefined
             };
         });
     },
@@ -581,6 +585,10 @@ export const api = {
             });
         }
 
+        const finalAdults = booking.paxAdult !== undefined ? booking.paxAdult : adultsCount;
+        const finalChildren = booking.paxChild !== undefined ? booking.paxChild : childCount;
+        const finalInfants = booking.paxInfant !== undefined ? booking.paxInfant : 0;
+
         const dbBooking: any = {
             customer_name: booking.customer,
             customer_email: booking.email || '',
@@ -590,9 +598,9 @@ export const api = {
             type: booking.type || 'Tour',
             title: booking.title || 'Unknown',
             total_price: booking.amount || 0,
-            number_of_people: adultsCount,
-            pax_child: childCount,
-            pax_count: adultsCount + childCount,
+            number_of_people: finalAdults,
+            pax_child: finalChildren,
+            pax_count: finalAdults + finalChildren,
             status: booking.status === 'Confirmed' ? 'confirmed' : 'pending',
             payment_status: booking.payment === 'Paid' ? 'paid' : 'pending', // Enums: pending, paid, failed, refunded
             notes: booking.details || '',
@@ -603,11 +611,14 @@ export const api = {
             whatsapp: booking.whatsapp || null,
             is_whatsapp_same: booking.isWhatsappSame !== undefined ? (booking.isWhatsappSame ? 1 : 0) : 1,
             alt_phone: booking.altPhone || null,
-            pax_adult: booking.paxAdult || adultsCount,
-            pax_infant: booking.paxInfant || 0,
+            pax_adult: finalAdults,
+            pax_infant: finalInfants,
             service_type: booking.serviceType || null,
             residential_address: booking.residentialAddress || null,
-            office_address: booking.officeAddress || null
+            office_address: booking.officeAddress || null,
+            applied_coupon_code: booking.appliedCouponCode || null,
+            coupon_discount_amount: booking.couponDiscountAmount || 0.00,
+            original_price: booking.originalPrice || null
         };
 
         if (booking.packageId) dbBooking.package_id = booking.packageId;
@@ -678,10 +689,14 @@ export const api = {
         if (updates.isWhatsappSame !== undefined) dbUpdates.is_whatsapp_same = updates.isWhatsappSame ? 1 : 0;
         if (updates.altPhone !== undefined) dbUpdates.alt_phone = updates.altPhone || null;
         if (updates.paxAdult !== undefined) dbUpdates.pax_adult = updates.paxAdult;
+        if (updates.paxChild !== undefined) dbUpdates.pax_child = updates.paxChild;
         if (updates.paxInfant !== undefined) dbUpdates.pax_infant = updates.paxInfant;
         if (updates.serviceType !== undefined) dbUpdates.service_type = updates.serviceType || null;
         if (updates.residentialAddress !== undefined) dbUpdates.residential_address = updates.residentialAddress || null;
         if (updates.officeAddress !== undefined) dbUpdates.office_address = updates.officeAddress || null;
+        if (updates.appliedCouponCode !== undefined) dbUpdates.applied_coupon_code = updates.appliedCouponCode || null;
+        if (updates.couponDiscountAmount !== undefined) dbUpdates.coupon_discount_amount = updates.couponDiscountAmount || 0.00;
+        if (updates.originalPrice !== undefined) dbUpdates.original_price = updates.originalPrice || null;
         
         await crud.update('bookings', id, dbUpdates);
     },
@@ -937,7 +952,8 @@ export const api = {
                     reference: le.reference
                 }))
                 : parseJsonField(v.transactions, []),
-            services: [], documents: []
+            services: parseJsonField(v.services, []),
+            documents: parseJsonField(v.documents, [])
         }));
     },
 
@@ -958,7 +974,9 @@ export const api = {
             total_commission: vendor.totalCommission,
             bank_details: vendor.bankDetails ? JSON.stringify(vendor.bankDetails) : null,
             notes: vendor.notes ? JSON.stringify(vendor.notes) : '[]',
-            transactions: vendor.transactions ? JSON.stringify(vendor.transactions) : '[]'
+            transactions: vendor.transactions ? JSON.stringify(vendor.transactions) : '[]',
+            services: vendor.services ? JSON.stringify(vendor.services) : '[]',
+            documents: vendor.documents ? JSON.stringify(vendor.documents) : '[]'
         };
         const { data } = await crud.create('vendors', payload);
         return data;
@@ -982,6 +1000,8 @@ export const api = {
         if (updates.bankDetails !== undefined) dbUpdates.bank_details = JSON.stringify(updates.bankDetails);
         if (updates.notes !== undefined) dbUpdates.notes = JSON.stringify(updates.notes);
         if (updates.transactions !== undefined) dbUpdates.transactions = JSON.stringify(updates.transactions);
+        if (updates.services !== undefined) dbUpdates.services = Array.isArray(updates.services) ? JSON.stringify(updates.services) : updates.services;
+        if (updates.documents !== undefined) dbUpdates.documents = Array.isArray(updates.documents) ? JSON.stringify(updates.documents) : updates.documents;
         
         await crud.update('vendors', id, dbUpdates);
     },
@@ -1522,7 +1542,8 @@ export const api = {
             assignedTo: t.assigned_to, assignedBy: t.assigned_by,
             status: t.status, priority: t.priority, dueDate: t.due_date,
             createdAt: t.created_at, completedAt: t.completed_at,
-            relatedLeadId: t.related_lead_id, relatedBookingId: t.related_booking_id
+            relatedLeadId: t.related_lead_id, relatedBookingId: t.related_booking_id,
+            category: t.category
         }));
     },
     createTask: async (task: Partial<Task>) => {
@@ -1531,7 +1552,8 @@ export const api = {
             assigned_to: task.assignedTo, assigned_by: task.assignedBy,
             status: task.status || 'Pending', priority: task.priority || 'Medium',
             due_date: task.dueDate, completed_at: task.completedAt,
-            related_lead_id: task.relatedLeadId, related_booking_id: task.relatedBookingId
+            related_lead_id: task.relatedLeadId, related_booking_id: task.relatedBookingId,
+            category: task.category
         });
     },
     updateTask: async (id: string, updates: Partial<Task>) => {
@@ -1546,9 +1568,22 @@ export const api = {
         if (updates.completedAt !== undefined) dbUpdates.completed_at = updates.completedAt;
         if (updates.relatedLeadId !== undefined) dbUpdates.related_lead_id = updates.relatedLeadId;
         if (updates.relatedBookingId !== undefined) dbUpdates.related_booking_id = updates.relatedBookingId;
+        if (updates.category !== undefined) dbUpdates.category = updates.category;
         await crud.update('tasks', id, dbUpdates);
     },
     deleteTask: async (id: string) => { await crud.remove('tasks', id); },
+    generateLeadPlaybook: async (id: string, status?: string): Promise<void> => {
+        await fetchApi(`/api/leads/${encodeURIComponent(id)}/generate-playbook`, {
+            method: 'POST',
+            body: JSON.stringify({ status })
+        });
+    },
+    generateBookingPlaybook: async (id: string, type?: string): Promise<void> => {
+        await fetchApi(`/api/bookings/${encodeURIComponent(id)}/generate-playbook`, {
+            method: 'POST',
+            body: JSON.stringify({ type })
+        });
+    },
 
     // --- PHASE 3: MASTER DATA (generic pattern) ---
     getMasterRoomTypes: async (): Promise<MasterRoomType[]> => {
@@ -1782,11 +1817,32 @@ export const api = {
     deleteCMSTestimonial: async (id: string) => { await crud.remove('cms_testimonials', id); },
 
     getCMSGalleryImages: async (): Promise<CMSGalleryImage[]> => {
-        const { data } = await crud.getAll('cms_gallery_images', { order: 'created_at', asc: false });
-        return (data || []).map((r: any) => ({ ...r, imageUrl: r.image_url }));
+        const { data } = await crud.getAll('cms_gallery_images', { order: 'sort_order', asc: true });
+        return (data || []).map((r: any) => ({
+            id: r.id,
+            title: r.title || r.caption || '',
+            imageUrl: r.image_url || r.url || '',
+            category: r.category || 'Other',
+            tag: r.tag || undefined,
+            linkUrl: r.link_url || undefined,
+            featured: Boolean(r.featured),
+            sortOrder: r.sort_order || 0,
+            isActive: r.is_active !== false,
+        }));
     },
     createCMSGalleryImage: async (item: Partial<CMSGalleryImage>) => {
-        await crud.create('cms_gallery_images', { title: item.title, image_url: item.imageUrl, category: item.category });
+        await crud.create('cms_gallery_images', {
+            title: item.title,
+            caption: item.title,
+            image_url: item.imageUrl,
+            url: item.imageUrl,
+            category: item.category,
+            tag: item.tag || null,
+            link_url: item.linkUrl || null,
+            featured: item.featured ? 1 : 0,
+            sort_order: item.sortOrder || 0,
+            is_active: item.isActive !== false ? 1 : 0,
+        });
     },
     deleteCMSGalleryImage: async (id: string) => { await crud.remove('cms_gallery_images', id); },
 
@@ -2240,5 +2296,394 @@ export const api = {
 
     deleteCoupon: async (id: string) => {
         await crud.remove('coupons', id);
+    },
+
+    applyCoupon: async (couponCode: string, bookingId: string): Promise<any> => {
+        return fetchApi('/api/coupons/apply', {
+            method: 'POST',
+            body: JSON.stringify({ couponCode, bookingId })
+        });
+    },
+
+    detachCoupon: async (bookingId: string): Promise<any> => {
+        return fetchApi('/api/coupons/detach', {
+            method: 'POST',
+            body: JSON.stringify({ bookingId })
+        });
+    },
+
+    // --- MARKETING LOGS ---
+    getMarketingLogs: async (): Promise<DailyMarketingLog[]> => {
+        const [logsRes, leadsRes, bookingsRes, commentsRes, reactionsRes] = await Promise.all([
+            crud.getAll('marketing_logs', { order: 'date', asc: false }),
+            crud.getAll('marketing_log_leads'),
+            crud.getAll('marketing_log_bookings'),
+            crud.getAll('marketing_log_comments', { order: 'created_at', asc: true }),
+            crud.getAll('marketing_log_reactions')
+        ]);
+
+        const leadsMap: Record<string, string[]> = {};
+        (leadsRes.data || []).forEach((r: any) => {
+            if (!leadsMap[r.log_id]) leadsMap[r.log_id] = [];
+            leadsMap[r.log_id].push(r.lead_id);
+        });
+
+        const bookingsMap: Record<string, string[]> = {};
+        (bookingsRes.data || []).forEach((r: any) => {
+            if (!bookingsMap[r.log_id]) bookingsMap[r.log_id] = [];
+            bookingsMap[r.log_id].push(r.booking_id);
+        });
+
+        const commentsMap: Record<string, LogComment[]> = {};
+        (commentsRes.data || []).forEach((r: any) => {
+            if (!commentsMap[r.log_id]) commentsMap[r.log_id] = [];
+            commentsMap[r.log_id].push({
+                id: r.id,
+                logId: r.log_id,
+                staffId: Number(r.staff_id),
+                commentText: r.comment_text,
+                createdAt: r.created_at
+            });
+        });
+
+        const reactionsMap: Record<string, LogReaction[]> = {};
+        (reactionsRes.data || []).forEach((r: any) => {
+            if (!reactionsMap[r.log_id]) reactionsMap[r.log_id] = [];
+            reactionsMap[r.log_id].push({
+                id: r.id,
+                logId: r.log_id,
+                staffId: Number(r.staff_id),
+                reactionType: r.reaction_type,
+                createdAt: r.created_at
+            });
+        });
+
+        return (logsRes.data || []).map((r: any) => ({
+            id: r.id,
+            date: r.date ? r.date.split('T')[0] : '',
+            staffId: Number(r.staff_id),
+            momentumScore: Number(r.momentum_score) || 0,
+            rating: r.rating || 'steady',
+            emailsSent: Number(r.emails_sent) || 0,
+            socialDms: Number(r.social_dms) || 0,
+            callsMade: Number(r.calls_made) || 0,
+            followUps: Number(r.follow_ups) || 0,
+            proposalsSent: Number(r.proposals_sent) || 0,
+            dealsClosed: Number(r.deals_closed) || 0,
+            revenueGenerated: Number(r.revenue_generated) || 0,
+            metaSpend: Number(r.meta_spend) || 0,
+            metaLeads: Number(r.meta_leads) || 0,
+            adCreativeNotes: r.ad_creative_notes || undefined,
+            dailySummary: r.daily_summary || undefined,
+            keyLearnings: r.key_learnings || undefined,
+            createdAt: r.created_at,
+            updatedAt: r.updated_at,
+            taggedLeads: leadsMap[r.id] || [],
+            taggedBookings: bookingsMap[r.id] || [],
+            comments: commentsMap[r.id] || [],
+            reactions: reactionsMap[r.id] || []
+        }));
+    },
+
+    createMarketingLog: async (log: Partial<DailyMarketingLog>) => {
+        const logId = log.id || (typeof window !== 'undefined' && window.crypto?.randomUUID ? window.crypto.randomUUID() : Math.random().toString(36).substring(2, 15));
+        const payload = {
+            id: logId,
+            date: log.date,
+            staff_id: log.staffId,
+            momentum_score: log.momentumScore || 0,
+            rating: log.rating || 'steady',
+            emails_sent: log.emailsSent || 0,
+            social_dms: log.socialDms || 0,
+            calls_made: log.callsMade || 0,
+            follow_ups: log.followUps || 0,
+            proposals_sent: log.proposalsSent || 0,
+            deals_closed: log.dealsClosed || 0,
+            revenue_generated: log.revenueGenerated || 0.00,
+            meta_spend: log.metaSpend || 0.00,
+            meta_leads: log.metaLeads || 0,
+            ad_creative_notes: log.adCreativeNotes || null,
+            daily_summary: log.dailySummary || null,
+            key_learnings: log.keyLearnings || null
+        };
+        const { data } = await crud.create('marketing_logs', payload);
+        
+        // Handle lead tagging
+        if (log.taggedLeads && log.taggedLeads.length > 0) {
+            await Promise.all(log.taggedLeads.map(leadId => {
+                const uuid = typeof window !== 'undefined' && window.crypto?.randomUUID ? window.crypto.randomUUID() : Math.random().toString(36).substring(2, 15);
+                return crud.create('marketing_log_leads', { id: uuid, log_id: logId, lead_id: leadId });
+            }));
+        }
+
+        // Handle booking tagging
+        if (log.taggedBookings && log.taggedBookings.length > 0) {
+            await Promise.all(log.taggedBookings.map(bookingId => {
+                const uuid = typeof window !== 'undefined' && window.crypto?.randomUUID ? window.crypto.randomUUID() : Math.random().toString(36).substring(2, 15);
+                return crud.create('marketing_log_bookings', { id: uuid, log_id: logId, booking_id: bookingId });
+            }));
+        }
+
+        return data;
+    },
+
+    updateMarketingLog: async (id: string, log: Partial<DailyMarketingLog>) => {
+        const dbUpdates: any = {};
+        if (log.date !== undefined) dbUpdates.date = log.date;
+        if (log.staffId !== undefined) dbUpdates.staff_id = log.staffId;
+        if (log.momentumScore !== undefined) dbUpdates.momentum_score = log.momentumScore;
+        if (log.rating !== undefined) dbUpdates.rating = log.rating;
+        if (log.emailsSent !== undefined) dbUpdates.emails_sent = log.emailsSent;
+        if (log.socialDms !== undefined) dbUpdates.social_dms = log.socialDms;
+        if (log.callsMade !== undefined) dbUpdates.calls_made = log.callsMade;
+        if (log.followUps !== undefined) dbUpdates.follow_ups = log.followUps;
+        if (log.proposalsSent !== undefined) dbUpdates.proposals_sent = log.proposalsSent;
+        if (log.dealsClosed !== undefined) dbUpdates.deals_closed = log.dealsClosed;
+        if (log.revenueGenerated !== undefined) dbUpdates.revenue_generated = log.revenueGenerated;
+        if (log.metaSpend !== undefined) dbUpdates.meta_spend = log.metaSpend;
+        if (log.metaLeads !== undefined) dbUpdates.meta_leads = log.metaLeads;
+        if (log.adCreativeNotes !== undefined) dbUpdates.ad_creative_notes = log.adCreativeNotes || null;
+        if (log.dailySummary !== undefined) dbUpdates.daily_summary = log.dailySummary || null;
+        if (log.keyLearnings !== undefined) dbUpdates.key_learnings = log.keyLearnings || null;
+        
+        await crud.update('marketing_logs', id, dbUpdates);
+
+        // Update lead tags if provided
+        if (log.taggedLeads !== undefined) {
+            try {
+                const existingLeads = await crud.getAll('marketing_log_leads', { filters: { log_id: id } });
+                await Promise.all((existingLeads.data || []).map((r: any) =>
+                    crud.remove('marketing_log_leads', r.id)
+                ));
+            } catch {}
+            await Promise.all((log.taggedLeads || []).map(leadId => {
+                const uuid = typeof window !== 'undefined' && window.crypto?.randomUUID ? window.crypto.randomUUID() : Math.random().toString(36).substring(2, 15);
+                return crud.create('marketing_log_leads', { id: uuid, log_id: id, lead_id: leadId });
+            }));
+        }
+
+        // Update booking tags if provided
+        if (log.taggedBookings !== undefined) {
+            try {
+                const existingBookings = await crud.getAll('marketing_log_bookings', { filters: { log_id: id } });
+                await Promise.all((existingBookings.data || []).map((r: any) =>
+                    crud.remove('marketing_log_bookings', r.id)
+                ));
+            } catch {}
+            await Promise.all((log.taggedBookings || []).map(bookingId => {
+                const uuid = typeof window !== 'undefined' && window.crypto?.randomUUID ? window.crypto.randomUUID() : Math.random().toString(36).substring(2, 15);
+                return crud.create('marketing_log_bookings', { id: uuid, log_id: id, booking_id: bookingId });
+            }));
+        }
+    },
+
+    deleteMarketingLog: async (id: string) => {
+        try {
+            const [leads, bookings, comments, reactions] = await Promise.all([
+                crud.getAll('marketing_log_leads', { filters: { log_id: id } }),
+                crud.getAll('marketing_log_bookings', { filters: { log_id: id } }),
+                crud.getAll('marketing_log_comments', { filters: { log_id: id } }),
+                crud.getAll('marketing_log_reactions', { filters: { log_id: id } })
+            ]);
+            await Promise.all([
+                ...(leads.data || []).map((r: any) => crud.remove('marketing_log_leads', r.id)),
+                ...(bookings.data || []).map((r: any) => crud.remove('marketing_log_bookings', r.id)),
+                ...(comments.data || []).map((r: any) => crud.remove('marketing_log_comments', r.id)),
+                ...(reactions.data || []).map((r: any) => crud.remove('marketing_log_reactions', r.id))
+            ]);
+        } catch {}
+        await crud.remove('marketing_logs', id);
+    },
+
+    // --- MARKETING TARGETS ---
+    getMarketingTargets: async (): Promise<MarketingTarget[]> => {
+        const { data } = await crud.getAll('marketing_targets');
+        return (data || []).map((r: any) => ({
+            id: r.id,
+            staffId: Number(r.staff_id),
+            date: r.date ? r.date.split('T')[0] : '',
+            targetEmails: Number(r.target_emails) || 0,
+            targetDms: Number(r.target_dms) || 0,
+            targetCalls: Number(r.target_calls) || 0,
+            targetSpend: Number(r.target_spend) || 0
+        }));
+    },
+
+    upsertMarketingTarget: async (target: Partial<MarketingTarget>) => {
+        const filters = { staff_id: String(target.staffId), date: target.date! };
+        const { data } = await crud.getAll('marketing_targets', { filters });
+        const payload = {
+            staff_id: target.staffId,
+            date: target.date,
+            target_emails: target.targetEmails || 0,
+            target_dms: target.targetDms || 0,
+            target_calls: target.targetCalls || 0,
+            target_spend: target.targetSpend || 0.00
+        };
+        if (data && data.length > 0) {
+            await crud.update('marketing_targets', data[0].id, payload);
+            return data[0];
+        } else {
+            const uuid = typeof window !== 'undefined' && window.crypto?.randomUUID ? window.crypto.randomUUID() : Math.random().toString(36).substring(2, 15);
+            const { data: newTarget } = await crud.create('marketing_targets', { id: uuid, ...payload });
+            return newTarget;
+        }
+    },
+
+    // --- COMMENTS ---
+    addLogComment: async (comment: Partial<LogComment>) => {
+        const uuid = typeof window !== 'undefined' && window.crypto?.randomUUID ? window.crypto.randomUUID() : Math.random().toString(36).substring(2, 15);
+        const payload = {
+            id: uuid,
+            log_id: comment.logId,
+            staff_id: comment.staffId,
+            comment_text: comment.commentText
+        };
+        const { data } = await crud.create('marketing_log_comments', payload);
+        return data;
+    },
+
+    deleteLogComment: async (id: string) => {
+        await crud.remove('marketing_log_comments', id);
+    },
+
+    // --- REACTIONS ---
+    toggleReaction: async (logId: string, staffId: number, reactionType: string) => {
+        const filters = { log_id: logId, staff_id: String(staffId), reaction_type: reactionType };
+        const { data } = await crud.getAll('marketing_log_reactions', { filters });
+        if (data && data.length > 0) {
+            await crud.remove('marketing_log_reactions', data[0].id);
+            return { action: 'removed', id: data[0].id };
+        } else {
+            const uuid = typeof window !== 'undefined' && window.crypto?.randomUUID ? window.crypto.randomUUID() : Math.random().toString(36).substring(2, 15);
+            const payload = {
+                id: uuid,
+                log_id: logId,
+                staff_id: staffId,
+                reaction_type: reactionType
+            };
+            const { data: newReaction } = await crud.create('marketing_log_reactions', payload);
+            return { action: 'added', data: newReaction };
+        }
+    },
+
+    // --- IN-APP NOTIFICATIONS ---
+    getInAppNotifications: async (): Promise<InAppNotification[]> => {
+        const { data } = await crud.getAll('in_app_notifications', { order: 'created_at', asc: false });
+        return (data || []).map((r: any) => ({
+            id: r.id,
+            staffId: Number(r.staff_id),
+            senderId: Number(r.sender_id),
+            title: r.title,
+            message: r.message,
+            type: r.type || 'info',
+            isRead: Boolean(r.is_read),
+            createdAt: r.created_at
+        }));
+    },
+
+    createInAppNotification: async (notif: Partial<InAppNotification>) => {
+        const uuid = typeof window !== 'undefined' && window.crypto?.randomUUID ? window.crypto.randomUUID() : Math.random().toString(36).substring(2, 15);
+        const payload = {
+            id: uuid,
+            staff_id: notif.staffId,
+            sender_id: notif.senderId,
+            title: notif.title,
+            message: notif.message,
+            type: notif.type || 'info',
+            is_read: 0
+        };
+        const { data } = await crud.create('in_app_notifications', payload);
+        return data;
+    },
+
+    markNotificationRead: async (id: string) => {
+        await crud.update('in_app_notifications', id, { is_read: 1 });
+    },
+
+    // --- TRENDING DESTINATIONS ---
+    getTrendingDestinations: async (): Promise<any[]> => {
+        try {
+            const { data } = await fetchApi('/api/trending-destinations');
+            return (data || []).map((r: any) => ({
+                id: r.id,
+                name: r.name,
+                country: r.country || undefined,
+                region: r.region || undefined,
+                imageUrl: r.image_url,
+                badge: r.badge || undefined,
+                badgeColor: r.badge_color || '#ef4444',
+                statLabel: r.stat_label || undefined,
+                packageCount: r.package_count || 0,
+                sortOrder: r.sort_order || 0,
+                isActive: Boolean(r.is_active),
+            }));
+        } catch {
+            return [];
+        }
+    },
+
+    getTrendingDestinationsAdmin: async (): Promise<any[]> => {
+        try {
+            const { data } = await fetchApi('/api/trending-destinations/all');
+            return (data || []).map((r: any) => ({
+                id: r.id,
+                name: r.name,
+                country: r.country || undefined,
+                region: r.region || undefined,
+                imageUrl: r.image_url,
+                badge: r.badge || undefined,
+                badgeColor: r.badge_color || '#ef4444',
+                statLabel: r.stat_label || undefined,
+                packageCount: r.package_count || 0,
+                sortOrder: r.sort_order || 0,
+                isActive: Boolean(r.is_active),
+            }));
+        } catch {
+            return [];
+        }
+    },
+
+    createTrendingDestination: async (dest: any): Promise<any> => {
+        const { data } = await fetchApi('/api/trending-destinations', {
+            method: 'POST',
+            body: JSON.stringify({
+                id: dest.id,
+                name: dest.name,
+                country: dest.country || null,
+                region: dest.region || null,
+                image_url: dest.imageUrl,
+                badge: dest.badge || null,
+                badge_color: dest.badgeColor || '#ef4444',
+                stat_label: dest.statLabel || null,
+                package_count: dest.packageCount || 0,
+                sort_order: dest.sortOrder || 0,
+                is_active: dest.isActive !== false,
+            })
+        });
+        return data;
+    },
+
+    updateTrendingDestination: async (id: string, dest: Partial<any>): Promise<any> => {
+        const payload: any = {};
+        if (dest.name !== undefined) payload.name = dest.name;
+        if (dest.country !== undefined) payload.country = dest.country;
+        if (dest.region !== undefined) payload.region = dest.region;
+        if (dest.imageUrl !== undefined) payload.image_url = dest.imageUrl;
+        if (dest.badge !== undefined) payload.badge = dest.badge;
+        if (dest.badgeColor !== undefined) payload.badge_color = dest.badgeColor;
+        if (dest.statLabel !== undefined) payload.stat_label = dest.statLabel;
+        if (dest.packageCount !== undefined) payload.package_count = dest.packageCount;
+        if (dest.sortOrder !== undefined) payload.sort_order = dest.sortOrder;
+        if (dest.isActive !== undefined) payload.is_active = dest.isActive;
+        const { data } = await fetchApi(`/api/trending-destinations/${encodeURIComponent(id)}`, {
+            method: 'PUT',
+            body: JSON.stringify(payload)
+        });
+        return data;
+    },
+
+    deleteTrendingDestination: async (id: string): Promise<void> => {
+        await fetchApi(`/api/trending-destinations/${encodeURIComponent(id)}`, { method: 'DELETE' });
     },
 };

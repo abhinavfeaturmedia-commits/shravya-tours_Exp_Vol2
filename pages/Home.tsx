@@ -1,9 +1,9 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import { SEO } from '../components/ui/SEO';
 import { OptimizedImage } from '../components/ui/OptimizedImage';
-import { getLocationName, formatPrice } from '../utils/packageUtils';
+import { formatPrice } from '../utils/packageUtils';
 import {
   HotelBookingForm,
   TourBookingForm,
@@ -20,7 +20,7 @@ import {
 } from '../components/booking';
 
 export const Home: React.FC = () => {
-  const { packages, masterLocations, cmsBanners, cmsTestimonials, cmsGallery } = useData();
+  const { packages, cmsBanners, cmsTestimonials, cmsGallery, trendingDestinations } = useData();
   const [activeTab, setActiveTab] = useState('tour-packages');
   const navigate = useNavigate();
 
@@ -54,12 +54,20 @@ export const Home: React.FC = () => {
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
   const [bookingType, setBookingType] = useState<'Car' | 'Bus' | 'Hotel' | 'Tour' | 'Train' | 'Flight'>('Car');
   const [bookingDetails, setBookingDetails] = useState('');
+  const [bookingOrigin, setBookingOrigin] = useState('');
+  const [bookingDestination, setBookingDestination] = useState('');
+  const [bookingDate, setBookingDate] = useState('');
+  const [bookingTravelers, setBookingTravelers] = useState('');
 
   // Form handlers
   const handleHotelSubmit = (data: HotelBookingData) => {
     const guestStr = `${data.guests.adults} Adult${data.guests.adults > 1 ? 's' : ''}, ${data.guests.children} Children, ${data.guests.rooms} Room${data.guests.rooms > 1 ? 's' : ''}`;
     setBookingType('Hotel');
     setBookingDetails(`Hotel in ${data.destination}, ${guestStr}`);
+    setBookingOrigin('');
+    setBookingDestination(data.destination);
+    setBookingDate(data.checkIn);
+    setBookingTravelers(`${data.guests.adults} Adult${data.guests.adults > 1 ? 's' : ''}${data.guests.children > 0 ? `, ${data.guests.children} Child${data.guests.children > 1 ? 'ren' : ''}` : ''}`);
     setIsBookingModalOpen(true);
   };
 
@@ -71,24 +79,40 @@ export const Home: React.FC = () => {
   const handleCarSubmit = (data: CarBookingData) => {
     setBookingType('Car');
     setBookingDetails(`${data.vehicleType} Rental: ${data.pickupLocation} ${data.sameDropOff ? '(Round Trip)' : `to ${data.dropoffLocation}`}`);
+    setBookingOrigin(data.pickupLocation);
+    setBookingDestination(data.dropoffLocation || data.pickupLocation);
+    setBookingDate(data.pickupDate);
+    setBookingTravelers('2 Adults'); // Defaults to 2 adults for car bookings
     setIsBookingModalOpen(true);
   };
 
   const handleBusSubmit = (data: BusBookingData) => {
     setBookingType('Bus');
     setBookingDetails(`Bus from ${data.from} to ${data.to}, ${data.seats} Seat(s), ${data.acType}, ${data.busType}`);
+    setBookingOrigin(data.from);
+    setBookingDestination(data.to);
+    setBookingDate(data.date);
+    setBookingTravelers(`${data.seats} Adult${data.seats > 1 ? 's' : ''}`);
     setIsBookingModalOpen(true);
   };
 
   const handleTrainSubmit = (data: TrainBookingData) => {
     setBookingType('Train');
     setBookingDetails(`Train from ${data.from} to ${data.to}, ${data.passengers} Passenger(s), Class: ${data.classType}`);
+    setBookingOrigin(data.from);
+    setBookingDestination(data.to);
+    setBookingDate(data.date);
+    setBookingTravelers(`${data.passengers} Adult${data.passengers > 1 ? 's' : ''}`);
     setIsBookingModalOpen(true);
   };
 
   const handleFlightSubmit = (data: FlightBookingData) => {
     setBookingType('Flight');
     setBookingDetails(`Flight from ${data.from} to ${data.to}, ${data.passengers} Passenger(s), Class: ${data.classType}`);
+    setBookingOrigin(data.from);
+    setBookingDestination(data.to);
+    setBookingDate(data.date);
+    setBookingTravelers(`${data.passengers} Adult${data.passengers > 1 ? 's' : ''}`);
     setIsBookingModalOpen(true);
   };
 
@@ -97,6 +121,50 @@ export const Home: React.FC = () => {
 
   // Trending packages: active only, first 4
   const trendingPackages = packages.filter(p => p.status !== 'Inactive').slice(0, 4);
+
+  // ─── Fan Carousel State ───
+  const [fanIndex, setFanIndex] = useState(0);
+  const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1200);
+
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize, { passive: true });
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const spacingFactor = 
+    windowWidth >= 1536 ? 240 : // 2xl
+    windowWidth >= 1280 ? 220 : // xl
+    windowWidth >= 1024 ? 190 : // lg
+    windowWidth >= 768  ? 145 : // md
+    95;                         // mobile
+
+  const [destFilter, setDestFilter] = useState('All');
+  const [isHovered, setIsHovered] = useState(false);
+  const fanTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const filteredDests = destFilter === 'All'
+    ? trendingDestinations
+    : trendingDestinations.filter(d => d.region === destFilter || d.country === destFilter);
+
+  const destRegions = ['All', ...Array.from(new Set(trendingDestinations.map(d => d.region || d.country || '').filter(Boolean)))];
+
+  const goPrev = useCallback(() => {
+    setFanIndex(prev => prev === 0 ? Math.max(0, filteredDests.length - 1) : prev - 1);
+  }, [filteredDests.length]);
+
+  const goNext = useCallback(() => {
+    setFanIndex(prev => (prev + 1) % Math.max(1, filteredDests.length));
+  }, [filteredDests.length]);
+
+  useEffect(() => {
+    if (filteredDests.length === 0 || isHovered) return;
+    fanTimerRef.current = setInterval(goNext, 4000);
+    return () => { if (fanTimerRef.current) clearInterval(fanTimerRef.current); };
+  }, [goNext, filteredDests.length, isHovered]);
+
+  // Reset index when filter changes
+  useEffect(() => { setFanIndex(0); }, [destFilter]);
 
   const fallbackReviews = [
     {
@@ -200,11 +268,15 @@ export const Home: React.FC = () => {
         onClose={() => setIsBookingModalOpen(false)}
         bookingType={bookingType}
         bookingDetails={bookingDetails}
+        origin={bookingOrigin}
+        destination={bookingDestination}
+        defaultDate={bookingDate}
+        defaultTravelers={bookingTravelers}
       />
 
       {/* Hero Section */}
       {/* Hero Section */}
-      <section className="relative w-full overflow-hidden bg-slate-900">
+      <section className="relative w-full overflow-visible bg-slate-900 z-20">
         <div className="absolute inset-0 z-0">
           <OptimizedImage
             src={heroBanner?.imageUrl || "https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?w=1920&q=85&auto=format&fit=crop"}
@@ -233,7 +305,7 @@ export const Home: React.FC = () => {
                   { id: 'hotel-booking', icon: 'hotel', label: 'Hotels' },
                   { id: 'tour-packages', icon: 'luggage', label: 'Tours' },
                   { id: 'flight-booking', icon: 'flight', label: 'Flights' },
-                  // { id: 'train-booking', icon: 'train', label: 'Trains' },
+                  { id: 'train-booking', icon: 'train', label: 'Trains' },
                   { id: 'car-booking', icon: 'directions_car', label: 'Cars' },
                   { id: 'bus-booking', icon: 'directions_bus', label: 'Buses' },
                 ].map((tab) => (
@@ -253,8 +325,8 @@ export const Home: React.FC = () => {
             </div>
 
             {/* Form Container */}
-            <div className="bg-white/95 dark:bg-slate-900/90 backdrop-blur-md rounded-[2rem] shadow-2xl p-4 md:p-6 text-left border border-white/20 relative overflow-hidden transition-all duration-500">
-              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary via-amber-400 to-accent"></div>
+            <div className="bg-white/95 dark:bg-slate-900/90 backdrop-blur-md rounded-[2rem] shadow-2xl p-4 md:p-6 text-left border border-white/20 relative overflow-visible transition-all duration-500">
+              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary via-amber-400 to-accent rounded-t-[2rem]"></div>
 
               {activeTab === 'hotel-booking' && <HotelBookingForm onSubmit={handleHotelSubmit} />}
               {activeTab === 'tour-packages' && <TourBookingForm onSubmit={handleTourSubmit} />}
@@ -352,8 +424,232 @@ export const Home: React.FC = () => {
         </div>
       </section>
 
-      {/* Collections Section */}
-      <section className="py-12 bg-background-light dark:bg-background-dark">
+      {/* ═══════════════════════════════════════════════════════════════════ */}
+      {/* TRENDING DESTINATIONS — Fan Carousel (Pixel-perfect reference match) */}
+      {/* ═══════════════════════════════════════════════════════════════════ */}
+      <section
+        className="py-20 bg-slate-50 dark:bg-slate-950 relative overflow-hidden transition-colors duration-500"
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+      >
+        {/* Background blur orbs */}
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="absolute top-0 left-1/4 w-[600px] h-[600px] rounded-full bg-primary/5 dark:bg-primary/10 blur-[130px]" />
+          <div className="absolute bottom-0 right-1/4 w-[500px] h-[500px] rounded-full bg-amber-500/5 dark:bg-amber-500/10 blur-[120px]" />
+        </div>
+
+        <div className="container mx-auto px-4 md:px-10 relative z-10">
+          {/* Section title */}
+          <div className="text-center mb-10 reveal">
+            <span className="text-xs font-black uppercase tracking-[0.3em] text-primary mb-3 block flex items-center gap-1.5 justify-center">
+              <span className="inline-block size-2 rounded-full bg-primary animate-ping" />
+              ✦ TRENDING NOW
+            </span>
+            <h2 className="font-display text-slate-900 dark:text-white text-4xl md:text-5xl font-bold leading-tight tracking-tight italic mb-3">
+              Trending Destinations
+            </h2>
+            <p className="text-slate-500 dark:text-slate-400 text-base font-light max-w-xl mx-auto">
+              Explore the world's most sought-after travel destinations, handpicked by our expert team.
+            </p>
+          </div>
+
+          {/* Pill filter tabs — matching reference image */}
+          <div className="flex flex-wrap justify-center gap-2 mb-10 reveal">
+            {destRegions.slice(0, 9).map((region) => (
+              <button
+                key={region}
+                onClick={() => setDestFilter(region)}
+                className={`px-5 py-2 rounded-full text-sm font-semibold transition-all duration-300 border ${
+                  destFilter === region
+                    ? 'bg-slate-900 text-white border-slate-900 dark:bg-white dark:text-slate-950 dark:border-white shadow-lg'
+                    : 'bg-white text-slate-600 border-slate-200 dark:bg-white/5 dark:text-slate-300 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/10 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                {region}
+              </button>
+            ))}
+            <Link
+              to="/packages"
+              className="px-5 py-2 rounded-full text-sm font-semibold bg-white text-slate-700 border border-slate-300 dark:bg-white/5 dark:text-amber-400 dark:border-amber-400/20 hover:bg-slate-50 dark:hover:bg-white/10 transition-all duration-300 flex items-center gap-1.5"
+            >
+              View More <span className="material-symbols-outlined text-sm">arrow_forward</span>
+            </Link>
+          </div>
+
+          {filteredDests.length > 0 ? (
+            <>
+              {/* Fan / Stack Carousel */}
+              <div
+                className="relative flex justify-center items-center reveal"
+                style={{ height: windowWidth >= 768 ? '520px' : '360px' }}
+              >
+                {(filteredDests.length <= 5 ? filteredDests : [
+                  filteredDests[(fanIndex - 2 + filteredDests.length) % filteredDests.length],
+                  filteredDests[(fanIndex - 1 + filteredDests.length) % filteredDests.length],
+                  filteredDests[fanIndex % filteredDests.length],
+                  filteredDests[(fanIndex + 1) % filteredDests.length],
+                  filteredDests[(fanIndex + 2) % filteredDests.length],
+                ]).map((dest, i, arr) => {
+                  const total = arr.length;
+                  const centerIdx = Math.floor(total / 2);
+                  const offset = i - centerIdx;
+                  const isCenter = offset === 0;
+                  const absOffset = Math.abs(offset);
+                  const baseWidth = windowWidth >= 1280 ? 280 : windowWidth >= 768 ? 240 : 180;
+                  const baseHeight = windowWidth >= 1280 ? 430 : windowWidth >= 768 ? 380 : 280;
+                  const scale = isCenter ? 1 : absOffset === 1 ? 0.84 : 0.68;
+                  const zIndex = total - absOffset;
+                  const opacity = absOffset === 0 ? 1 : absOffset === 1 ? 0.9 : 0.55;
+                  const verticalOffset = isCenter ? 0 : absOffset === 1 ? 30 : 55;
+                  return (
+                    <div
+                      key={dest.id}
+                      onClick={() => {
+                        if (isCenter) navigate('/packages?search=' + encodeURIComponent(dest.name));
+                        else setFanIndex(filteredDests.indexOf(dest));
+                      }}
+                      className={`absolute cursor-pointer transition-all duration-500 ease-out group select-none ${
+                        isCenter ? '' : 'hover:opacity-90 hover:z-[50]'
+                      }`}
+                      style={{
+                        width: `${baseWidth}px`,
+                        height: `${baseHeight}px`,
+                        zIndex,
+                        opacity,
+                        transform: `translateX(${offset * (isCenter ? 0 : spacingFactor)}px) translateY(${verticalOffset}px) scale(${scale})`,
+                        left: '50%',
+                        marginLeft: `-${baseWidth / 2}px`,
+                        top: '50%',
+                        marginTop: `-${baseHeight / 2}px`,
+                      }}
+                    >
+                      <div className={`relative w-full h-full overflow-hidden transition-all duration-500 ${
+                        isCenter
+                          ? 'rounded-[2rem] shadow-[0_40px_80px_rgba(0,0,0,0.3)] dark:shadow-[0_40px_80px_rgba(0,0,0,0.65)] ring-1 ring-black/5 dark:ring-white/10'
+                          : 'rounded-[1.5rem] shadow-[0_15px_45px_rgba(0,0,0,0.15)] dark:shadow-[0_15px_45px_rgba(0,0,0,0.45)] border border-black/5 dark:border-white/5'
+                      }`}>
+                        <img
+                          src={dest.imageUrl}
+                          alt={dest.name}
+                          className={`w-full h-full object-cover transition-transform duration-[2000ms] ${isCenter ? 'group-hover:scale-110' : ''}`}
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
+                        {dest.badge && (
+                          <div
+                            className="absolute top-4 left-4 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest text-white flex items-center gap-1.5"
+                            style={{ backgroundColor: dest.badgeColor || '#ef4444', boxShadow: `0 0 18px ${dest.badgeColor || '#ef4444'}70` }}
+                          >
+                            <span className="size-1.5 bg-white rounded-full animate-ping shrink-0" />
+                            {dest.badge}
+                          </div>
+                        )}
+                        <div className={`absolute bottom-4 right-4 rounded-full bg-white/15 backdrop-blur-md border border-white/25 flex items-center justify-center text-white transition-transform duration-300 group-hover:scale-110 ${isCenter ? 'size-10' : 'size-8'}`}>
+                          <span className={`material-symbols-outlined ${isCenter ? 'text-[18px]' : 'text-[14px]'}`}>
+                            {i % 2 === 0 ? 'play_arrow' : 'photo_camera'}
+                          </span>
+                        </div>
+                        <div className="absolute bottom-0 left-0 right-0 p-4 pr-14 z-10">
+                          <h3 className={`font-black text-white leading-tight drop-shadow ${isCenter ? 'text-xl md:text-2xl' : 'text-sm'}`}>
+                            {dest.name}
+                          </h3>
+                          {isCenter && dest.country && (
+                            <p className="text-slate-300 text-xs mt-1 flex items-center gap-1 font-light">
+                              <span className="material-symbols-outlined text-[13px] text-primary">location_on</span>
+                              {dest.country}
+                            </p>
+                          )}
+                          {isCenter && (
+                            <>
+                              <div className="flex items-center gap-2 mt-3 pt-3 border-t border-white/10">
+                                <div className="flex -space-x-2">
+                                  <img className="size-6 rounded-full ring-2 ring-black object-cover" src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=80&fit=crop&crop=faces&q=80" alt="t1" />
+                                  <img className="size-6 rounded-full ring-2 ring-black object-cover" src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=80&fit=crop&crop=faces&q=80" alt="t2" />
+                                  <img className="size-6 rounded-full ring-2 ring-black object-cover" src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=80&fit=crop&crop=faces&q=80" alt="t3" />
+                                </div>
+                                <span className="text-amber-300 text-[11px] font-bold tracking-wide">
+                                  {dest.statLabel || `${(dest.packageCount || 0) + 100}+ travelers visited`}
+                                </span>
+                              </div>
+                              <div className="mt-3 flex items-center gap-1.5 text-white/75 text-xs font-semibold group-hover:text-primary transition-colors">
+                                <span>Explore packages</span>
+                                <span className="material-symbols-outlined text-[13px] transition-transform group-hover:translate-x-1 duration-300">arrow_forward</span>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Navigation arrows + dot indicators */}
+              <div className="flex justify-center items-center gap-4 mt-10">
+                <button
+                  id="fan-prev-btn"
+                  onClick={() => { if (fanTimerRef.current) { clearInterval(fanTimerRef.current); fanTimerRef.current = null; } goPrev(); }}
+                  className="size-12 rounded-full border border-slate-300 dark:border-white/20 bg-white dark:bg-transparent text-slate-700 dark:text-white flex items-center justify-center hover:bg-slate-900 hover:text-white hover:border-slate-900 dark:hover:bg-white dark:hover:text-slate-950 transition-all duration-300 hover:scale-105 active:scale-95 shadow-sm"
+                  aria-label="Previous destination"
+                >
+                  <span className="material-symbols-outlined font-light text-[20px]">arrow_back</span>
+                </button>
+
+                <div className="flex gap-1.5">
+                  {filteredDests.slice(0, Math.min(filteredDests.length, 7)).map((_, dotIdx) => (
+                    <button
+                      key={dotIdx}
+                      onClick={() => setFanIndex(dotIdx)}
+                      className={`rounded-full transition-all duration-300 ${
+                        fanIndex % filteredDests.length === dotIdx
+                          ? 'w-5 h-2 bg-slate-900 dark:bg-white'
+                          : 'size-2 bg-slate-300 dark:bg-slate-600 hover:bg-slate-500 dark:hover:bg-slate-400'
+                      }`}
+                    />
+                  ))}
+                </div>
+
+                <button
+                  id="fan-next-btn"
+                  onClick={() => { if (fanTimerRef.current) { clearInterval(fanTimerRef.current); fanTimerRef.current = null; } goNext(); }}
+                  className="size-12 rounded-full border border-slate-300 dark:border-white/20 bg-white dark:bg-transparent text-slate-700 dark:text-white flex items-center justify-center hover:bg-slate-900 hover:text-white hover:border-slate-900 dark:hover:bg-white dark:hover:text-slate-950 transition-all duration-300 hover:scale-105 active:scale-95 shadow-sm"
+                  aria-label="Next destination"
+                >
+                  <span className="material-symbols-outlined font-light text-[20px]">arrow_forward</span>
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
+              {trendingPackages.map((tour, idx) => (
+                <div key={idx} className={`reveal reveal-delay-${idx + 1}`}>
+                  <Link to={`/packages/${tour.id}`} className="group block bg-white dark:bg-white/5 rounded-2xl overflow-hidden shadow-sm hover:shadow-2xl hover:-translate-y-1 transition-all duration-300 border border-slate-100 dark:border-white/10">
+                    <div className="relative h-64 overflow-hidden">
+                      <OptimizedImage src={tour.image} alt={tour.title} className="w-full h-full group-hover:scale-110 transition-transform duration-700" />
+                      <div className="absolute top-4 right-4 bg-black/60 backdrop-blur px-3 py-1.5 rounded-full text-xs font-bold text-white flex items-center gap-1">
+                        <span className="material-symbols-outlined text-primary text-sm fill">schedule</span> {tour.days} Days
+                      </div>
+                    </div>
+                    <div className="p-6">
+                      <h3 className="text-lg font-bold text-slate-900 dark:text-white leading-tight group-hover:text-primary transition-colors line-clamp-2 mb-3">{tour.title}</h3>
+                      <div className="flex items-center justify-between border-t border-slate-100 dark:border-white/10 pt-4">
+                        <span className="text-lg font-black text-slate-900 dark:text-white">{formatPrice(tour.price)}</span>
+                        <div className="size-9 rounded-full bg-slate-100 dark:bg-white/10 flex items-center justify-center text-slate-700 dark:text-white group-hover:bg-primary group-hover:text-white transition-colors">
+                          <span className="material-symbols-outlined text-sm">arrow_forward</span>
+                        </div>
+                      </div>
+                    </div>
+                  </Link>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* ═══════════════════════════════════════════════════════════════ */}
+      {/* CURATED COLLECTIONS — Original Circular Section                 */}
+      {/* ═══════════════════════════════════════════════════════════════ */}
+      <section className="py-12 bg-background-light dark:bg-background-dark border-t border-border-light dark:border-border-dark">
         <div className="container mx-auto px-4 md:px-10">
           <div className="flex flex-col md:flex-row justify-between items-end mb-8 gap-4 reveal">
             <div>
@@ -382,69 +678,6 @@ export const Home: React.FC = () => {
                 </div>
               </div>
             )) : <p className="text-center w-full text-slate-500">No collections found.</p>}
-          </div>
-        </div>
-      </section>
-
-      {/* Trending Destinations */}
-      <section className="py-20 mesh-warm dark:bg-background-dark grain relative">
-        <div className="container mx-auto px-4 md:px-10 relative z-10">
-          <div className="flex justify-between items-end mb-10 reveal">
-            <div>
-              <h2 className="font-display text-slate-900 dark:text-white text-4xl md:text-5xl font-bold leading-tight tracking-tight italic">Trending Destinations</h2>
-              <p className="text-slate-500 dark:text-slate-400 mt-2 text-lg font-light">Join thousands of travelers exploring these hotspots.</p>
-            </div>
-            <Link className="hidden md:flex items-center text-primary font-bold hover:underline" to="/packages">
-              Explore All
-              <span className="material-symbols-outlined ml-1 text-sm">arrow_forward</span>
-            </Link>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
-            {trendingPackages.map((tour, idx) => {
-              const remainingSeats = tour.remainingSeats;
-
-              return (
-                <div key={idx} className={`reveal reveal-delay-${idx + 1}`}>
-                  <Link to={`/packages/${tour.id}`} className="group block bg-white dark:bg-card-dark rounded-2xl overflow-hidden shadow-sm hover:shadow-2xl hover:-translate-y-1 transition-all duration-300 border border-border-light dark:border-border-dark">
-                    <div className="relative h-64 overflow-hidden">
-                      <OptimizedImage
-                        src={tour.image}
-                        alt={tour.title}
-                        className="w-full h-full group-hover:scale-110 transition-transform duration-700"
-                      />
-                      <div className="absolute top-4 right-4 bg-white/90 dark:bg-slate-900/90 backdrop-blur px-3 py-1.5 rounded-full text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1 shadow-sm">
-                        <span className="material-symbols-outlined text-primary text-sm fill">schedule</span> {tour.days} Days
-                      </div>
-
-                      {remainingSeats !== undefined && remainingSeats < 10 && (
-                        <div className="absolute top-4 left-4 bg-red-600/90 backdrop-blur text-white text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg shadow-lg animate-pulse flex items-center gap-1">
-                          <span className="material-symbols-outlined text-[14px]">local_fire_department</span>
-                          Only {remainingSeats} Left
-                        </div>
-                      )}
-                    </div>
-                    <div className="p-6">
-                      <div className="flex justify-between items-start mb-3">
-                        <h3 className="text-xl font-bold text-slate-900 dark:text-white leading-tight group-hover:text-primary transition-colors line-clamp-2">{tour.title}</h3>
-                      </div>
-                      <div className="flex items-center gap-4 text-slate-500 dark:text-slate-400 text-sm font-medium mb-6">
-                        <span className="flex items-center gap-1"><span className="material-symbols-outlined text-[18px]">schedule</span> {tour.days} Days</span>
-                        <span className="flex items-center gap-1"><span className="material-symbols-outlined text-[18px]">location_on</span> {getLocationName(tour.location, masterLocations)}</span>
-                      </div>
-                      <div className="flex items-center justify-between border-t border-slate-100 dark:border-slate-700 pt-4">
-                        <div className="flex flex-col">
-                          <span className="text-xs text-slate-400 uppercase tracking-wider font-bold">From</span>
-                          <span className="text-lg font-black text-slate-900 dark:text-white">{formatPrice(tour.price)}</span>
-                        </div>
-                        <div className="size-10 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-slate-400 group-hover:bg-primary group-hover:text-white transition-colors">
-                          <span className="material-symbols-outlined">arrow_forward</span>
-                        </div>
-                      </div>
-                    </div>
-                  </Link>
-                </div>
-              );
-            })}
           </div>
         </div>
       </section>

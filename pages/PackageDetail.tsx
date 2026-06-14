@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import { Lead, Package } from '../types';
@@ -32,10 +32,12 @@ export const PackageDetail: React.FC = () => {
   // Lightbox State
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [lightboxTouchStart, setLightboxTouchStart] = useState<number | null>(null);
+  const [lightboxTouchEnd, setLightboxTouchEnd] = useState<number | null>(null);
 
-  // Carousel State
+  // Carousel/Mobile Scroll State
   const [carouselIndex, setCarouselIndex] = useState(0);
-  const [carouselAnimating, setCarouselAnimating] = useState(false);
+  const mobileScrollRef = React.useRef<HTMLDivElement>(null);
 
   // Offer countdown
   const [timeLeft, setTimeLeft] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 });
@@ -53,12 +55,43 @@ export const PackageDetail: React.FC = () => {
   }, [id]);
 
   // Merge full package's builderData into the tour object, then alias as 'tour' so JSX is unchanged
-  const tour = rawTour
-    ? { ...rawTour, builderData: fullPackageData?.builderData ?? rawTour.builderData }
-    : null;
+  const tour = useMemo(() => {
+    return rawTour
+      ? { ...rawTour, builderData: fullPackageData?.builderData ?? rawTour.builderData }
+      : null;
+  }, [rawTour, fullPackageData?.builderData]);
 
+  // Preload adjacent images in background to avoid skeleton flashes
+  useEffect(() => {
+    if (tour && tour.gallery && tour.gallery.length > 1) {
+      const preload = (url: string) => {
+        if (!url) return;
+        const img = new window.Image();
+        img.src = url;
+      };
+      const nextIndex = (carouselIndex + 1) % tour.gallery.length;
+      const prevIndex = (carouselIndex - 1 + tour.gallery.length) % tour.gallery.length;
+      preload(tour.gallery[nextIndex]);
+      preload(tour.gallery[prevIndex]);
+    }
+  }, [carouselIndex, tour]);
 
-  // Auto-advance carousel
+  // Preload adjacent lightbox images in background
+  useEffect(() => {
+    if (isLightboxOpen && tour && tour.gallery && tour.gallery.length > 1) {
+      const preload = (url: string) => {
+        if (!url) return;
+        const img = new window.Image();
+        img.src = url;
+      };
+      const nextIndex = (currentImageIndex + 1) % tour.gallery.length;
+      const prevIndex = (currentImageIndex - 1 + tour.gallery.length) % tour.gallery.length;
+      preload(tour.gallery[nextIndex]);
+      preload(tour.gallery[prevIndex]);
+    }
+  }, [currentImageIndex, isLightboxOpen, tour]);
+
+  // Auto-advance mobile carousel
   useEffect(() => {
     if (!tour || tour.gallery.length <= 1) return;
     const autoPlay = setInterval(() => {
@@ -69,25 +102,62 @@ export const PackageDetail: React.FC = () => {
   }, [tour, carouselIndex]);
 
   const goCarousel = (dir: 'left' | 'right') => {
-    if (carouselAnimating || !tour) return;
-    setCarouselAnimating(true);
-    setTimeout(() => {
-      setCarouselIndex(prev =>
-        dir === 'right'
-          ? (prev + 1) % tour.gallery.length
-          : (prev - 1 + tour.gallery.length) % tour.gallery.length
-      );
-      setCarouselAnimating(false);
-    }, 350);
+    if (!tour || tour.gallery.length <= 1) return;
+    const nextIdx = dir === 'right'
+      ? (carouselIndex + 1) % tour.gallery.length
+      : (carouselIndex - 1 + tour.gallery.length) % tour.gallery.length;
+    
+    setCarouselIndex(nextIdx);
+    if (mobileScrollRef.current) {
+      const container = mobileScrollRef.current;
+      container.scrollTo({
+        left: nextIdx * container.clientWidth,
+        behavior: 'smooth'
+      });
+    }
   };
 
   const goCarouselTo = (idx: number) => {
-    if (carouselAnimating || !tour || idx === carouselIndex) return;
-    setCarouselAnimating(true);
-    setTimeout(() => {
-      setCarouselIndex(idx);
-      setCarouselAnimating(false);
-    }, 350);
+    if (!tour || idx === carouselIndex) return;
+    setCarouselIndex(idx);
+    if (mobileScrollRef.current) {
+      const container = mobileScrollRef.current;
+      container.scrollTo({
+        left: idx * container.clientWidth,
+        behavior: 'smooth'
+      });
+    }
+  };
+
+  const handleMobileScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const container = e.currentTarget;
+    const index = Math.round(container.scrollLeft / container.clientWidth);
+    if (index !== carouselIndex && index >= 0 && index < (tour?.gallery.length || 0)) {
+      setCarouselIndex(index);
+    }
+  };
+
+  const handleLightboxTouchStart = (e: React.TouchEvent) => {
+    setLightboxTouchStart(e.targetTouches[0].clientX);
+  };
+
+  const handleLightboxTouchMove = (e: React.TouchEvent) => {
+    setLightboxTouchEnd(e.targetTouches[0].clientX);
+  };
+
+  const handleLightboxTouchEnd = () => {
+    if (lightboxTouchStart === null || lightboxTouchEnd === null) return;
+    const distance = lightboxTouchStart - lightboxTouchEnd;
+    const isLeftSwipe = distance > 50;
+    const isRightSwipe = distance < -50;
+
+    if (isLeftSwipe && tour) {
+      setCurrentImageIndex(prev => (prev + 1) % tour.gallery.length);
+    } else if (isRightSwipe && tour) {
+      setCurrentImageIndex(prev => (prev - 1 + tour.gallery.length) % tour.gallery.length);
+    }
+    setLightboxTouchStart(null);
+    setLightboxTouchEnd(null);
   };
 
   useEffect(() => {
@@ -119,14 +189,17 @@ export const PackageDetail: React.FC = () => {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!isLightboxOpen) return;
-      if (e.key === 'Escape') setIsLightboxOpen(false);
-      if (e.key === 'ArrowRight') setCurrentImageIndex(prev => (prev + 1) % (tour?.gallery.length || 1));
-      if (e.key === 'ArrowLeft') setCurrentImageIndex(prev => (prev - 1 + (tour?.gallery.length || 1)) % (tour?.gallery.length || 1));
+      if (isLightboxOpen) {
+        if (e.key === 'Escape') setIsLightboxOpen(false);
+        if (e.key === 'ArrowRight') setCurrentImageIndex(prev => (prev + 1) % (tour?.gallery.length || 1));
+        if (e.key === 'ArrowLeft') setCurrentImageIndex(prev => (prev - 1 + (tour?.gallery.length || 1)) % (tour?.gallery.length || 1));
+      } else if (bookingModal) {
+        if (e.key === 'Escape') setBookingModal(false);
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isLightboxOpen, tour]);
+  }, [isLightboxOpen, bookingModal, tour]);
 
   if (!tour) {
     if (!packages || packages.length === 0) {
@@ -156,12 +229,22 @@ export const PackageDetail: React.FC = () => {
   }
 
   // --- JSON-LD Structured Data ---
+  const stripHtml = (html: string) => {
+    return html ? html.replace(/<[^>]*>/g, '') : '';
+  };
+
+  const makeAbsoluteUrl = (path: string) => {
+    if (!path) return '';
+    if (path.startsWith('http://') || path.startsWith('https://')) return path;
+    return `${window.location.origin}${path}`;
+  };
+
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "TouristTrip",
     "name": tour.title,
-    "description": tour.overview || tour.description,
-    "image": tour.gallery?.[0] || tour.image,
+    "description": stripHtml(tour.overview || tour.description || ''),
+    "image": makeAbsoluteUrl(tour.gallery?.[0] || tour.image || ''),
     "offers": {
       "@type": "Offer",
       "price": tour.price,
@@ -174,7 +257,7 @@ export const PackageDetail: React.FC = () => {
       "item": {
         "@type": "TouristAttraction",
         "name": day.title,
-        "description": day.desc
+        "description": stripHtml(day.desc || '')
       }
     }))
   };
@@ -198,29 +281,50 @@ export const PackageDetail: React.FC = () => {
     }
   };
 
-  const getGuestMultiplier = () => {
-    if (tour?.pricingMode === 'group') return 1;
-
+  const parseGuestCounts = () => {
     const adultsMatch = guests.match(/(\d+)\s*Adults?/i);
     const childrenMatch = guests.match(/(\d+)\s*Child(ren)?/i);
+    const infantMatch = guests.match(/(\d+)\s*Infants?/i);
 
     const adults = adultsMatch ? parseInt(adultsMatch[1]) : 2;
     const children = childrenMatch ? parseInt(childrenMatch[1]) : 0;
-    // Infants are usually free, so they don't add to multiplier
+    const infants = infantMatch ? parseInt(infantMatch[1]) : 0;
 
+    return { adults, children, infants };
+  };
+
+  const getGuestMultiplier = () => {
+    if (tour?.pricingMode === 'group') return 1;
+
+    const { adults, children } = parseGuestCounts();
     const totalPeople = adults + children;
 
     if (totalPeople === 1) return 1.2; // Single supplement
     return (adults * 1) + (children * 0.5);
   };
 
-  const calculateTotal = () => {
-    const addonsTotal = selectedAddons.reduce((acc, curr) => {
+  const getPaxHeadcount = () => {
+    const { adults, children } = parseGuestCounts();
+    return adults + children;
+  };
+
+  const getAddonsTotal = () => {
+    return selectedAddons.reduce((acc, curr) => {
       const addon = addonsList.find(a => a.id === curr);
-      return acc + (addon ? addon.price : 0);
+      if (!addon) return acc;
+      const isPerPerson = ['flight', 'visa', 'insurance'].includes(addon.id);
+      const count = isPerPerson ? getPaxHeadcount() : 1;
+      return acc + (addon.price * count);
     }, 0);
-    // Apply guest multiplier so price updates with traveler count
-    return Math.round(tour.price * getGuestMultiplier() + addonsTotal);
+  };
+
+  const calculateTotal = () => {
+    return Math.round((tour?.price ?? 0) * getGuestMultiplier() + getAddonsTotal());
+  };
+
+  const calculateOriginalTotal = () => {
+    if (!tour?.originalPrice) return 0;
+    return Math.round(tour.originalPrice * getGuestMultiplier() + getAddonsTotal());
   };
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -233,6 +337,8 @@ export const PackageDetail: React.FC = () => {
     try {
       const addonNames = selectedAddons.map(id => addonsList.find(a => a.id === id)?.label).join(', ');
       const preferenceString = `Interested in ${tour.title}. Date: ${bookingData.date}. Add-ons: ${addonNames || 'None'}. Guests: ${guests}. Estimated Quote: ${formatPrice(calculateTotal())}`;
+
+      const { adults, children, infants } = parseGuestCounts();
 
       const referenceId = `LD-${Date.now()}`;
       const newLead: Partial<Lead> = {
@@ -249,6 +355,9 @@ export const PackageDetail: React.FC = () => {
         potentialValue: calculateTotal(),
         addedOn: new Date().toISOString(),
         travelers: guests,
+        paxAdult: adults,
+        paxChild: children,
+        paxInfant: infants,
         budget: `~ ${formatPrice(calculateTotal())}`,
         source: 'Website',
         preferences: preferenceString,
@@ -257,13 +366,6 @@ export const PackageDetail: React.FC = () => {
       };
 
       await addLead(newLead as Lead);
-
-      // Decrement remainingSeats in DB atomically
-      if (tour.remainingSeats !== undefined && tour.remainingSeats > 0) {
-        await api.decrementSeats(tour.id);
-        // Local state update
-        updatePackage(tour.id, { remainingSeats: tour.remainingSeats - 1 });
-      }
 
       setBookingModal(false);
 
@@ -308,7 +410,13 @@ export const PackageDetail: React.FC = () => {
 
         {/* Lightbox Modal */}
         {isLightboxOpen && (
-          <div className="fixed inset-0 z-[300] bg-black/95 backdrop-blur-2xl flex items-center justify-center animate-in fade-in duration-300 touch-none" onClick={() => setIsLightboxOpen(false)}>
+          <div 
+            className="fixed inset-0 z-[300] bg-black/95 backdrop-blur-2xl flex items-center justify-center animate-in fade-in duration-300 touch-none" 
+            onClick={() => setIsLightboxOpen(false)}
+            onTouchStart={handleLightboxTouchStart}
+            onTouchMove={handleLightboxTouchMove}
+            onTouchEnd={handleLightboxTouchEnd}
+          >
             <button onClick={() => setIsLightboxOpen(false)} className="absolute top-4 right-4 md:top-8 md:right-8 p-3 text-white/70 hover:text-white transition-colors bg-white/10 hover:bg-white/20 rounded-full z-50">
               <span className="material-symbols-outlined text-2xl">close</span>
             </button>
@@ -348,24 +456,31 @@ export const PackageDetail: React.FC = () => {
 
         {/* Booking Modal */}
         {bookingModal && (
-          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in duration-300">
-            <div className="bg-white dark:bg-[#1A2633] w-full max-w-md rounded-3xl shadow-2xl p-8 animate-in zoom-in-95 ring-1 ring-white/10">
+          <div 
+            onClick={() => setBookingModal(false)}
+            className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in duration-300 cursor-pointer"
+          >
+            <div 
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white dark:bg-[#1A2633] w-full max-w-md rounded-3xl shadow-2xl p-8 animate-in zoom-in-95 ring-1 ring-white/10 cursor-default"
+            >
               <div className="flex justify-between items-center mb-8">
                 <h3 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">Secure Your Spot</h3>
-                <button onClick={() => setBookingModal(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-white transition-colors"><span className="material-symbols-outlined">close</span></button>
+                <button onClick={() => setBookingModal(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-white transition-colors" aria-label="Close Booking Modal"><span className="material-symbols-outlined">close</span></button>
               </div>
               <form onSubmit={confirmBooking} className="space-y-5">
                 <div className="space-y-1">
-                  <label className="block text-xs font-bold uppercase text-slate-500 pl-1">Full Name</label>
-                  <input required type="text" className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all" placeholder="John Doe" value={bookingData.name} onChange={e => setBookingData({ ...bookingData, name: e.target.value })} />
+                  <label htmlFor="booking-name" className="block text-xs font-bold uppercase text-slate-500 pl-1">Full Name</label>
+                  <input required id="booking-name" type="text" className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all" placeholder="John Doe" value={bookingData.name} onChange={e => setBookingData({ ...bookingData, name: e.target.value })} />
                 </div>
                 <div className="space-y-1">
-                  <label className="block text-xs font-bold uppercase text-slate-500 pl-1">Email</label>
-                  <input required type="email" className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all" placeholder="john@example.com" value={bookingData.email} onChange={e => setBookingData({ ...bookingData, email: e.target.value })} />
+                  <label htmlFor="booking-email" className="block text-xs font-bold uppercase text-slate-500 pl-1">Email</label>
+                  <input required id="booking-email" type="email" className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all" placeholder="john@example.com" value={bookingData.email} onChange={e => setBookingData({ ...bookingData, email: e.target.value })} />
                 </div>
                 <div className="space-y-1">
-                  <label className="block text-xs font-bold uppercase text-slate-500 pl-1">Mobile Number</label>
+                  <label htmlFor="booking-phone" className="block text-xs font-bold uppercase text-slate-500 pl-1">Mobile Number</label>
                   <PhoneInput
+                    id="booking-phone"
                     value={bookingData.phone}
                     onChange={(value) => setBookingData({ ...bookingData, phone: value })}
                     placeholder="98765 43210"
@@ -383,14 +498,15 @@ export const PackageDetail: React.FC = () => {
                       className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
                     />
                     <label htmlFor="isWhatsappSamePackage" className="text-xs font-bold uppercase text-slate-500 cursor-pointer select-none">
-                      Same as WhatsApp Number
+                      WhatsApp number is same as Mobile Number
                     </label>
                   </div>
 
                   {!bookingData.isWhatsappSame && (
                     <div className="space-y-1 animate-in fade-in slide-in-from-top-1">
-                      <label className="block text-xs font-bold uppercase text-slate-500 pl-1">WhatsApp Number</label>
+                      <label htmlFor="booking-whatsapp" className="block text-xs font-bold uppercase text-slate-500 pl-1">WhatsApp Number</label>
                       <PhoneInput
+                        id="booking-whatsapp"
                         value={bookingData.whatsapp}
                         onChange={(value) => setBookingData({ ...bookingData, whatsapp: value })}
                         placeholder="98765 43210"
@@ -401,8 +517,8 @@ export const PackageDetail: React.FC = () => {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="block text-xs font-bold uppercase text-slate-500 pl-1">Travel Date</label>
-                  <input required min={new Date().toISOString().split('T')[0]} type="date" className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all" value={bookingData.date} onChange={e => setBookingData({ ...bookingData, date: e.target.value })} />
+                  <label htmlFor="booking-date" className="block text-xs font-bold uppercase text-slate-500 pl-1">Travel Date</label>
+                  <input required id="booking-date" min={new Date().toISOString().split('T')[0]} max={tour.validity_date || (tour as any).validityDate ? new Date(tour.validity_date || (tour as any).validityDate).toISOString().split('T')[0] : undefined} type="date" className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all" value={bookingData.date} onChange={e => setBookingData({ ...bookingData, date: e.target.value })} />
                 </div>
                 <div className="p-4 bg-primary/5 rounded-2xl border border-primary/10 mt-2">
                   <div className="flex justify-between items-center text-sm font-bold text-slate-900 dark:text-white">
@@ -485,132 +601,204 @@ export const PackageDetail: React.FC = () => {
                 </div>
               </div>
             ) : (
-              /* Multi-image: Hero + Grid layout */
-              <div className="flex flex-col md:flex-row gap-2 md:gap-3" style={{ height: 'auto', minHeight: '460px' }}>
-
-                {/* Main hero image — left, 60% width */}
-                <div
-                  className="relative flex-[3] rounded-[1.5rem] md:rounded-[2rem] overflow-hidden shadow-xl bg-slate-100 dark:bg-slate-900 cursor-pointer group"
-                  style={{ minHeight: '300px', maxHeight: '520px' }}
-                  onClick={() => openLightbox(carouselIndex)}
-                >
-                  <div
-                    className="absolute inset-0 transition-opacity duration-350"
-                    style={{ opacity: carouselAnimating ? 0 : 1, transition: 'opacity 0.4s ease' }}
+              /* Multi-image layout */
+              <div>
+                {/* Mobile horizontal snap scroll view */}
+                <div className="block md:hidden relative w-full rounded-[1.5rem] overflow-hidden shadow-xl bg-slate-100 dark:bg-slate-900 group">
+                  <div 
+                    ref={mobileScrollRef}
+                    onScroll={handleMobileScroll}
+                    className="flex overflow-x-auto snap-x snap-mandatory scroll-smooth scrollbar-none h-[320px]"
+                    style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
                   >
-                    <OptimizedImage
-                      src={tour.gallery[carouselIndex]}
-                      alt={`${tour.title} — ${carouselIndex + 1}`}
-                      className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-[1.03]"
-                    />
+                    {tour.gallery.map((img, idx) => (
+                      <div 
+                        key={idx} 
+                        className="w-full h-full shrink-0 snap-center cursor-pointer"
+                        onClick={() => openLightbox(idx)}
+                      >
+                        <OptimizedImage 
+                          src={img} 
+                          alt={`${tour.title} — ${idx + 1}`} 
+                          className="w-full h-full object-cover" 
+                        />
+                      </div>
+                    ))}
                   </div>
 
-                  {/* Gradient overlays */}
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/5 to-transparent pointer-events-none" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent pointer-events-none" />
 
-                  {/* Image counter pill */}
                   <div className="absolute top-4 left-4 px-3 py-1.5 bg-black/45 backdrop-blur-md rounded-full text-white text-xs font-bold flex items-center gap-1.5 shadow-lg">
                     <span className="material-symbols-outlined text-[14px]">photo_library</span>
                     {carouselIndex + 1} / {tour.gallery.length}
                   </div>
 
-                  {/* Expand button */}
-                  <div className="absolute top-4 right-4 px-3 py-1.5 bg-black/45 backdrop-blur-md rounded-full text-white text-xs font-bold flex items-center gap-1.5 shadow-lg opacity-0 group-hover:opacity-100 transition-all duration-300 translate-y-1 group-hover:translate-y-0">
+                  <div 
+                    className="absolute top-4 right-4 px-3 py-1.5 bg-black/45 backdrop-blur-md rounded-full text-white text-xs font-bold flex items-center gap-1.5 shadow-lg"
+                    onClick={(e) => { e.stopPropagation(); openLightbox(carouselIndex); }}
+                  >
                     <span className="material-symbols-outlined text-[14px]">open_in_full</span>
-                    View Full
                   </div>
 
-                  {/* Prev / Next arrows */}
-                  <button
-                    onClick={(e) => { e.stopPropagation(); goCarousel('left'); }}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center bg-white/15 hover:bg-white/35 backdrop-blur-md rounded-full text-white border border-white/20 opacity-0 group-hover:opacity-100 transition-all duration-200 hover:scale-110 active:scale-95 shadow-lg"
-                    aria-label="Previous"
-                  >
-                    <span className="material-symbols-outlined text-lg">arrow_back_ios_new</span>
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); goCarousel('right'); }}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center bg-white/15 hover:bg-white/35 backdrop-blur-md rounded-full text-white border border-white/20 opacity-0 group-hover:opacity-100 transition-all duration-200 hover:scale-110 active:scale-95 shadow-lg"
-                    aria-label="Next"
-                  >
-                    <span className="material-symbols-outlined text-lg">arrow_forward_ios</span>
-                  </button>
-
-                  {/* Dot indicators */}
                   <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1.5 bg-black/30 backdrop-blur-md rounded-full">
-                    {tour.gallery.slice(0, 8).map((_, idx) => (
+                    {tour.gallery.map((_, idx) => (
                       <button
                         key={idx}
-                        onClick={(e) => { e.stopPropagation(); goCarouselTo(idx); }}
-                        className={`rounded-full transition-all duration-300 ${
-                          idx === carouselIndex ? 'bg-white w-5 h-1.5' : 'bg-white/45 hover:bg-white/75 w-1.5 h-1.5'
+                        onClick={() => goCarouselTo(idx)}
+                        className={`rounded-full transition-all duration-300 h-1.5 ${
+                          idx === carouselIndex ? 'bg-white w-5' : 'bg-white/45 w-1.5'
                         }`}
-                        aria-label={`Go to image ${idx + 1}`}
+                        aria-label={`Go to slide ${idx + 1}`}
                       />
                     ))}
                   </div>
                 </div>
 
-                {/* Right: 2×2 thumbnail grid — 40% width, desktop only */}
-                <div className="hidden md:grid grid-cols-2 grid-rows-2 flex-[2] gap-3" style={{ maxHeight: '520px' }}>
-                  {[0, 1, 2, 3].map((gridPos) => {
-                    // Use stable index-based approach to avoid URL duplicate bugs
-                    const skipIdx = carouselIndex;
-                    const otherIndices = tour.gallery
-                      .map((_, i) => i)
-                      .filter(i => i !== skipIdx);
-                    const realIdx = otherIndices[gridPos];
-                    const imgSrc = realIdx !== undefined ? tour.gallery[realIdx] : undefined;
-                    const isLast = gridPos === 3 && tour.gallery.length > 5;
+                {/* Desktop premium static collage layout */}
+                <div className="hidden md:flex gap-3 h-[480px] w-full relative">
+                  <button
+                    onClick={() => openLightbox(0)}
+                    className="absolute bottom-5 right-5 z-25 px-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-800 dark:text-white hover:bg-slate-50 dark:hover:bg-slate-800 transition-all font-bold text-xs flex items-center gap-2 shadow-lg hover:scale-105 active:scale-95"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">photo_library</span>
+                    Show all {tour.gallery.length} photos
+                  </button>
 
-                    if (!imgSrc) return null;
+                  {(() => {
+                    const count = tour.gallery.length;
 
-                    return (
-                      <div
-                        key={gridPos}
-                        className="relative w-full h-full rounded-[1.2rem] overflow-hidden bg-slate-100 dark:bg-slate-900 cursor-pointer group/thumb shadow-md"
-                        onClick={() => isLast ? openLightbox(realIdx) : goCarouselTo(realIdx)}
-                      >
-                        <OptimizedImage
-                          src={imgSrc}
-                          alt={`Gallery ${gridPos + 1}`}
-                          className="w-full h-full object-cover transition-transform duration-500 group-hover/thumb:scale-[1.06]"
-                        />
-                        <div className="absolute inset-0 bg-black/0 group-hover/thumb:bg-black/25 transition-all duration-300 rounded-[1.2rem]" />
+                    if (count === 2) {
+                      return (
+                        <div className="grid grid-cols-2 gap-3 w-full h-full">
+                          {tour.gallery.slice(0, 2).map((img, idx) => (
+                            <div
+                              key={idx}
+                              onClick={() => openLightbox(idx)}
+                              className="relative w-full h-full rounded-[1.5rem] overflow-hidden bg-slate-100 dark:bg-slate-900 cursor-pointer group shadow-md"
+                            >
+                              <OptimizedImage src={img} alt={`${tour.title} — ${idx + 1}`} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    }
 
-                        {/* "See All Photos" overlay on last cell */}
-                        {isLast && (
-                          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/55 backdrop-blur-[2px] rounded-[1.2rem]">
-                            <span className="material-symbols-outlined text-white text-3xl mb-1">photo_library</span>
-                            <span className="text-white font-black text-sm">+{tour.gallery.length - 5} Photos</span>
-                            <span className="text-white/70 text-[10px] font-semibold mt-0.5">See All</span>
+                    if (count === 3) {
+                      return (
+                        <div className="flex gap-3 w-full h-full">
+                          <div
+                            onClick={() => openLightbox(0)}
+                            className="relative flex-[3] h-full rounded-[1.5rem] overflow-hidden bg-slate-100 dark:bg-slate-900 cursor-pointer group shadow-md"
+                          >
+                            <OptimizedImage src={tour.gallery[0]} alt={`${tour.title} — 1`} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
                           </div>
-                        )}
+                          <div className="flex-[2] flex flex-col gap-3 h-full">
+                            {tour.gallery.slice(1, 3).map((img, idx) => (
+                              <div
+                                key={idx + 1}
+                                onClick={() => openLightbox(idx + 1)}
+                                className="relative w-full h-1/2 rounded-[1.2rem] overflow-hidden bg-slate-100 dark:bg-slate-900 cursor-pointer group shadow-md"
+                              >
+                                <OptimizedImage src={img} alt={`${tour.title} — ${idx + 2}`} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    if (count === 4) {
+                      return (
+                        <div className="flex gap-3 w-full h-full">
+                          <div
+                            onClick={() => openLightbox(0)}
+                            className="relative flex-[3] h-full rounded-[1.5rem] overflow-hidden bg-slate-100 dark:bg-slate-900 cursor-pointer group shadow-md"
+                          >
+                            <OptimizedImage src={tour.gallery[0]} alt={`${tour.title} — 1`} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
+                          </div>
+                          <div className="flex-[2] grid grid-cols-1 grid-rows-3 gap-3 h-full">
+                            {tour.gallery.slice(1, 4).map((img, idx) => (
+                              <div
+                                key={idx + 1}
+                                onClick={() => openLightbox(idx + 1)}
+                                className="relative w-full h-full rounded-[1.2rem] overflow-hidden bg-slate-100 dark:bg-slate-900 cursor-pointer group shadow-md"
+                              >
+                                <OptimizedImage src={img} alt={`${tour.title} — ${idx + 2}`} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    // 5 or more images
+                    return (
+                      <div className="flex gap-3 w-full h-full">
+                        <div
+                          onClick={() => openLightbox(0)}
+                          className="relative flex-[3] h-full rounded-[1.5rem] md:rounded-[2rem] overflow-hidden bg-slate-100 dark:bg-slate-900 cursor-pointer group shadow-lg"
+                        >
+                          <OptimizedImage
+                            src={tour.gallery[0]}
+                            alt={`${tour.title} — 1`}
+                            className="w-full h-full object-cover transition-transform duration-750 group-hover:scale-[1.03]"
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent pointer-events-none" />
+                        </div>
+
+                        <div className="flex-[2] grid grid-cols-2 grid-rows-2 gap-3 h-full">
+                          {tour.gallery.slice(1, 5).map((img, idx) => {
+                            const realIdx = idx + 1;
+                            const isLast = realIdx === 4 && count > 5;
+                            return (
+                              <div
+                                key={realIdx}
+                                onClick={() => openLightbox(realIdx)}
+                                className="relative w-full h-full rounded-[1.2rem] overflow-hidden bg-slate-100 dark:bg-slate-900 cursor-pointer group shadow-md"
+                              >
+                                <OptimizedImage
+                                  src={img}
+                                  alt={`${tour.title} — ${realIdx + 1}`}
+                                  className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.05]"
+                                />
+                                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/15 transition-all duration-300" />
+                                
+                                {isLast && (
+                                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/55 backdrop-blur-[1px]">
+                                    <span className="material-symbols-outlined text-white text-3xl mb-1">photo_library</span>
+                                    <span className="text-white font-black text-sm">+{count - 5} Photos</span>
+                                    <span className="text-white/70 text-[10px] font-semibold mt-0.5">View All</span>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
                     );
-                  })}
+                  })()}
                 </div>
-              </div>
-            )}
 
-            {/* Thumbnail strip — only on mobile, when more than 1 image */}
-            {tour.gallery.length > 1 && (
-              <div className="mt-3 flex md:hidden gap-2.5 overflow-x-auto pb-1 scroll-smooth" style={{ scrollbarWidth: 'none' }}>
-                {tour.gallery.map((img, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => goCarouselTo(idx)}
-                    className={`flex-shrink-0 relative rounded-xl overflow-hidden transition-all duration-300 ${
-                      idx === carouselIndex
-                        ? 'ring-2 ring-primary ring-offset-2 dark:ring-offset-[#0B1116] opacity-100 scale-105 shadow-lg'
-                        : 'opacity-55 hover:opacity-90'
-                    }`}
-                    style={{ width: '72px', height: '52px' }}
-                    aria-label={`View image ${idx + 1}`}
-                  >
-                    <OptimizedImage src={img} alt={`Thumb ${idx + 1}`} className="w-full h-full object-cover" />
-                  </button>
-                ))}
+                {/* Mobile horizontal thumbnail strip */}
+                {tour.gallery.length > 1 && (
+                  <div className="mt-3 flex md:hidden gap-2.5 overflow-x-auto pb-1 scroll-smooth" style={{ scrollbarWidth: 'none' }}>
+                    {tour.gallery.map((img, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => goCarouselTo(idx)}
+                        className={`flex-shrink-0 relative rounded-xl overflow-hidden transition-all duration-300 ${
+                          idx === carouselIndex
+                            ? 'ring-2 ring-primary ring-offset-2 dark:ring-offset-[#0B1116] opacity-100 scale-105 shadow-lg'
+                            : 'opacity-55 hover:opacity-90'
+                        }`}
+                        style={{ width: '72px', height: '52px' }}
+                        aria-label={`View image ${idx + 1}`}
+                      >
+                        <OptimizedImage src={img} alt={`Thumb ${idx + 1}`} className="w-full h-full object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -764,6 +952,46 @@ export const PackageDetail: React.FC = () => {
                   </ul>
                 </div>
               </section>
+
+              {/* Mobile Customization Section */}
+              <div className="lg:hidden p-6 bg-slate-50 dark:bg-slate-800/30 rounded-[2rem] border border-slate-100 dark:border-slate-800 space-y-6">
+                <h3 className="text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
+                  <span className="material-symbols-outlined text-primary">tune</span>
+                  Customize Your Tour
+                </h3>
+                
+                <div>
+                  <label className="block text-xs font-black uppercase tracking-widest text-slate-400 mb-3 ml-1">Travelers</label>
+                  <div className="relative">
+                    <TravelerSelector
+                      value={guests}
+                      onChange={(val) => setGuests(val)}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-black uppercase tracking-widest text-slate-400 mb-3 ml-1">Upgrades</label>
+                  <div className="space-y-3">
+                    {addonsList.map(addon => (
+                      <button
+                        type="button"
+                        key={addon.id}
+                        onClick={() => toggleAddon(addon.id)}
+                        className={`w-full flex items-center justify-between p-3 rounded-2xl border text-left cursor-pointer transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-primary ${selectedAddons.includes(addon.id) ? 'bg-primary/5 border-primary shadow-inner' : 'bg-transparent border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className={`size-5 rounded-md border flex items-center justify-center transition-colors ${selectedAddons.includes(addon.id) ? 'bg-primary border-primary' : 'border-slate-300 dark:border-slate-600'}`}>
+                            {selectedAddons.includes(addon.id) && <span className="material-symbols-outlined text-white text-[14px]">check</span>}
+                          </div>
+                          <span className={`text-sm font-bold ${selectedAddons.includes(addon.id) ? 'text-primary' : 'text-slate-700 dark:text-slate-300'}`}>{addon.label}</span>
+                        </div>
+                        <span className="text-xs font-bold text-slate-500">+{formatPriceCompact(addon.price)}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* Right Column: Sticky Booking Widget */}
@@ -778,7 +1006,7 @@ export const PackageDetail: React.FC = () => {
                     </div>
                     {tour.originalPrice && tour.originalPrice > tour.price && (
                       <div className="flex items-center gap-2 mb-3">
-                        <span className="text-sm text-slate-400 line-through decoration-slate-300 dark:decoration-slate-600">{formatPrice(tour.originalPrice * getGuestMultiplier())}</span>
+                        <span className="text-sm text-slate-400 line-through decoration-slate-300 dark:decoration-slate-600">{formatPrice(calculateOriginalTotal())}</span>
                         <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 uppercase tracking-wider">Save {Math.round(((tour.originalPrice - tour.price) / tour.originalPrice) * 100)}%</span>
                       </div>
                     )}
@@ -829,10 +1057,11 @@ export const PackageDetail: React.FC = () => {
                       <label className="block text-xs font-black uppercase tracking-widest text-slate-400 mb-3 ml-1">Upgrades</label>
                       <div className="space-y-3">
                         {addonsList.map(addon => (
-                          <div
+                          <button
+                            type="button"
                             key={addon.id}
                             onClick={() => toggleAddon(addon.id)}
-                            className={`flex items-center justify-between p-3 rounded-2xl border cursor-pointer transition-all duration-200 ${selectedAddons.includes(addon.id) ? 'bg-primary/5 border-primary shadow-inner' : 'bg-transparent border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+                            className={`w-full flex items-center justify-between p-3 rounded-2xl border text-left cursor-pointer transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-primary ${selectedAddons.includes(addon.id) ? 'bg-primary/5 border-primary shadow-inner' : 'bg-transparent border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
                           >
                             <div className="flex items-center gap-3">
                               <div className={`size-5 rounded-md border flex items-center justify-center transition-colors ${selectedAddons.includes(addon.id) ? 'bg-primary border-primary' : 'border-slate-300 dark:border-slate-600'}`}>
@@ -841,7 +1070,7 @@ export const PackageDetail: React.FC = () => {
                               <span className={`text-sm font-bold ${selectedAddons.includes(addon.id) ? 'text-primary' : 'text-slate-700 dark:text-slate-300'}`}>{addon.label}</span>
                             </div>
                             <span className="text-xs font-bold text-slate-500">+{formatPriceCompact(addon.price)}</span>
-                          </div>
+                          </button>
                         ))}
                       </div>
                     </div>
@@ -940,7 +1169,7 @@ export const PackageDetail: React.FC = () => {
               <div className="flex items-baseline gap-2">
                 <p className="text-2xl font-black text-slate-900 dark:text-white">{formatPrice(calculateTotal())}</p>
                 {tour.originalPrice && tour.originalPrice > tour.price && (
-                  <span className="text-xs text-slate-400 line-through decoration-slate-300 dark:decoration-slate-600">{formatPriceCompact(tour.originalPrice * getGuestMultiplier())}</span>
+                  <span className="text-xs text-slate-400 line-through decoration-slate-300 dark:decoration-slate-600">{formatPriceCompact(calculateOriginalTotal())}</span>
                 )}
               </div>
             </div>

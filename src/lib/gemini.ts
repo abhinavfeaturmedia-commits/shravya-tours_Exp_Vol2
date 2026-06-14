@@ -162,4 +162,42 @@ export const parseInvoice = async (imageBase64: string) => {
         console.error("Invoice Parsing Failed", e);
         throw e;
     }
+ };
+ 
+export const generateWeeklyStandupSummary = async (logs: any[], staffNamesMap: Record<number, string>) => {
+    if (!genAI) throw new Error("API Key Missing");
+
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+    // Map staffIds to names for better readability in summary
+    const mappedLogs = logs.map(l => ({
+        ...l,
+        staffName: staffNamesMap[l.staffId] || `Staff #${l.staffId}`
+    }));
+
+    const prompt = `
+    You are a professional marketing coordinator for SHRAWELLO Travel Hub.
+    Below is a JSON list of marketing logs submitted by the team for the past week:
+    
+    ${JSON.stringify(mappedLogs)}
+    
+    Summarize these logs into a clean, professional, and inspiring weekly standup update.
+    The update should be formatted in Markdown (using bullet points and bold highlights).
+    Structure the update into these sections:
+    1. 📈 **Overall Performance & Momentum**: Briefly highlight total outreach (emails, DMs, calls), total spend, total leads generated, average CPL (Cost per Lead), and revenue generated.
+    2. 📢 **Marketing Activities (Paid & Organic)**: Bullet points summarizing outreach, nurturing, and Meta Ads tests/creative updates from different staff members.
+    3. 💡 **Key Learnings & Experiment Insights**: What worked, what failed, and key lessons logged.
+    4. 🎯 **Next Steps**: Based on the logs, recommend next steps (e.g. scale what works, fix high CPL ads).
+
+    Ensure it's concise, professional, and ready to share on Slack/WhatsApp. Do not output JSON, return the raw markdown string directly.
+    `;
+
+    try {
+        const result = await model.generateContent(prompt);
+        return result.response.text();
+    } catch (e) {
+        console.error("Weekly Standup Summary Generation Failed", e);
+        throw e;
+    }
 };
+
