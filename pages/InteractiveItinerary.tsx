@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatPrice, getLocationName } from '../utils/packageUtils';
+import { PaymentLogos } from '../components/ui/PaymentLogos';
 
 // ─── Print Styles (injected once) ────────────────────────────────────────────
 const PRINT_STYLES = `
@@ -608,6 +609,11 @@ export const InteractiveItinerary: React.FC = () => {
                     </div>
                 </div>
 
+            </div>
+
+            {/* Secured Payments */}
+            <div className="max-w-5xl mx-auto px-6 pt-6 pb-2 border-t border-stone-200 mt-8">
+                <PaymentLogos />
             </div>
 
             {/* Footer */}

@@ -18,7 +18,7 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
         tripDetails, items, grandTotal,
         packageMarkupPercent, packageMarkupFlat, packageMarkupAmount,
         setPackageMarkup, formatCurrency,
-        editPackageId, setEditPackageId, currency, taxConfig, dayMeta, subtotal
+        editPackageId, setEditPackageId, currency, taxConfig, dayMeta, subtotal, faqs
     } = useItinerary();
 
     const { addPackage, updatePackage, masterLocations } = useData();
@@ -104,7 +104,7 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
                     ? (() => { const d = new Date(); d.setDate(d.getDate() + validityDays); return d.toISOString().split('T')[0]; })()
                     : null,
                 terms_and_conditions: tripDetails.termsAndConditions || null,
-                builderData: { tripDetails, items, dayMeta, currency, taxConfig, packageMarkupPercent, packageMarkupFlat },
+                builderData: { tripDetails, items, dayMeta, currency, taxConfig, packageMarkupPercent, packageMarkupFlat, faqs },
             } as any;
 
             if (editPackageId) {

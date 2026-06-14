@@ -3,6 +3,11 @@ import { MasterHotel, MasterActivity, MasterTransport, CurrencyCode, TaxConfig, 
 
 // --- Types ---
 
+export interface FAQItem {
+    q: string;
+    a: string;
+}
+
 export type ServiceType = 'flight' | 'hotel' | 'activity' | 'transport' | 'note' | 'visa' | 'guide' | 'other';
 
 export interface ItineraryItem {
@@ -102,6 +107,7 @@ interface ItineraryContextType {
     packageMarkupPercent: number;
     packageMarkupFlat: number;
     dayMeta: Record<number, DayMeta>;
+    faqs: FAQItem[];
 
     // Computed
     subtotal: number;
@@ -127,6 +133,7 @@ interface ItineraryContextType {
     setPackageMarkup: (percent: number, flat: number) => void;
     loadPackage: (pkg: any, masterLocations?: any[]) => void;
     clearDraft: () => void;
+    setFaqs: React.Dispatch<React.SetStateAction<FAQItem[]>>;
 
     // Helpers
     getItemsForDay: (day: number) => ItineraryItem[];
@@ -169,6 +176,7 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
     const [packageMarkupPercent, setPackageMarkupPercent] = useState<number>(savedDraft?.packageMarkupPercent || 0);
     const [packageMarkupFlat, setPackageMarkupFlat] = useState<number>(savedDraft?.packageMarkupFlat || 0);
     const [editPackageId, setEditPackageId] = useState<string | undefined>(savedDraft?.editPackageId || undefined);
+    const [faqs, setFaqs] = useState<FAQItem[]>(savedDraft?.faqs || []);
 
     const [tripDetails, setTripDetails] = useState<TripDetails>(savedDraft?.tripDetails || {
         title: '',
@@ -192,10 +200,10 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
     // Auto-save to localStorage
     useEffect(() => {
         const draft = {
-            step, items, dayMeta, currency, taxConfig, packageMarkupPercent, packageMarkupFlat, editPackageId, tripDetails
+            step, items, dayMeta, currency, taxConfig, packageMarkupPercent, packageMarkupFlat, editPackageId, tripDetails, faqs
         };
         localStorage.setItem('itinerary_draft', JSON.stringify(draft));
-    }, [step, items, dayMeta, currency, taxConfig, packageMarkupPercent, packageMarkupFlat, editPackageId, tripDetails]);
+    }, [step, items, dayMeta, currency, taxConfig, packageMarkupPercent, packageMarkupFlat, editPackageId, tripDetails, faqs]);
 
     // Currency helpers
     const convertCurrency = useCallback((amountInINR: number): number => {
@@ -429,6 +437,7 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
             setTaxConfig(pkg.builderData.taxConfig || DEFAULT_TAX_CONFIG);
             setPackageMarkupPercent(pkg.builderData.packageMarkupPercent || 0);
             setPackageMarkupFlat(pkg.builderData.packageMarkupFlat || 0);
+            setFaqs(pkg.builderData.faqs || []);
         } else {
             // Legacy migration — best effort
             // Fix 2.5: resolve location name → ID (pkg.location is a name string in legacy packages)
@@ -468,6 +477,7 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
             }));
             setItems(newItems);
             setPackageMarkupFlat(pkg.price || 0);
+            setFaqs([]);
         }
     }, []);
 
@@ -477,6 +487,7 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
         setItems([]);
         setDayMeta({});
         setEditPackageId(undefined);
+        setFaqs([]);
         setTripDetails({
             title: '',
             startDate: new Date().toISOString().split('T')[0],
@@ -530,11 +541,13 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
         clearDraft,
         formatCurrency,
         convertCurrency,
-        dayMeta
+        dayMeta,
+        faqs,
+        setFaqs
     }), [step, tripDetails, items, currency, taxConfig, packageMarkupPercent, packageMarkupFlat,
         subtotal, packageMarkupAmount, taxAmount, grandTotal, editPackageId,
         updateTripDetails, addItem, updateItem, removeItem, replaceAllItems, reorderItems, duplicateDay,
-        getItemsForDay, updateTaxConfig, setPackageMarkup, loadPackage, clearDraft, formatCurrency, convertCurrency, dayMeta, setEditPackageId]);
+        getItemsForDay, updateTaxConfig, setPackageMarkup, loadPackage, clearDraft, formatCurrency, convertCurrency, dayMeta, setEditPackageId, faqs]);
 
     return (
         <ItineraryContext.Provider value={value}>

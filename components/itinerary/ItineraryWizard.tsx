@@ -7,13 +7,14 @@ import { StepDayPlanner } from './steps/StepDayPlanner';
 import { StepTripDetails } from './steps/StepTripDetails';
 import { StepPricing } from './steps/StepPricing';
 import { StepReview } from './steps/StepReview';
+import { StepFAQs } from './steps/StepFAQs';
 import {
     MapPin, Hotel, Car, Zap, DollarSign, Send,
-    Save, ChevronLeft, ChevronRight, Sparkles, CalendarDays, Users, Tag
+    Save, ChevronLeft, ChevronRight, Sparkles, CalendarDays, Users, Tag, HelpCircle
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type ActivePanel = 'board' | 'details' | 'pricing' | 'review';
+type ActivePanel = 'board' | 'details' | 'pricing' | 'review' | 'faqs';
 
 interface SidebarItem {
     id: ActivePanel | string;
@@ -28,6 +29,7 @@ const NAV_ITEMS: SidebarItem[] = [
     { id: 'hotels',    label: 'Hotels',        icon: <Hotel size={18} />,     panel: 'board'    },
     { id: 'transport', label: 'Transport',     icon: <Car size={18} />,       panel: 'board'    },
     { id: 'activities',label: 'Activities',   icon: <Zap size={18} />,       panel: 'board'    },
+    { id: 'faqs',      label: 'FAQs',          icon: <HelpCircle size={18} />, panel: 'faqs'     },
     { id: 'pricing',   label: 'Pricing',       icon: <DollarSign size={18} />,panel: 'pricing'  },
     { id: 'publish',   label: 'Publish',       icon: <Send size={18} />,      panel: 'review'   },
 ];
@@ -87,6 +89,7 @@ const WizardContent: React.FC = () => {
     useEffect(() => {
         if (activePanel === 'details')  setStep(1);
         if (activePanel === 'board')    setStep(2);
+        if (activePanel === 'faqs')     setStep(2);
         if (activePanel === 'pricing')  setStep(3);
         if (activePanel === 'review')   setStep(4);
     }, [activePanel, setStep]);
@@ -256,7 +259,14 @@ const WizardContent: React.FC = () => {
                     {/* Pricing Panel */}
                     {activePanel === 'pricing' && (
                         <div className="absolute inset-0 z-20 bg-[#F5F0E8] overflow-y-auto">
-                            <StepPricing onBack={() => setActivePanel('board')} onDone={() => setActivePanel('review')} />
+                            <StepPricing onBack={() => setActivePanel('faqs')} onDone={() => setActivePanel('review')} />
+                        </div>
+                    )}
+
+                    {/* FAQs Panel */}
+                    {activePanel === 'faqs' && (
+                        <div className="absolute inset-0 z-20 bg-[#F5F0E8] overflow-y-auto">
+                            <StepFAQs onBack={() => setActivePanel('board')} onDone={() => setActivePanel('pricing')} />
                         </div>
                     )}
 

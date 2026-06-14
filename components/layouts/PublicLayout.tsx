@@ -5,6 +5,7 @@ import { UrgencyNotification } from '../ui/UrgencyNotification';
 import { COMPANY_EMAIL, COMPANY_PHONE, COMPANY_PHONE_DISPLAY, COMPANY_ADDRESS } from '../../src/lib/constants';
 import { WhatsAppModal } from '../booking/WhatsAppModal';
 import { SuggestPopup, isDismissed, isSnoozed, dismissSuggestion, snoozeSuggestion } from '../ui/SuggestPopup';
+import { PaymentLogos } from '../ui/PaymentLogos';
 
 export const PublicLayout: React.FC = () => {
   const location = useLocation();
@@ -242,6 +243,9 @@ export const PublicLayout: React.FC = () => {
                 <p className="flex items-center gap-3"><span className="material-symbols-outlined text-primary text-[20px]">location_on</span> {COMPANY_ADDRESS}</p>
               </div>
             </div>
+          </div>
+          <div className="border-t border-slate-100 dark:border-slate-800 pt-8 pb-6">
+            <PaymentLogos />
           </div>
           <div className="border-t border-slate-100 dark:border-slate-800 pt-8 flex flex-col md:flex-row justify-between items-center gap-4 text-xs font-medium text-slate-400">
             <p>© 2025 SHRAWELLO Travel Hub and Events LLP. All rights reserved.</p>
