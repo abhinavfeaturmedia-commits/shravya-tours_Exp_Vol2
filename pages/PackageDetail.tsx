@@ -1158,7 +1158,7 @@ export const PackageDetail: React.FC = () => {
         )}
 
         {/* Main Content */}
-        <div className="max-w-[1440px] mx-auto px-4 md:px-8">
+        <div className="max-w-7xl mx-auto px-4 md:px-8">
 
           {/* Header Block */}
           <div className="flex flex-col xl:flex-row gap-8 mb-8">
@@ -1241,7 +1241,7 @@ export const PackageDetail: React.FC = () => {
                 </div>
 
                 {/* Desktop Premium Collage Layout */}
-                <div className="hidden md:block relative w-full aspect-[21/9] max-h-[480px]">
+                <div className="hidden md:block relative w-full aspect-[16/7] max-h-[420px]">
                   {tour.gallery.length >= 4 ? (
                     <div className="grid grid-cols-4 grid-rows-2 gap-3 h-full w-full rounded-[2rem] overflow-hidden shadow-lg bg-white dark:bg-slate-900">
                       {/* Left: Large landscape */}
@@ -1370,138 +1370,140 @@ export const PackageDetail: React.FC = () => {
               <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Top Rated</span>
             </div>
           </div>
+          
+          {/* Main Grid Layout */}
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] xl:grid-cols-[1fr_360px] gap-8 lg:gap-8 xl:gap-10">
 
-          {/* Title & Reviews Row */}
-          <div className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-3 mb-2 flex-wrap">
-                <h1 className="text-3xl md:text-4xl lg:text-5xl font-black text-slate-900 dark:text-white tracking-tight leading-none">
-                  {tour.title}
-                </h1>
+            {/* Left Column: Details & Header */}
+            <div className="space-y-8 lg:space-y-12 min-w-0">
+
+              {/* Header Info Block */}
+              <div className="space-y-6">
+                {/* Title & Reviews Row */}
+                <div className="mb-4 flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h1 className="text-2xl md:text-3xl lg:text-4xl font-black text-slate-900 dark:text-white tracking-tight leading-tight">
+                        {tour.title}
+                      </h1>
+                      {canEdit && (
+                        <button
+                          onClick={() => {
+                            setActiveEditTab('info');
+                            setIsAdminEditOpen(true);
+                          }}
+                          className="p-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-full text-slate-500 hover:text-slate-800 dark:hover:text-white transition-all shadow-sm active:scale-95 shrink-0"
+                          title="Edit Package Header & Info"
+                        >
+                          <span className="material-symbols-outlined text-[16px] block">edit</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Unified Metadata Inline Row */}
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs md:text-sm text-slate-500 dark:text-slate-400 mt-2 font-medium">
+                      <div className="flex items-center gap-1">
+                        <div className="flex text-amber-400">
+                          <span className="material-symbols-outlined text-base fill-current">star</span>
+                        </div>
+                        <span className="font-bold text-slate-800 dark:text-slate-200">4.8</span>
+                        <span className="text-slate-400 dark:text-slate-550">(120 Reviews)</span>
+                      </div>
+                      <span className="text-slate-300 dark:text-slate-700 font-light">•</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="material-symbols-outlined text-base text-slate-400">schedule</span>
+                        <span>{tour.days} Days / {Math.max(1, tour.days - 1)} Nights</span>
+                      </div>
+                      <span className="text-slate-300 dark:text-slate-700 font-light">•</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="material-symbols-outlined text-base text-slate-400">pin_drop</span>
+                        <span>{getLocationName(tour.location, masterLocations)}</span>
+                      </div>
+                      <span className="text-slate-300 dark:text-slate-700 font-light">•</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="material-symbols-outlined text-base text-slate-400">category</span>
+                        <span>Packages</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(window.location.href);
+                      toast.success('Link copied to clipboard!');
+                    }}
+                    className="px-4 py-2 bg-white dark:bg-[#151d29] hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center gap-2 w-fit transition-all sm:self-start shrink-0"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">share</span> Share
+                  </button>
+                </div>
+
+                {/* Key Amenities & Trust Badges Ribbon (Horizontal, low height) */}
+                <div className="flex flex-col gap-3 mb-6">
+                  {/* Key amenities inline pills */}
+                  <div className="flex flex-wrap items-center gap-2 py-2 border-b border-t border-slate-100 dark:border-slate-800/60">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mr-1">Amenities:</span>
+                    {['Hotel', 'Meals', 'Transfers', 'Activities'].map((amenity, idx) => {
+                      const icons = ['bed', 'restaurant', 'directions_car', 'explore'];
+                      return (
+                        <div key={idx} className="flex items-center gap-1 px-2.5 py-1 bg-slate-50 dark:bg-slate-900/60 border border-slate-150 dark:border-slate-800/80 text-slate-700 dark:text-slate-300 rounded-lg text-[11px] font-semibold">
+                          <span className="material-symbols-outlined text-[14px] text-primary">{icons[idx]}</span>
+                          <span>{amenity}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Compact Trust Badges Ribbon */}
+                  <div className="flex flex-wrap items-center gap-2 sm:gap-3 py-1">
+                    {[
+                      { label: 'Easy Refund', icon: 'currency_exchange' },
+                      { label: 'Flexible Cancellation', icon: 'event_busy' },
+                      { label: 'Easy Pay', icon: 'credit_card' },
+                      { label: 'Certified Guides', icon: 'workspace_premium' },
+                      { label: '24/7 Support', icon: 'contact_support' }
+                    ].map((trust, idx) => (
+                      <div key={idx} className="flex items-center gap-1.5 px-2.5 py-1.5 bg-indigo-50/40 dark:bg-indigo-950/15 border border-indigo-100/40 dark:border-indigo-900/20 text-slate-700 dark:text-slate-300 rounded-lg text-[11px] font-medium shadow-xs">
+                        <span className="material-symbols-outlined text-indigo-500 dark:text-indigo-400 text-sm">{trust.icon}</span>
+                        <span>{trust.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Sticky Tabs Navigation */}
+              <div className={`sticky ${canEdit ? 'top-[144px]' : 'top-[80px]'} bg-slate-50/90 dark:bg-[#0B1116]/90 backdrop-blur-xl z-30 border-b border-slate-200 dark:border-slate-800/80 -mx-4 px-4 py-4 mb-4 flex gap-3 overflow-x-auto no-scrollbar`}>
+                {TABS.map(tab => (
+                  <button
+                    key={tab.id}
+                    onClick={() => scrollToSection(tab.id)}
+                    className={`whitespace-nowrap px-5 py-2.5 rounded-full text-xs font-black uppercase tracking-wider transition-all duration-300 ${
+                      activeTab === tab.id
+                        ? 'bg-indigo-650 text-white shadow-md shadow-indigo-650/20'
+                        : 'bg-white dark:bg-[#151d29] border border-slate-200 dark:border-slate-800 text-slate-655 dark:text-slate-400 hover:border-indigo-500/50'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
                 {canEdit && (
                   <button
+                    type="button"
                     onClick={() => {
                       setActiveEditTab('info');
                       setIsAdminEditOpen(true);
                     }}
-                    className="p-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-full text-slate-500 hover:text-slate-800 dark:hover:text-white transition-all shadow-sm active:scale-95"
-                    title="Edit Package Header & Info"
+                    className="whitespace-nowrap px-5 py-2.5 rounded-full text-xs font-black uppercase tracking-wider transition-all duration-300 bg-white dark:bg-[#151d29] border border-indigo-500/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 flex items-center gap-1.5 shrink-0"
                   >
-                    <span className="material-symbols-outlined text-[18px] block">edit</span>
+                    <span className="material-symbols-outlined text-[16px]">settings</span>
+                    Page Settings
                   </button>
                 )}
               </div>
-              <div className="flex items-center gap-2">
-                <div className="flex text-amber-400">
-                  {Array.from({ length: 5 }).map((_, i) => (
-                    <span key={i} className="material-symbols-outlined text-lg fill-current">star</span>
-                  ))}
-                </div>
-                <span className="text-sm font-bold text-slate-700 dark:text-slate-300">4.8</span>
-                <span className="text-xs text-slate-400 dark:text-slate-500">(120 Reviews)</span>
-              </div>
-            </div>
-            <button
-              onClick={() => {
-                navigator.clipboard.writeText(window.location.href);
-                toast.success('Link copied to clipboard!');
-              }}
-              className="px-5 py-2.5 bg-white dark:bg-[#151d29] hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-sm font-bold rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center gap-2 w-fit transition-all"
-            >
-              <span className="material-symbols-outlined text-[18px]">share</span> Share
-            </button>
-          </div>
 
-          {/* Core Info Badges Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-            <div className="p-4 bg-white dark:bg-[#151d29] rounded-2xl border border-slate-100 dark:border-slate-800/80 shadow-sm flex items-center gap-4">
-              <div className="size-11 rounded-xl bg-primary/5 dark:bg-primary/20 flex items-center justify-center text-primary"><span className="material-symbols-outlined text-2xl">schedule</span></div>
-              <div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Duration</span>
-                <span className="text-sm font-bold text-slate-800 dark:text-slate-200">{tour.days} Days / {Math.max(1, tour.days - 1)} Nights</span>
-              </div>
-            </div>
-            <div className="p-4 bg-white dark:bg-[#151d29] rounded-2xl border border-slate-100 dark:border-slate-800/80 shadow-sm flex items-center gap-4">
-              <div className="size-11 rounded-xl bg-primary/5 dark:bg-primary/20 flex items-center justify-center text-primary"><span className="material-symbols-outlined text-2xl">category</span></div>
-              <div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Category</span>
-                <span className="text-sm font-bold text-slate-800 dark:text-slate-200">Packages</span>
-              </div>
-            </div>
-            <div className="p-4 bg-white dark:bg-[#151d29] rounded-2xl border border-slate-100 dark:border-slate-800/80 shadow-sm flex items-center gap-4">
-              <div className="size-11 rounded-xl bg-primary/5 dark:bg-primary/20 flex items-center justify-center text-primary"><span className="material-symbols-outlined text-2xl">pin_drop</span></div>
-              <div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Location</span>
-                <span className="text-sm font-bold text-slate-800 dark:text-slate-200">{getLocationName(tour.location, masterLocations)}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Inclusions badging / Key amenities pills */}
-          <div className="flex flex-wrap items-center gap-3 mb-10 pb-6 border-b border-slate-200 dark:border-slate-800/60">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest mr-2">Amenities:</span>
-            {['Hotel', 'Meals', 'Transfers', 'Activities'].map((amenity, idx) => {
-              const icons = ['bed', 'restaurant', 'directions_car', 'explore'];
-              return (
-                <div key={idx} className="flex items-center gap-1.5 px-4 py-2 bg-white dark:bg-[#151d29] border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 rounded-full text-xs font-bold shadow-sm">
-                  <span className="material-symbols-outlined text-[16px] text-primary">{icons[idx]}</span>
-                  <span>{amenity}</span>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Trust Badges */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-12">
-            {[
-              { label: 'Easy Refund', icon: 'currency_exchange' },
-              { label: 'Flexible Cancellation', icon: 'event_busy' },
-              { label: 'Easy Pay', icon: 'credit_card' },
-              { label: 'Certified Guides', icon: 'workspace_premium' },
-              { label: '24/7 Support', icon: 'contact_support' }
-            ].map((trust, idx) => (
-              <div key={idx} className="p-4 bg-white dark:bg-[#151d29] rounded-2xl border border-slate-100 dark:border-slate-800/80 shadow-sm flex flex-col items-center justify-center text-center gap-2">
-                <span className="material-symbols-outlined text-primary text-2xl">{trust.icon}</span>
-                <span className="text-[11px] font-black uppercase text-slate-600 dark:text-slate-305 tracking-wider">{trust.label}</span>
-              </div>
-            ))}
-          </div>
-
-          {/* Sticky Tabs Navigation */}
-          <div className={`sticky ${canEdit ? 'top-[144px]' : 'top-[80px]'} bg-slate-50/90 dark:bg-[#0B1116]/90 backdrop-blur-xl z-30 border-b border-slate-200 dark:border-slate-800/80 -mx-4 px-4 py-4 mb-12 flex gap-3 overflow-x-auto no-scrollbar`}>
-            {TABS.map(tab => (
-              <button
-                key={tab.id}
-                onClick={() => scrollToSection(tab.id)}
-                className={`whitespace-nowrap px-5 py-2.5 rounded-full text-xs font-black uppercase tracking-wider transition-all duration-300 ${
-                  activeTab === tab.id
-                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
-                    : 'bg-white dark:bg-[#151d29] border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-indigo-500/50'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-            {canEdit && (
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveEditTab('info');
-                  setIsAdminEditOpen(true);
-                }}
-                className="whitespace-nowrap px-5 py-2.5 rounded-full text-xs font-black uppercase tracking-wider transition-all duration-300 bg-white dark:bg-[#151d29] border border-indigo-500/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 flex items-center gap-1.5 shrink-0"
-              >
-                <span className="material-symbols-outlined text-[16px]">settings</span>
-                Page Settings
-              </button>
-            )}
-          </div>
-
-          {/* Main Grid Layout */}
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-12 lg:gap-20">
-
-            {/* Left Column: Details */}
-            <div className="space-y-16">
+              {/* Detail Sections Container */}
+              <div className="space-y-16">
 
               {/* Overview Section */}
               <section id="overview" className="scroll-mt-36">
@@ -1849,14 +1851,15 @@ export const PackageDetail: React.FC = () => {
                     </details>
                   ))}
                 </div>
-                </section>
+              </section>
 
-            </div>
+            </div> {/* Close Detail Sections Container */}
+          </div> {/* Close Left Column & Header */}
 
-            {/* Right Column: Sticky Booking Widget */}
-            <div className="hidden lg:block">
-              <div className={`sticky ${canEdit ? 'top-[220px]' : 'top-[156px]'} space-y-6`}>
-                <div className={`bg-white dark:bg-[#151d29] rounded-[2.5rem] shadow-2xl border border-slate-100 dark:border-slate-800/85 overflow-hidden ring-1 ring-slate-900/5 flex flex-col ${canEdit ? 'max-h-[calc(100vh-240px)]' : 'max-h-[calc(100vh-176px)]'}`}>
+          {/* Right Column: Sticky Booking Widget */}
+          <div className="hidden lg:block">
+            <div className={`sticky ${canEdit ? 'top-[144px]' : 'top-[80px]'} space-y-6`}>
+              <div className={`bg-white dark:bg-[#151d29] rounded-[2.5rem] shadow-2xl border border-slate-100 dark:border-slate-800/85 overflow-hidden ring-1 ring-slate-900/5 flex flex-col ${canEdit ? 'max-h-[calc(100vh-164px)]' : 'max-h-[calc(100vh-100px)]'}`}>
                   
                   {/* Top Rate details */}
                   <div className="p-6 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/20 shrink-0">
@@ -1887,35 +1890,32 @@ export const PackageDetail: React.FC = () => {
                     
                     {/* Occupancy Selector */}
                     <div>
-                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 ml-1">Occupancy Pricing</label>
-                      <div className="space-y-3">
-                        {occupancyOptions.map(option => (
-                          <button
-                            type="button"
-                            key={option.id}
-                            onClick={() => setSelectedOccupancy(option.id)}
-                            className={`w-full flex items-center justify-between p-4 rounded-2xl border text-left cursor-pointer transition-all duration-200 ${
-                              selectedOccupancy === option.id 
-                                ? 'bg-primary/5 border-primary shadow-inner' 
-                                : 'bg-transparent border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800'
-                            }`}
-                          >
-                            <div>
-                              <span className={`text-sm font-bold block ${selectedOccupancy === option.id ? 'text-primary' : 'text-slate-850 dark:text-slate-205'}`}>{option.label}</span>
-                              <span className="text-[10px] text-slate-450 dark:text-slate-500 font-medium">{option.hotel}</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-black text-slate-900 dark:text-white">{formatPrice(option.price)}</span>
-                              {selectedOccupancy === option.id && <span className="material-symbols-outlined text-primary text-[20px]">check_circle</span>}
-                            </div>
-                          </button>
-                        ))}
+                      <label htmlFor="occupancy-select" className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2 ml-1">Occupancy Pricing</label>
+                      <div className="relative">
+                        <select
+                          id="occupancy-select"
+                          value={selectedOccupancy}
+                          onChange={(e) => setSelectedOccupancy(e.target.value)}
+                          className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-205 dark:border-slate-800 text-slate-805 dark:text-slate-200 rounded-xl p-3 text-xs font-bold outline-none focus:ring-2 focus:ring-primary appearance-none cursor-pointer"
+                        >
+                          {occupancyOptions.map(option => (
+                            <option key={option.id} value={option.id}>
+                              {option.label} — {formatPrice(option.price)}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 text-lg">unfold_more</span>
                       </div>
+                      {activeOccupancy && (
+                        <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1.5 ml-1 font-medium leading-relaxed">
+                          Hotel: {activeOccupancy.hotel}
+                        </p>
+                      )}
                     </div>
 
                     {/* Guests Selector */}
                     <div>
-                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 ml-1">Travelers</label>
+                      <label className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2 ml-1">Travelers</label>
                       <div className="relative">
                         <TravelerSelector
                           value={guests}
@@ -1924,31 +1924,39 @@ export const PackageDetail: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Upgrades */}
+                    {/* Upgrades (Accordion Collapsible details element) */}
                     <div>
-                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 ml-1">Add-ons</label>
-                      <div className="space-y-2">
-                        {addonsList.map(addon => (
-                          <button
-                            type="button"
-                            key={addon.id}
-                            onClick={() => toggleAddon(addon.id)}
-                            className={`w-full flex items-center justify-between p-3 rounded-2xl border text-left cursor-pointer transition-all duration-250 ${
-                              selectedAddons.includes(addon.id) 
-                                ? 'bg-primary/5 border-primary shadow-inner' 
-                                : 'bg-transparent border-slate-150 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800'
-                            }`}
-                          >
-                            <div className="flex items-center gap-3">
-                              <div className={`size-5 rounded-md border flex items-center justify-center transition-colors ${selectedAddons.includes(addon.id) ? 'bg-primary border-primary' : 'border-slate-300 dark:border-slate-600'}`}>
-                                {selectedAddons.includes(addon.id) && <span className="material-symbols-outlined text-white text-[14px]">check</span>}
+                      <details className="group border border-slate-150 dark:border-slate-850 rounded-2xl overflow-hidden">
+                        <summary className="flex items-center justify-between p-3 cursor-pointer select-none font-bold text-xs text-slate-550 dark:text-slate-400 outline-none list-none [&::-webkit-details-marker]:hidden bg-slate-50/50 dark:bg-slate-800/20 group-open:border-b group-open:border-slate-150 dark:group-open:border-slate-800">
+                          <span className="flex items-center gap-2">
+                            <span className="material-symbols-outlined text-primary text-base">add_circle</span>
+                            Add-ons & Upgrades ({selectedAddons.length})
+                          </span>
+                          <span className="material-symbols-outlined text-slate-400 group-open:rotate-180 transition-transform">expand_more</span>
+                        </summary>
+                        <div className="p-3 space-y-2 max-h-[160px] overflow-y-auto bg-white dark:bg-[#151d29]">
+                          {addonsList.map(addon => (
+                            <button
+                              type="button"
+                              key={addon.id}
+                              onClick={() => toggleAddon(addon.id)}
+                              className={`w-full flex items-center justify-between p-2 rounded-xl border text-left cursor-pointer transition-all duration-200 ${
+                                selectedAddons.includes(addon.id) 
+                                  ? 'bg-primary/5 border-primary shadow-inner' 
+                                  : 'bg-transparent border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <div className={`size-4 rounded border flex items-center justify-center transition-colors ${selectedAddons.includes(addon.id) ? 'bg-primary border-primary' : 'border-slate-300 dark:border-slate-600'}`}>
+                                  {selectedAddons.includes(addon.id) && <span className="material-symbols-outlined text-white text-[12px]">check</span>}
+                                </div>
+                                <span className={`text-xs font-semibold ${selectedAddons.includes(addon.id) ? 'text-primary' : 'text-slate-700 dark:text-slate-350'}`}>{addon.label}</span>
                               </div>
-                              <span className={`text-sm font-bold ${selectedAddons.includes(addon.id) ? 'text-primary' : 'text-slate-700 dark:text-slate-300'}`}>{addon.label}</span>
-                            </div>
-                            <span className="text-xs font-bold text-slate-500">+{formatPriceCompact(addon.price)}</span>
-                          </button>
-                        ))}
-                      </div>
+                              <span className="text-[10px] font-bold text-slate-550">+{formatPriceCompact(addon.price)}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </details>
                     </div>
 
                     {/* B2B Partner Commission HUD */}
