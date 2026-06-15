@@ -35,7 +35,7 @@ export const Careers: React.FC = () => {
                                             <span className="flex items-center gap-1"><span className="material-symbols-outlined text-[16px]">location_on</span> {job.location}</span>
                                         </div>
                                     </div>
-                                    <a href={`mailto:toursshravya@gmail.com?subject=Application%20for%20${encodeURIComponent(job.title)}%20Role`} className="px-6 py-3 bg-primary text-white font-bold rounded-xl hover:bg-primary-dark transition-colors whitespace-nowrap">Apply Now</a>
+                                    <a href={`mailto:shrawello@gmail.com?subject=Application%20for%20${encodeURIComponent(job.title)}%20Role`} className="px-6 py-3 bg-primary text-white font-bold rounded-xl hover:bg-primary-dark transition-colors whitespace-nowrap">Apply Now</a>
                                 </div>
                             ))}
                         </div>
@@ -46,7 +46,7 @@ export const Careers: React.FC = () => {
                         <div className="absolute top-0 right-0 -mr-16 -mt-16 bg-white/10 w-64 h-64 rounded-full blur-3xl"></div>
                         <h2 className="text-3xl font-black mb-4 relative z-10">Don't see a perfect fit?</h2>
                         <p className="text-lg text-white/90 mb-8 relative z-10">We are always eager to meet talented professionals. Send us your resume and tell us how you can contribute to SHRAWELLO Travel Hub and Events LLP.</p>
-                        <a href="mailto:toursshravya@gmail.com?subject=General%20Application" className="inline-flex items-center gap-2 px-8 py-4 bg-white text-primary font-black shadow-lg rounded-xl hover:bg-slate-50 hover:-translate-y-1 transition-all relative z-10">
+                        <a href="mailto:shrawello@gmail.com?subject=General%20Application" className="inline-flex items-center gap-2 px-8 py-4 bg-white text-primary font-black shadow-lg rounded-xl hover:bg-slate-50 hover:-translate-y-1 transition-all relative z-10">
                             <span className="material-symbols-outlined">mail</span> Send Open Application
                         </a>
                     </div>

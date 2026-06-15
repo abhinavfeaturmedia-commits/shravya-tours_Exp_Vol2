@@ -1,19 +1,79 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { useData } from '../context/DataContext';
-import { Lead, Package } from '../types';
+import { useAuth } from '../context/AuthContext';
+import { Lead, Package, CommissionType } from '../types';
 import { SEO } from '../components/ui/SEO';
 import { OptimizedImage } from '../components/ui/OptimizedImage';
 import { toast } from '../components/ui/Toast';
 import { TravelerSelector } from '../components/ui/TravelerSelector';
 import { PhoneInput } from '../components/ui/PhoneInput';
-import { getLocationName, formatPrice, formatPriceCompact } from '../utils/packageUtils';
 import { api } from '../src/lib/api';
+import { ImageUpload } from '../components/ui/ImageUpload';
+import { formatPrice, formatPriceCompact, getLocationName } from '../utils/packageUtils';
 
 export const PackageDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { packages, masterLocations, addLead, trendingDestinations } = useData();
+  const { packages, masterLocations, addLead, trendingDestinations, updatePackage, cmsGallery } = useData();
+  const { hasPermission } = useAuth();
+
+  // Package Management Permissions
+  const canEdit = useMemo(() => {
+    try {
+      return hasPermission('inventory', 'manage') || hasPermission('itinerary', 'manage');
+    } catch {
+      return false;
+    }
+  }, [hasPermission]);
+
+  const [isAdminEditOpen, setIsAdminEditOpen] = useState(false);
+  const [activeEditTab, setActiveEditTab] = useState<'info' | 'settings' | 'media' | 'ageLimits' | 'cancellation' | 'payment' | 'inclusions' | 'faqs' | 'itinerary'>('info');
+
+  const [editForm, setEditForm] = useState({
+    title: '',
+    location: '',
+    price: 0,
+    originalPrice: 0,
+    days: 0,
+    overview: '',
+    validityDate: '',
+    image: '',
+    included: [] as string[],
+    notIncluded: [] as string[],
+    ageLimits: [] as { type: string; age: string; priceText: string }[],
+    cancellationPolicy: {
+      headers: [] as string[],
+      rows: {
+        cancellationCharge: [] as string[],
+        refundAmount: [] as string[],
+        remainingAmount: [] as string[]
+      },
+      guidelines: ''
+    },
+    paymentPolicy: {
+      headers: [] as string[],
+      rows: {
+        bookingAmount: [] as string[],
+        restPayment: [] as string[],
+        status: [] as string[]
+      }
+    },
+    faqs: [] as { q: string; a: string }[],
+    itinerary: [] as { day: number; title: string; desc: string }[],
+    description: '',
+    groupSize: '',
+    status: 'Active' as 'Active' | 'Inactive',
+    remainingSeats: '' as string | number,
+    offerEndTime: '',
+    tag: '',
+    tagColor: 'bg-blue-500 text-white',
+    theme: '',
+    partnerCommissionType: 'Percentage' as CommissionType,
+    partnerCommissionValue: '' as string | number,
+    addons: [] as { id: string; label: string; price: number }[],
+    gallery: [] as string[]
+  });
 
   const [guests, setGuests] = useState('2 Adults');
   const [bookingModal, setBookingModal] = useState(false);
@@ -68,6 +128,20 @@ export const PackageDetail: React.FC = () => {
       ? { ...rawTour, builderData: fullPackageData?.builderData ?? rawTour.builderData }
       : null;
   }, [rawTour, fullPackageData?.builderData]);
+
+  // Aspect ratio of the first image in the gallery
+  const [firstImageRatio, setFirstImageRatio] = useState(1.777); // Default 16:9
+  useEffect(() => {
+    if (tour?.gallery && tour.gallery.length > 0) {
+      const img = new window.Image();
+      img.src = tour.gallery[0];
+      img.onload = () => {
+        if (img.naturalWidth && img.naturalHeight) {
+          setFirstImageRatio(img.naturalWidth / img.naturalHeight);
+        }
+      };
+    }
+  }, [tour?.gallery]);
 
   // Find if this package is linked to a trending destination
   const linkedDest = useMemo(() => {
@@ -304,6 +378,97 @@ export const PackageDetail: React.FC = () => {
       { name: 'Mitali Singh', rating: 5, text: 'Had a great time. The Pangong Lake camp stay was a lifetime experience. The vehicle was clean and driver was very professional.', date: '2026-06-01' }
     ];
   }, [tour]);
+
+  useEffect(() => {
+    if (tour && isAdminEditOpen) {
+      setEditForm({
+        title: tour.title || '',
+        location: tour.location || '',
+        price: Number(tour.price) || 0,
+        originalPrice: Number(tour.originalPrice) || 0,
+        days: Number(tour.days) || 1,
+        overview: tour.overview || '',
+        validityDate: tour.validity_date || (tour as any).validityDate || '',
+        image: tour.image || '',
+        included: tour.included || [],
+        notIncluded: tour.notIncluded || [],
+        ageLimits: ageLimitsList,
+        cancellationPolicy: cancellationPolicy,
+        paymentPolicy: paymentPolicy,
+        faqs: faqs,
+        itinerary: tour.itinerary || [],
+        description: tour.description || '',
+        groupSize: tour.groupSize || '',
+        status: tour.status || 'Active',
+        remainingSeats: tour.remainingSeats ?? '',
+        offerEndTime: tour.offerEndTime || '',
+        tag: tour.tag || '',
+        tagColor: tour.tagColor || 'bg-blue-500 text-white',
+        theme: tour.theme || '',
+        partnerCommissionType: tour.partnerCommissionType || 'Percentage',
+        partnerCommissionValue: tour.partnerCommissionValue !== undefined && tour.partnerCommissionValue !== null ? tour.partnerCommissionValue : '',
+        addons: tour.addons || [],
+        gallery: tour.gallery || []
+      });
+    }
+  }, [tour, isAdminEditOpen, ageLimitsList, cancellationPolicy, paymentPolicy, faqs]);
+
+  const handleSaveAll = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!tour) return;
+    try {
+      const packageData: Partial<Package> = {
+        title: editForm.title,
+        location: editForm.location,
+        price: editForm.price,
+        originalPrice: editForm.originalPrice || undefined,
+        days: editForm.days,
+        overview: editForm.overview,
+        validity_date: editForm.validityDate || null,
+        image: editForm.image,
+        included: editForm.included,
+        notIncluded: editForm.notIncluded,
+        itinerary: editForm.itinerary,
+        description: editForm.description,
+        groupSize: editForm.groupSize,
+        status: editForm.status,
+        remainingSeats: editForm.remainingSeats === '' ? undefined : Number(editForm.remainingSeats),
+        offerEndTime: editForm.offerEndTime || undefined,
+        tag: editForm.tag || undefined,
+        tagColor: editForm.tagColor || undefined,
+        theme: editForm.theme,
+        partnerCommissionType: editForm.partnerCommissionValue === '' ? null : editForm.partnerCommissionType,
+        partnerCommissionValue: editForm.partnerCommissionValue === '' ? null : Number(editForm.partnerCommissionValue),
+        addons: editForm.addons,
+        gallery: editForm.gallery,
+        builderData: {
+          ...(tour.builderData || {}),
+          tripDetails: {
+            ...(tour.builderData?.tripDetails || {}),
+            title: editForm.title,
+            days: editForm.days,
+            nights: Math.max(0, editForm.days - 1),
+            destination: editForm.location,
+            coverImage: editForm.image,
+            included: editForm.included,
+            notIncluded: editForm.notIncluded
+          },
+          ageLimits: editForm.ageLimits,
+          cancellationPolicy: editForm.cancellationPolicy,
+          paymentPolicy: editForm.paymentPolicy,
+          faqs: editForm.faqs
+        }
+      };
+
+      await updatePackage(tour.id, packageData);
+      setFullPackageData(prev => prev ? { ...prev, ...packageData } : null);
+      setIsAdminEditOpen(false);
+      toast.success("Package updated and synced successfully!");
+    } catch (err: any) {
+      console.error(err);
+      toast.error("Failed to update package: " + err.message);
+    }
+  };
 
   // Review Filter Tags & Testimonial Carousel
   const filteredReviews = useMemo(() => {
@@ -585,6 +750,219 @@ export const PackageDetail: React.FC = () => {
     }
   };
 
+  const handleAgeLimitChange = (index: number, field: 'type' | 'age' | 'priceText', value: string) => {
+    const newTiers = [...editForm.ageLimits];
+    newTiers[index] = { ...newTiers[index], [field]: value };
+    setEditForm(prev => ({ ...prev, ageLimits: newTiers }));
+  };
+
+  const addAgeLimitTier = () => {
+    setEditForm(prev => ({
+      ...prev,
+      ageLimits: [...prev.ageLimits, { type: 'New Tier', age: '0-99 Years', priceText: 'Free' }]
+    }));
+  };
+
+  const removeAgeLimitTier = (index: number) => {
+    setEditForm(prev => ({
+      ...prev,
+      ageLimits: prev.ageLimits.filter((_, i) => i !== index)
+    }));
+  };
+
+  const handleCancellationHeaderChange = (index: number, val: string) => {
+    const headers = [...editForm.cancellationPolicy.headers];
+    headers[index] = val;
+    setEditForm(prev => ({
+      ...prev,
+      cancellationPolicy: {
+        ...prev.cancellationPolicy,
+        headers
+      }
+    }));
+  };
+
+  const handleCancellationRowChange = (field: 'cancellationCharge' | 'refundAmount' | 'remainingAmount', index: number, val: string) => {
+    const rowArr = [...editForm.cancellationPolicy.rows[field]];
+    rowArr[index] = val;
+    setEditForm(prev => ({
+      ...prev,
+      cancellationPolicy: {
+        ...prev.cancellationPolicy,
+        rows: {
+          ...prev.cancellationPolicy.rows,
+          [field]: rowArr
+        }
+      }
+    }));
+  };
+
+  const handlePaymentHeaderChange = (index: number, val: string) => {
+    const headers = [...editForm.paymentPolicy.headers];
+    headers[index] = val;
+    setEditForm(prev => ({
+      ...prev,
+      paymentPolicy: {
+        ...prev.paymentPolicy,
+        headers
+      }
+    }));
+  };
+
+  const handlePaymentRowChange = (field: 'bookingAmount' | 'restPayment' | 'status', index: number, val: string) => {
+    const rowArr = [...editForm.paymentPolicy.rows[field]];
+    rowArr[index] = val;
+    setEditForm(prev => ({
+      ...prev,
+      paymentPolicy: {
+        ...prev.paymentPolicy,
+        rows: {
+          ...prev.paymentPolicy.rows,
+          [field]: rowArr
+        }
+      }
+    }));
+  };
+
+  const handleInclusionChange = (index: number, value: string) => {
+    const newArr = [...editForm.included];
+    newArr[index] = value;
+    setEditForm(prev => ({ ...prev, included: newArr }));
+  };
+
+  const addInclusion = () => {
+    setEditForm(prev => ({ ...prev, included: [...prev.included, ''] }));
+  };
+
+  const removeInclusion = (index: number) => {
+    setEditForm(prev => ({ ...prev, included: prev.included.filter((_, i) => i !== index) }));
+  };
+
+  const handleExclusionChange = (index: number, value: string) => {
+    const newArr = [...editForm.notIncluded];
+    newArr[index] = value;
+    setEditForm(prev => ({ ...prev, notIncluded: newArr }));
+  };
+
+  const addExclusion = () => {
+    setEditForm(prev => ({ ...prev, notIncluded: [...prev.notIncluded, ''] }));
+  };
+
+  const removeExclusion = (index: number) => {
+    setEditForm(prev => ({ ...prev, notIncluded: prev.notIncluded.filter((_, i) => i !== index) }));
+  };
+
+  const handleGalleryUpload = async (file: File) => {
+    try {
+      const toastId = toast.loading('Uploading gallery image...');
+      const publicUrl = await api.uploadFile(file, 'documents');
+      setEditForm(prev => ({
+        ...prev,
+        gallery: [...prev.gallery, publicUrl]
+      }));
+      toast.success('Gallery image uploaded', { id: toastId });
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to upload gallery image');
+    }
+  };
+
+  const removeGalleryImage = (index: number) => {
+    setEditForm(prev => ({
+      ...prev,
+      gallery: prev.gallery.filter((_, i) => i !== index)
+    }));
+  };
+
+  const moveGalleryImage = (index: number, direction: 'left' | 'right') => {
+    const list = [...editForm.gallery];
+    if (direction === 'left' && index > 0) {
+      const temp = list[index];
+      list[index] = list[index - 1];
+      list[index - 1] = temp;
+    } else if (direction === 'right' && index < list.length - 1) {
+      const temp = list[index];
+      list[index] = list[index + 1];
+      list[index + 1] = temp;
+    }
+    setEditForm(prev => ({ ...prev, gallery: list }));
+  };
+
+  const handleFaqChange = (index: number, field: 'q' | 'a', value: string) => {
+    const newFaqs = [...editForm.faqs];
+    newFaqs[index] = { ...newFaqs[index], [field]: value };
+    setEditForm(prev => ({ ...prev, faqs: newFaqs }));
+  };
+
+  const addFaq = () => {
+    setEditForm(prev => ({ ...prev, faqs: [...prev.faqs, { q: '', a: '' }] }));
+  };
+
+  const removeFaq = (index: number) => {
+    setEditForm(prev => ({ ...prev, faqs: prev.faqs.filter((_, i) => i !== index) }));
+  };
+
+  const handleItineraryChange = (index: number, field: 'title' | 'desc', value: string) => {
+    const newItin = [...editForm.itinerary];
+    newItin[index] = { ...newItin[index], [field]: value };
+    setEditForm(prev => ({ ...prev, itinerary: newItin }));
+  };
+
+  const addItineraryDay = () => {
+    const newDayNum = editForm.itinerary.length + 1;
+    setEditForm(prev => ({
+      ...prev,
+      itinerary: [...prev.itinerary, { day: newDayNum, title: `Day ${newDayNum}`, desc: '' }]
+    }));
+  };
+
+  const removeItineraryDay = (index: number) => {
+    setEditForm(prev => {
+      const filtered = prev.itinerary.filter((_, i) => i !== index);
+      const reindexed = filtered.map((item, i) => ({ ...item, day: i + 1 }));
+      return { ...prev, itinerary: reindexed };
+    });
+  };
+
+  const renderPolicyCell = (text: string) => {
+    const textLower = text.toLowerCase();
+    
+    // Determine status: green check, red cross, or no icon
+    let status: 'check' | 'cross' | 'none' = 'none';
+    
+    if (
+      textLower.includes('free') || 
+      textLower.includes('100%') || 
+      textLower.includes('no payment') || 
+      textLower.includes('optional') || 
+      textLower.includes('confirmed') ||
+      textLower.includes('10%') ||
+      textLower.includes('15%')
+    ) {
+      status = 'check';
+    } else if (
+      textLower.includes('charge') ||
+      textLower.includes('50%') || 
+      textLower.includes('75%') || 
+      textLower.includes('no refund') || 
+      textLower.includes('mandatory') ||
+      textLower.includes('part payment')
+    ) {
+      status = 'cross';
+    }
+
+    return (
+      <div className="flex flex-col items-center justify-center gap-1.5 p-2 min-h-[64px]">
+        {status === 'check' && (
+          <span className="material-symbols-outlined text-green-600 text-base font-bold bg-green-50 dark:bg-green-950/40 p-1 rounded-full leading-none">check</span>
+        )}
+        {status === 'cross' && (
+          <span className="material-symbols-outlined text-red-500 text-base font-bold bg-red-50 dark:bg-red-950/40 p-1 rounded-full leading-none">close</span>
+        )}
+        <span className="text-center font-bold text-xs md:text-sm text-slate-800 dark:text-slate-200">{text}</span>
+      </div>
+    );
+  };
+
   return (
     <>
       <SEO
@@ -596,6 +974,47 @@ export const PackageDetail: React.FC = () => {
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
 
       <div className="bg-slate-50 dark:bg-[#0B1116] min-h-screen pb-40 md:pb-20 relative pt-24 md:pt-28">
+
+        {/* Admin Control Bar */}
+        {canEdit && (
+          <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 border-b border-indigo-500/20 text-white px-4 md:px-8 py-3.5 flex flex-wrap items-center justify-between gap-4 sticky top-[80px] z-40 shadow-lg -mt-8 md:-mt-12 mb-8">
+            <div className="flex items-center gap-3">
+              <div className="size-8 rounded-lg bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center">
+                <span className="material-symbols-outlined text-indigo-400 text-lg">admin_panel_settings</span>
+              </div>
+              <div>
+                <p className="text-xs font-bold uppercase tracking-widest text-indigo-300">Package Admin Panel</p>
+                <p className="text-[11px] text-slate-350">Quick edit fields or load this package in the full itinerary builder.</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => {
+                  setActiveEditTab('info');
+                  setIsAdminEditOpen(true);
+                }}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-bold rounded-xl text-xs uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-md shadow-indigo-600/10"
+              >
+                <span className="material-symbols-outlined text-[16px]">edit</span>
+                Quick Edit Package
+              </button>
+              <button
+                onClick={() => navigate(`/admin/itinerary-builder?edit=${tour.id}`)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 font-bold rounded-xl text-xs uppercase tracking-wider transition-all flex items-center gap-1.5 border border-slate-700"
+              >
+                <span className="material-symbols-outlined text-[16px]">edit_road</span>
+                Itinerary Builder
+              </button>
+              <button
+                onClick={() => navigate('/admin/packages')}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 font-bold rounded-xl text-xs uppercase tracking-wider transition-all flex items-center gap-1.5 border border-slate-700"
+              >
+                <span className="material-symbols-outlined text-[16px]">inventory</span>
+                Package List
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Lightbox Modal */}
         {isLightboxOpen && (
@@ -771,8 +1190,8 @@ export const PackageDetail: React.FC = () => {
               </div>
             ) : tour.gallery.length === 1 ? (
               <div
-                className="relative w-full rounded-[2rem] overflow-hidden shadow-2xl cursor-pointer group"
-                style={{ height: '480px' }}
+                className="relative w-full rounded-[2rem] overflow-hidden shadow-2xl cursor-pointer group max-h-[480px]"
+                style={{ aspectRatio: firstImageRatio }}
                 onClick={() => openLightbox(0)}
               >
                 <OptimizedImage src={tour.gallery[0]} alt={tour.title} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
@@ -781,11 +1200,11 @@ export const PackageDetail: React.FC = () => {
             ) : (
               <div>
                 {/* Mobile horizontal snap scroll view */}
-                <div className="block md:hidden relative w-full rounded-[1.5rem] overflow-hidden shadow-xl bg-slate-100 dark:bg-slate-900 group">
+                <div className="block md:hidden relative w-full rounded-[1.5rem] overflow-hidden shadow-xl bg-slate-100 dark:bg-slate-900 group aspect-[16/10] max-h-[300px]">
                   <div 
                     ref={mobileScrollRef}
                     onScroll={handleMobileScroll}
-                    className="flex overflow-x-auto snap-x snap-mandatory scroll-smooth scrollbar-none h-[300px]"
+                    className="flex overflow-x-auto snap-x snap-mandatory scroll-smooth scrollbar-none h-full"
                     style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
                   >
                     {tour.gallery.map((img, idx) => (
@@ -822,8 +1241,8 @@ export const PackageDetail: React.FC = () => {
                 </div>
 
                 {/* Desktop Premium Collage Layout */}
-                <div className="hidden md:block relative w-full h-[480px]">
-                  {tour.gallery.length === 4 ? (
+                <div className="hidden md:block relative w-full aspect-[21/9] max-h-[480px]">
+                  {tour.gallery.length >= 4 ? (
                     <div className="grid grid-cols-4 grid-rows-2 gap-3 h-full w-full rounded-[2rem] overflow-hidden shadow-lg bg-white dark:bg-slate-900">
                       {/* Left: Large landscape */}
                       <div
@@ -872,6 +1291,12 @@ export const PackageDetail: React.FC = () => {
                           alt={`${tour.title} — 4`}
                           className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105 select-none"
                         />
+                        {tour.gallery.length > 4 && (
+                          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/50 backdrop-blur-[2px] transition-colors group-hover:bg-black/60">
+                            <span className="material-symbols-outlined text-white text-3xl mb-1">photo_library</span>
+                            <span className="text-white font-black text-sm">+{tour.gallery.length - 4} Photos</span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   ) : (
@@ -892,9 +1317,9 @@ export const PackageDetail: React.FC = () => {
                               <div
                                 key={realIdx}
                                 onClick={() => openLightbox(realIdx)}
-                                className="relative w-full h-full rounded-2xl overflow-hidden bg-slate-100 dark:bg-slate-900 cursor-pointer group shadow-md"
+                                className="relative w-full h-full rounded-2xl overflow-hidden bg-slate-100 dark:bg-slate-900/50 cursor-pointer group shadow-md"
                               >
-                                <OptimizedImage src={img} alt={`${tour.title} — ${realIdx + 1}`} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.05]" />
+                                <OptimizedImage src={img} alt={`${tour.title} — ${realIdx + 1}`} className="w-full h-full object-cover transition-transform duration-505 group-hover:scale-[1.05]" />
                                 {isLast && (
                                   <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-[2px]">
                                     <span className="material-symbols-outlined text-white text-3xl mb-1">photo_library</span>
@@ -949,9 +1374,23 @@ export const PackageDetail: React.FC = () => {
           {/* Title & Reviews Row */}
           <div className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
-              <h1 className="text-3xl md:text-4xl lg:text-5xl font-black text-slate-900 dark:text-white tracking-tight leading-none mb-3">
-                {tour.title}
-              </h1>
+              <div className="flex items-center gap-3 mb-2 flex-wrap">
+                <h1 className="text-3xl md:text-4xl lg:text-5xl font-black text-slate-900 dark:text-white tracking-tight leading-none">
+                  {tour.title}
+                </h1>
+                {canEdit && (
+                  <button
+                    onClick={() => {
+                      setActiveEditTab('info');
+                      setIsAdminEditOpen(true);
+                    }}
+                    className="p-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-full text-slate-500 hover:text-slate-800 dark:hover:text-white transition-all shadow-sm active:scale-95"
+                    title="Edit Package Header & Info"
+                  >
+                    <span className="material-symbols-outlined text-[18px] block">edit</span>
+                  </button>
+                )}
+              </div>
               <div className="flex items-center gap-2">
                 <div className="flex text-amber-400">
                   {Array.from({ length: 5 }).map((_, i) => (
@@ -1029,20 +1468,33 @@ export const PackageDetail: React.FC = () => {
           </div>
 
           {/* Sticky Tabs Navigation */}
-          <div className="sticky top-[80px] bg-slate-50/90 dark:bg-[#0B1116]/90 backdrop-blur-xl z-30 border-b border-slate-200 dark:border-slate-800/80 -mx-4 px-4 py-4 mb-12 flex gap-3 overflow-x-auto no-scrollbar">
+          <div className={`sticky ${canEdit ? 'top-[144px]' : 'top-[80px]'} bg-slate-50/90 dark:bg-[#0B1116]/90 backdrop-blur-xl z-30 border-b border-slate-200 dark:border-slate-800/80 -mx-4 px-4 py-4 mb-12 flex gap-3 overflow-x-auto no-scrollbar`}>
             {TABS.map(tab => (
               <button
                 key={tab.id}
                 onClick={() => scrollToSection(tab.id)}
                 className={`whitespace-nowrap px-5 py-2.5 rounded-full text-xs font-black uppercase tracking-wider transition-all duration-300 ${
                   activeTab === tab.id
-                    ? 'bg-primary text-white shadow-md shadow-primary/20'
-                    : 'bg-white dark:bg-[#151d29] border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-primary/50'
+                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
+                    : 'bg-white dark:bg-[#151d29] border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-indigo-500/50'
                 }`}
               >
                 {tab.label}
               </button>
             ))}
+            {canEdit && (
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveEditTab('info');
+                  setIsAdminEditOpen(true);
+                }}
+                className="whitespace-nowrap px-5 py-2.5 rounded-full text-xs font-black uppercase tracking-wider transition-all duration-300 bg-white dark:bg-[#151d29] border border-indigo-500/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 flex items-center gap-1.5 shrink-0"
+              >
+                <span className="material-symbols-outlined text-[16px]">settings</span>
+                Page Settings
+              </button>
+            )}
           </div>
 
           {/* Main Grid Layout */}
@@ -1053,7 +1505,21 @@ export const PackageDetail: React.FC = () => {
 
               {/* Overview Section */}
               <section id="overview" className="scroll-mt-36">
-                <h2 className="text-2xl font-black text-slate-900 dark:text-white mb-6">Overview</h2>
+                <h2 className="text-2xl font-black text-slate-900 dark:text-white mb-6 flex items-center gap-2">
+                  Overview
+                  {canEdit && (
+                    <button
+                      onClick={() => {
+                        setActiveEditTab('info');
+                        setIsAdminEditOpen(true);
+                      }}
+                      className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-primary transition-colors align-middle"
+                      title="Edit Overview"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">edit</span>
+                    </button>
+                  )}
+                </h2>
                 
                 {/* Altitude safety alert widget */}
                 {isHighAltitude && (
@@ -1086,11 +1552,48 @@ export const PackageDetail: React.FC = () => {
                 </div>
               </section>
 
+              {/* Gallery Section */}
+              {tour.gallery && tour.gallery.length > 0 && (
+                <section id="gallery" className="scroll-mt-36 bg-white dark:bg-[#151d29] p-8 rounded-[2rem] border border-slate-150 dark:border-slate-800/80 shadow-sm">
+                  <h2 className="text-xl font-black text-slate-900 dark:text-white mb-6 flex items-center gap-2">
+                    <span className="material-symbols-outlined text-indigo-650">photo_library</span>
+                    Gallery
+                  </h2>
+                  <div className="columns-1 sm:columns-2 md:columns-3 lg:columns-4 gap-4 space-y-4">
+                    {tour.gallery.map((img, index) => (
+                      <div 
+                        key={index}
+                        onClick={() => openLightbox(index)}
+                        className="break-inside-avoid overflow-hidden rounded-2xl cursor-pointer group relative shadow-sm border border-slate-150 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 transition-all duration-300 hover:shadow-md"
+                      >
+                        <OptimizedImage 
+                          src={img} 
+                          alt={`${tour.title} Gallery ${index + 1}`} 
+                          className="w-full h-auto object-cover transition-transform duration-500 group-hover:scale-105" 
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
               {/* Itinerary Section */}
               <section id="itinerary" className="scroll-mt-36">
                 <h2 className="text-2xl font-black text-slate-900 dark:text-white mb-6 flex items-center gap-3">
                   <span className="material-symbols-outlined text-primary text-3xl">map</span>
                   Day-by-Day Itinerary
+                  {canEdit && (
+                    <button
+                      onClick={() => {
+                        setActiveEditTab('itinerary');
+                        setIsAdminEditOpen(true);
+                      }}
+                      className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-primary transition-colors align-middle"
+                      title="Edit Itinerary Days"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">edit</span>
+                    </button>
+                  )}
                 </h2>
                 <div className="space-y-4">
                   {tour.itinerary?.map((item: any, idx: number) => (
@@ -1126,7 +1629,21 @@ export const PackageDetail: React.FC = () => {
 
               {/* Age Limits Section */}
               <section className="scroll-mt-36 bg-white dark:bg-[#151d29] p-8 rounded-[2rem] border border-slate-150 dark:border-slate-800/80 shadow-sm">
-                <h2 className="text-xl font-black text-slate-900 dark:text-white mb-6">Age Limits (Trip Wise)</h2>
+                <h2 className="text-xl font-black text-slate-900 dark:text-white mb-6 flex items-center gap-2">
+                  Age Limits (Trip Wise)
+                  {canEdit && (
+                    <button
+                      onClick={() => {
+                        setActiveEditTab('ageLimits');
+                        setIsAdminEditOpen(true);
+                      }}
+                      className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-primary transition-colors align-middle"
+                      title="Edit Age Limits"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">edit</span>
+                    </button>
+                  )}
+                </h2>
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                   {ageLimitsList.map((tier, idx) => (
                     <div key={idx} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-800 flex flex-col items-center justify-center text-center">
@@ -1144,6 +1661,18 @@ export const PackageDetail: React.FC = () => {
                   <h3 className="text-lg font-black text-green-800 dark:text-green-400 mb-6 flex items-center gap-3">
                     <span className="material-symbols-outlined bg-green-100 dark:bg-green-950 p-1.5 rounded-xl text-green-600 font-bold">check</span>
                     Inclusions
+                    {canEdit && (
+                      <button
+                        onClick={() => {
+                          setActiveEditTab('inclusions');
+                          setIsAdminEditOpen(true);
+                        }}
+                        className="p-1 hover:bg-green-100 dark:hover:bg-green-900/40 rounded-lg text-green-700 dark:text-green-400 hover:text-primary transition-colors align-middle ml-auto"
+                        title="Edit Inclusions & Exclusions"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">edit</span>
+                      </button>
+                    )}
                   </h3>
                   <ul className="space-y-4">
                     {tour.included.map((inc, i) => (
@@ -1158,6 +1687,18 @@ export const PackageDetail: React.FC = () => {
                   <h3 className="text-lg font-black text-red-800 dark:text-red-400 mb-6 flex items-center gap-3">
                     <span className="material-symbols-outlined bg-red-100 dark:bg-red-950 p-1.5 rounded-xl text-red-505 font-bold">close</span>
                     Exclusions
+                    {canEdit && (
+                      <button
+                        onClick={() => {
+                          setActiveEditTab('inclusions');
+                          setIsAdminEditOpen(true);
+                        }}
+                        className="p-1 hover:bg-red-100 dark:hover:bg-red-900/40 rounded-lg text-red-700 dark:text-red-400 hover:text-primary transition-colors align-middle ml-auto"
+                        title="Edit Inclusions & Exclusions"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">edit</span>
+                      </button>
+                    )}
                   </h3>
                   <ul className="space-y-4">
                     {tour.notIncluded.map((exc, i) => (
@@ -1172,7 +1713,21 @@ export const PackageDetail: React.FC = () => {
 
               {/* Cancellation Policy */}
               <section id="cancellation" className="scroll-mt-36">
-                <h2 className="text-2xl font-black text-slate-900 dark:text-white mb-6">Cancellation Policy</h2>
+                <h2 className="text-2xl font-black text-slate-900 dark:text-white mb-6 flex items-center gap-2">
+                  Cancellation Policy
+                  {canEdit && (
+                    <button
+                      onClick={() => {
+                        setActiveEditTab('cancellation');
+                        setIsAdminEditOpen(true);
+                      }}
+                      className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-primary transition-colors align-middle"
+                      title="Edit Cancellation Policy"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">edit</span>
+                    </button>
+                  )}
+                </h2>
                 <div className="overflow-x-auto border border-slate-100 dark:border-slate-800 rounded-[2rem] shadow-sm bg-white dark:bg-[#151d29] mb-6">
                   <table className="w-full text-left border-collapse text-sm min-w-[500px]">
                     <thead>
@@ -1185,21 +1740,21 @@ export const PackageDetail: React.FC = () => {
                     </thead>
                     <tbody>
                       <tr className="border-b border-slate-50 dark:border-slate-800/50">
-                        <td className="p-5 font-bold text-slate-600 dark:text-slate-300">Cancellation Charge</td>
+                        <td className="p-5 font-bold text-slate-655 dark:text-slate-300">Cancellation Charge</td>
                         {cancellationPolicy.rows.cancellationCharge.map((v: string, i: number) => (
-                          <td key={i} className="p-5 text-center font-bold text-slate-700 dark:text-slate-300">{v}</td>
+                          <td key={i} className="p-5 text-center">{renderPolicyCell(v)}</td>
                         ))}
                       </tr>
                       <tr className="border-b border-slate-50 dark:border-slate-800/50 bg-slate-50/20 dark:bg-slate-800/10">
-                        <td className="p-5 font-bold text-slate-600 dark:text-slate-300">Refund Amount</td>
+                        <td className="p-5 font-bold text-slate-655 dark:text-slate-300">Refund Amount</td>
                         {cancellationPolicy.rows.refundAmount.map((v: string, i: number) => (
-                          <td key={i} className={`p-5 text-center font-black ${v.includes('100%') ? 'text-green-600 dark:text-green-400' : 'text-slate-700 dark:text-slate-300'}`}>{v}</td>
+                          <td key={i} className="p-5 text-center">{renderPolicyCell(v)}</td>
                         ))}
                       </tr>
                       <tr>
-                        <td className="p-5 font-bold text-slate-600 dark:text-slate-300">Remaining Amount</td>
+                        <td className="p-5 font-bold text-slate-655 dark:text-slate-300">Remaining Amount</td>
                         {cancellationPolicy.rows.remainingAmount.map((v: string, i: number) => (
-                          <td key={i} className="p-5 text-center font-bold text-slate-500 dark:text-slate-400 text-xs">{v}</td>
+                          <td key={i} className="p-5 text-center">{renderPolicyCell(v)}</td>
                         ))}
                       </tr>
                     </tbody>
@@ -1215,7 +1770,21 @@ export const PackageDetail: React.FC = () => {
 
               {/* Payment Policy */}
               <section id="payment" className="scroll-mt-36">
-                <h2 className="text-2xl font-black text-slate-900 dark:text-white mb-6">Payment Policy</h2>
+                <h2 className="text-2xl font-black text-slate-900 dark:text-white mb-6 flex items-center gap-2">
+                  Payment Policy
+                  {canEdit && (
+                    <button
+                      onClick={() => {
+                        setActiveEditTab('payment');
+                        setIsAdminEditOpen(true);
+                      }}
+                      className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-primary transition-colors align-middle"
+                      title="Edit Payment Policy"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">edit</span>
+                    </button>
+                  )}
+                </h2>
                 <div className="overflow-x-auto border border-slate-100 dark:border-slate-800 rounded-[2rem] shadow-sm bg-white dark:bg-[#151d29]">
                   <table className="w-full text-left border-collapse text-sm min-w-[500px]">
                     <thead>
@@ -1228,21 +1797,21 @@ export const PackageDetail: React.FC = () => {
                     </thead>
                     <tbody>
                       <tr className="border-b border-slate-50 dark:border-slate-800/50">
-                        <td className="p-5 font-bold text-slate-600 dark:text-slate-300">Booking Amount</td>
+                        <td className="p-5 font-bold text-slate-655 dark:text-slate-300">Booking Amount</td>
                         {paymentPolicy.rows.bookingAmount.map((v: string, i: number) => (
-                          <td key={i} className="p-5 text-center font-bold text-slate-700 dark:text-slate-300">{v}</td>
+                          <td key={i} className="p-5 text-center">{renderPolicyCell(v)}</td>
                         ))}
                       </tr>
                       <tr className="border-b border-slate-50 dark:border-slate-800/50 bg-slate-50/20 dark:bg-slate-800/10">
-                        <td className="p-5 font-bold text-slate-600 dark:text-slate-300">Rest Payment</td>
+                        <td className="p-5 font-bold text-slate-655 dark:text-slate-300">Rest Payment</td>
                         {paymentPolicy.rows.restPayment.map((v: string, i: number) => (
-                          <td key={i} className="p-5 text-center font-semibold text-slate-700 dark:text-slate-300">{v}</td>
+                          <td key={i} className="p-5 text-center">{renderPolicyCell(v)}</td>
                         ))}
                       </tr>
                       <tr>
-                        <td className="p-5 font-bold text-slate-600 dark:text-slate-300">Status</td>
+                        <td className="p-5 font-bold text-slate-655 dark:text-slate-300">Status</td>
                         {paymentPolicy.rows.status.map((v: string, i: number) => (
-                          <td key={i} className="p-5 text-center font-black text-green-600 dark:text-green-400">{v}</td>
+                          <td key={i} className="p-5 text-center">{renderPolicyCell(v)}</td>
                         ))}
                       </tr>
                     </tbody>
@@ -1252,7 +1821,21 @@ export const PackageDetail: React.FC = () => {
 
               {/* FAQs Section */}
               <section id="faqs" className="scroll-mt-36">
-                <h2 className="text-2xl font-black text-slate-900 dark:text-white mb-6">Frequently Asked Questions</h2>
+                <h2 className="text-2xl font-black text-slate-900 dark:text-white mb-6 flex items-center gap-2">
+                  Frequently Asked Questions
+                  {canEdit && (
+                    <button
+                      onClick={() => {
+                        setActiveEditTab('faqs');
+                        setIsAdminEditOpen(true);
+                      }}
+                      className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-primary transition-colors align-middle"
+                      title="Edit FAQs"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">edit</span>
+                    </button>
+                  )}
+                </h2>
                 <div className="space-y-3">
                   {faqs.map((faq: any, idx: number) => (
                     <details key={idx} className="group bg-white dark:bg-[#151d29] rounded-2xl border border-slate-100 dark:border-slate-855 shadow-sm overflow-hidden">
@@ -1266,87 +1849,17 @@ export const PackageDetail: React.FC = () => {
                     </details>
                   ))}
                 </div>
-              </section>
-
-              {/* Client Testimonials */}
-              <section className="bg-white dark:bg-[#151d29] p-8 rounded-[2rem] border border-slate-150 dark:border-slate-800/80 shadow-sm">
-                <h2 className="text-xl font-black text-slate-955 dark:text-white text-center mb-6">What Our Clients Say About Us</h2>
-                
-                {/* Review Category Tags */}
-                <div className="flex flex-wrap gap-2 justify-center mb-6">
-                  {['All', 'Stays', 'Acclimatization', 'Driver'].map(tag => (
-                    <button
-                      key={tag}
-                      onClick={() => {
-                        setSelectedReviewTag(tag);
-                        setReviewIndex(0);
-                      }}
-                      className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all ${
-                        selectedReviewTag === tag
-                          ? 'bg-primary text-white border-primary shadow-sm'
-                          : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-primary/50'
-                      }`}
-                    >
-                      {tag}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Carousel Card */}
-                {activeReview ? (
-                  <div className="min-h-[140px] flex flex-col justify-between p-6 bg-slate-50 dark:bg-slate-900/50 rounded-2xl relative mb-6">
-                    <span className="material-symbols-outlined text-4xl text-primary/10 absolute top-4 left-4 select-none pointer-events-none">format_quote</span>
-                    <div className="relative z-10">
-                      <div className="flex text-amber-400 mb-3">
-                        {Array.from({ length: activeReview.rating }).map((_, i) => (
-                          <span key={i} className="material-symbols-outlined text-sm fill-current">star</span>
-                        ))}
-                      </div>
-                      <p className="text-sm text-slate-650 dark:text-slate-350 italic font-medium mb-4">
-                        "{activeReview.text}"
-                      </p>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <span className="text-xs font-bold text-slate-800 dark:text-white block">{activeReview.name}</span>
-                        <span className="text-[10px] text-slate-450">{activeReview.date}</span>
-                      </div>
-                      {filteredReviews.length > 1 && (
-                        <div className="flex gap-2">
-                          <button
-                            onClick={prevReview}
-                            className="size-8 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 flex items-center justify-center text-slate-550 hover:bg-slate-50 transition-colors"
-                            aria-label="Previous Review"
-                          >
-                            <span className="material-symbols-outlined text-sm">chevron_left</span>
-                          </button>
-                          <button
-                            onClick={nextReview}
-                            className="size-8 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-855 flex items-center justify-center text-slate-550 hover:bg-slate-50 transition-colors"
-                            aria-label="Next Review"
-                          >
-                            <span className="material-symbols-outlined text-sm">chevron_right</span>
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="p-6 text-center text-slate-400 text-xs bg-slate-50 dark:bg-slate-900 rounded-2xl">
-                    No reviews available for this category filter.
-                  </div>
-                )}
-              </section>
+                </section>
 
             </div>
 
             {/* Right Column: Sticky Booking Widget */}
             <div className="hidden lg:block">
-              <div className="sticky top-32 space-y-6">
-                <div className="bg-white dark:bg-[#151d29] rounded-[2.5rem] shadow-2xl border border-slate-100 dark:border-slate-800/80 overflow-hidden ring-1 ring-slate-900/5">
+              <div className={`sticky ${canEdit ? 'top-[220px]' : 'top-[156px]'} space-y-6`}>
+                <div className={`bg-white dark:bg-[#151d29] rounded-[2.5rem] shadow-2xl border border-slate-100 dark:border-slate-800/85 overflow-hidden ring-1 ring-slate-900/5 flex flex-col ${canEdit ? 'max-h-[calc(100vh-240px)]' : 'max-h-[calc(100vh-176px)]'}`}>
                   
-                  {/* Top Rate details - Fixed */}
-                  <div className="p-8 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/20">
+                  {/* Top Rate details */}
+                  <div className="p-6 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/20 shrink-0">
                     <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Starting from</p>
                     <div className="flex items-baseline gap-1 mb-2">
                       <span className="text-4xl font-black text-slate-900 dark:text-white tracking-tight">{formatPrice(perPersonPrice)}</span>
@@ -1369,8 +1882,8 @@ export const PackageDetail: React.FC = () => {
                     )}
                   </div>
 
-                  {/* Scrollable controls body (limits height on short laptops) */}
-                  <div className="p-8 space-y-6 max-h-[calc(100vh-320px)] overflow-y-auto pr-2 scrollbar-thin">
+                  {/* Controls body */}
+                  <div className="p-6 space-y-4 flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-205 hover:scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-800">
                     
                     {/* Occupancy Selector */}
                     <div>
@@ -1463,23 +1976,22 @@ export const PackageDetail: React.FC = () => {
 
                   </div>
 
-                  {/* Actions - Fixed Bottom */}
-                  <div className="p-8 pt-6 border-t border-slate-100 dark:border-slate-800/80 bg-white dark:bg-[#151d29] space-y-4">
-                    <button onClick={() => setBookingModal(true)} className="w-full bg-primary hover:bg-primary-dark text-white font-black py-4 rounded-2xl shadow-xl shadow-primary/20 transition-all active:scale-95 text-base flex items-center justify-center gap-2">
-                      <span className="material-symbols-outlined text-[20px]">send</span>
-                      Send Query
-                    </button>
-
-                    <div className="flex gap-2">
+                  {/* Actions */}
+                  <div className="p-6 pt-4 border-t border-slate-100 dark:border-slate-800/80 bg-white dark:bg-[#151d29] space-y-4 shrink-0">
+                    <div className="flex gap-3">
                       <a
                         href={`https://wa.me/?text=${encodeURIComponent(`I'm interested in booking the tour: ${tour.title}\n${window.location.href}`)}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-2xl border border-green-300 dark:border-green-800 bg-green-50 dark:bg-green-900/10 text-green-700 dark:text-green-400 font-bold text-sm hover:bg-green-100 dark:hover:bg-green-900/20 transition-all"
+                        className="size-14 rounded-2xl bg-[#25D366] hover:bg-[#20ba59] text-white flex items-center justify-center transition-all shadow-md shadow-green-500/10 shrink-0"
+                        title="Query on WhatsApp"
                       >
-                        <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-                        <span>WhatsApp Query</span>
+                        <svg viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
                       </a>
+                      <button onClick={() => setBookingModal(true)} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-black py-4 rounded-2xl shadow-xl shadow-indigo-600/15 transition-all active:scale-95 text-base flex items-center justify-center gap-2">
+                        <span className="material-symbols-outlined text-[20px]">send</span>
+                        Send Query
+                      </button>
                     </div>
 
                     <p className="text-[10px] text-center text-slate-400 font-medium">No immediate payment required. Dynamic quotes provided instantly.</p>
@@ -1489,34 +2001,1048 @@ export const PackageDetail: React.FC = () => {
               </div>
             </div>
           </div>
+
+          {/* Client Testimonials (Full Width Section) */}
+          <section className="mt-16 bg-slate-50/50 dark:bg-slate-900/30 p-8 md:p-12 rounded-[2rem] border border-slate-200/60 dark:border-slate-800/50 shadow-sm">
+            <div className="text-center max-w-2xl mx-auto mb-10">
+              <span className="text-[10px] font-black uppercase tracking-widest text-indigo-650 block mb-2">Reviews</span>
+              <h2 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">What Our Clients Say About Us</h2>
+            </div>
+            
+            {/* Review Category Tags */}
+            <div className="flex flex-wrap gap-2 justify-center mb-8">
+              {['All', 'Stays', 'Acclimatization', 'Driver'].map(tag => (
+                <button
+                  key={tag}
+                  type="button"
+                  onClick={() => {
+                    setSelectedReviewTag(tag);
+                    setReviewIndex(0);
+                  }}
+                  className={`px-4 py-2.5 rounded-full text-xs font-black uppercase tracking-wider transition-all duration-300 border ${
+                    selectedReviewTag === tag
+                      ? 'bg-indigo-650 text-white border-indigo-650 shadow-md shadow-indigo-650/10'
+                      : 'bg-white dark:bg-[#151d29] border-slate-200 dark:border-slate-800 text-slate-650 dark:text-slate-400 hover:border-indigo-500/50'
+                  }`}
+                >
+                  {tag}
+                </button>
+              ))}
+            </div>
+
+            {/* Testimonials Grid */}
+            {filteredReviews.length > 0 ? (
+              <div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {filteredReviews.slice(reviewIndex * 3, (reviewIndex + 1) * 3).map((rev, idx) => {
+                    const realIdx = reviewIndex * 3 + idx;
+                    const colors = [
+                      'bg-indigo-100 text-indigo-600',
+                      'bg-amber-100 text-amber-600',
+                      'bg-emerald-100 text-emerald-600'
+                    ];
+                    const avatarColor = colors[realIdx % colors.length];
+                    const initials = rev.name.split(' ').map(n => n[0]).join('').toUpperCase();
+                    
+                    return (
+                      <div key={realIdx} className="bg-white dark:bg-[#151d29] p-6 rounded-3xl border border-slate-100 dark:border-slate-855 shadow-sm hover:shadow-md transition-all flex flex-col justify-between relative min-h-[220px]">
+                        <span className="material-symbols-outlined text-4xl text-indigo-500/10 absolute top-4 left-4 select-none pointer-events-none">format_quote</span>
+                        
+                        <div className="relative z-10 space-y-4">
+                          <div className="flex text-amber-400">
+                            {Array.from({ length: rev.rating }).map((_, i) => (
+                              <span key={i} className="material-symbols-outlined text-sm fill-current">star</span>
+                            ))}
+                          </div>
+                          <p className="text-sm text-slate-650 dark:text-slate-350 italic font-medium leading-relaxed">
+                            "{rev.text}"
+                          </p>
+                        </div>
+
+                        <div className="mt-6 flex flex-col gap-4 border-t border-slate-150 dark:border-slate-800/80 pt-4">
+                          <div className="flex items-center gap-3">
+                            <div className={`size-10 rounded-full flex items-center justify-center font-bold text-xs ${avatarColor}`}>
+                              {initials}
+                            </div>
+                            <div>
+                              <span className="text-xs font-bold text-slate-800 dark:text-white block">{rev.name}</span>
+                              <span className="text-[10px] text-slate-450 block">{rev.date || 'Verified Customer'}</span>
+                            </div>
+                          </div>
+
+                          {idx === 1 && (
+                            <div className="flex items-center gap-2 p-2 bg-slate-50 dark:bg-slate-900/60 rounded-2xl border border-slate-100 dark:border-slate-800/60">
+                              <div className="size-8 rounded-lg overflow-hidden shrink-0">
+                                <OptimizedImage src={tour.image} alt={tour.title} className="w-full h-full object-cover" />
+                              </div>
+                              <div className="truncate">
+                                <span className="text-[8px] font-black uppercase text-indigo-500 block leading-none">Booked Tour</span>
+                                <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300 truncate block mt-0.5 leading-none">{tour.title}</span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Slider Controls / Page dots */}
+                {Math.ceil(filteredReviews.length / 3) > 1 && (
+                  <div className="flex items-center justify-center gap-4 mt-8">
+                    <button
+                      type="button"
+                      onClick={() => setReviewIndex(prev => Math.max(0, prev - 1))}
+                      disabled={reviewIndex === 0}
+                      className="size-10 rounded-full border border-slate-205 dark:border-slate-800 bg-white dark:bg-[#151d29] flex items-center justify-center text-slate-550 hover:bg-slate-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      aria-label="Previous page"
+                    >
+                      <span className="material-symbols-outlined text-sm">chevron_left</span>
+                    </button>
+                    
+                    <div className="flex gap-2">
+                      {Array.from({ length: Math.ceil(filteredReviews.length / 3) }).map((_, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => setReviewIndex(idx)}
+                          className={`size-2.5 rounded-full transition-all duration-300 ${
+                            idx === reviewIndex ? 'bg-indigo-650 w-6' : 'bg-slate-300 dark:bg-slate-700 hover:bg-slate-400'
+                          }`}
+                          aria-label={`Go to slide page ${idx + 1}`}
+                        />
+                      ))}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setReviewIndex(prev => Math.min(Math.ceil(filteredReviews.length / 3) - 1, prev + 1))}
+                      disabled={reviewIndex === Math.ceil(filteredReviews.length / 3) - 1}
+                      className="size-10 rounded-full border border-slate-205 dark:border-slate-800 bg-white dark:bg-[#151d29] flex items-center justify-center text-slate-550 hover:bg-slate-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      aria-label="Next page"
+                    >
+                      <span className="material-symbols-outlined text-sm">chevron_right</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="p-10 text-center text-slate-400 text-xs bg-white dark:bg-[#151d29] border border-slate-100 dark:border-slate-800 rounded-3xl">
+                No reviews available for this filter.
+              </div>
+            )}
+          </section>
         </div>
 
         {/* Mobile Sticky Bottom Bar */}
         <div className="fixed bottom-0 left-0 right-0 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-t border-slate-200 dark:border-slate-800 p-4 z-40 lg:hidden shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.1)] pb-safe-area-bottom">
-          <div className="flex items-center justify-between max-w-lg mx-auto">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1">
+          <div className="flex items-center justify-between max-w-lg mx-auto gap-4">
+            <div className="shrink-0">
+              <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1">
                 Price per person
-                {selectedAddons.length > 0 && <span className="px-1 py-[1px] bg-primary/10 text-primary rounded-[3px] text-[8px] leading-none ml-1">+{selectedAddons.length} ADD-ONS</span>}
               </p>
-              <div className="flex items-baseline gap-2">
-                <p className="text-2xl font-black text-slate-900 dark:text-white">{formatPrice(perPersonPrice)}</p>
+              <div className="flex items-baseline gap-1.5">
+                <p className="text-xl font-black text-slate-900 dark:text-white">{formatPrice(perPersonPrice)}</p>
                 {tour.originalPrice && tour.originalPrice > activeOccupancy.price && (
-                  <span className="text-xs text-slate-400 line-through">{formatPriceCompact(perPersonOriginalPrice)}</span>
+                  <span className="text-[11px] text-slate-400 line-through">{formatPriceCompact(perPersonOriginalPrice)}</span>
                 )}
               </div>
-              <p className="text-[10px] text-slate-500 font-bold mt-0.5">
-                Total: {formatPrice(calculateTotal())} ({guests})
+              <p className="text-[9px] text-slate-500 font-bold">
+                Total: {formatPrice(calculateTotal())}
               </p>
             </div>
-            <button
-              onClick={() => setBookingModal(true)}
-              className="bg-primary hover:bg-primary-dark text-white px-8 py-3.5 rounded-2xl font-bold shadow-lg shadow-primary/20 active:scale-95 transition-all text-sm uppercase tracking-wider"
-            >
-              Book Now
-            </button>
+            <div className="flex items-center gap-2 flex-1 justify-end">
+              <a
+                href={`https://wa.me/?text=${encodeURIComponent(`I'm interested in booking the tour: ${tour.title}\n${window.location.href}`)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="size-11 rounded-xl bg-[#25D366] hover:bg-[#20ba59] text-white flex items-center justify-center transition-all shadow-md shrink-0"
+                title="Query on WhatsApp"
+              >
+                <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+              </a>
+              <button
+                onClick={() => setBookingModal(true)}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3.5 rounded-xl font-bold shadow-lg shadow-indigo-600/10 active:scale-95 transition-all text-xs uppercase tracking-wider"
+              >
+                Book Now
+              </button>
+            </div>
           </div>
         </div>
+
+        {/* Package Edit Modal */}
+        {isAdminEditOpen && (
+          <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-300">
+            <div className="bg-white dark:bg-[#151d29] w-full max-w-5xl rounded-[2rem] shadow-2xl overflow-hidden flex flex-col h-[85vh] border border-slate-100 dark:border-slate-800 animate-in zoom-in-95">
+              
+              {/* Header */}
+              <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-900/50 shrink-0">
+                <div>
+                  <h2 className="text-xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
+                    <span className="material-symbols-outlined text-primary">edit_note</span>
+                    Quick Edit Package
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-0.5">Quickly edit package details and policies. Changes are synced with the database.</p>
+                </div>
+                <button
+                  onClick={() => setIsAdminEditOpen(false)}
+                  className="p-1.5 text-slate-400 hover:text-slate-650 dark:hover:text-white hover:bg-slate-150 dark:hover:bg-slate-800 rounded-full transition-all"
+                  aria-label="Close Edit Modal"
+                >
+                  <span className="material-symbols-outlined">close</span>
+                </button>
+              </div>
+
+              {/* Sidebar + Form Panel body */}
+              <div className="flex-1 flex overflow-hidden">
+                {/* Left Tabs Sidebar */}
+                <div className="w-64 bg-slate-50 dark:bg-slate-900/30 border-r border-slate-150 dark:border-slate-800 p-4 space-y-1.5 overflow-y-auto">
+                  {[
+                    { id: 'info', label: 'Info & Overview', icon: 'info' },
+                    { id: 'settings', label: 'Marketing & Settings', icon: 'settings' },
+                    { id: 'media', label: 'Media & Add-ons', icon: 'photo_library' },
+                    { id: 'ageLimits', label: 'Age Limits', icon: 'child_care' },
+                    { id: 'cancellation', label: 'Cancellation Policy', icon: 'event_busy' },
+                    { id: 'payment', label: 'Payment Policy', icon: 'payments' },
+                    { id: 'inclusions', label: 'Inclusions & Exclusions', icon: 'fact_check' },
+                    { id: 'faqs', label: 'FAQs', icon: 'quiz' },
+                    { id: 'itinerary', label: 'Itinerary Days', icon: 'map' }
+                  ].map(tab => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setActiveEditTab(tab.id as any)}
+                      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-wider text-left transition-all ${
+                        activeEditTab === tab.id
+                          ? 'bg-primary text-white shadow-md shadow-primary/20'
+                          : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/40 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                    >
+                      <span className="material-symbols-outlined text-[18px]">{tab.icon}</span>
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Right Form panel */}
+                <div className="flex-1 overflow-y-auto p-6 md:p-8">
+                  <form onSubmit={handleSaveAll} className="space-y-6">
+                    {activeEditTab === 'info' && (
+                      <div className="animate-in fade-in duration-200 space-y-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-1">
+                            <label className="block text-xs font-bold uppercase text-slate-500 pl-1">Package Title</label>
+                            <input
+                              required
+                              type="text"
+                              value={editForm.title}
+                              onChange={e => setEditForm({ ...editForm, title: e.target.value })}
+                              className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="block text-xs font-bold uppercase text-slate-500 pl-1">Location</label>
+                            <select
+                              required
+                              value={editForm.location}
+                              onChange={e => setEditForm({ ...editForm, location: e.target.value })}
+                              className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white"
+                            >
+                              <option value="">Select Location</option>
+                              {masterLocations.map((loc) => (
+                                <option key={loc.id} value={loc.id}>{loc.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="block text-xs font-bold uppercase text-slate-500 pl-1">Duration (Days)</label>
+                            <input
+                              required
+                              type="number"
+                              min="1"
+                              value={editForm.days}
+                              onChange={e => setEditForm({ ...editForm, days: parseInt(e.target.value) || 1 })}
+                              className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="block text-xs font-bold uppercase text-slate-500 pl-1">Price (₹)</label>
+                            <input
+                              required
+                              type="number"
+                              min="0"
+                              value={editForm.price}
+                              onChange={e => setEditForm({ ...editForm, price: parseInt(e.target.value) || 0 })}
+                              className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="block text-xs font-bold uppercase text-slate-500 pl-1">Strikethrough Price (₹) (Optional)</label>
+                            <input
+                              type="number"
+                              min="0"
+                              value={editForm.originalPrice || ''}
+                              onChange={e => setEditForm({ ...editForm, originalPrice: parseInt(e.target.value) || 0 })}
+                              className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="block text-xs font-bold uppercase text-slate-500 pl-1">Validity Date</label>
+                            <input
+                              type="date"
+                              value={editForm.validityDate ? editForm.validityDate.split('T')[0] : ''}
+                              onChange={e => setEditForm({ ...editForm, validityDate: e.target.value })}
+                              className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white"
+                            />
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-xs font-bold uppercase text-slate-500 pl-1">Short Description</label>
+                          <input
+                            type="text"
+                            value={editForm.description}
+                            onChange={e => setEditForm({ ...editForm, description: e.target.value })}
+                            className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white"
+                            placeholder="Brief description for search listings..."
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <ImageUpload
+                            value={editForm.image}
+                            onChange={url => setEditForm(prev => ({ ...prev, image: url }))}
+                            label="Cover Image"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-xs font-bold uppercase text-slate-500 pl-1">Full Overview</label>
+                          <textarea
+                            required
+                            value={editForm.overview}
+                            onChange={e => setEditForm({ ...editForm, overview: e.target.value })}
+                            className="w-full h-40 rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white resize-y"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {activeEditTab === 'settings' && (
+                      <div className="animate-in fade-in duration-200 space-y-6">
+                        <div>
+                          <h3 className="text-sm font-bold text-slate-700 dark:text-slate-350 mb-4 pb-2 border-b border-slate-100 dark:border-slate-800">Marketing & Display Settings</h3>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-1">
+                              <label className="block text-xs font-bold uppercase text-slate-500 pl-1">Status (Visibility)</label>
+                              <select
+                                value={editForm.status}
+                                onChange={e => setEditForm({ ...editForm, status: e.target.value as any })}
+                                className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white"
+                              >
+                                <option value="Active">Active (Visible)</option>
+                                <option value="Inactive">Inactive (Hidden)</option>
+                              </select>
+                            </div>
+                            <div className="space-y-1">
+                              <label className="block text-xs font-bold uppercase text-slate-500 pl-1">Group Size</label>
+                              <input
+                                type="text"
+                                value={editForm.groupSize}
+                                onChange={e => setEditForm({ ...editForm, groupSize: e.target.value })}
+                                className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white"
+                                placeholder="e.g. Max 10"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="block text-xs font-bold uppercase text-slate-500 pl-1">Badge Tag</label>
+                              <input
+                                type="text"
+                                value={editForm.tag}
+                                onChange={e => setEditForm({ ...editForm, tag: e.target.value })}
+                                className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white"
+                                placeholder="e.g. Best Seller"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="block text-xs font-bold uppercase text-slate-500 pl-1">Badge Color Class</label>
+                              <select
+                                value={editForm.tagColor}
+                                onChange={e => setEditForm({ ...editForm, tagColor: e.target.value })}
+                                className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white"
+                              >
+                                <option value="bg-blue-500 text-white">Blue</option>
+                                <option value="bg-green-500 text-white">Green</option>
+                                <option value="bg-red-500 text-white">Red</option>
+                                <option value="bg-yellow-400 text-yellow-900">Yellow</option>
+                                <option value="bg-purple-500 text-white">Purple</option>
+                              </select>
+                            </div>
+                            <div className="space-y-1">
+                              <label className="block text-xs font-bold uppercase text-slate-500 pl-1">Theme (Collection)</label>
+                              <select
+                                value={editForm.theme}
+                                onChange={e => setEditForm({ ...editForm, theme: e.target.value })}
+                                className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white"
+                              >
+                                <option value="">Select a Collection</option>
+                                {(cmsGallery || []).map(item => (
+                                  <option key={item.id} value={item.title}>{item.title}</option>
+                                ))}
+                                <option value="Other">Other</option>
+                              </select>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div>
+                          <h3 className="text-sm font-bold text-slate-700 dark:text-slate-350 mb-4 pb-2 border-b border-slate-100 dark:border-slate-800">Inventory & Countdown Timer</h3>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-1">
+                              <label className="block text-xs font-bold uppercase text-slate-500 pl-1">Remaining Seats Limit (blank = unlimited)</label>
+                              <input
+                                type="number"
+                                min="0"
+                                value={editForm.remainingSeats}
+                                onChange={e => setEditForm({ ...editForm, remainingSeats: e.target.value })}
+                                className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white"
+                                placeholder="e.g. 15"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="block text-xs font-bold uppercase text-slate-500 pl-1">Offer End Date &amp; Time (UTC)</label>
+                              <input
+                                type="datetime-local"
+                                value={editForm.offerEndTime}
+                                onChange={e => setEditForm({ ...editForm, offerEndTime: e.target.value })}
+                                className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white"
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        <div>
+                          <h3 className="text-sm font-bold text-slate-700 dark:text-slate-350 mb-4 pb-2 border-b border-slate-100 dark:border-slate-800">B2B Partner Commission Overrides</h3>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-1">
+                              <label className="block text-xs font-bold uppercase text-slate-500 pl-1">Commission Type</label>
+                              <select
+                                value={editForm.partnerCommissionType}
+                                onChange={e => setEditForm({ ...editForm, partnerCommissionType: e.target.value as any })}
+                                className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white"
+                              >
+                                <option value="Percentage">Percentage (%)</option>
+                                <option value="Flat_Amount">Flat Amount (₹)</option>
+                              </select>
+                            </div>
+                            <div className="space-y-1">
+                              <label className="block text-xs font-bold uppercase text-slate-500 pl-1">Commission Value (blank for default)</label>
+                              <input
+                                type="number"
+                                min="0"
+                                value={editForm.partnerCommissionValue}
+                                onChange={e => setEditForm({ ...editForm, partnerCommissionValue: e.target.value })}
+                                className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white"
+                                placeholder="e.g. 10 or 1500"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {activeEditTab === 'media' && (
+                      <div className="animate-in fade-in duration-200 space-y-8">
+                        <div>
+                          <div className="flex justify-between items-center mb-4 pb-2 border-b border-slate-100 dark:border-slate-800">
+                            <h3 className="text-sm font-bold text-slate-700 dark:text-slate-350">Package Photo Gallery</h3>
+                            <div>
+                              <input
+                                type="file"
+                                id="gallery-file-upload"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={e => {
+                                  const file = e.target.files?.[0];
+                                  if (file) handleGalleryUpload(file);
+                                }}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => document.getElementById('gallery-file-upload')?.click()}
+                                className="px-3.5 py-2 bg-primary/10 hover:bg-primary/20 text-primary text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 active:scale-95 animate-in fade-in duration-300"
+                              >
+                                <span className="material-symbols-outlined text-[16px]">add_photo_alternate</span>
+                                Add Photo
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                            {editForm.gallery.map((img, idx) => (
+                              <div key={idx} className="relative group rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 aspect-video bg-slate-100 dark:bg-slate-900 shadow-sm transition-all hover:scale-[1.02]">
+                                <img src={img} alt={`Gallery ${idx + 1}`} className="w-full h-full object-cover" />
+                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                                  {idx > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => moveGalleryImage(idx, 'left')}
+                                      className="p-1.5 bg-white/20 text-white rounded-lg hover:bg-white/40 transition-colors"
+                                      title="Move Left"
+                                    >
+                                      <span className="material-symbols-outlined text-sm">arrow_back</span>
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => removeGalleryImage(idx)}
+                                    className="p-1.5 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+                                    title="Delete Photo"
+                                  >
+                                    <span className="material-symbols-outlined text-sm">delete</span>
+                                  </button>
+                                  {idx < editForm.gallery.length - 1 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => moveGalleryImage(idx, 'right')}
+                                      className="p-1.5 bg-white/20 text-white rounded-lg hover:bg-white/40 transition-colors"
+                                      title="Move Right"
+                                    >
+                                      <span className="material-symbols-outlined text-sm">arrow_forward</span>
+                                    </button>
+                                  )}
+                                </div>
+                                <div className="absolute bottom-2 left-2 px-1.5 py-0.5 bg-black/55 text-white text-[9px] font-bold rounded">
+                                  #{idx + 1}
+                                </div>
+                              </div>
+                            ))}
+                            {editForm.gallery.length === 0 && (
+                              <div className="col-span-full text-center py-10 text-slate-400 text-xs border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl flex flex-col items-center justify-center gap-2">
+                                <span className="material-symbols-outlined text-3xl">add_photo_alternate</span>
+                                No gallery images uploaded yet.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="flex justify-between items-center mb-4 pb-2 border-b border-slate-100 dark:border-slate-800">
+                            <h3 className="text-sm font-bold text-slate-700 dark:text-slate-350">Package Add-ons</h3>
+                            <button
+                              type="button"
+                              onClick={() => setEditForm(prev => ({
+                                ...prev,
+                                addons: [...prev.addons, { id: `addon-${Date.now()}`, label: '', price: 0 }]
+                              }))}
+                              className="px-3.5 py-2 bg-primary/10 hover:bg-primary/20 text-primary text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 active:scale-95"
+                            >
+                              <span className="material-symbols-outlined text-[16px]">add_circle</span>
+                              Add Add-on
+                            </button>
+                          </div>
+
+                          <div className="space-y-3">
+                            {editForm.addons.map((addon, idx) => (
+                              <div key={addon.id} className="flex flex-col sm:flex-row items-center gap-3 p-4 bg-slate-50 dark:bg-slate-850/40 rounded-2xl border border-slate-100 dark:border-slate-800 transition-all hover:border-primary/20">
+                                <div className="flex-1 w-full space-y-1">
+                                  <label className="text-[10px] font-bold text-slate-450 uppercase pl-1">Add-on Label</label>
+                                  <input
+                                    required
+                                    type="text"
+                                    placeholder="e.g. Include Flights"
+                                    value={addon.label}
+                                    onChange={e => {
+                                      const u = [...editForm.addons];
+                                      u[idx] = { ...addon, label: e.target.value };
+                                      setEditForm(prev => ({ ...prev, addons: u }));
+                                    }}
+                                    className="w-full rounded-lg border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm font-medium outline-none focus:ring-1 focus:ring-primary text-slate-900 dark:text-white"
+                                  />
+                                </div>
+                                <div className="w-full sm:w-44 space-y-1">
+                                  <label className="text-[10px] font-bold text-slate-450 uppercase pl-1">Price (₹)</label>
+                                  <input
+                                    required
+                                    type="number"
+                                    placeholder="Price"
+                                    min="0"
+                                    value={addon.price}
+                                    onChange={e => {
+                                      const u = [...editForm.addons];
+                                      u[idx] = { ...addon, price: parseInt(e.target.value) || 0 };
+                                      setEditForm(prev => ({ ...prev, addons: u }));
+                                    }}
+                                    className="w-full rounded-lg border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm font-medium outline-none focus:ring-1 focus:ring-primary text-slate-900 dark:text-white"
+                                  />
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditForm(prev => ({
+                                    ...prev,
+                                    addons: prev.addons.filter((_, i) => i !== idx)
+                                  }))}
+                                  className="mt-5 sm:mt-4 p-2 text-slate-400 hover:text-red-500 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors"
+                                  title="Delete Add-on"
+                                >
+                                  <span className="material-symbols-outlined text-[20px]">delete</span>
+                                </button>
+                              </div>
+                            ))}
+                            {editForm.addons.length === 0 && (
+                              <div className="text-center py-10 text-slate-400 text-xs border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl flex flex-col items-center justify-center gap-2">
+                                <span className="material-symbols-outlined text-3xl">add_circle</span>
+                                No custom add-ons specified.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {activeEditTab === 'ageLimits' && (
+                      <div className="animate-in fade-in duration-200 space-y-4">
+                        <div className="flex justify-between items-center mb-2">
+                          <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300">Age Tiers</h4>
+                          <button
+                            type="button"
+                            onClick={addAgeLimitTier}
+                            className="px-3 py-1.5 bg-primary/10 hover:bg-primary/20 text-primary text-xs font-bold rounded-lg transition-colors flex items-center gap-1"
+                          >
+                            <span className="material-symbols-outlined text-[16px]">add</span> Add Tier
+                          </button>
+                        </div>
+                        
+                        <div className="space-y-3">
+                          {editForm.ageLimits.map((tier, idx) => (
+                            <div key={idx} className="flex flex-col sm:flex-row items-center gap-3 p-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800">
+                              <div className="flex-1 w-full space-y-1">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase">Tier Type</label>
+                                <input
+                                  required
+                                  type="text"
+                                  placeholder="e.g. Infant"
+                                  value={tier.type}
+                                  onChange={e => handleAgeLimitChange(idx, 'type', e.target.value)}
+                                  className="w-full rounded-lg border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm font-medium outline-none focus:ring-1 focus:ring-primary text-slate-900 dark:text-white"
+                                />
+                              </div>
+                              <div className="flex-1 w-full space-y-1">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase">Age Range</label>
+                                <input
+                                  required
+                                  type="text"
+                                  placeholder="e.g. 0-2 Years"
+                                  value={tier.age}
+                                  onChange={e => handleAgeLimitChange(idx, 'age', e.target.value)}
+                                  className="w-full rounded-lg border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm font-medium outline-none focus:ring-1 focus:ring-primary text-slate-900 dark:text-white"
+                                />
+                              </div>
+                              <div className="flex-1 w-full space-y-1">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase">Pricing Text</label>
+                                <input
+                                  required
+                                  type="text"
+                                  placeholder="e.g. Free"
+                                  value={tier.priceText}
+                                  onChange={e => handleAgeLimitChange(idx, 'priceText', e.target.value)}
+                                  className="w-full rounded-lg border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm font-medium outline-none focus:ring-1 focus:ring-primary text-slate-900 dark:text-white"
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => removeAgeLimitTier(idx)}
+                                className="mt-5 sm:mt-4 p-2 text-slate-400 hover:text-red-500 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors"
+                                title="Delete Tier"
+                              >
+                                <span className="material-symbols-outlined text-[20px]">delete</span>
+                              </button>
+                            </div>
+                          ))}
+                          {editForm.ageLimits.length === 0 && (
+                            <div className="text-center py-8 text-slate-400 text-xs">
+                              No age tiers specified. Click "Add Tier" to define age limits.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {activeEditTab === 'cancellation' && (
+                      <div className="animate-in fade-in duration-200 space-y-6">
+                        <div>
+                          <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-4">Cancellation Policy Columns</h4>
+                          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                            {(() => {
+                              const cancelHeaders = [...(editForm.cancellationPolicy?.headers || [])];
+                              while (cancelHeaders.length < 4) cancelHeaders.push(`Column ${cancelHeaders.length + 1}`);
+                              const cancelCharges = [...(editForm.cancellationPolicy?.rows?.cancellationCharge || [])];
+                              while (cancelCharges.length < 4) cancelCharges.push('');
+                              const refundAmounts = [...(editForm.cancellationPolicy?.rows?.refundAmount || [])];
+                              while (refundAmounts.length < 4) refundAmounts.push('');
+                              const remainingAmounts = [...(editForm.cancellationPolicy?.rows?.remainingAmount || [])];
+                              while (remainingAmounts.length < 4) remainingAmounts.push('');
+
+                              return cancelHeaders.map((header, idx) => (
+                                <div key={idx} className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800 space-y-3">
+                                  <div className="space-y-1">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase block">Timeline Header</label>
+                                    <input
+                                      required
+                                      type="text"
+                                      value={header}
+                                      onChange={e => handleCancellationHeaderChange(idx, e.target.value)}
+                                      className="w-full rounded-lg border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-semibold outline-none focus:ring-1 focus:ring-primary text-slate-900 dark:text-white"
+                                    />
+                                  </div>
+                                  <div className="space-y-1">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase block">Charge</label>
+                                    <input
+                                      required
+                                      type="text"
+                                      value={cancelCharges[idx]}
+                                      onChange={e => handleCancellationRowChange('cancellationCharge', idx, e.target.value)}
+                                      className="w-full rounded-lg border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-medium outline-none focus:ring-1 focus:ring-primary text-slate-900 dark:text-white"
+                                    />
+                                  </div>
+                                  <div className="space-y-1">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase block">Refund Amount</label>
+                                    <input
+                                      required
+                                      type="text"
+                                      value={refundAmounts[idx]}
+                                      onChange={e => handleCancellationRowChange('refundAmount', idx, e.target.value)}
+                                      className="w-full rounded-lg border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-medium outline-none focus:ring-1 focus:ring-primary text-slate-900 dark:text-white"
+                                    />
+                                  </div>
+                                  <div className="space-y-1">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase block">Remaining</label>
+                                    <input
+                                      required
+                                      type="text"
+                                      value={remainingAmounts[idx]}
+                                      onChange={e => handleCancellationRowChange('remainingAmount', idx, e.target.value)}
+                                      className="w-full rounded-lg border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-medium outline-none focus:ring-1 focus:ring-primary text-slate-900 dark:text-white"
+                                    />
+                                  </div>
+                                </div>
+                              ));
+                            })()}
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-xs font-bold uppercase text-slate-500 pl-1">Policy Guidelines</label>
+                          <textarea
+                            value={editForm.cancellationPolicy.guidelines || ''}
+                            onChange={e => setEditForm({
+                              ...editForm,
+                              cancellationPolicy: {
+                                ...editForm.cancellationPolicy,
+                                guidelines: e.target.value
+                              }
+                            })}
+                            className="w-full h-32 rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white resize-y"
+                            placeholder="Cancellation guidelines line-by-line..."
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {activeEditTab === 'payment' && (
+                      <div className="animate-in fade-in duration-200 space-y-6">
+                        <div>
+                          <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-4">Payment Policy Columns</h4>
+                          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                            {(() => {
+                              const payHeaders = [...(editForm.paymentPolicy?.headers || [])];
+                              while (payHeaders.length < 4) payHeaders.push(`Column ${payHeaders.length + 1}`);
+                              const bookingAmounts = [...(editForm.paymentPolicy?.rows?.bookingAmount || [])];
+                              while (bookingAmounts.length < 4) bookingAmounts.push('');
+                              const restPayments = [...(editForm.paymentPolicy?.rows?.restPayment || [])];
+                              while (restPayments.length < 4) restPayments.push('');
+                              const statuses = [...(editForm.paymentPolicy?.rows?.status || [])];
+                              while (statuses.length < 4) statuses.push('');
+
+                              return payHeaders.map((header, idx) => (
+                                <div key={idx} className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800 space-y-3">
+                                  <div className="space-y-1">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase block">Timeline Header</label>
+                                    <input
+                                      required
+                                      type="text"
+                                      value={header}
+                                      onChange={e => handlePaymentHeaderChange(idx, e.target.value)}
+                                      className="w-full rounded-lg border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-semibold outline-none focus:ring-1 focus:ring-primary text-slate-900 dark:text-white"
+                                    />
+                                  </div>
+                                  <div className="space-y-1">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase block">Booking Amount</label>
+                                    <input
+                                      required
+                                      type="text"
+                                      value={bookingAmounts[idx]}
+                                      onChange={e => handlePaymentRowChange('bookingAmount', idx, e.target.value)}
+                                      className="w-full rounded-lg border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-medium outline-none focus:ring-1 focus:ring-primary text-slate-900 dark:text-white"
+                                    />
+                                  </div>
+                                  <div className="space-y-1">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase block">Rest Payment</label>
+                                    <input
+                                      required
+                                      type="text"
+                                      value={restPayments[idx]}
+                                      onChange={e => handlePaymentRowChange('restPayment', idx, e.target.value)}
+                                      className="w-full rounded-lg border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-medium outline-none focus:ring-1 focus:ring-primary text-slate-900 dark:text-white"
+                                    />
+                                  </div>
+                                  <div className="space-y-1">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase block">Status</label>
+                                    <input
+                                      required
+                                      type="text"
+                                      value={statuses[idx]}
+                                      onChange={e => handlePaymentRowChange('status', idx, e.target.value)}
+                                      className="w-full rounded-lg border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-medium outline-none focus:ring-1 focus:ring-primary text-slate-900 dark:text-white"
+                                    />
+                                  </div>
+                                </div>
+                              ));
+                            })()}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {activeEditTab === 'inclusions' && (
+                      <div className="animate-in fade-in duration-200 grid grid-cols-1 md:grid-cols-2 gap-8">
+                        {/* Inclusions */}
+                        <div className="space-y-4">
+                          <div className="flex justify-between items-center">
+                            <h4 className="text-sm font-bold text-green-700 dark:text-green-400">Inclusions</h4>
+                            <button
+                              type="button"
+                              onClick={addInclusion}
+                              className="px-3 py-1.5 bg-green-500/10 hover:bg-green-500/20 text-green-600 dark:text-green-400 text-xs font-bold rounded-lg transition-colors flex items-center gap-1"
+                            >
+                              <span className="material-symbols-outlined text-[16px]">add</span> Add Inclusion
+                            </button>
+                          </div>
+                          <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-2">
+                            {editForm.included.map((inc, idx) => (
+                              <div key={idx} className="flex items-center gap-2">
+                                <input
+                                  required
+                                  type="text"
+                                  value={inc}
+                                  onChange={e => handleInclusionChange(idx, e.target.value)}
+                                  className="flex-1 rounded-lg border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs font-medium outline-none focus:ring-1 focus:ring-primary text-slate-900 dark:text-white"
+                                  placeholder="e.g. Stay at 4-star hotel"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => removeInclusion(idx)}
+                                  className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-550 dark:hover:bg-red-950/20 rounded-lg transition-colors"
+                                >
+                                  <span className="material-symbols-outlined text-sm">delete</span>
+                                </button>
+                              </div>
+                            ))}
+                            {editForm.included.length === 0 && (
+                              <div className="text-center py-8 text-slate-400 text-xs">No inclusions added.</div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Exclusions */}
+                        <div className="space-y-4">
+                          <div className="flex justify-between items-center">
+                            <h4 className="text-sm font-bold text-red-700 dark:text-red-400">Exclusions</h4>
+                            <button
+                              type="button"
+                              onClick={addExclusion}
+                              className="px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 text-xs font-bold rounded-lg transition-colors flex items-center gap-1"
+                            >
+                              <span className="material-symbols-outlined text-[16px]">add</span> Add Exclusion
+                            </button>
+                          </div>
+                          <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-2">
+                            {editForm.notIncluded.map((exc, idx) => (
+                              <div key={idx} className="flex items-center gap-2">
+                                <input
+                                  required
+                                  type="text"
+                                  value={exc}
+                                  onChange={e => handleExclusionChange(idx, e.target.value)}
+                                  className="flex-1 rounded-lg border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs font-medium outline-none focus:ring-1 focus:ring-primary text-slate-900 dark:text-white"
+                                  placeholder="e.g. Any personal expenses"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => removeExclusion(idx)}
+                                  className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-550 dark:hover:bg-red-950/20 rounded-lg transition-colors"
+                                >
+                                  <span className="material-symbols-outlined text-sm">delete</span>
+                                </button>
+                              </div>
+                            ))}
+                            {editForm.notIncluded.length === 0 && (
+                              <div className="text-center py-8 text-slate-400 text-xs">No exclusions added.</div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {activeEditTab === 'faqs' && (
+                      <div className="animate-in fade-in duration-200 space-y-4">
+                        <div className="flex justify-between items-center mb-2">
+                          <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300">FAQs ({editForm.faqs.length})</h4>
+                          <button
+                            type="button"
+                            onClick={addFaq}
+                            className="px-3 py-1.5 bg-primary/10 hover:bg-primary/20 text-primary text-xs font-bold rounded-lg transition-colors flex items-center gap-1"
+                          >
+                            <span className="material-symbols-outlined text-[16px]">add</span> Add FAQ
+                          </button>
+                        </div>
+                        
+                        <div className="space-y-4 max-h-[55vh] overflow-y-auto pr-2">
+                          {editForm.faqs.map((faq, idx) => (
+                            <div key={idx} className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800 space-y-3 relative group">
+                              <div className="space-y-1">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase">Question</label>
+                                <input
+                                  required
+                                  type="text"
+                                  value={faq.q}
+                                  onChange={e => handleFaqChange(idx, 'q', e.target.value)}
+                                  className="w-full rounded-lg border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-xs font-semibold outline-none focus:ring-1 focus:ring-primary text-slate-900 dark:text-white"
+                                  placeholder="e.g. What is included in meals?"
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase">Answer</label>
+                                <textarea
+                                  required
+                                  value={faq.a}
+                                  onChange={e => handleFaqChange(idx, 'a', e.target.value)}
+                                  className="w-full h-20 rounded-lg border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-xs font-medium outline-none focus:ring-1 focus:ring-primary text-slate-900 dark:text-white resize-y"
+                                  placeholder="Answer text..."
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => removeFaq(idx)}
+                                className="absolute top-2 right-2 p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg transition-colors opacity-0 group-hover:opacity-100 sm:opacity-100"
+                                title="Delete FAQ"
+                              >
+                                <span className="material-symbols-outlined text-sm">delete</span>
+                              </button>
+                            </div>
+                          ))}
+                          {editForm.faqs.length === 0 && (
+                            <div className="text-center py-8 text-slate-400 text-xs">
+                              No FAQs defined. Click "Add FAQ" to get started.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {activeEditTab === 'itinerary' && (
+                      <div className="animate-in fade-in duration-200 space-y-4">
+                        <div className="p-4 bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-150 dark:border-indigo-900/35 rounded-2xl mb-4 flex gap-3">
+                          <span className="material-symbols-outlined text-indigo-500 shrink-0">info</span>
+                          <div>
+                            <h5 className="text-xs font-bold text-indigo-700 dark:text-indigo-400 uppercase">Detailed Itinerary Builder Available</h5>
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed font-medium">
+                              This panel is for simple text adjustments to day titles and descriptions. To add/remove interactive elements like hotels, cabs, activities, flight options, net-cost pricing, or customize timelines, please use the full <button type="button" onClick={() => { setIsAdminEditOpen(false); navigate(`/admin/itinerary-builder?edit=${tour.id}`); }} className="font-bold text-primary hover:underline">Itinerary Builder</button>.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex justify-between items-center mb-2">
+                          <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300">Days List ({editForm.itinerary.length})</h4>
+                          <button
+                            type="button"
+                            onClick={addItineraryDay}
+                            className="px-3 py-1.5 bg-primary/10 hover:bg-primary/20 text-primary text-xs font-bold rounded-lg transition-colors flex items-center gap-1"
+                          >
+                            <span className="material-symbols-outlined text-[16px]">add</span> Add Day
+                          </button>
+                        </div>
+
+                        <div className="space-y-4 max-h-[45vh] overflow-y-auto pr-2">
+                          {editForm.itinerary.map((item, idx) => (
+                            <div key={idx} className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800 space-y-3 relative group">
+                              <div className="flex items-center justify-between">
+                                <span className="px-2.5 py-1 bg-slate-205 dark:bg-slate-700 rounded-lg text-slate-800 dark:text-slate-200 text-[10px] font-black uppercase">
+                                  Day {item.day || idx + 1}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => removeItineraryDay(idx)}
+                                  className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg transition-colors"
+                                  title="Delete Day"
+                                >
+                                  <span className="material-symbols-outlined text-sm">delete</span>
+                                </button>
+                              </div>
+                              
+                              <div className="space-y-1">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase">Day Title</label>
+                                <input
+                                  required
+                                  type="text"
+                                  value={item.title}
+                                  onChange={e => handleItineraryChange(idx, 'title', e.target.value)}
+                                  className="w-full rounded-lg border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-xs font-semibold outline-none focus:ring-1 focus:ring-primary text-slate-900 dark:text-white"
+                                  placeholder="e.g. Arrival in Leh"
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase">Day Description</label>
+                                <textarea
+                                  required
+                                  value={item.desc}
+                                  onChange={e => handleItineraryChange(idx, 'desc', e.target.value)}
+                                  className="w-full h-24 rounded-lg border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-xs font-medium outline-none focus:ring-1 focus:ring-primary text-slate-900 dark:text-white resize-y"
+                                  placeholder="Day summary/description..."
+                                />
+                              </div>
+                            </div>
+                          ))}
+                          {editForm.itinerary.length === 0 && (
+                            <div className="text-center py-8 text-slate-400 text-xs">
+                              No days in itinerary. Click "Add Day" to add itinerary days.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </form>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="p-6 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex justify-end gap-3 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setIsAdminEditOpen(false)}
+                  className="px-5 py-2.5 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-black uppercase tracking-wider rounded-xl transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSaveAll()}
+                  className="px-6 py-2.5 bg-primary hover:bg-primary-dark text-white text-xs font-black uppercase tracking-wider rounded-xl shadow-lg shadow-primary/20 transition-all active:scale-95"
+                >
+                  Save Changes
+                </button>
+              </div>
+
+            </div>
+          </div>
+        )}
       </div >
     </>
   );

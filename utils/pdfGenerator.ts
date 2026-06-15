@@ -150,7 +150,7 @@ export const generateProformaInvoice = (proposal: Proposal, optionId: string, le
         addressLine1: "A508, Wisteria, Patil Nagar,",
         addressLine2: "Chikhali, PCMC, Pune, MH - 411062",
         phone: "+91 80109 55675",
-        email: "shravyatours23@gmail.com",
+        email: "shrawello@gmail.com",
         gstin: "27BKSPK0858C1Z6", // Updated Validation
         bank: {
             name: "KOTAK MAHINDRA BANK",
@@ -290,7 +290,7 @@ export const generateBookingInvoice = (booking: any, customer: any) => {
         addressLine1: "A508, Wisteria, Patil Nagar,",
         addressLine2: "Chikhali, PCMC, Pune, MH - 411062",
         phone: "+91 80109 55675",
-        email: "shravyatours23@gmail.com",
+        email: "shrawello@gmail.com",
         gstin: "27BKSPK0858C1Z6",
         bank: {
             name: "KOTAK MAHINDRA BANK",
@@ -1109,7 +1109,7 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
         doc.setFont("helvetica", "normal");
         doc.setFontSize(7.5);
         doc.setTextColor(71, 85, 105);
-        const contactStr = `For enquiries, email ${company.email || 'shravyatours23@gmail.com'}`;
+        const contactStr = `For enquiries, email ${company.email || 'shrawello@gmail.com'}`;
         const wrappedContact = doc.splitTextToSize(contactStr, 90);
         doc.text(wrappedContact[0], 24, footerY + 1.5);
         doc.text(`or call on ${company.phone || '+91 80109 55675'}`, 24, footerY + 5.2);
@@ -1549,7 +1549,7 @@ export const generateReceiptPDF = async (
     doc.setFont("helvetica", "bold");
     doc.setFontSize(8);
     doc.setTextColor(11, 27, 63);
-    doc.text("+91 99222 44412   |   shrawellotravelhub@gmail.com", 15, footerY + 9.5);
+    doc.text("+91 99222 44412   |   shrawello@gmail.com", 15, footerY + 9.5);
 
     // Thank you text on right
     doc.setFont("helvetica", "bolditalic");

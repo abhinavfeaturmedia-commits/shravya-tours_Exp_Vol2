@@ -9,7 +9,7 @@ async function testFetchWithAuth() {
     console.log('Signing in...');
     // using the admin email we configured in create-user earlier
     const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email: 'toursshravya@gmail.com',
+        email: 'shrawello@gmail.com',
         password: 'password' // or whatever password it is, let me try if I can just use a dummy or if I need the service role key to bypass and check policies
     });
 

@@ -345,7 +345,7 @@ export const StaffManagement: React.FC = () => {
         const member = staff.find(s => s.id === id);
         if (member) {
             // Basic protection for the hardcoded super admin email
-            if (member.email === 'toursshravya@gmail.com') {
+            if (member.email === 'shrawello@gmail.com') {
                 toast.error("Cannot deactivate the primary System Owner.");
                 return;
             }

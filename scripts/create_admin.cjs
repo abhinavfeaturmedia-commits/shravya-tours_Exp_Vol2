@@ -9,7 +9,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 async function createAdmin() {
     console.log("Creating Super Admin user...");
 
-    const email = 'toursshravya@gmail.com';
+    const email = 'shrawello@gmail.com';
     const password = 'Shravya@2026';
 
     const { data, error } = await supabase.auth.signUp({
