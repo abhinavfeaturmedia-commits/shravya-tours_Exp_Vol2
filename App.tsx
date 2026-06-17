@@ -7,9 +7,12 @@ import { PartnerLayout } from './components/layouts/PartnerLayout';
 import { DataProvider } from './context/DataContext';
 import { AuthProvider } from './context/AuthContext';
 import { PartnerAuthProvider } from './context/PartnerAuthContext';
+import { CustomerAuthProvider } from './context/CustomerAuthContext';
 import { MasterDataProvider } from './context/MasterDataContext';
 import { SettingsProvider } from './context/SettingsContext';
 import { ToastProvider } from './components/ui/Toast';
+
+import { CustomerGuard } from './components/customer/CustomerGuard';
 
 // Lazy load pages to reduce initial bundle size
 const Home = lazy(() => import('./pages/Home').then(module => ({ default: module.Home })));
@@ -69,6 +72,12 @@ const PartnerSubmitLead = lazy(() => import('./pages/partner/PartnerSubmitLead')
 const PartnerEarnings = lazy(() => import('./pages/partner/PartnerEarnings').then(m => ({ default: m.PartnerEarnings })));
 const PartnerProfile = lazy(() => import('./pages/partner/PartnerProfile').then(m => ({ default: m.PartnerProfile })));
 
+// Customer Portal Pages
+const CustomerLogin = lazy(() => import('./pages/customer/CustomerLogin').then(m => ({ default: m.CustomerLogin })));
+const CustomerRegister = lazy(() => import('./pages/customer/CustomerRegister').then(m => ({ default: m.CustomerRegister })));
+const CustomerDashboard = lazy(() => import('./pages/customer/CustomerDashboard').then(m => ({ default: m.CustomerDashboard })));
+const BookingDetail = lazy(() => import('./pages/customer/BookingDetail').then(m => ({ default: m.BookingDetail })));
+
 // Loading Fallback
 const PageLoader = () => (
   <div className="flex items-center justify-center min-h-[60vh]">
@@ -83,6 +92,7 @@ const App: React.FC = () => {
   return (
     <AuthProvider>
       <PartnerAuthProvider>
+        <CustomerAuthProvider>
         <MasterDataProvider>
         <SettingsProvider>
         <DataProvider>
@@ -159,6 +169,20 @@ const App: React.FC = () => {
                   <Route path="profile" element={<PartnerProfile />} />
                 </Route>
 
+                {/* Customer Portal Routes */}
+                <Route path="/customer/login" element={<CustomerLogin />} />
+                <Route path="/customer/register" element={<CustomerRegister />} />
+                <Route path="/my-account" element={
+                  <CustomerGuard>
+                    <CustomerDashboard />
+                  </CustomerGuard>
+                } />
+                <Route path="/my-account/booking/:id" element={
+                  <CustomerGuard>
+                    <BookingDetail />
+                  </CustomerGuard>
+                } />
+
                 {/* Fallback for unknown routes */}
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
@@ -167,6 +191,7 @@ const App: React.FC = () => {
         </DataProvider>
         </SettingsProvider>
         </MasterDataProvider>
+        </CustomerAuthProvider>
       </PartnerAuthProvider>
     </AuthProvider>
   );

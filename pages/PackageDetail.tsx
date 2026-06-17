@@ -11,12 +11,63 @@ import { PhoneInput } from '../components/ui/PhoneInput';
 import { api } from '../src/lib/api';
 import { ImageUpload } from '../components/ui/ImageUpload';
 import { formatPrice, formatPriceCompact, getLocationName } from '../utils/packageUtils';
+import { useCustomerAuth, CUSTOMER_JWT_KEY } from '../context/CustomerAuthContext';
 
 export const PackageDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { packages, masterLocations, addLead, trendingDestinations, updatePackage, cmsGallery } = useData();
   const { hasPermission } = useAuth();
+  
+  const { customer, isAuthenticated } = useCustomerAuth();
+  const [isWishlisted, setIsWishlisted] = useState(false);
+
+  useEffect(() => {
+    const checkWishlistStatus = async () => {
+      if (!isAuthenticated || !id) return;
+      try {
+        const token = localStorage.getItem(CUSTOMER_JWT_KEY);
+        const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/customer/wishlist`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const wishlisted = data.some((p: any) => p.id === id);
+          setIsWishlisted(wishlisted);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    };
+    checkWishlistStatus();
+  }, [isAuthenticated, id]);
+
+  const handleToggleWishlist = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isAuthenticated) {
+      navigate('/customer/login');
+      return;
+    }
+    try {
+      const token = localStorage.getItem(CUSTOMER_JWT_KEY);
+      const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/customer/wishlist/toggle`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ packageId: id })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setIsWishlisted(data.added);
+        toast.success(data.added ? 'Added to wishlist!' : 'Removed from wishlist!');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   // Package Management Permissions
   const canEdit = useMemo(() => {
@@ -72,7 +123,8 @@ export const PackageDetail: React.FC = () => {
     partnerCommissionType: 'Percentage' as CommissionType,
     partnerCommissionValue: '' as string | number,
     addons: [] as { id: string; label: string; price: number }[],
-    gallery: [] as string[]
+    gallery: [] as string[],
+    pricingMode: 'group' as 'group' | 'per_person'
   });
 
   const [guests, setGuests] = useState('2 Adults');
@@ -85,6 +137,19 @@ export const PackageDetail: React.FC = () => {
     whatsapp: '',
     date: ''
   });
+
+  useEffect(() => {
+    if (bookingModal && isAuthenticated && customer) {
+      setBookingData(prev => ({
+        ...prev,
+        name: customer.name || prev.name,
+        email: customer.email || prev.email,
+        phone: customer.phone || prev.phone,
+        whatsapp: customer.whatsapp || customer.phone || prev.whatsapp,
+        isWhatsappSame: customer.whatsapp ? customer.whatsapp === customer.phone : true
+      }));
+    }
+  }, [bookingModal, isAuthenticated, customer]);
 
   // Customization State
   const [selectedAddons, setSelectedAddons] = useState<string[]>([]);
@@ -408,7 +473,8 @@ export const PackageDetail: React.FC = () => {
         partnerCommissionType: tour.partnerCommissionType || 'Percentage',
         partnerCommissionValue: tour.partnerCommissionValue !== undefined && tour.partnerCommissionValue !== null ? tour.partnerCommissionValue : '',
         addons: tour.addons || [],
-        gallery: tour.gallery || []
+        gallery: tour.gallery || [],
+        pricingMode: tour.pricingMode || 'group'
       });
     }
   }, [tour, isAdminEditOpen, ageLimitsList, cancellationPolicy, paymentPolicy, faqs]);
@@ -422,6 +488,7 @@ export const PackageDetail: React.FC = () => {
         location: editForm.location,
         price: editForm.price,
         originalPrice: editForm.originalPrice || undefined,
+        pricingMode: editForm.pricingMode,
         days: editForm.days,
         overview: editForm.overview,
         validity_date: editForm.validityDate || null,
@@ -646,20 +713,49 @@ export const PackageDetail: React.FC = () => {
     }, 0);
   };
 
+  const getOccupancyCapacity = (id: string, label: string): number => {
+    const normalizedId = id.toLowerCase();
+    const normalizedLabel = label.toLowerCase();
+    if (normalizedId.includes('single') || normalizedLabel.includes('single')) return 1;
+    if (normalizedId.includes('triple') || normalizedLabel.includes('triple')) return 3;
+    if (normalizedId.includes('quad') || normalizedLabel.includes('quad')) return 4;
+    return 2; // Default double sharing
+  };
+
   const calculateTotal = () => {
     const { adults, children } = parseGuestCounts();
-    const adultCost = adults * activeOccupancy.price;
-    const childCost = children * Math.round(activeOccupancy.price * 0.85);
-    return Math.round(adultCost + childCost + getAddonsTotal());
+    const isGroup = (tour.pricingMode || 'group') === 'group';
+    if (isGroup) {
+      const capacity = getOccupancyCapacity(activeOccupancy.id, activeOccupancy.label);
+      const rooms = Math.ceil(adults / capacity);
+      const adultCost = rooms * activeOccupancy.price;
+      const perPersonBase = activeOccupancy.price / capacity;
+      const childCost = children * Math.round(perPersonBase * 0.85);
+      return Math.round(adultCost + childCost + getAddonsTotal());
+    } else {
+      const adultCost = adults * activeOccupancy.price;
+      const childCost = children * Math.round(activeOccupancy.price * 0.85);
+      return Math.round(adultCost + childCost + getAddonsTotal());
+    }
   };
 
   const calculateOriginalTotal = () => {
     if (!tour.originalPrice) return 0;
     const { adults, children } = parseGuestCounts();
     const originalRate = tour.originalPrice;
-    const adultCost = adults * originalRate;
-    const childCost = children * Math.round(originalRate * 0.85);
-    return Math.round(adultCost + childCost + getAddonsTotal());
+    const isGroup = (tour.pricingMode || 'group') === 'group';
+    if (isGroup) {
+      const capacity = getOccupancyCapacity(activeOccupancy.id, activeOccupancy.label);
+      const rooms = Math.ceil(adults / capacity);
+      const adultCost = rooms * originalRate;
+      const perPersonBase = originalRate / capacity;
+      const childCost = children * Math.round(perPersonBase * 0.85);
+      return Math.round(adultCost + childCost + getAddonsTotal());
+    } else {
+      const adultCost = adults * originalRate;
+      const childCost = children * Math.round(originalRate * 0.85);
+      return Math.round(adultCost + childCost + getAddonsTotal());
+    }
   };
 
   const headcount = getPaxHeadcount();
@@ -1130,8 +1226,8 @@ export const PackageDetail: React.FC = () => {
                 </div>
                 <div className="p-4 bg-primary/5 rounded-2xl border border-primary/10 mt-2 space-y-2">
                   <div className="flex justify-between items-center text-xs font-bold text-slate-500">
-                    <span>Price Per Person</span>
-                    <span>{formatPrice(perPersonPrice)}</span>
+                    <span>{tour.pricingMode === 'group' ? 'Package Base Rate' : 'Price Per Person'}</span>
+                    <span>{formatPrice(tour.pricingMode === 'group' ? activeOccupancy.price : perPersonPrice)}</span>
                   </div>
                   <div className="flex justify-between items-center text-sm font-black text-slate-900 dark:text-white border-t border-slate-200/50 dark:border-slate-700/50 pt-2">
                     <span>Estimated Total ({activeOccupancy.label})</span>
@@ -1554,30 +1650,7 @@ export const PackageDetail: React.FC = () => {
                 </div>
               </section>
 
-              {/* Gallery Section */}
-              {tour.gallery && tour.gallery.length > 0 && (
-                <section id="gallery" className="scroll-mt-36 bg-white dark:bg-[#151d29] p-8 rounded-[2rem] border border-slate-150 dark:border-slate-800/80 shadow-sm">
-                  <h2 className="text-xl font-black text-slate-900 dark:text-white mb-6 flex items-center gap-2">
-                    <span className="material-symbols-outlined text-indigo-650">photo_library</span>
-                    Gallery
-                  </h2>
-                  <div className="columns-1 sm:columns-2 md:columns-3 lg:columns-4 gap-4 space-y-4">
-                    {tour.gallery.map((img, index) => (
-                      <div 
-                        key={index}
-                        onClick={() => openLightbox(index)}
-                        className="break-inside-avoid overflow-hidden rounded-2xl cursor-pointer group relative shadow-sm border border-slate-150 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 transition-all duration-300 hover:shadow-md"
-                      >
-                        <OptimizedImage 
-                          src={img} 
-                          alt={`${tour.title} Gallery ${index + 1}`} 
-                          className="w-full h-auto object-cover transition-transform duration-500 group-hover:scale-105" 
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </section>
-              )}
+
 
               {/* Itinerary Section */}
               <section id="itinerary" className="scroll-mt-36">
@@ -1865,12 +1938,18 @@ export const PackageDetail: React.FC = () => {
                   <div className="p-6 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/20 shrink-0">
                     <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Starting from</p>
                     <div className="flex items-baseline gap-1 mb-2">
-                      <span className="text-4xl font-black text-slate-900 dark:text-white tracking-tight">{formatPrice(perPersonPrice)}</span>
-                      <span className="text-sm font-bold text-slate-500">/ person</span>
+                      <span className="text-4xl font-black text-slate-900 dark:text-white tracking-tight">
+                        {formatPrice(tour.pricingMode === 'group' ? activeOccupancy.price : perPersonPrice)}
+                      </span>
+                      <span className="text-sm font-bold text-slate-500">
+                        {tour.pricingMode === 'group' ? '/ group' : '/ person'}
+                      </span>
                     </div>
                     {tour.originalPrice && tour.originalPrice > activeOccupancy.price && (
                       <div className="flex items-center gap-2 mb-3">
-                        <span className="text-sm text-slate-400 line-through decoration-slate-300 dark:decoration-slate-600">{formatPrice(perPersonOriginalPrice)}</span>
+                        <span className="text-sm text-slate-400 line-through decoration-slate-300 dark:decoration-slate-600">
+                          {formatPrice(tour.pricingMode === 'group' ? tour.originalPrice : perPersonOriginalPrice)}
+                        </span>
                         <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 uppercase tracking-wider">Save {Math.round(((tour.originalPrice - activeOccupancy.price) / tour.originalPrice) * 100)}%</span>
                       </div>
                     )}
@@ -1986,7 +2065,16 @@ export const PackageDetail: React.FC = () => {
 
                   {/* Actions */}
                   <div className="p-6 pt-4 border-t border-slate-100 dark:border-slate-800/80 bg-white dark:bg-[#151d29] space-y-4 shrink-0">
-                    <div className="flex gap-3">
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleToggleWishlist}
+                        className="size-14 rounded-2xl border border-slate-200 hover:bg-slate-50 flex items-center justify-center transition-all shrink-0 text-red-500 bg-white"
+                        title="Save to Wishlist"
+                      >
+                        <span className="material-symbols-outlined text-[24px]" style={{ fontVariationSettings: isWishlisted ? "'FILL' 1" : "'FILL' 0" }}>
+                          favorite
+                        </span>
+                      </button>
                       <a
                         href={`https://wa.me/?text=${encodeURIComponent(`I'm interested in booking the tour: ${tour.title}\n${window.location.href}`)}`}
                         target="_blank"
@@ -2147,19 +2235,32 @@ export const PackageDetail: React.FC = () => {
           <div className="flex items-center justify-between max-w-lg mx-auto gap-4">
             <div className="shrink-0">
               <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1">
-                Price per person
+                {tour.pricingMode === 'group' ? 'Total Price' : 'Price per person'}
               </p>
               <div className="flex items-baseline gap-1.5">
-                <p className="text-xl font-black text-slate-900 dark:text-white">{formatPrice(perPersonPrice)}</p>
+                <p className="text-xl font-black text-slate-900 dark:text-white">
+                  {formatPrice(tour.pricingMode === 'group' ? calculateTotal() : perPersonPrice)}
+                </p>
                 {tour.originalPrice && tour.originalPrice > activeOccupancy.price && (
-                  <span className="text-[11px] text-slate-400 line-through">{formatPriceCompact(perPersonOriginalPrice)}</span>
+                  <span className="text-[11px] text-slate-400 line-through">
+                    {formatPriceCompact(tour.pricingMode === 'group' ? calculateOriginalTotal() : perPersonOriginalPrice)}
+                  </span>
                 )}
               </div>
               <p className="text-[9px] text-slate-500 font-bold">
-                Total: {formatPrice(calculateTotal())}
+                {tour.pricingMode === 'group' ? `Based on ${guests}` : `Total: ${formatPrice(calculateTotal())}`}
               </p>
             </div>
             <div className="flex items-center gap-2 flex-1 justify-end">
+              <button
+                onClick={handleToggleWishlist}
+                className="size-11 rounded-xl border border-slate-200 flex items-center justify-center transition-all text-red-500 bg-white"
+                title="Save to Wishlist"
+              >
+                <span className="material-symbols-outlined text-[20px]" style={{ fontVariationSettings: isWishlisted ? "'FILL' 1" : "'FILL' 0" }}>
+                  favorite
+                </span>
+              </button>
               <a
                 href={`https://wa.me/?text=${encodeURIComponent(`I'm interested in booking the tour: ${tour.title}\n${window.location.href}`)}`}
                 target="_blank"
@@ -2348,6 +2449,17 @@ export const PackageDetail: React.FC = () => {
                               >
                                 <option value="Active">Active (Visible)</option>
                                 <option value="Inactive">Inactive (Hidden)</option>
+                              </select>
+                            </div>
+                            <div className="space-y-1">
+                              <label className="block text-xs font-bold uppercase text-slate-500 pl-1">Pricing Mode</label>
+                              <select
+                                value={editForm.pricingMode}
+                                onChange={e => setEditForm({ ...editForm, pricingMode: e.target.value as any })}
+                                className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white"
+                              >
+                                <option value="group">Group/Package Price</option>
+                                <option value="per_person">Per Person Price</option>
                               </select>
                             </div>
                             <div className="space-y-1">

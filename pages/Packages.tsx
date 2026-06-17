@@ -1,15 +1,69 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import { SEO } from '../components/ui/SEO';
 import { OptimizedImage } from '../components/ui/OptimizedImage';
 import { getLocationName, formatPriceCompact } from '../utils/packageUtils';
+import { useCustomerAuth, CUSTOMER_JWT_KEY } from '../context/CustomerAuthContext';
 
 export const Packages: React.FC = () => {
   const { packages, masterLocations, trendingDestinations } = useData();
   const [searchParams, setSearchParams] = useSearchParams();
   const initialSearch = searchParams.get('search') || '';
   const destinationId = searchParams.get('destinationId') || '';
+
+  const { isAuthenticated } = useCustomerAuth();
+  const navigate = useNavigate();
+  const [wishlistIds, setWishlistIds] = useState<string[]>([]);
+  
+  useEffect(() => {
+    const fetchWishlistIds = async () => {
+      if (!isAuthenticated) return;
+      try {
+        const token = localStorage.getItem(CUSTOMER_JWT_KEY);
+        const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/customer/wishlist`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setWishlistIds(data.map((p: any) => p.id));
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    };
+    fetchWishlistIds();
+  }, [isAuthenticated]);
+
+  const handleToggleWishlist = async (e: React.MouseEvent, pkgId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isAuthenticated) {
+      navigate('/customer/login');
+      return;
+    }
+    try {
+      const token = localStorage.getItem(CUSTOMER_JWT_KEY);
+      const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/customer/wishlist/toggle`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ packageId: pkgId })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.added) {
+          setWishlistIds([...wishlistIds, pkgId]);
+        } else {
+          setWishlistIds(wishlistIds.filter(id => id !== pkgId));
+        }
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   // Derive max duration dynamically from actual package data
   const maxDuration = useMemo(() => {
@@ -347,7 +401,16 @@ export const Packages: React.FC = () => {
                           </div>
 
                           {/* Top Right Badges */}
-                          <div className="absolute top-4 right-4 z-20">
+                          <div className="absolute top-4 right-4 z-30 flex items-center gap-2">
+                            <button
+                              onClick={(e) => handleToggleWishlist(e, pkg.id)}
+                              className="size-8 rounded-full bg-white/95 dark:bg-[#1A2633]/95 flex items-center justify-center shadow-md hover:scale-105 active:scale-90 transition-all text-red-500"
+                            >
+                              <span className="material-symbols-outlined text-[18px]" style={{ fontVariationSettings: wishlistIds.includes(pkg.id) ? "'FILL' 1" : "'FILL' 0" }}>
+                                favorite
+                              </span>
+                            </button>
+
                             <div className="bg-black/30 backdrop-blur-md text-white text-[10px] font-black px-3 py-1.5 rounded-full flex items-center gap-1.5 border border-white/10">
                               <span className="material-symbols-outlined text-[14px]">schedule</span>
                               {pkg.days}D / {pkg.days - 1}N

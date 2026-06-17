@@ -1818,6 +1818,867 @@ app.post('/api/auth/create-user', authMiddleware, async (req, res) => {
 });
 
 // ═══════════════════════════════════════════
+// CUSTOMER PORTAL AUTH & PORTAL ROUTES
+// ═══════════════════════════════════════════
+
+// Ensure customer_users table exists and perform migrations
+(async () => {
+    try {
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS customer_users (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                email VARCHAR(255) UNIQUE NOT NULL,
+                phone VARCHAR(50) DEFAULT NULL,
+                whatsapp VARCHAR(50) DEFAULT NULL,
+                address TEXT DEFAULT NULL,
+                dob VARCHAR(50) DEFAULT NULL,
+                password_hash VARCHAR(255) NOT NULL,
+                is_active BOOLEAN DEFAULT true,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+        console.log('[Customer Auth] customer_users table ensured.');
+
+        // Alterations for customer portal features
+        try {
+            await pool.query("ALTER TABLE customer_users ADD COLUMN travel_preferences LONGTEXT DEFAULT NULL");
+        } catch (e) { /* ignore duplicate column */ }
+        try {
+            await pool.query("ALTER TABLE customer_users ADD COLUMN referral_code VARCHAR(100) UNIQUE DEFAULT NULL");
+        } catch (e) { /* ignore duplicate column */ }
+        try {
+            await pool.query("ALTER TABLE customer_users ADD COLUMN loyalty_points INT DEFAULT 0");
+        } catch (e) { /* ignore duplicate column */ }
+
+        // Seed referral code for existing users if any
+        await pool.query("UPDATE customer_users SET referral_code = CONCAT('REF-', UPPER(SUBSTRING(MD5(RAND()), 1, 6))) WHERE referral_code IS NULL");
+
+        // Ensure other customer portal tables exist
+        const tables = [
+            `CREATE TABLE IF NOT EXISTS customer_wishlists (
+                customer_id INT,
+                package_id VARCHAR(255),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (customer_id, package_id)
+            )`,
+            `CREATE TABLE IF NOT EXISTS customer_enquiries (
+                id VARCHAR(255) PRIMARY KEY,
+                customer_id INT,
+                name VARCHAR(255),
+                email VARCHAR(255),
+                phone VARCHAR(50),
+                destination VARCHAR(255),
+                travel_date DATE,
+                pax INT,
+                budget VARCHAR(100),
+                message TEXT,
+                status VARCHAR(50) DEFAULT 'Pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )`,
+            `CREATE TABLE IF NOT EXISTS customer_co_travelers (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                customer_id INT,
+                name VARCHAR(255) NOT NULL,
+                relation VARCHAR(100),
+                phone VARCHAR(50),
+                passport_no VARCHAR(100),
+                dob DATE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )`,
+            `CREATE TABLE IF NOT EXISTS customer_documents (
+                id VARCHAR(255) PRIMARY KEY,
+                customer_id INT,
+                doc_type VARCHAR(100),
+                filename VARCHAR(255),
+                file_url TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )`,
+            `CREATE TABLE IF NOT EXISTS customer_loyalty_points (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                customer_id INT,
+                points INT,
+                transaction_type VARCHAR(50),
+                description TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )`,
+            `CREATE TABLE IF NOT EXISTS customer_referrals (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                customer_id INT,
+                referral_code VARCHAR(100),
+                referred_email VARCHAR(255),
+                status VARCHAR(50) DEFAULT 'Pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )`,
+            `CREATE TABLE IF NOT EXISTS customer_chat_messages (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                customer_id INT,
+                booking_id VARCHAR(64) DEFAULT NULL,
+                sender_type VARCHAR(50),
+                message TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )`,
+            `CREATE TABLE IF NOT EXISTS customer_notifications (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                customer_id INT,
+                type VARCHAR(50),
+                title VARCHAR(255),
+                message TEXT,
+                is_read BOOLEAN DEFAULT false,
+                link VARCHAR(255) DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )`,
+            `CREATE TABLE IF NOT EXISTS customer_reviews (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                customer_id INT,
+                booking_id VARCHAR(64),
+                rating INT,
+                review_text TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )`,
+            `CREATE TABLE IF NOT EXISTS customer_cancellation_requests (
+                id VARCHAR(255) PRIMARY KEY,
+                customer_id INT,
+                booking_id VARCHAR(64),
+                reason TEXT,
+                status VARCHAR(50) DEFAULT 'Pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )`,
+            `CREATE TABLE IF NOT EXISTS customer_reschedule_requests (
+                id VARCHAR(255) PRIMARY KEY,
+                customer_id INT,
+                booking_id VARCHAR(64),
+                requested_date DATE,
+                reason TEXT,
+                status VARCHAR(50) DEFAULT 'Pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )`
+        ];
+
+        for (const sql of tables) {
+            await pool.query(sql);
+        }
+        console.log('[Customer Portal] Tables and schemas ensured.');
+    } catch (err) {
+        console.error('[Customer Portal] Failed to ensure database tables:', err.message);
+    }
+})();
+
+// Customer Register
+app.post('/api/customer/auth/register', async (req, res) => {
+    const { name, email, password, phone, whatsapp } = req.body || {};
+    if (!name || !email || !password) {
+        return res.status(400).json({ error: 'Name, email, and password are required.' });
+    }
+    if (password.length < 6) {
+        return res.status(400).json({ error: 'Password must be at least 6 characters.' });
+    }
+    try {
+        const trimmedEmail = email.trim().toLowerCase();
+        const [existing] = await pool.query('SELECT id FROM customer_users WHERE email = ?', [trimmedEmail]);
+        if (existing.length > 0) {
+            return res.status(409).json({ error: 'An account with this email already exists. Please sign in.' });
+        }
+        const hash = await bcrypt.hash(password, 10);
+        const refCode = 'REF-' + crypto.randomBytes(3).toString('hex').toUpperCase();
+        
+        await pool.query(
+            'INSERT INTO customer_users (name, email, phone, whatsapp, password_hash, referral_code) VALUES (?, ?, ?, ?, ?, ?)',
+            [name.trim(), trimmedEmail, phone || null, whatsapp || phone || null, hash, refCode]
+        );
+        console.log(`[Customer Auth] New customer registered: ${trimmedEmail}`);
+        return res.json({ message: 'Account created successfully!' });
+    } catch (err) {
+        console.error('[Customer Auth] Register error:', err.message);
+        return res.status(500).json({ error: 'Registration failed. Please try again.' });
+    }
+});
+
+// Customer Login
+app.post('/api/customer/auth/login', async (req, res) => {
+    const { email, password } = req.body || {};
+    if (!email || !password) {
+        return res.status(400).json({ error: 'Email and password are required.' });
+    }
+    try {
+        const trimmedEmail = email.trim().toLowerCase();
+        const [rows] = await pool.query('SELECT * FROM customer_users WHERE email = ?', [trimmedEmail]);
+        if (rows.length === 0) {
+            return res.status(401).json({ error: 'No account found with this email. Please register first.' });
+        }
+        const user = rows[0];
+        if (!user.is_active) {
+            return res.status(403).json({ error: 'Your account has been deactivated. Please contact support.' });
+        }
+        const valid = await bcrypt.compare(password, user.password_hash);
+        if (!valid) {
+            return res.status(401).json({ error: 'Incorrect password. Please try again.' });
+        }
+        const token = jwt.sign(
+            { id: user.id, email: user.email, role: 'customer' },
+            JWT_SECRET,
+            { expiresIn: '30d' }
+        );
+        console.log(`[Customer Auth] Customer login: ${trimmedEmail}`);
+        return res.json({
+            token,
+            customer: {
+                id: user.id, name: user.name, email: user.email,
+                phone: user.phone, whatsapp: user.whatsapp, address: user.address,
+                dob: user.dob, referral_code: user.referral_code, loyalty_points: user.loyalty_points || 0,
+                travel_preferences: user.travel_preferences, created_at: user.created_at,
+            }
+        });
+    } catch (err) {
+        console.error('[Customer Auth] Login error:', err.message);
+        return res.status(500).json({ error: 'Login failed. Please try again.' });
+    }
+});
+
+// Customer auth middleware
+function customerAuthMiddleware(req, res, next) {
+    const header = req.headers.authorization;
+    if (!header || !header.startsWith('Bearer ')) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+    try {
+        const decoded = jwt.verify(header.split(' ')[1], JWT_SECRET);
+        if (decoded.role !== 'customer') {
+            return res.status(403).json({ error: 'Access denied. Customer token required.' });
+        }
+        req.customer = decoded;
+        next();
+    } catch {
+        return res.status(401).json({ error: 'Invalid or expired token' });
+    }
+}
+
+// Get customer profile
+app.get('/api/customer/me', customerAuthMiddleware, async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            'SELECT id, name, email, phone, whatsapp, address, dob, travel_preferences, referral_code, loyalty_points, created_at FROM customer_users WHERE id = ?',
+            [req.customer.id]
+        );
+        if (rows.length === 0) return res.status(404).json({ error: 'Customer not found' });
+        return res.json(rows[0]);
+    } catch (err) {
+        console.error('[Customer Auth] /me error:', err.message);
+        return res.status(500).json({ error: 'Failed to fetch profile' });
+    }
+});
+
+// Get customer bookings (matches bookings by email)
+app.get('/api/customer/bookings', customerAuthMiddleware, async (req, res) => {
+    try {
+        const [rows] = await pool.query(`
+            SELECT id, package_name, destination, travel_date, total_price,
+                   payment_status, status, pax_count, pax_adult, pax_child, created_at
+            FROM bookings
+            WHERE LOWER(customer_email) = ?
+            ORDER BY created_at DESC
+            LIMIT 50
+        `, [req.customer.email]);
+        return res.json(rows);
+    } catch (err) {
+        console.warn('[Customer Auth] Bookings query warning:', err.message);
+        return res.json([]);
+    }
+});
+
+// Get specific booking details
+app.get('/api/customer/bookings/:id', customerAuthMiddleware, async (req, res) => {
+    try {
+        const [bookingRows] = await pool.query(
+            'SELECT * FROM bookings WHERE id = ? AND LOWER(customer_email) = ?',
+            [req.params.id, req.customer.email]
+        );
+        if (bookingRows.length === 0) return res.status(404).json({ error: 'Booking not found.' });
+        const booking = bookingRows[0];
+
+        const [suppliers] = await pool.query(
+            'SELECT service_type, supplier_name, start_date, end_date, notes, driver_name, driver_phone, vehicle_number FROM supplier_bookings WHERE booking_id = ?',
+            [booking.id]
+        );
+
+        return res.json({
+            booking,
+            suppliers
+        });
+    } catch (err) {
+        console.error('[Customer Booking Detail] Get error:', err.message);
+        return res.status(500).json({ error: 'Failed to fetch booking details.' });
+    }
+});
+
+// Get transactions for a booking
+app.get('/api/customer/bookings/:id/transactions', customerAuthMiddleware, async (req, res) => {
+    try {
+        const [bookingRows] = await pool.query(
+            'SELECT 1 FROM bookings WHERE id = ? AND LOWER(customer_email) = ?',
+            [req.params.id, req.customer.email]
+        );
+        if (bookingRows.length === 0) return res.status(404).json({ error: 'Booking not found.' });
+
+        const [txs] = await pool.query(
+            'SELECT * FROM booking_transactions WHERE booking_id = ? ORDER BY date DESC, created_at DESC',
+            [req.params.id]
+        );
+        return res.json(txs);
+    } catch (err) {
+        console.error('[Customer Booking Transactions] Get error:', err.message);
+        return res.status(500).json({ error: 'Failed to fetch payment history.' });
+    }
+});
+
+// Submit payment transaction receipt / UTR for admin verification
+app.post('/api/customer/bookings/:id/pay', customerAuthMiddleware, upload.single('receipt'), async (req, res) => {
+    const { amount, method, reference, notes } = req.body || {};
+    if (!amount || !method || !reference) {
+        return res.status(400).json({ error: 'Amount, payment method, and Reference/UTR are required.' });
+    }
+    try {
+        const [bookingRows] = await pool.query(
+            'SELECT package_name FROM bookings WHERE id = ? AND LOWER(customer_email) = ?',
+            [req.params.id, req.customer.email]
+        );
+        if (bookingRows.length === 0) return res.status(404).json({ error: 'Booking not found.' });
+
+        let receiptUrl = null;
+        if (req.file) {
+            receiptUrl = `/uploads/${req.file.filename}`;
+            await saveUploadedFileToDb(req.file);
+        }
+
+        await pool.query(`
+            INSERT INTO booking_transactions (booking_id, date, amount, type, method, reference, notes, status, receipt_url, recorded_by)
+            VALUES (?, CURDATE(), ?, 'Payment', ?, ?, ?, 'Pending', ?, ?)
+        `, [req.params.id, amount, method, reference, notes || 'Submitted via customer portal', receiptUrl, req.customer.email]);
+
+        await pool.query(`
+            INSERT INTO audit_logs (action, module, details, severity, performed_by, timestamp)
+            VALUES ('Submit Payment Receipt', 'Bookings', ?, 'Info', ?, DATE_FORMAT(NOW(), '%Y-%m-%d %H:%i:%s'))
+        `, [`Submitted UTR ${reference} for booking ${req.params.id} (${bookingRows[0].package_name})`, req.customer.email]);
+
+        return res.json({ message: 'Payment receipt submitted successfully! Staff will verify it shortly.' });
+    } catch (err) {
+        console.error('[Customer Booking Pay] Post error:', err.message);
+        return res.status(500).json({ error: 'Failed to submit payment details.' });
+    }
+});
+
+// Apply coupon code to booking
+app.post('/api/customer/bookings/:id/apply-coupon', customerAuthMiddleware, async (req, res) => {
+    const { couponCode } = req.body || {};
+    if (!couponCode) return res.status(400).json({ error: 'Coupon code is required.' });
+    try {
+        const [bookingRows] = await pool.query(
+            'SELECT * FROM bookings WHERE id = ? AND LOWER(customer_email) = ?',
+            [req.params.id, req.customer.email]
+        );
+        if (bookingRows.length === 0) return res.status(404).json({ error: 'Booking not found.' });
+        const booking = bookingRows[0];
+
+        if (booking.applied_coupon_code) {
+            return res.status(400).json({ error: 'A coupon has already been applied to this booking.' });
+        }
+
+        const [coupons] = await pool.query(
+            'SELECT * FROM coupons WHERE code = ? AND is_active = true',
+            [couponCode.trim().toUpperCase()]
+        );
+        if (coupons.length === 0) {
+            return res.status(400).json({ error: 'Invalid or inactive coupon code.' });
+        }
+        const coupon = coupons[0];
+
+        const originalPrice = Number(booking.original_price || booking.total_price);
+        let discount = 0;
+        if (coupon.discount_type === 'percentage') {
+            discount = (originalPrice * Number(coupon.discount_value)) / 100;
+        } else {
+            discount = Number(coupon.discount_value);
+        }
+        
+        if (coupon.max_discount && discount > Number(coupon.max_discount)) {
+            discount = Number(coupon.max_discount);
+        }
+
+        const newTotalPrice = Math.max(0, originalPrice - discount);
+
+        await pool.query(`
+            UPDATE bookings
+            SET applied_coupon_code = ?,
+                coupon_discount_amount = ?,
+                original_price = ?,
+                total_price = ?
+            WHERE id = ?
+        `, [coupon.code, discount, originalPrice, newTotalPrice, req.params.id]);
+
+        return res.json({
+            message: `Coupon ${coupon.code} applied! Saved ₹${discount.toLocaleString('en-IN')}`,
+            discount,
+            newTotalPrice
+        });
+    } catch (err) {
+        console.error('[Customer Booking Coupon] Post error:', err.message);
+        return res.status(500).json({ error: 'Failed to apply coupon.' });
+    }
+});
+
+// Cancellation Request
+app.post('/api/customer/bookings/:id/cancel', customerAuthMiddleware, async (req, res) => {
+    const { reason } = req.body || {};
+    if (!reason) return res.status(400).json({ error: 'Reason for cancellation is required.' });
+    const id = crypto.randomBytes(16).toString('hex');
+    try {
+        const [bookingRows] = await pool.query(
+            'SELECT 1 FROM bookings WHERE id = ? AND LOWER(customer_email) = ?',
+            [req.params.id, req.customer.email]
+        );
+        if (bookingRows.length === 0) return res.status(404).json({ error: 'Booking not found.' });
+
+        await pool.query(`
+            INSERT INTO customer_cancellation_requests (id, customer_id, booking_id, reason)
+            VALUES (?, ?, ?, ?)
+        `, [id, req.customer.id, req.params.id, reason]);
+
+        return res.json({ message: 'Cancellation request submitted. Staff will review it.' });
+    } catch (err) {
+        console.error('[Customer Booking Cancel] Post error:', err.message);
+        return res.status(500).json({ error: 'Failed to submit cancellation request.' });
+    }
+});
+
+// Reschedule Request
+app.post('/api/customer/bookings/:id/reschedule', customerAuthMiddleware, async (req, res) => {
+    const { requestedDate, reason } = req.body || {};
+    if (!requestedDate || !reason) {
+        return res.status(400).json({ error: 'Requested travel date and reason are required.' });
+    }
+    const id = crypto.randomBytes(16).toString('hex');
+    try {
+        const [bookingRows] = await pool.query(
+            'SELECT 1 FROM bookings WHERE id = ? AND LOWER(customer_email) = ?',
+            [req.params.id, req.customer.email]
+        );
+        if (bookingRows.length === 0) return res.status(404).json({ error: 'Booking not found.' });
+
+        await pool.query(`
+            INSERT INTO customer_reschedule_requests (id, customer_id, booking_id, requested_date, reason)
+            VALUES (?, ?, ?, ?, ?)
+        `, [id, req.customer.id, req.params.id, requestedDate, reason]);
+
+        return res.json({ message: 'Reschedule request submitted. Staff will review it.' });
+    } catch (err) {
+        console.error('[Customer Booking Reschedule] Post error:', err.message);
+        return res.status(500).json({ error: 'Failed to submit reschedule request.' });
+    }
+});
+
+// Get wishlist
+app.get('/api/customer/wishlist', customerAuthMiddleware, async (req, res) => {
+    try {
+        const [rows] = await pool.query(`
+            SELECT p.* FROM packages p
+            JOIN customer_wishlists w ON w.package_id = p.id
+            WHERE w.customer_id = ?
+        `, [req.customer.id]);
+        return res.json(rows);
+    } catch (err) {
+        console.error('[Customer Wishlist] Get error:', err.message);
+        return res.status(500).json({ error: 'Failed to fetch wishlist.' });
+    }
+});
+
+// Toggle wishlist
+app.post('/api/customer/wishlist/toggle', customerAuthMiddleware, async (req, res) => {
+    const { packageId } = req.body || {};
+    if (!packageId) return res.status(400).json({ error: 'Package ID is required.' });
+    try {
+        const [existing] = await pool.query(
+            'SELECT 1 FROM customer_wishlists WHERE customer_id = ? AND package_id = ?',
+            [req.customer.id, packageId]
+        );
+        if (existing.length > 0) {
+            await pool.query(
+                'DELETE FROM customer_wishlists WHERE customer_id = ? AND package_id = ?',
+                [req.customer.id, packageId]
+            );
+            return res.json({ added: false, message: 'Removed from wishlist' });
+        } else {
+            await pool.query(
+                'INSERT INTO customer_wishlists (customer_id, package_id) VALUES (?, ?)',
+                [req.customer.id, packageId]
+            );
+            return res.json({ added: true, message: 'Added to wishlist' });
+        }
+    } catch (err) {
+        console.error('[Customer Wishlist] Toggle error:', err.message);
+        return res.status(500).json({ error: 'Failed to toggle wishlist.' });
+    }
+});
+
+// Get customer enquiries
+app.get('/api/customer/enquiries', customerAuthMiddleware, async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            'SELECT * FROM customer_enquiries WHERE customer_id = ? ORDER BY created_at DESC',
+            [req.customer.id]
+        );
+        return res.json(rows);
+    } catch (err) {
+        console.error('[Customer Enquiry] Get error:', err.message);
+        return res.status(500).json({ error: 'Failed to fetch enquiries.' });
+    }
+});
+
+// Create new enquiry
+app.post('/api/customer/enquiries', customerAuthMiddleware, async (req, res) => {
+    const { name, email, phone, destination, travel_date, pax, budget, message, packageId } = req.body || {};
+    if (!destination) return res.status(400).json({ error: 'Destination is required.' });
+    const id = crypto.randomBytes(16).toString('hex');
+    const leadId = crypto.randomBytes(16).toString('hex');
+    try {
+        await pool.query(`
+            INSERT INTO customer_enquiries (id, customer_id, name, email, phone, destination, travel_date, pax, budget, message)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [id, req.customer.id, name || req.customer.name, email || req.customer.email, phone || null, destination, travel_date || null, pax || 1, budget || null, message || null]);
+
+        await pool.query(`
+            INSERT INTO leads (id, name, email, phone, destination, travelers, budget, preferences, source, status, priority, package_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Customer Portal', 'New', 'High', ?)
+        `, [leadId, name || req.customer.name, email || req.customer.email, phone || null, destination, pax || 1, budget || null, message || null, packageId || null]);
+
+        return res.json({ message: 'Enquiry submitted successfully!' });
+    } catch (err) {
+        console.error('[Customer Enquiry] Create error:', err.message);
+        return res.status(500).json({ error: 'Failed to submit enquiry.' });
+    }
+});
+
+// Get co-travelers
+app.get('/api/customer/co-travelers', customerAuthMiddleware, async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            'SELECT * FROM customer_co_travelers WHERE customer_id = ? ORDER BY created_at DESC',
+            [req.customer.id]
+        );
+        return res.json(rows);
+    } catch (err) {
+        console.error('[Customer Co-Travelers] Get error:', err.message);
+        return res.status(500).json({ error: 'Failed to fetch co-travelers.' });
+    }
+});
+
+// Add co-traveler
+app.post('/api/customer/co-travelers', customerAuthMiddleware, async (req, res) => {
+    const { name, relation, phone, passport_no, dob } = req.body || {};
+    if (!name) return res.status(400).json({ error: 'Name is required.' });
+    try {
+        await pool.query(`
+            INSERT INTO customer_co_travelers (customer_id, name, relation, phone, passport_no, dob)
+            VALUES (?, ?, ?, ?, ?, ?)
+        `, [req.customer.id, name, relation || null, phone || null, passport_no || null, dob || null]);
+        return res.json({ message: 'Co-traveler added successfully!' });
+    } catch (err) {
+        console.error('[Customer Co-Travelers] Create error:', err.message);
+        return res.status(500).json({ error: 'Failed to add co-traveler.' });
+    }
+});
+
+// Delete co-traveler
+app.delete('/api/customer/co-travelers/:id', customerAuthMiddleware, async (req, res) => {
+    try {
+        await pool.query(
+            'DELETE FROM customer_co_travelers WHERE id = ? AND customer_id = ?',
+            [req.params.id, req.customer.id]
+        );
+        return res.json({ message: 'Co-traveler removed.' });
+    } catch (err) {
+        console.error('[Customer Co-Travelers] Delete error:', err.message);
+        return res.status(500).json({ error: 'Failed to delete co-traveler.' });
+    }
+});
+
+// Get documents
+app.get('/api/customer/documents', customerAuthMiddleware, async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            'SELECT * FROM customer_documents WHERE customer_id = ? ORDER BY created_at DESC',
+            [req.customer.id]
+        );
+        return res.json(rows);
+    } catch (err) {
+        console.error('[Customer Documents] Get error:', err.message);
+        return res.status(500).json({ error: 'Failed to fetch documents.' });
+    }
+});
+
+// Add document
+app.post('/api/customer/documents', customerAuthMiddleware, upload.single('file'), async (req, res) => {
+    const { docType } = req.body || {};
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded.' });
+    const id = crypto.randomBytes(16).toString('hex');
+    const fileUrl = `/uploads/${req.file.filename}`;
+    try {
+        await saveUploadedFileToDb(req.file);
+
+        await pool.query(`
+            INSERT INTO customer_documents (id, customer_id, doc_type, filename, file_url)
+            VALUES (?, ?, ?, ?, ?)
+        `, [id, req.customer.id, docType || 'Other', req.file.originalname, fileUrl]);
+        
+        return res.json({ message: 'Document uploaded successfully!', document: { id, doc_type: docType, filename: req.file.originalname, file_url: fileUrl } });
+    } catch (err) {
+        console.error('[Customer Documents] Upload error:', err.message);
+        return res.status(500).json({ error: 'Failed to upload document.' });
+    }
+});
+
+// Delete document
+app.delete('/api/customer/documents/:id', customerAuthMiddleware, async (req, res) => {
+    try {
+        await pool.query(
+            'DELETE FROM customer_documents WHERE id = ? AND customer_id = ?',
+            [req.params.id, req.customer.id]
+        );
+        return res.json({ message: 'Document deleted successfully.' });
+    } catch (err) {
+        console.error('[Customer Documents] Delete error:', err.message);
+        return res.status(500).json({ error: 'Failed to delete document.' });
+    }
+});
+
+// Get loyalty
+app.get('/api/customer/loyalty', customerAuthMiddleware, async (req, res) => {
+    try {
+        const [customerRows] = await pool.query(
+            'SELECT loyalty_points, referral_code FROM customer_users WHERE id = ?',
+            [req.customer.id]
+        );
+        if (customerRows.length === 0) return res.status(404).json({ error: 'Customer not found.' });
+
+        const [history] = await pool.query(
+            'SELECT * FROM customer_loyalty_points WHERE customer_id = ? ORDER BY created_at DESC',
+            [req.customer.id]
+        );
+
+        const [referrals] = await pool.query(
+            'SELECT * FROM customer_referrals WHERE customer_id = ? ORDER BY created_at DESC',
+            [req.customer.id]
+        );
+
+        return res.json({
+            points: customerRows[0].loyalty_points || 0,
+            referral_code: customerRows[0].referral_code,
+            history,
+            referrals
+        });
+    } catch (err) {
+        console.error('[Customer Loyalty] Get error:', err.message);
+        return res.status(500).json({ error: 'Failed to fetch loyalty details.' });
+    }
+});
+
+// Add Referral invite
+app.post('/api/customer/referral', customerAuthMiddleware, async (req, res) => {
+    const { email } = req.body || {};
+    if (!email) return res.status(400).json({ error: 'Email is required.' });
+    try {
+        const [customerRows] = await pool.query('SELECT referral_code FROM customer_users WHERE id = ?', [req.customer.id]);
+        const code = customerRows[0]?.referral_code || 'REF';
+        await pool.query(`
+            INSERT INTO customer_referrals (customer_id, referral_code, referred_email, status)
+            VALUES (?, ?, ?, 'Pending')
+        `, [req.customer.id, code, email.trim().toLowerCase()]);
+        return res.json({ message: `Referral invitation logged for ${email}!` });
+    } catch (err) {
+        console.error('[Customer Referral] Post error:', err.message);
+        return res.status(500).json({ error: 'Failed to log referral.' });
+    }
+});
+
+// Get chat
+app.get('/api/customer/chat', customerAuthMiddleware, async (req, res) => {
+    const { bookingId } = req.query || {};
+    try {
+        let query = 'SELECT * FROM customer_chat_messages WHERE customer_id = ?';
+        const params = [req.customer.id];
+        if (bookingId) {
+            query += ' AND booking_id = ?';
+            params.push(bookingId);
+        }
+        query += ' ORDER BY created_at ASC LIMIT 100';
+        const [rows] = await pool.query(query, params);
+        return res.json(rows);
+    } catch (err) {
+        console.error('[Customer Chat] Get error:', err.message);
+        return res.status(500).json({ error: 'Failed to fetch chat logs.' });
+    }
+});
+
+// Post message
+app.post('/api/customer/chat', customerAuthMiddleware, async (req, res) => {
+    const { bookingId, message } = req.body || {};
+    if (!message) return res.status(400).json({ error: 'Message is required.' });
+    try {
+        await pool.query(`
+            INSERT INTO customer_chat_messages (customer_id, booking_id, sender_type, message)
+            VALUES (?, ?, 'customer', ?)
+        `, [req.customer.id, bookingId || null, message.trim()]);
+        return res.json({ success: true });
+    } catch (err) {
+        console.error('[Customer Chat] Post error:', err.message);
+        return res.status(500).json({ error: 'Failed to send message.' });
+    }
+});
+
+// Get notifications
+app.get('/api/customer/notifications', customerAuthMiddleware, async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            'SELECT * FROM customer_notifications WHERE customer_id = ? ORDER BY created_at DESC LIMIT 50',
+            [req.customer.id]
+        );
+        return res.json(rows);
+    } catch (err) {
+        console.error('[Customer Notifications] Get error:', err.message);
+        return res.status(500).json({ error: 'Failed to fetch notifications.' });
+    }
+});
+
+// Mark notification as read
+app.post('/api/customer/notifications/mark-read', customerAuthMiddleware, async (req, res) => {
+    const { id } = req.body || {};
+    try {
+        if (id) {
+            await pool.query(
+                'UPDATE customer_notifications SET is_read = true WHERE id = ? AND customer_id = ?',
+                [id, req.customer.id]
+            );
+        } else {
+            await pool.query(
+                'UPDATE customer_notifications SET is_read = true WHERE customer_id = ?',
+                [req.customer.id]
+            );
+        }
+        return res.json({ success: true });
+    } catch (err) {
+        console.error('[Customer Notifications] Mark read error:', err.message);
+        return res.status(500).json({ error: 'Failed to update notifications.' });
+    }
+});
+
+// Special offers
+app.get('/api/customer/special-offers', customerAuthMiddleware, async (req, res) => {
+    try {
+        const [user] = await pool.query('SELECT dob FROM customer_users WHERE id = ?', [req.customer.id]);
+        if (user.length === 0 || !user[0].dob) return res.json({ promo: null });
+        
+        const dobStr = user[0].dob;
+        const todayStr = new Date().toISOString().slice(5, 10);
+        
+        if (dobStr.includes(todayStr)) {
+            return res.json({
+                promo: {
+                    title: '🎂 Happy Birthday! Special 15% Off',
+                    code: 'BDAY15',
+                    description: 'Celebrate your special day with 15% off on any of our luxury packages!'
+                }
+            });
+        }
+        return res.json({ promo: null });
+    } catch (err) {
+        return res.json({ promo: null });
+    }
+});
+
+// Update profile
+app.put('/api/customer/profile', customerAuthMiddleware, async (req, res) => {
+    const { name, phone, whatsapp, address, dob } = req.body || {};
+    if (!name) return res.status(400).json({ error: 'Name is required.' });
+    try {
+        await pool.query(`
+            UPDATE customer_users
+            SET name = ?, phone = ?, whatsapp = ?, address = ?, dob = ?
+            WHERE id = ?
+        `, [name.trim(), phone || null, whatsapp || null, address || null, dob || null, req.customer.id]);
+        return res.json({ message: 'Profile updated successfully!' });
+    } catch (err) {
+        console.error('[Customer Profile] Put error:', err.message);
+        return res.status(500).json({ error: 'Failed to update profile.' });
+    }
+});
+
+// Update preferences
+app.put('/api/customer/preferences', customerAuthMiddleware, async (req, res) => {
+    const { travel_preferences } = req.body || {};
+    try {
+        const prefStr = typeof travel_preferences === 'string' ? travel_preferences : JSON.stringify(travel_preferences);
+        await pool.query(
+            'UPDATE customer_users SET travel_preferences = ? WHERE id = ?',
+            [prefStr, req.customer.id]
+        );
+        return res.json({ message: 'Preferences updated successfully!' });
+    } catch (err) {
+        console.error('[Customer Preferences] Put error:', err.message);
+        return res.status(500).json({ error: 'Failed to update preferences.' });
+    }
+});
+
+// Change Password
+app.post('/api/customer/change-password', customerAuthMiddleware, async (req, res) => {
+    const { oldPassword, newPassword } = req.body || {};
+    if (!oldPassword || !newPassword) return res.status(400).json({ error: 'Both passwords are required.' });
+    try {
+        const [rows] = await pool.query('SELECT password_hash FROM customer_users WHERE id = ?', [req.customer.id]);
+        const user = rows[0];
+        const valid = await bcrypt.compare(oldPassword, user.password_hash);
+        if (!valid) return res.status(401).json({ error: 'Current password is incorrect.' });
+        
+        const newHash = await bcrypt.hash(newPassword, 10);
+        await pool.query('UPDATE customer_users SET password_hash = ? WHERE id = ?', [newHash, req.customer.id]);
+        return res.json({ message: 'Password changed successfully!' });
+    } catch (err) {
+        console.error('[Customer Change Password] Post error:', err.message);
+        return res.status(500).json({ error: 'Failed to change password.' });
+    }
+});
+
+// Submit review
+app.post('/api/customer/reviews', customerAuthMiddleware, async (req, res) => {
+    const { bookingId, rating, reviewText } = req.body || {};
+    if (!bookingId || !rating) return res.status(400).json({ error: 'Booking ID and rating are required.' });
+    try {
+        const [bookingRows] = await pool.query(
+            'SELECT package_name, destination FROM bookings WHERE id = ? AND LOWER(customer_email) = ?',
+            [bookingId, req.customer.email]
+        );
+        if (bookingRows.length === 0) return res.status(404).json({ error: 'Booking not found.' });
+        const booking = bookingRows[0];
+
+        await pool.query(`
+            INSERT INTO customer_reviews (customer_id, booking_id, rating, review_text)
+            VALUES (?, ?, ?, ?)
+        `, [req.customer.id, bookingId, rating, reviewText || null]);
+
+        const testId = crypto.randomBytes(16).toString('hex');
+        await pool.query(`
+            INSERT INTO cms_testimonials (id, customer_name, rating, content, package_name, is_active)
+            VALUES (?, ?, ?, ?, ?, false)
+        `, [testId, req.customer.name, rating, reviewText || 'Loved it!', booking.package_name || booking.destination || 'Tour']);
+
+        return res.json({ message: 'Thank you for your feedback! Your review will be featured soon.' });
+    } catch (err) {
+        console.error('[Customer Reviews] Post error:', err.message);
+        return res.status(500).json({ error: 'Failed to submit review.' });
+    }
+});
+
+
+// ═══════════════════════════════════════════
 // UNIVERSAL CRUD ROUTES
 // ═══════════════════════════════════════════
 

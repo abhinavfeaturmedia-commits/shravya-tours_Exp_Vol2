@@ -6,11 +6,13 @@ import { COMPANY_EMAIL, COMPANY_PHONE, COMPANY_PHONE_DISPLAY, COMPANY_ADDRESS } 
 import { WhatsAppModal } from '../booking/WhatsAppModal';
 import { SuggestPopup, isDismissed, isSnoozed, dismissSuggestion, snoozeSuggestion } from '../ui/SuggestPopup';
 import { PaymentLogos } from '../ui/PaymentLogos';
+import { useCustomerAuth } from '../../context/CustomerAuthContext';
 
 export const PublicLayout: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const [isWhatsAppOpen, setIsWhatsAppOpen] = useState(false);
+  const { isAuthenticated } = useCustomerAuth();
 
   // Smart popup state
   const [showExitIntent, setShowExitIntent] = useState(false);
@@ -21,7 +23,7 @@ export const PublicLayout: React.FC = () => {
   const currentMonth = new Date().getMonth();
   const isMonsoon = currentMonth >= 5 && currentMonth <= 9;
   const seasonalId = isMonsoon ? 'seasonal-monsoon-offer' : 'seasonal-winter-offer';
-  const seasonalTitle = isMonsoon ? '🌧️ Monsoon Magic Deals!' : '☀️ Peak Season Packages!';
+  const seasonalTitle = isMonsoon ? 'Monsoon Magic Deals!' : 'Peak Season Packages!';
   const seasonalDesc = isMonsoon ? 'Get up to 25% off on select hill station and waterfall packages this monsoon.' : 'Rajasthan, Kerala & Goa packages with exclusive winter pricing. Limited seats!';
 
   // Partner Affiliate Tracking
@@ -78,6 +80,7 @@ export const PublicLayout: React.FC = () => {
     { label: 'Destinations', href: '/packages' },
     { label: 'About', href: '/about' },
     { label: 'Contact', href: '/contact' },
+    { label: 'My Account', href: isAuthenticated ? '/my-account' : '/customer/login' },
     { label: 'Partners', href: '/partner/login' },
     { label: 'Staff', href: '/login' },
   ];
@@ -250,6 +253,7 @@ export const PublicLayout: React.FC = () => {
           <div className="border-t border-slate-100 dark:border-slate-800 pt-8 flex flex-col md:flex-row justify-between items-center gap-4 text-xs font-medium text-slate-400">
             <p>© 2025 SHRAWELLO Travel Hub and Events LLP. All rights reserved.</p>
             <div className="flex gap-6">
+              <Link to="/customer/login" className="hover:text-slate-900 dark:hover:text-white transition-colors">My Account</Link>
               <Link to="/partner/login" className="hover:text-slate-900 dark:hover:text-white transition-colors">Partner Portal</Link>
               <Link to="/admin" className="hover:text-slate-900 dark:hover:text-white transition-colors">Staff Portal</Link>
               <button onClick={(e) => handlePlaceholder(e, 'Sitemap')} className="hover:text-slate-900 dark:hover:text-white transition-colors">Sitemap</button>

@@ -182,13 +182,35 @@ export const Bookings: React.FC = () => {
     // Sync guestCounts to formData.guests
     useEffect(() => {
         const guestsStr = `${guestCounts.adults} Adults, ${guestCounts.children} Children${guestCounts.infants > 0 ? `, ${guestCounts.infants} Infants` : ''}`;
-        setFormData(prev => ({ 
-            ...prev, 
-            guests: guestsStr,
-            paxAdult: guestCounts.adults,
-            paxInfant: guestCounts.infants
-        }));
-    }, [guestCounts]);
+        setFormData(prev => {
+            let updatedAmount = prev.amount;
+            if (prev.packageId && !isEditMode) {
+                const selectedPkg = packages.find(p => p.id === prev.packageId);
+                if (selectedPkg) {
+                    const isGroup = (selectedPkg.pricingMode || 'group') === 'group';
+                    const adults = guestCounts.adults;
+                    const children = guestCounts.children;
+                    if (isGroup) {
+                        const rooms = Math.ceil(adults / 2);
+                        const adultCost = rooms * selectedPkg.price;
+                        const childCost = children * Math.round((selectedPkg.price / 2) * 0.85);
+                        updatedAmount = Math.round(adultCost + childCost);
+                    } else {
+                        const adultCost = adults * selectedPkg.price;
+                        const childCost = children * Math.round(selectedPkg.price * 0.85);
+                        updatedAmount = Math.round(adultCost + childCost);
+                    }
+                }
+            }
+            return { 
+                ...prev, 
+                guests: guestsStr,
+                paxAdult: guestCounts.adults,
+                paxInfant: guestCounts.infants,
+                amount: (prev.packageId && !isEditMode) ? updatedAmount : prev.amount
+            };
+        });
+    }, [guestCounts, packages, isEditMode]);
 
     // Sync formData.guests to guestCounts (when editing)
     useEffect(() => {
@@ -373,11 +395,29 @@ export const Bookings: React.FC = () => {
             calculatedEndDate = endDate.toISOString().split('T')[0];
         }
 
+        let calculatedAmount = formData.amount;
+        if (selectedPkg) {
+            const isGroup = (selectedPkg.pricingMode || 'group') === 'group';
+            const adults = guestCounts.adults || 2;
+            const children = guestCounts.children || 0;
+            if (isGroup) {
+                // assume double sharing (capacity = 2) for group default
+                const rooms = Math.ceil(adults / 2);
+                const adultCost = rooms * selectedPkg.price;
+                const childCost = children * Math.round((selectedPkg.price / 2) * 0.85);
+                calculatedAmount = Math.round(adultCost + childCost);
+            } else {
+                const adultCost = adults * selectedPkg.price;
+                const childCost = children * Math.round(selectedPkg.price * 0.85);
+                calculatedAmount = Math.round(adultCost + childCost);
+            }
+        }
+
         setFormData(prev => ({
             ...prev,
             packageId: pkgId,
             title: selectedPkg ? selectedPkg.title : '',
-            amount: selectedPkg ? selectedPkg.price : prev.amount,
+            amount: selectedPkg ? calculatedAmount : prev.amount,
             endDate: calculatedEndDate
         }));
     };

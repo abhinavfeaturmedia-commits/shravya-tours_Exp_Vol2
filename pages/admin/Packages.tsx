@@ -148,6 +148,7 @@ export const AdminPackages: React.FC = () => {
         title: '',
         location: '',
         price: 0,
+        pricingMode: 'group' as 'group' | 'per_person',
         days: 0,
         description: '',
         overview: '',
@@ -181,6 +182,7 @@ export const AdminPackages: React.FC = () => {
             title: pkg.title,
             location: pkg.location,
             price: pkg.price,
+            pricingMode: pkg.pricingMode || 'group',
             days: pkg.days,
             description: pkg.description,
             overview: pkg.overview,
@@ -304,6 +306,13 @@ export const AdminPackages: React.FC = () => {
                                     <div>
                                         <label className="text-xs font-bold text-slate-500 mb-1 block">Price (₹)</label>
                                         <input required value={editForm.price} onChange={e => setEditForm({ ...editForm, price: parseInt(e.target.value) || 0 })} type="number" className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-500 mb-1 block">Pricing Mode</label>
+                                        <select required value={editForm.pricingMode} onChange={e => setEditForm({ ...editForm, pricingMode: e.target.value as any })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
+                                            <option value="group">Group/Package Price</option>
+                                            <option value="per_person">Per Person Price</option>
+                                        </select>
                                     </div>
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
