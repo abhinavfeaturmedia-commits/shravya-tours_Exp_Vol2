@@ -541,7 +541,7 @@ export const SERVICE_TYPES: ServiceType[] = [
 ];
 
 export type FollowUpType = 'Call' | 'Email' | 'Meeting' | 'WhatsApp';
-export type FollowUpStatus = 'Scheduled' | 'Done' | 'Pending' | 'Overdue';
+export type FollowUpStatus = 'Scheduled' | 'Done' | 'Pending' | 'Overdue' | 'Cancelled';
 
 export interface FollowUp {
   id: string;

@@ -127,6 +127,8 @@ export const QuickBookingModal: React.FC<QuickBookingModalProps> = ({
             source: 'Website',
             preferences: `Request for ${bookingType}. Date: ${data.date}. Details: ${bookingDetails}`,
             avatarColor: 'bg-slate-100 text-slate-600',
+            startDate: data.date || undefined,
+            endDate: data.date || undefined,
             logs: [
                 {
                     id: `log-${Date.now()}`,

@@ -784,7 +784,15 @@ export const PackageDetail: React.FC = () => {
         whatsapp: bookingData.isWhatsappSame ? bookingData.phone : bookingData.whatsapp,
         isWhatsappSame: bookingData.isWhatsappSame,
         destination: tour.title,
-        startDate: bookingData.date,
+        startDate: bookingData.date || undefined,
+        endDate: (() => {
+          if (!bookingData.date) return undefined;
+          const start = new Date(bookingData.date);
+          if (isNaN(start.getTime())) return undefined;
+          const days = typeof tour.days === 'number' && tour.days > 1 ? tour.days - 1 : 0;
+          start.setDate(start.getDate() + days);
+          return start.toISOString().split('T')[0];
+        })(),
         type: 'Tour',
         status: 'New',
         priority: 'High',

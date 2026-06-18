@@ -15,6 +15,14 @@ const statusColor: Record<string, string> = {
   Converted: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
 };
 
+// Safe date formatter — guards against MySQL 0000-00-00 → 1899-11-30 ghost dates
+const formatDateSafe = (dateStr?: string | null, fallback = 'Flexible'): string => {
+  if (!dateStr) return fallback;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime()) || d.getFullYear() <= 1900) return fallback;
+  return d.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+};
+
 export const PartnerLeads: React.FC = () => {
   const { partner } = usePartnerAuth();
   const [leads, setLeads] = useState<any[]>([]);
@@ -147,7 +155,7 @@ export const PartnerLeads: React.FC = () => {
                     <p className="text-xs text-white/40">{lead.travelers || '—'}</p>
                   </div>
                   <div className="hidden sm:block">
-                    <p className="text-sm text-white/70">{lead.start_date || '—'}</p>
+                     <p className="text-sm text-white/70">{formatDateSafe(lead.start_date, '—')}</p>
                   </div>
                   <div className="hidden sm:block">
                     <p className="text-sm font-bold text-white">
@@ -196,7 +204,7 @@ export const PartnerLeads: React.FC = () => {
                   <div className="grid grid-cols-2 gap-4 text-xs">
                     <div>
                       <p className="text-white/40 mb-0.5">Travel Dates</p>
-                      <p className="font-bold text-white/95">{selectedLead.start_date || 'Flexible'}</p>
+                      <p className="font-bold text-white/95">{formatDateSafe(selectedLead.start_date, 'Flexible')}</p>
                     </div>
                     <div>
                       <p className="text-white/40 mb-0.5">Budget</p>

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { Save, ArrowLeft, Plus, Trash2, CheckCircle2, Printer, CreditCard, User, Mail, MapPin, Calendar, Users, FileCheck, ChevronDown, Loader2, Search, Link, Copy, Edit3, X, Check } from 'lucide-react';
+import { Save, ArrowLeft, Plus, Trash2, CheckCircle2, Printer, CreditCard, User, Mail, MapPin, Calendar, Users, FileCheck, ChevronDown, Loader2, Search, Link, Copy, Edit3, X, Check, FileText, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSettings } from '../../context/SettingsContext';
+import { useData } from '../../context/DataContext';
 
 import { generateTrueInvoicePDF } from '../../utils/pdfGenerator';
 
@@ -40,6 +41,7 @@ export const DocumentEditor: React.FC = () => {
     const { settings } = useSettings();
     const co = settings.company;
     const fi = settings.finance;
+    const { masterTermsTemplates } = useData();
     const { id } = useParams();
     const navigate = useNavigate();
     const location = useLocation();
@@ -72,6 +74,9 @@ export const DocumentEditor: React.FC = () => {
         advance_received: 0,
         notes: 'Prices are subject to change based on availability at the time of booking. 50% advance required for confirmation.'
     });
+
+    // T&C template selector state
+    const [termsDropdownOpen, setTermsDropdownOpen] = useState(false);
 
     const [showLinkPanel, setShowLinkPanel] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
@@ -178,6 +183,16 @@ export const DocumentEditor: React.FC = () => {
             }
         }
     }, [id]);
+
+    // Auto-load the default T&C template when creating a new document
+    useEffect(() => {
+        if (isEdit) return; // Don't overwrite loaded document data
+        if (masterTermsTemplates.length === 0) return;
+        const defaultTemplate = masterTermsTemplates.find(t => t.isDefault && t.status === 'Active');
+        if (defaultTemplate) {
+            setDocData(prev => ({ ...prev, notes: defaultTemplate.content }));
+        }
+    }, [masterTermsTemplates, isEdit]);
 
     const prefillFromBooking = async (bId: string) => {
         try {
@@ -502,14 +517,22 @@ export const DocumentEditor: React.FC = () => {
                     headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
-                if (!res.ok) throw new Error('Failed to update invoice');
+                if (!res.ok) {
+                    const errText = await res.text();
+                    console.error('Invoice update failed:', errText);
+                    throw new Error(`Failed to update invoice: ${errText}`);
+                }
             } else {
                 const res = await fetch('/api/crud/invoices', {
                     method: 'POST',
                     headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
-                if (!res.ok) throw new Error('Failed to create invoice');
+                if (!res.ok) {
+                    const errText = await res.text();
+                    console.error('Invoice create failed:', errText);
+                    throw new Error(`Failed to create invoice: ${errText}`);
+                }
                 const resData = await res.json();
                 invoiceId = resData.data?.id;
             }
@@ -1427,7 +1450,8 @@ export const DocumentEditor: React.FC = () => {
                                                 { key: 'driver_stay_allowance', defaultLabel: 'Driver Stay Allowance', valueKey: 'driver_stay_allowance' },
                                                 { key: 'extra_km_charges', defaultLabel: 'Extra Km Charges', valueKey: 'extra_km_charges' },
                                                 { key: 'extra_hrs_charges', defaultLabel: 'Extra Hrs. Charges', valueKey: 'extra_hrs_charges' },
-                                                { key: 'advance_received', defaultLabel: 'Advance Received', valueKey: 'advance_received' },
+                                                // NOTE: 'advance_received' is intentionally excluded here.
+                                                // It is rendered separately below with a non-editable label.
                                             ] as const
                                         ).map(({ key, defaultLabel, valueKey }) => (
                                             <div key={key} className="flex justify-between items-center group">
@@ -1471,35 +1495,35 @@ export const DocumentEditor: React.FC = () => {
                                             </div>
                                         ))}
 
-                                        {/* ── Discount row (also editable label) ─────────── */}
-                                        <div className="flex justify-between items-center group">
-                                            <div className="flex items-center gap-1 flex-1 min-w-0 mr-2">
-                                                {editingLabel === 'discount' ? (
-                                                    <input
-                                                        type="text"
-                                                        autoFocus
-                                                        value={fieldLabels['discount'] ?? 'Discount Amount'}
-                                                        onChange={e => setFieldLabels(prev => ({ ...prev, discount: e.target.value }))}
-                                                        onBlur={() => setEditingLabel(null)}
-                                                        onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Escape') setEditingLabel(null); }}
-                                                        className="flex-1 min-w-0 text-xs font-semibold bg-orange-50 dark:bg-orange-500/10 border border-orange-400 rounded px-1.5 py-0.5 outline-none text-orange-700 dark:text-orange-300"
-                                                    />
-                                                ) : (
-                                                    <>
-                                                        <span className="font-semibold text-slate-500 dark:text-slate-400 truncate">
-                                                            {fieldLabels['discount'] || 'Discount Amount'}:
-                                                        </span>
-                                                        <button
-                                                            type="button"
-                                                            title="Rename label"
-                                                            onClick={() => setEditingLabel('discount')}
-                                                            className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-orange-500 ml-1 flex-shrink-0 print:hidden"
-                                                        >
-                                                            <Edit3 size={10} />
-                                                        </button>
-                                                    </>
-                                                )}
+                                        {/* ── Advance Received: label is fixed/non-editable, only amount is editable ── */}
+                                        <div className="flex justify-between items-center">
+                                            {/* Static non-editable label */}
+                                            <div className="flex items-center flex-1 min-w-0 mr-2">
+                                                <span className="font-semibold text-slate-500 dark:text-slate-400 truncate select-none">
+                                                    {fieldLabels['advance_received'] || 'Advance Received'}:
+                                                </span>
                                             </div>
+                                            {/* Only the amount is editable */}
+                                            <div className="flex items-center justify-end flex-shrink-0">
+                                                <input
+                                                    type="number" min="0"
+                                                    value={docData.advance_received || 0}
+                                                    onChange={e => setDocData({ ...docData, advance_received: parseFloat(e.target.value) || 0 })}
+                                                    className="w-20 text-right bg-transparent border-b border-dashed border-transparent hover:border-slate-200 dark:hover:border-slate-700 focus:border-orange-500 focus:ring-0 outline-none print:hidden -mr-2 font-bold text-slate-800 dark:text-slate-100"
+                                                />
+                                                <span className="hidden print:inline-block tabular-nums font-bold">₹{Number(docData.advance_received || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                            </div>
+                                        </div>
+
+                                        {/* ── Discount row: label is fixed/non-editable, only amount is editable ── */}
+                                        <div className="flex justify-between items-center">
+                                            {/* Static non-editable label */}
+                                            <div className="flex items-center flex-1 min-w-0 mr-2">
+                                                <span className="font-semibold text-slate-500 dark:text-slate-400 truncate select-none">
+                                                    {fieldLabels['discount'] || 'Discount Amount'}:
+                                                </span>
+                                            </div>
+                                            {/* Only the amount is editable */}
                                             <div className="flex items-center justify-end flex-shrink-0">
                                                 <input
                                                     type="number" min="0"
@@ -1674,7 +1698,97 @@ export const DocumentEditor: React.FC = () => {
                 {/* Page 2: Terms and Conditions */}
                 <div className="mt-6 bg-white rounded-2xl shadow-[0_4px_32px_rgba(0,0,0,0.08)] border border-slate-200/70 overflow-hidden relative print:mt-[100px] print:shadow-none print:border-none print:break-before-page">
                     <div className="px-8 py-10 space-y-4">
-                        <h3 className="text-base font-bold text-[#F26222] uppercase tracking-wide">Terms and Conditions</h3>
+                        {/* Header row: title + template selector */}
+                        <div className="flex items-center justify-between print:hidden">
+                            <h3 className="text-base font-bold text-[#F26222] uppercase tracking-wide flex items-center gap-2">
+                                <FileText size={15} className="text-[#F26222]" />
+                                Terms and Conditions
+                            </h3>
+
+                            {/* Template selector dropdown */}
+                            <div className="flex items-center gap-2">
+                                {masterTermsTemplates.filter(t => t.status === 'Active').length > 0 ? (
+                                    <div className="relative">
+                                        <button
+                                            type="button"
+                                            onClick={() => setTermsDropdownOpen(v => !v)}
+                                            className="flex items-center gap-1.5 text-[11px] font-bold px-3 py-1.5 bg-orange-50 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/30 text-orange-600 dark:text-orange-400 rounded-xl hover:bg-orange-100 dark:hover:bg-orange-500/20 transition-all hover:scale-[1.02] active:scale-95"
+                                        >
+                                            <FileText size={11} />
+                                            Load Template
+                                            <ChevronDown size={11} className={`transition-transform duration-200 ${termsDropdownOpen ? 'rotate-180' : ''}`} />
+                                        </button>
+
+                                        {termsDropdownOpen && (
+                                            <>
+                                                {/* Backdrop */}
+                                                <div className="fixed inset-0 z-40" onClick={() => setTermsDropdownOpen(false)} />
+                                                {/* Dropdown panel */}
+                                                <div className="absolute right-0 top-full mt-2 w-72 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl z-50 overflow-hidden animate-[scaleIn_0.15s_ease-out]">
+                                                    <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700/80">
+                                                        <p className="text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Select a Template</p>
+                                                        <p className="text-[10px] text-slate-400 mt-0.5">Replaces current text — you can still edit after loading.</p>
+                                                    </div>
+                                                    <div className="max-h-64 overflow-y-auto py-1">
+                                                        {/* Group by category */}
+                                                        {Array.from(new Set(masterTermsTemplates.filter(t => t.status === 'Active').map(t => t.category))).map(cat => (
+                                                            <div key={cat}>
+                                                                <p className="px-4 pt-2.5 pb-1 text-[9px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest">{cat}</p>
+                                                                {masterTermsTemplates
+                                                                    .filter(t => t.status === 'Active' && t.category === cat)
+                                                                    .map(tmpl => (
+                                                                        <button
+                                                                            key={tmpl.id}
+                                                                            type="button"
+                                                                            onClick={() => {
+                                                                                setDocData(prev => ({ ...prev, notes: tmpl.content }));
+                                                                                setTermsDropdownOpen(false);
+                                                                                toast.success(`Template "${tmpl.title}" loaded`);
+                                                                            }}
+                                                                            className="w-full text-left px-4 py-2.5 text-xs text-slate-700 dark:text-slate-200 hover:bg-orange-50 dark:hover:bg-orange-500/10 flex items-center justify-between gap-2 group transition-colors"
+                                                                        >
+                                                                            <span className="font-semibold truncate">{tmpl.title}</span>
+                                                                            <span className="flex items-center gap-1.5 flex-shrink-0">
+                                                                                {tmpl.isDefault && (
+                                                                                    <span className="text-[9px] bg-orange-100 dark:bg-orange-500/20 text-orange-600 dark:text-orange-400 px-1.5 py-0.5 rounded-full font-bold">Default</span>
+                                                                                )}
+                                                                                <ChevronRight size={11} className="text-slate-300 group-hover:text-orange-400 transition-colors" />
+                                                                            </span>
+                                                                        </button>
+                                                                    ))
+                                                                }
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                    {/* Footer: link to Masters */}
+                                                    <div className="border-t border-slate-100 dark:border-slate-700/80 px-4 py-2.5">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => { setTermsDropdownOpen(false); navigate('/admin/masters?tab=terms'); }}
+                                                            className="text-[10px] font-bold text-orange-500 hover:text-orange-600 flex items-center gap-1.5 transition-colors"
+                                                        >
+                                                            <Plus size={10} /> Manage Templates in Masters
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <button
+                                        type="button"
+                                        onClick={() => navigate('/admin/masters?tab=terms')}
+                                        className="flex items-center gap-1.5 text-[11px] font-bold px-3 py-1.5 border border-dashed border-orange-300 dark:border-orange-500/30 text-orange-500 rounded-xl hover:bg-orange-50 dark:hover:bg-orange-500/10 transition-all"
+                                    >
+                                        <Plus size={11} /> Add T&amp;C Templates in Masters
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Print-only heading */}
+                        <h3 className="hidden print:block text-base font-bold text-[#F26222] uppercase tracking-wide">Terms and Conditions</h3>
+
                         <div className="text-sm text-slate-800 space-y-2">
                             <textarea
                                 value={docData.notes || "1. Please pay within 3 days from the date of invoice, overdue interest @ 14% will be charged on delayed payments.\n2. Additional 5% charges applicable for Credit card payments.\n3. Additional 1200/- Night charges applicable if trip ends after 11:45PM.\n4. For Outstation trips more than 1 day, driver stay allowance is applicable as per category of city."}

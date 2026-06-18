@@ -45,11 +45,22 @@ export const TravelerSelector: React.FC<TravelerSelectorProps> = ({ value, onCha
 
     const updateCounts = (type: 'adults' | 'children' | 'infants', delta: number) => {
         setCounts(prev => {
-            const newVal = Math.max(0, prev[type] + delta);
+            const newVal = Math.max(0, Math.min(500, prev[type] + delta));
             // Ensure at least 1 adult
             if (type === 'adults' && newVal < 1) return prev;
 
             const newCounts = { ...prev, [type]: newVal };
+            const newString = formatString(newCounts.adults, newCounts.children, newCounts.infants);
+            onChange(newString);
+            return newCounts;
+        });
+    };
+
+    const handleInputChange = (type: 'adults' | 'children' | 'infants', value: number) => {
+        const minVal = type === 'adults' ? 1 : 0;
+        const clampedVal = Math.max(minVal, Math.min(500, value));
+        setCounts(prev => {
+            const newCounts = { ...prev, [type]: clampedVal };
             const newString = formatString(newCounts.adults, newCounts.children, newCounts.infants);
             onChange(newString);
             return newCounts;
@@ -79,11 +90,19 @@ export const TravelerSelector: React.FC<TravelerSelectorProps> = ({ value, onCha
                         >
                             <span className="material-symbols-outlined text-sm">remove</span>
                         </button>
-                        <span className="w-4 text-center font-bold text-slate-900 dark:text-white">{counts[cat.key]}</span>
+                        <input
+                            type="number"
+                            value={counts[cat.key]}
+                            onChange={(e) => handleInputChange(cat.key, parseInt(e.target.value) || 0)}
+                            min={cat.min}
+                            max={500}
+                            className="w-16 text-center font-bold text-slate-900 dark:text-white bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg py-1 focus:outline-none focus:ring-2 focus:ring-primary/50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
                         <button
                             type="button"
                             onClick={() => updateCounts(cat.key, 1)}
-                            className="size-8 rounded-full bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-600 transition-colors"
+                            className="size-8 rounded-full bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-600 transition-colors disabled:opacity-50"
+                            disabled={counts[cat.key] >= 500}
                         >
                             <span className="material-symbols-outlined text-sm">add</span>
                         </button>

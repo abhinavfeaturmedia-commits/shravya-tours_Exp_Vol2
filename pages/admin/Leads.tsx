@@ -38,7 +38,7 @@ const StatusBadge = ({ status }: { status: string }) => {
 };
 
 export const Leads: React.FC = () => {
-    const { addFollowUp, followUps, customers, addCustomer, tasks, updateTask, addTask } = useData();
+    const { addFollowUp, followUps, customers, addCustomer, tasks, updateTask, addTask, updateFollowUp } = useData();
     const { leads, addLead, updateLead, deleteLead, addLeadLog, updateLeadLog, deleteLeadLog, isLoading, refetchLeads } = useLeads();
     const { addBooking } = useBookings();
     const { currentUser, staff, hasPermission } = useAuth();
@@ -480,6 +480,8 @@ export const Leads: React.FC = () => {
             if (!dateStr) return '';
             const d = new Date(dateStr);
             if (isNaN(d.getTime())) return '';
+            // Guard against 1899-11-30 ghost dates from MySQL 0000-00-00
+            if (d.getFullYear() <= 1900) return '';
             return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
         };
 
@@ -684,11 +686,66 @@ export const Leads: React.FC = () => {
                                                             {task.leadName} <ArrowRight size={11} className="text-slate-400 shrink-0" />
                                                         </p>
                                                         <p className="text-[10px] text-slate-500 line-clamp-2 leading-relaxed">{task.description || "No detailed notes provided."}</p>
-                                                        <div className={`flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider mt-auto pt-1 border-t border-slate-100 dark:border-slate-700 ${
-                                                            isOverdue ? 'text-red-500' : 'text-slate-400'
-                                                        }`}>
-                                                            <Clock size={10} />
-                                                            <span>{isToday ? 'Today' : scheduledDate.toLocaleDateString([], { month: 'short', day: 'numeric' })} · {scheduledDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                        <div className="flex items-center justify-between mt-auto pt-1.5 border-t border-slate-100 dark:border-slate-700/60">
+                                                            <div className={`flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider ${
+                                                                isOverdue ? 'text-red-500' : 'text-slate-400'
+                                                            }`}>
+                                                                <Clock size={10} />
+                                                                <span>{isToday ? 'Today' : scheduledDate.toLocaleDateString([], { month: 'short', day: 'numeric' })} · {scheduledDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                            </div>
+                                                            <div className="flex items-center gap-1">
+                                                                <button
+                                                                    onClick={async (e) => {
+                                                                        e.stopPropagation();
+                                                                        if (confirm(`Mark follow-up for ${task.leadName || 'Unknown'} as Done?`)) {
+                                                                            try {
+                                                                                await updateFollowUp(task.id, { 
+                                                                                    status: 'Done', 
+                                                                                    completedAt: new Date().toISOString() 
+                                                                                });
+                                                                                await addLeadLog(task.leadId, {
+                                                                                    id: `lg-fu-done-${Date.now()}`,
+                                                                                    type: 'Activity',
+                                                                                    content: `Follow-up marked as Completed: ${task.description || 'No details'}`,
+                                                                                    timestamp: new Date().toISOString()
+                                                                                });
+                                                                                toast.success("Follow-up marked as completed");
+                                                                            } catch (err) {
+                                                                                console.error(err);
+                                                                                toast.error("Failed to complete follow-up");
+                                                                            }
+                                                                        }
+                                                                    }}
+                                                                    className="p-1 rounded hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors"
+                                                                    title="Mark as Done"
+                                                                >
+                                                                    <CheckCircle2 size={12} />
+                                                                </button>
+                                                                <button
+                                                                    onClick={async (e) => {
+                                                                        e.stopPropagation();
+                                                                        if (confirm(`Cancel follow-up for ${task.leadName || 'Unknown'}?`)) {
+                                                                            try {
+                                                                                await updateFollowUp(task.id, { status: 'Cancelled' });
+                                                                                await addLeadLog(task.leadId, {
+                                                                                    id: `lg-fu-cancel-${Date.now()}`,
+                                                                                    type: 'Activity',
+                                                                                    content: `Follow-up Cancelled: ${task.description || 'No details'}`,
+                                                                                    timestamp: new Date().toISOString()
+                                                                                });
+                                                                                toast.success("Follow-up cancelled");
+                                                                            } catch (err) {
+                                                                                console.error(err);
+                                                                                toast.error("Failed to cancel follow-up");
+                                                                            }
+                                                                        }
+                                                                    }}
+                                                                    className="p-1 rounded hover:bg-rose-50 dark:hover:bg-rose-950/40 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition-colors"
+                                                                    title="Cancel Follow-up"
+                                                                >
+                                                                    <X size={12} />
+                                                                </button>
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -1210,7 +1267,18 @@ export const Leads: React.FC = () => {
                                     <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Dates</p>
                                     <p className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
                                         <Calendar size={14} className="text-primary" />
-                                        {selectedLead.startDate ? `${new Date(selectedLead.startDate).toLocaleDateString()} - ${selectedLead.endDate ? new Date(selectedLead.endDate).toLocaleDateString() : ''}` : 'Not set'}
+                                        {(() => {
+                                            const safeDate = (ds?: string) => {
+                                                if (!ds) return null;
+                                                const d = new Date(ds);
+                                                if (isNaN(d.getTime()) || d.getFullYear() <= 1900) return null;
+                                                return d.toLocaleDateString('en-IN');
+                                            };
+                                            const s = safeDate(selectedLead.startDate);
+                                            const e = safeDate(selectedLead.endDate);
+                                            if (!s) return 'Not set';
+                                            return e && e !== s ? `${s} — ${e}` : s;
+                                        })()}
                                     </p>
                                 </div>
                                 <div>

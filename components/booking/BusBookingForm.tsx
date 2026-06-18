@@ -8,7 +8,7 @@ const busBookingSchema = z.object({
     from: z.string().min(2, 'Departure city is required'),
     to: z.string().min(2, 'Destination city is required'),
     date: z.string().min(1, 'Travel date is required'),
-    seats: z.number().min(1, 'At least 1 seat required').max(10, 'Maximum 10 seats per booking'),
+    seats: z.number().min(1, 'At least 1 seat required').max(500, 'Maximum 500 seats per booking'),
     acType: z.string().min(1, 'AC type required'),
     busType: z.string().min(1, 'Bus type required'),
 }).refine(data => data.from.toLowerCase() !== data.to.toLowerCase(), {
@@ -42,7 +42,7 @@ export const BusBookingForm: React.FC<BusBookingFormProps> = ({ onSubmit }) => {
     const seats = watch('seats');
 
     const updateSeats = (delta: number) => {
-        const newVal = Math.max(1, Math.min(10, seats + delta));
+        const newVal = Math.max(1, Math.min(500, seats + delta));
         setValue('seats', newVal);
     };
 
@@ -135,14 +135,16 @@ export const BusBookingForm: React.FC<BusBookingFormProps> = ({ onSubmit }) => {
                             <span className="material-symbols-outlined text-sm">remove</span>
                         </button>
                         <input
-                            type="hidden"
+                            type="number"
                             {...register('seats', { valueAsNumber: true })}
+                            min={1}
+                            max={500}
+                            className="flex-1 w-16 bg-transparent text-center font-bold text-base text-slate-900 dark:text-white border-0 focus:ring-0 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                         />
-                        <span className="flex-1 text-center font-bold text-base text-slate-900 dark:text-white">{seats}</span>
                         <button
                             type="button"
                             onClick={() => updateSeats(1)}
-                            disabled={seats >= 10}
+                            disabled={seats >= 500}
                             className="size-9 rounded-lg bg-white dark:bg-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600 disabled:opacity-50 transition-colors"
                         >
                             <span className="material-symbols-outlined text-sm">add</span>

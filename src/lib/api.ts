@@ -781,8 +781,8 @@ export const api = {
             phone: lead.phone,
             location: lead.location,
             destination: lead.destination,
-            start_date: lead.startDate,
-            end_date: lead.endDate,
+            start_date: lead.startDate || null,
+            end_date: lead.endDate || null,
             travelers: lead.travelers,
             budget: lead.budget,
             type: lead.type || 'Tour',
@@ -813,8 +813,8 @@ export const api = {
         if (updates.phone !== undefined) dbUpdates.phone = updates.phone;
         if (updates.location !== undefined) dbUpdates.location = updates.location;
         if (updates.destination !== undefined) dbUpdates.destination = updates.destination;
-        if (updates.startDate !== undefined) dbUpdates.start_date = updates.startDate;
-        if (updates.endDate !== undefined) dbUpdates.end_date = updates.endDate;
+        if (updates.startDate !== undefined) dbUpdates.start_date = updates.startDate || null;
+        if (updates.endDate !== undefined) dbUpdates.end_date = updates.endDate || null;
         if (updates.travelers !== undefined) dbUpdates.travelers = updates.travelers;
         if (updates.paxAdult !== undefined) dbUpdates.pax_adult = updates.paxAdult;
         if (updates.paxChild !== undefined) dbUpdates.pax_child = updates.paxChild;

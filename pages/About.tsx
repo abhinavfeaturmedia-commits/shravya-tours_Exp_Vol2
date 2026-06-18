@@ -134,15 +134,14 @@ export const About: React.FC = () => {
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
                             {[
-                                { role: 'Founder Director', name: 'Manali', icon: 'stars' },
-                                { role: 'Managing Director', name: 'Rohit', icon: 'manage_accounts' },
-                                { role: 'Finance Head', name: 'Akshay', icon: 'account_balance' },
-                                { role: 'Sales Head', name: 'Sayali', icon: 'point_of_sale' },
-                                { role: 'Operations Head', name: 'Ajinkya', icon: 'engineering' },
-                                { role: 'Customer Care Head', name: 'Manali', icon: 'support_agent' },
-                                { role: 'IT & Marketing Head', name: 'Abhinav', icon: 'campaign' },
-                                { role: 'Fleet Manager', name: 'Dipak', icon: 'directions_car' },
+                                { role: 'Designated Partner, Director & Sales Head', name: 'Manali Sankpal', icon: 'stars' },
+                                { role: 'Designated Partner, Managing Director', name: 'Rohit Sankpal', icon: 'manage_accounts' },
+                                { role: 'Operations Head', name: 'Ajinkya Joshi', icon: 'engineering' },
+                                { role: 'IT & Marketing Head', name: 'Abhinav Gaikwad', icon: 'campaign' },
+                                { role: 'Ticketing Manager', name: 'Omkar Bhosale', icon: 'local_activity' },
+                                { role: 'Fleet Manager', name: 'Dipak Pathade', icon: 'directions_car' },
                                 { role: 'Sales Executive', name: 'Vacant', icon: 'person_add' },
+                                { role: 'Operations Manager', name: 'Vacant', icon: 'person_add' },
                             ].map((member, i) => (
                                 <div key={i} className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 text-center hover:shadow-md transition-shadow">
                                     <div className="size-16 mx-auto bg-slate-50 dark:bg-slate-900 rounded-full flex items-center justify-center text-slate-400 mb-4 border border-slate-100 dark:border-slate-800">

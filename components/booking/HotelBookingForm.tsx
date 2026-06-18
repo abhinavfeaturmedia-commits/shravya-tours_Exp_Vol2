@@ -54,11 +54,16 @@ export const HotelBookingForm: React.FC<HotelBookingFormProps> = ({ onSubmit }) 
     const updateGuest = (type: 'adults' | 'children' | 'rooms', operation: 'inc' | 'dec') => {
         setGuests(prev => {
             const newVal = operation === 'inc' ? prev[type] + 1 : prev[type] - 1;
-            if (type === 'adults' && newVal < 1) return prev;
-            if (type === 'rooms' && newVal < 1) return prev;
-            if (newVal < 0) return prev;
+            const minVal = (type === 'adults' || type === 'rooms') ? 1 : 0;
+            if (newVal < minVal || newVal > 500) return prev;
             return { ...prev, [type]: newVal };
         });
+    };
+
+    const handleInputChange = (type: 'adults' | 'children' | 'rooms', value: number) => {
+        const minVal = (type === 'adults' || type === 'rooms') ? 1 : 0;
+        const clampedVal = Math.max(minVal, Math.min(500, value));
+        setGuests(prev => ({ ...prev, [type]: clampedVal }));
     };
 
     const getGuestString = () => {
@@ -134,11 +139,19 @@ export const HotelBookingForm: React.FC<HotelBookingFormProps> = ({ onSubmit }) 
                                         >
                                             <span className="material-symbols-outlined text-sm">remove</span>
                                         </button>
-                                        <span className="w-6 text-center font-bold text-slate-900 dark:text-white">{guests[type]}</span>
+                                        <input
+                                            type="number"
+                                            value={guests[type]}
+                                            onChange={(e) => handleInputChange(type, parseInt(e.target.value) || 0)}
+                                            min={(type === 'adults' || type === 'rooms') ? 1 : 0}
+                                            max={500}
+                                            className="w-16 text-center font-bold text-slate-900 dark:text-white bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg py-1 focus:outline-none focus:ring-2 focus:ring-primary/50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                        />
                                         <button
                                             type="button"
                                             onClick={() => updateGuest(type, 'inc')}
-                                            className="size-8 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-400 transition-colors"
+                                            className="size-8 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-400 transition-colors disabled:opacity-50"
+                                            disabled={guests[type] >= 500}
                                         >
                                             <span className="material-symbols-outlined text-sm">add</span>
                                         </button>

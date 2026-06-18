@@ -8,7 +8,7 @@ const trainBookingSchema = z.object({
     from: z.string().min(2, 'Departure station is required'),
     to: z.string().min(2, 'Destination station is required'),
     date: z.string().min(1, 'Travel date is required'),
-    passengers: z.number().min(1, 'At least 1 passenger required').max(10, 'Maximum 10 passengers per booking'),
+    passengers: z.number().min(1, 'At least 1 passenger required').max(500, 'Maximum 500 passengers per booking'),
     classType: z.string().min(1, 'Class type is required'),
 }).refine(data => data.from.toLowerCase() !== data.to.toLowerCase(), {
     message: 'Departure and destination must be different',
@@ -40,7 +40,7 @@ export const TrainBookingForm: React.FC<TrainBookingFormProps> = ({ onSubmit }) 
     const passengers = watch('passengers');
 
     const updatePassengers = (delta: number) => {
-        const newVal = Math.max(1, Math.min(10, passengers + delta));
+        const newVal = Math.max(1, Math.min(500, passengers + delta));
         setValue('passengers', newVal);
     };
 
@@ -102,14 +102,16 @@ export const TrainBookingForm: React.FC<TrainBookingFormProps> = ({ onSubmit }) 
                             <span className="material-symbols-outlined text-sm">remove</span>
                         </button>
                         <input
-                            type="hidden"
+                            type="number"
                             {...register('passengers', { valueAsNumber: true })}
+                            min={1}
+                            max={500}
+                            className="flex-1 w-16 bg-transparent text-center font-bold text-base text-slate-900 dark:text-white border-0 focus:ring-0 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                         />
-                        <span className="flex-1 text-center font-bold text-base text-slate-900 dark:text-white">{passengers}</span>
                         <button
                             type="button"
                             onClick={() => updatePassengers(1)}
-                            disabled={passengers >= 10}
+                            disabled={passengers >= 500}
                             className="size-9 rounded-lg bg-white dark:bg-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600 disabled:opacity-50 transition-colors"
                         >
                             <span className="material-symbols-outlined text-sm">add</span>

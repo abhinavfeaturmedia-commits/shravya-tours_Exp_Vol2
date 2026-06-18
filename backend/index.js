@@ -2953,10 +2953,31 @@ app.put('/api/crud/staff_members/:id', authMiddleware, writeGuard, async (req, r
     }
 });
 
+
+// ─── Sanitize DB Body: convert empty-string dates to null ───────────────────
+// MySQL stores empty-string dates as 0000-00-00, which Node.js mysql2 returns
+// as a JavaScript Date of 1899-11-30. Nullifying them prevents this bug.
+const DATE_COLUMNS = new Set([
+    'start_date', 'end_date', 'booking_date', 'travel_date', 'departure_date',
+    'return_date', 'check_in', 'check_out', 'dob', 'date_of_birth',
+    'created_at', 'updated_at', 'scheduled_at', 'completed_at'
+]);
+function sanitizeDbBody(body) {
+    if (!body || typeof body !== 'object') return body;
+    const sanitized = { ...body };
+    for (const [key, val] of Object.entries(sanitized)) {
+        if (DATE_COLUMNS.has(key) && (val === '' || val === undefined)) {
+            sanitized[key] = null;
+        }
+    }
+    return sanitized;
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 // POST - Insert new row
 app.post('/api/crud/:table', authMiddleware, validateTable, writeGuard, permissionGuard, async (req, res) => {
     const { table } = req.params;
-    const body = req.body;
+    const body = sanitizeDbBody(req.body);
     try {
         // Auto-generate UUID if missing for non-auto-increment tables
         const autoIncrementTables = ['users', 'staff_members', 'audit_logs', 'lead_logs', 'booking_transactions', 'account_transactions'];
@@ -3098,7 +3119,7 @@ app.post('/api/crud/:table', authMiddleware, validateTable, writeGuard, permissi
 // PUT - Update row by ID
 app.put('/api/crud/:table/:id', authMiddleware, validateTable, writeGuard, permissionGuard, async (req, res) => {
     const { table, id } = req.params;
-    const body = req.body;
+    const body = sanitizeDbBody(req.body);
     try {
         // Enforce that regular staff cannot assign their own records to others unless they have global scope
         const assignedDataTables = ['leads', 'bookings', 'follow_ups', 'tasks'];
