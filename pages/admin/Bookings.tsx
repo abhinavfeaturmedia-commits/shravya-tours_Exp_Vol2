@@ -18,9 +18,10 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { exportToExcel, ExportColumn } from '../../src/lib/exportUtils';
 import { formatPrice } from '../../utils/packageUtils';
+import { Plus, X, Edit2, Trash2 } from 'lucide-react';
 
 export const Bookings: React.FC = () => {
-    const { packages, customers, leads, refreshData, coupons, applyCoupon, detachCoupon, tasks, updateTask, addTask } = useData();
+    const { packages, customers, leads, refreshData, coupons, applyCoupon, detachCoupon, tasks, updateTask, addTask, deleteTask } = useData();
     const { bookings, addBooking, updateBooking, deleteBooking, isLoading } = useBookings();
     const { currentUser, hasPermission, staff } = useAuth();
     const { settings } = useSettings();
@@ -79,29 +80,55 @@ export const Bookings: React.FC = () => {
 
     const [manualTaskTitle, setManualTaskTitle] = useState('');
     const [manualTaskDueDate, setManualTaskDueDate] = useState('');
+    const [manualTaskPriority, setManualTaskPriority] = useState<'Low'|'Medium'|'High'|'Urgent'>('Medium'); // Fix #13
+    const [manualTaskAssignee, setManualTaskAssignee] = useState<string>('');                               // Fix #13
+    const [showManualTaskForm, setShowManualTaskForm] = useState(false);                                    // Fix #29
     const [selectedPredefinedPlaybookType, setSelectedPredefinedPlaybookType] = useState<string>('');
+    const [taskFilter, setTaskFilter] = useState<'all'|'pending'|'inprogress'|'completed'|'overdue'>('all'); // Fix #15
+    const [showOnlyMine, setShowOnlyMine] = useState(false);                                               // Fix #18
+    const [completionNoteTask, setCompletionNoteTask] = useState<Task|null>(null);                          // Fix #14
+    const [completionNoteText, setCompletionNoteText] = useState('');                                       // Fix #14
+    const [showPlaybookConfirm, setShowPlaybookConfirm] = useState(false);                                  // Fix #4
+    const [reassigningTaskId, setReassigningTaskId] = useState<string|null>(null);                          // Fix #12
+    const [editingTaskId, setEditingTaskId] = useState<string|null>(null);                                  // Fix #8
+    const [editingTaskTitle, setEditingTaskTitle] = useState('');                                           // Fix #8
+    const [playbookKeys, setPlaybookKeys] = useState<{leadStages:string[], bookingTypes:string[]}>({       // Fix #24
+        leadStages: ['New','Warm','Hot','Offer Sent','Converted','Cold'],
+        bookingTypes: ['Tour','Hotel','Car','Bus','Train','Flight']
+    });
 
     useEffect(() => {
         setBookingModalTab('info');
+        setTaskFilter('all');
+        setShowOnlyMine(false);
+        setShowManualTaskForm(false);
         if (viewingBooking) {
             setSelectedPredefinedPlaybookType(viewingBooking.type);
+            setManualTaskAssignee(String(viewingBooking.assignedTo || currentUser?.id || ''));
         }
     }, [viewingBookingId, viewingBooking]);
+
+    // Fix #24: Load dynamic playbook keys from backend on mount
+    useEffect(() => {
+        api.getPlaybookKeys().then(keys => setPlaybookKeys(keys)).catch(() => {});
+    }, []);
 
     const handleAddManualBookingTask = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!viewingBooking || !manualTaskTitle.trim()) return;
 
+        // Fix #2: No hardcoded id — let backend generate UUID
+        // Fix #13: Include priority and assignee from form
         const newTask: Partial<Task> = {
-            id: `TSK-${Date.now()}`,
             title: manualTaskTitle.trim(),
-            description: 'Manually added checklist task',
+            description: '',
             status: 'Pending',
-            priority: 'Medium',
+            priority: manualTaskPriority,
             dueDate: manualTaskDueDate || new Date().toISOString().split('T')[0],
             category: 'checklist',
+            source: 'manual',   // Fix #1: tag as manual so playbook reload won't delete it
             relatedBookingId: viewingBooking.id,
-            assignedTo: viewingBooking.assignedTo || currentUser?.id || staff?.[0]?.id || 'System',
+            assignedTo: manualTaskAssignee || viewingBooking.assignedTo || currentUser?.id || staff?.[0]?.id || 'System',
             assignedBy: currentUser?.id || staff?.[0]?.id || 'System',
             createdAt: new Date().toISOString()
         };
@@ -110,25 +137,136 @@ export const Bookings: React.FC = () => {
             await addTask(newTask as Task);
             setManualTaskTitle('');
             setManualTaskDueDate('');
+            setManualTaskPriority('Medium');
+            setShowManualTaskForm(false); // Fix #29: collapse form after submit
             window.dispatchEvent(new CustomEvent('tasks-changed'));
-            toast.success('Manual task added successfully');
+            toast.success('Custom task added');
         } catch (err) {
             console.error('Failed to add manual task:', err);
             toast.error('Failed to add task');
         }
     };
 
+    // Fix #4: Guard generate playbook with confirm modal
     const handleGenerateBookingPlaybook = async () => {
         if (!viewingBooking) return;
+        setShowPlaybookConfirm(true);
+    };
+    const confirmGeneratePlaybook = async () => {
+        if (!viewingBooking) return;
+        setShowPlaybookConfirm(false);
         const typeToUse = selectedPredefinedPlaybookType || viewingBooking.type;
         try {
             await api.generateBookingPlaybook(viewingBooking.id, typeToUse);
             window.dispatchEvent(new CustomEvent('tasks-changed'));
-            toast.success(`Checklist loaded successfully`);
+            toast.success(`${typeToUse} playbook loaded`);
         } catch (err) {
             console.error('Failed to generate playbook:', err);
             toast.error('Failed to load playbook checklist');
         }
+    };
+
+    // Fix #9: 3-state toggle Pending → In Progress → Completed
+    // Fix #14: Intercept before Completed to show note popup
+    const handleToggleTask = async (task: Task) => {
+        const cycle: Record<string, string> = { 'Pending': 'In Progress', 'In Progress': 'Completed', 'Completed': 'Pending', 'Overdue': 'In Progress' };
+        const newStatus = cycle[task.status] || 'Pending';
+        if (newStatus === 'Completed') {
+            // Fix #14: show note modal before saving completion
+            setCompletionNoteTask(task);
+            setCompletionNoteText('');
+            return;
+        }
+        try {
+            await updateTask(task.id, { status: newStatus as any });
+            window.dispatchEvent(new CustomEvent('tasks-changed'));
+            toast.success(`Task marked as ${newStatus}`);
+        } catch (e) {
+            console.error('Failed to toggle task:', e);
+            toast.error('Failed to update task status');
+        }
+    };
+
+    // Fix #14: Confirm completion with optional note
+    // Fix #11: Record who completed it + Fix #23: Log to booking timeline (if we had logs on bookings, but we don't, so just update task)
+    const handleConfirmCompletion = async () => {
+        if (!completionNoteTask || !viewingBooking) return;
+        const now = new Date().toISOString();
+        const completedByName = currentUser?.name || staff.find(s => String(s.id) === String(currentUser?.id))?.name || 'Staff';
+        try {
+            await updateTask(completionNoteTask.id, {
+                status: 'Completed',
+                completedAt: now,
+                completedBy: completedByName,  // Fix #11
+                completionNote: completionNoteText.trim() || undefined,  // Fix #14
+            });
+            window.dispatchEvent(new CustomEvent('tasks-changed'));
+            toast.success('Task marked complete');
+        } catch (e) {
+            toast.error('Failed to complete task');
+        } finally {
+            setCompletionNoteTask(null);
+            setCompletionNoteText('');
+        }
+    };
+
+    // Fix #7: Delete task
+    const handleDeleteBookingTask = async (taskId: string) => {
+        if (!confirm('Delete this task? This cannot be undone.')) return;
+        try {
+            await deleteTask(taskId);
+            window.dispatchEvent(new CustomEvent('tasks-changed'));
+            toast.success('Task deleted');
+        } catch (e) { toast.error('Failed to delete task'); }
+    };
+
+    // Fix #8: Save inline task title edit
+    const handleSaveTaskEdit = async (task: Task) => {
+        if (!editingTaskTitle.trim()) return;
+        try {
+            await updateTask(task.id, { title: editingTaskTitle.trim() });
+            setEditingTaskId(null);
+            window.dispatchEvent(new CustomEvent('tasks-changed'));
+            toast.success('Task updated');
+        } catch (e) { toast.error('Failed to update task'); }
+    };
+
+    // Fix #12: Reassign task to different staff
+    const handleReassignTask = async (taskId: string, newAssigneeId: string) => {
+        try {
+            await updateTask(taskId, { assignedTo: newAssigneeId });
+            setReassigningTaskId(null);
+            window.dispatchEvent(new CustomEvent('tasks-changed'));
+            toast.success('Task reassigned');
+        } catch (e) { toast.error('Failed to reassign task'); }
+    };
+
+    // Fix #16: Bulk mark all pending tasks as complete
+    const handleMarkAllComplete = async () => {
+        if (!viewingBooking) return;
+        const bookingChecklist = tasks?.filter(t => t.relatedBookingId === viewingBooking.id) || [];
+        const pending = bookingChecklist.filter(t => t.status !== 'Completed');
+        if (!pending.length) return;
+        const completedByName = currentUser?.name || 'Staff';
+        const now = new Date().toISOString();
+        for (const task of pending) {
+            try { await updateTask(task.id, { status: 'Completed', completedAt: now, completedBy: completedByName }); } catch {}
+        }
+        window.dispatchEvent(new CustomEvent('tasks-changed'));
+        toast.success(`${pending.length} tasks marked complete`);
+    };
+
+    // Fix #16: Clear all completed tasks
+    const handleClearCompleted = async () => {
+        const bookingChecklist = tasks?.filter(t => t.relatedBookingId === viewingBooking.id) || [];
+        const completed = bookingChecklist.filter(t => t.status === 'Completed');
+        if (!completed.length) return;
+        if (!confirm(`Delete ${completed.length} completed task(s)?`)) return;
+        for (const task of completed) {
+            try { await deleteTask(task.id); } catch {}
+        }
+        window.dispatchEvent(new CustomEvent('tasks-changed'));
+        toast.success('Completed tasks cleared');
     };
 
     const handleSendStaffMessageFromBooking = async (e: React.FormEvent, leadId: string) => {
@@ -585,29 +723,45 @@ export const Bookings: React.FC = () => {
             default: return 'confirmation_number';
         }
     };
-    const bookingChecklist = useMemo(() => {
+    // All tasks for progress calculation
+    const allBookingTasks = useMemo(() => {
         if (!viewingBooking) return [];
-        return (tasks || []).filter(t => t.relatedBookingId === viewingBooking.id && t.category === 'checklist');
+        let items = (tasks || []).filter(t => t.relatedBookingId === viewingBooking.id && t.category === 'checklist');
+        const todayStr = new Date().toISOString().split('T')[0];
+        return items.map(t => {
+            if (t.status !== 'Completed' && t.dueDate && t.dueDate < todayStr) {
+                return { ...t, status: 'Overdue' as any };
+            }
+            return t;
+        });
     }, [tasks, viewingBooking]);
 
-    const completedBookingCount = bookingChecklist.filter(t => t.status === 'Completed').length;
-    const bookingChecklistProgress = bookingChecklist.length > 0 ? Math.round((completedBookingCount / bookingChecklist.length) * 100) : 0;
+    const bookingChecklist = useMemo(() => {
+        let items = [...allBookingTasks];
 
-    const handleToggleBookingTask = async (task: Task) => {
-        const newStatus = task.status === 'Completed' ? 'Pending' : 'Completed';
-        const completedAt = newStatus === 'Completed' ? new Date().toISOString() : undefined;
-        try {
-            await updateTask(task.id, {
-                status: newStatus,
-                completedAt
-            });
-            window.dispatchEvent(new CustomEvent('tasks-changed'));
-            toast.success(`Task marked as ${newStatus.toLowerCase()}`);
-        } catch (e) {
-            console.error('Failed to toggle booking task:', e);
-            toast.error('Failed to update task status');
+        // Filter by owner
+        if (showOnlyMine && currentUser) {
+            items = items.filter(t => String(t.assignedTo) === String(currentUser.id));
         }
-    };
+
+        // Filter by state
+        if (taskFilter === 'pending') {
+            items = items.filter(t => t.status === 'Pending');
+        } else if (taskFilter === 'inprogress') {
+            items = items.filter(t => t.status === 'In Progress');
+        } else if (taskFilter === 'completed') {
+            items = items.filter(t => t.status === 'Completed');
+        } else if (taskFilter === 'overdue') {
+            items = items.filter(t => t.status === 'Overdue');
+        }
+
+        return items;
+    }, [allBookingTasks, taskFilter, showOnlyMine, currentUser]);
+
+    const completedBookingCount = allBookingTasks.filter(t => t.status === 'Completed').length;
+    const bookingChecklistProgress = allBookingTasks.length > 0 ? Math.round((completedBookingCount / allBookingTasks.length) * 100) : 0;
+
+    // Toggle handler removed - using handleToggleTask instead
 
     return (
         <div className="flex flex-col h-full admin-page-bg relative">
@@ -893,28 +1047,28 @@ export const Bookings: React.FC = () => {
                                     );
                                 })()
                             ) : bookingModalTab === 'checklist' ? (
-                                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
+                                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 pb-6">
                                     {/* Playbook Progress Card */}
-                                    <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                    <div className="p-5 rounded-2xl bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900/60 dark:to-slate-800/40 border border-slate-200/60 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                                         <div>
                                             <div className="flex items-center gap-2 mb-1">
-                                                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                                                <span className="px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
                                                     Operations playbook
                                                 </span>
-                                                <span className="text-xs text-slate-400">•</span>
-                                                <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                                                <span className="text-xs text-slate-400 font-bold">•</span>
+                                                <span className="text-xs font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                                                     {viewingBooking.type} Booking
                                                 </span>
                                             </div>
                                             <h3 className="text-sm font-black text-slate-800 dark:text-white uppercase tracking-tight">
-                                                {viewingBooking.type} Operational Action Checklist
+                                                Checklist Tasks Playbook
                                             </h3>
                                         </div>
                                         <div className="flex items-center gap-3 shrink-0">
                                             <div className="text-right">
-                                                <p className="text-[10px] text-slate-400 font-bold uppercase">Completion</p>
-                                                <p className="text-sm font-black text-slate-800 dark:text-white">
-                                                    {completedBookingCount}/{bookingChecklist.length} ({bookingChecklistProgress}%)
+                                                <p className="text-[9px] text-slate-405 dark:text-slate-500 font-black uppercase tracking-wider">Completion</p>
+                                                <p className="text-xs font-black text-slate-800 dark:text-white">
+                                                    {completedBookingCount}/{allBookingTasks.length} ({bookingChecklistProgress}%)
                                                 </p>
                                             </div>
                                             <div className="w-24 bg-slate-200 dark:bg-slate-700 h-2 rounded-full overflow-hidden">
@@ -926,94 +1080,406 @@ export const Bookings: React.FC = () => {
                                         </div>
                                     </div>
 
-                                    {/* Predefined Playbook Loader */}
-                                    <div className="p-4 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-sm">
-                                        <div className="flex items-center gap-2">
-                                            <span className="material-symbols-outlined text-[20px] text-emerald-500">auto_awesome</span>
+                                    {/* Predefined Playbook Template Loader */}
+                                    <div className="p-4 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-sm">
+                                        <div className="flex items-center gap-3">
+                                            <div className="size-9 rounded-lg bg-emerald-550/10 dark:bg-emerald-950/30 flex items-center justify-center text-emerald-500 shrink-0">
+                                                <span className="material-symbols-outlined text-[20px]">auto_awesome</span>
+                                            </div>
                                             <div>
-                                                <p className="text-xs font-bold text-slate-800 dark:text-slate-100">Load Predefined Checklist Template</p>
-                                                <p className="text-[10px] text-slate-400">Initialize tasks for any Service Type or Lead Stage</p>
+                                                <p className="text-xs font-bold text-slate-800 dark:text-slate-105">Load Template Checklist</p>
+                                                <p className="text-[10px] text-slate-400">Add predefined checklists based on Service Types or Stages</p>
                                             </div>
                                         </div>
                                         <div className="flex gap-2 w-full sm:w-auto">
                                             <select
                                                 value={selectedPredefinedPlaybookType}
                                                 onChange={e => setSelectedPredefinedPlaybookType(e.target.value)}
-                                                className="flex-1 sm:flex-none bg-slate-50 dark:bg-slate-900 border border-slate-250 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-355 outline-none w-full sm:w-44"
+                                                className="flex-1 sm:flex-none bg-slate-50 dark:bg-slate-900 border border-slate-250 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-extrabold text-slate-700 dark:text-slate-355 outline-none w-full sm:w-44 focus:ring-2 focus:ring-primary/20"
                                             >
                                                 <optgroup label="Service Types">
-                                                    {['Tour', 'Hotel', 'Car', 'Bus', 'Train', 'Flight'].map(t => (
+                                                    {playbookKeys.bookingTypes.map(t => (
                                                         <option key={t} value={t}>{t === 'Car' ? 'Cab (Car)' : t} Playbook</option>
                                                     ))}
                                                 </optgroup>
                                                 <optgroup label="Lead Stages">
-                                                    {['New', 'Warm', 'Hot', 'Offer Sent', 'Converted', 'Cold'].map(s => (
+                                                    {playbookKeys.leadStages.map(s => (
                                                         <option key={s} value={s}>{s} Playbook</option>
                                                     ))}
                                                 </optgroup>
                                             </select>
                                             <button
+                                                type="button"
                                                 onClick={handleGenerateBookingPlaybook}
-                                                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white dark:bg-slate-700 dark:hover:bg-slate-600 rounded-xl text-xs font-bold shadow-sm transition-all"
+                                                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white dark:bg-slate-700 dark:hover:bg-slate-650 rounded-xl text-xs font-black shadow-sm transition-all"
                                             >
                                                 Load
                                             </button>
                                         </div>
                                     </div>
 
-                                    {/* Operations Checklist Items */}
+                                    {/* Task Filtering, Toggle Custom Form, and Bulk Action Controls */}
+                                    <div className="flex flex-col gap-3 bg-slate-50/50 dark:bg-slate-900/20 p-3.5 rounded-2xl border border-slate-100 dark:border-slate-800">
+                                        <div className="flex flex-wrap items-center justify-between gap-3">
+                                            {/* Filters */}
+                                            <div className="flex flex-wrap items-center gap-1">
+                                                {(['all', 'pending', 'inprogress', 'completed', 'overdue'] as const).map((filter) => {
+                                                    const count = filter === 'all' ? allBookingTasks.length
+                                                        : filter === 'pending' ? allBookingTasks.filter(t => t.status === 'Pending').length
+                                                        : filter === 'inprogress' ? allBookingTasks.filter(t => t.status === 'In Progress').length
+                                                        : filter === 'completed' ? allBookingTasks.filter(t => t.status === 'Completed').length
+                                                        : allBookingTasks.filter(t => t.status === 'Overdue').length;
+
+                                                    return (
+                                                        <button
+                                                            key={filter}
+                                                            type="button"
+                                                            onClick={() => setTaskFilter(filter)}
+                                                            className={`px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 ${
+                                                                taskFilter === filter
+                                                                    ? 'bg-primary text-white shadow-sm'
+                                                                    : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-305 hover:bg-slate-100 dark:hover:bg-slate-700'
+                                                            }`}
+                                                        >
+                                                            {filter === 'all' ? 'All' : filter === 'inprogress' ? 'In Progress' : filter}
+                                                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${taskFilter === filter ? 'bg-white/20 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'}`}>
+                                                                {count}
+                                                            </span>
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+
+                                            {/* Action Toggles */}
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowOnlyMine(prev => !prev)}
+                                                    className={`px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wider border transition-all flex items-center gap-1.5 ${
+                                                        showOnlyMine
+                                                            ? 'bg-violet-500/10 text-violet-600 border-violet-250 dark:text-violet-400 dark:border-violet-850'
+                                                            : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-50'
+                                                    }`}
+                                                >
+                                                    <span className="material-symbols-outlined text-[14px]">person</span>
+                                                    Assigned to me
+                                                </button>
+
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowManualTaskForm(p => !p)}
+                                                    className={`px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wider border transition-all flex items-center gap-1.5 ${
+                                                        showManualTaskForm
+                                                            ? 'bg-emerald-500 text-white border-emerald-500 shadow-sm'
+                                                            : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-55'
+                                                    }`}
+                                                >
+                                                    <Plus size={13} />
+                                                    Add Task
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {/* Bulk Actions */}
+                                        <div className="flex items-center justify-between border-t border-slate-200/50 dark:border-slate-800 pt-2.5 mt-0.5 text-xs text-slate-500">
+                                            <span>Actions:</span>
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={handleMarkAllComplete}
+                                                    className="text-[10px] font-black text-slate-600 dark:text-slate-355 hover:text-emerald-500 uppercase tracking-widest flex items-center gap-1"
+                                                >
+                                                    <span className="material-symbols-outlined text-[13px]">done_all</span> Mark All Complete
+                                                </button>
+                                                <span className="text-slate-300 dark:text-slate-700">|</span>
+                                                <button
+                                                    type="button"
+                                                    onClick={handleClearCompleted}
+                                                    className="text-[10px] font-black text-slate-600 dark:text-slate-355 hover:text-red-500 uppercase tracking-widest flex items-center gap-1"
+                                                >
+                                                    <span className="material-symbols-outlined text-[13px]">delete_sweep</span> Clear Completed
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Collapsible Add Custom Checklist Task Form */}
+                                    {showManualTaskForm && (
+                                        <form onSubmit={handleAddManualBookingTask} className="p-4 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 space-y-4 shadow-md animate-in slide-in-from-top-3 duration-250">
+                                            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-2">
+                                                <h4 className="text-xs font-black uppercase text-slate-800 dark:text-white tracking-wider flex items-center gap-1.5">
+                                                    <span className="material-symbols-outlined text-primary text-[16px]">edit_note</span>
+                                                    Add Custom Checklist Task
+                                                </h4>
+                                                <button type="button" onClick={() => setShowManualTaskForm(false)} className="text-slate-400 hover:text-slate-600"><X size={14} /></button>
+                                            </div>
+
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                                                <div className="md:col-span-2">
+                                                    <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">Task Title</label>
+                                                    <input
+                                                        type="text"
+                                                        value={manualTaskTitle}
+                                                        onChange={e => setManualTaskTitle(e.target.value)}
+                                                        placeholder="e.g. Call customer for flight preference..."
+                                                        className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-250 dark:border-slate-700 rounded-xl px-4 py-2.5 text-xs font-semibold text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-primary/20"
+                                                        required
+                                                    />
+                                                </div>
+
+                                                <div>
+                                                    <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">Due Date</label>
+                                                    <input
+                                                        type="date"
+                                                        value={manualTaskDueDate}
+                                                        onChange={e => setManualTaskDueDate(e.target.value)}
+                                                        className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-250 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-705 dark:text-slate-350 outline-none focus:ring-2 focus:ring-primary/20"
+                                                    />
+                                                </div>
+
+                                                <div>
+                                                    <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">Priority</label>
+                                                    <select
+                                                        value={manualTaskPriority}
+                                                        onChange={e => setManualTaskPriority(e.target.value as any)}
+                                                        className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-250 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs font-extrabold text-slate-705 dark:text-slate-355 outline-none focus:ring-2 focus:ring-primary/20"
+                                                    >
+                                                        <option value="Low">Low</option>
+                                                        <option value="Medium">Medium</option>
+                                                        <option value="High">High</option>
+                                                        <option value="Urgent">Urgent</option>
+                                                    </select>
+                                                </div>
+
+                                                <div className="md:col-span-2">
+                                                    <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">Assign To Staff</label>
+                                                    <select
+                                                        value={manualTaskAssignee}
+                                                        onChange={e => setManualTaskAssignee(e.target.value)}
+                                                        className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-250 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs font-extrabold text-slate-705 dark:text-slate-355 outline-none focus:ring-2 focus:ring-primary/20"
+                                                    >
+                                                        <option value="">Select Assignee (Default: Booking Owner)</option>
+                                                        {staff.map(s => (
+                                                            <option key={s.id} value={s.id}>{s.name} ({s.role || 'Staff'})</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                            </div>
+
+                                            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-700">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowManualTaskForm(false)}
+                                                    className="px-4 py-2 text-xs font-black uppercase tracking-wider text-slate-505 hover:bg-slate-100 rounded-xl transition-all"
+                                                >
+                                                    Cancel
+                                                </button>
+                                                <button
+                                                    type="submit"
+                                                    className="px-5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow-md active:scale-95 transition-all"
+                                                >
+                                                    <span className="material-symbols-outlined text-[15px]">add</span> Add Checklist Task
+                                                </button>
+                                            </div>
+                                        </form>
+                                    )}
+
+                                    {/* Operations Checklist Items List */}
                                     <div className="space-y-3">
                                         {bookingChecklist.length > 0 ? (
                                             bookingChecklist.map((task) => {
                                                 const isCompleted = task.status === 'Completed';
+                                                const isOverdue = task.status === 'Overdue';
+                                                const isInProgress = task.status === 'In Progress';
+
+                                                // Color schema based on priority
+                                                const priorityColors = {
+                                                    Urgent: 'bg-red-500 text-white dark:bg-red-950 dark:text-red-300 border-red-400/20',
+                                                    High: 'bg-orange-500 text-white dark:bg-orange-950 dark:text-orange-300 border-orange-400/20',
+                                                    Medium: 'bg-blue-500 text-white dark:bg-blue-950 dark:text-blue-300 border-blue-400/20',
+                                                    Low: 'bg-slate-500 text-white dark:bg-slate-900 dark:text-slate-400 border-slate-700/20'
+                                                }[task.priority || 'Medium'];
+
+                                                const isEditing = editingTaskId === task.id;
+
                                                 return (
                                                     <div
                                                         key={task.id}
-                                                        onClick={() => handleToggleBookingTask(task)}
-                                                        className={`group p-4 rounded-xl border transition-all duration-200 cursor-pointer flex items-start gap-4 select-none ${
+                                                        className={`group p-4 rounded-2xl border transition-all duration-200 flex flex-col gap-3 relative select-none ${
                                                             isCompleted
-                                                                ? 'bg-slate-50/50 dark:bg-slate-900/20 border-slate-100 dark:border-slate-850 opacity-70'
-                                                                : 'bg-white dark:bg-[#1E293B] border-slate-100 dark:border-slate-800 hover:border-emerald-500/40 hover:shadow-sm'
+                                                                ? 'bg-slate-50/40 dark:bg-slate-900/10 border-slate-150 dark:border-slate-850 opacity-70'
+                                                                : isInProgress
+                                                                ? 'bg-amber-50/30 dark:bg-amber-955/5 border-amber-250 dark:border-amber-900/30'
+                                                                : isOverdue
+                                                                ? 'bg-red-50/30 dark:bg-red-955/5 border-red-200 dark:border-red-950/30'
+                                                                : 'bg-white dark:bg-[#1E293B] border-slate-205 dark:border-slate-800 hover:border-primary/40 hover:shadow-sm'
                                                         }`}
                                                     >
-                                                        <div className="mt-0.5 shrink-0">
-                                                            <div className={`w-5 h-5 rounded-md border flex items-center justify-center transition-all ${
-                                                                isCompleted
-                                                                    ? 'bg-emerald-500 border-emerald-500 text-white'
-                                                                    : 'border-slate-300 dark:border-slate-600 group-hover:border-emerald-500'
-                                                            }`}>
-                                                                {isCompleted && (
-                                                                    <span className="material-symbols-outlined text-[16px] font-black">check</span>
+                                                        {/* Top Row: Checkbox, Title, and Badges */}
+                                                        <div className="flex items-start gap-3.5">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleToggleTask(task)}
+                                                                className="mt-0.5 shrink-0"
+                                                                title={`Click to cycle status. Current: ${task.status}`}
+                                                            >
+                                                                <div className={`w-5 h-5 rounded-lg border flex items-center justify-center transition-all ${
+                                                                    isCompleted
+                                                                        ? 'bg-emerald-500 border-emerald-550 text-white'
+                                                                        : isInProgress
+                                                                        ? 'bg-amber-500 border-amber-550 text-white'
+                                                                        : isOverdue
+                                                                        ? 'bg-red-500 border-red-550 text-white'
+                                                                        : 'border-slate-300 dark:border-slate-600 hover:border-primary'
+                                                                }`}>
+                                                                    {isCompleted && (
+                                                                        <span className="material-symbols-outlined text-[15px] font-black">check</span>
+                                                                    )}
+                                                                    {isInProgress && (
+                                                                        <span className="material-symbols-outlined text-[13px] font-black animate-spin duration-3000">hourglass_empty</span>
+                                                                    )}
+                                                                    {isOverdue && (
+                                                                        <span className="material-symbols-outlined text-[13px] font-black">priority_high</span>
+                                                                    )}
+                                                                </div>
+                                                            </button>
+
+                                                            <div className="flex-1 min-w-0">
+                                                                {isEditing ? (
+                                                                    <div className="flex items-center gap-2">
+                                                                        <input
+                                                                            type="text"
+                                                                            value={editingTaskTitle}
+                                                                            onChange={e => setEditingTaskTitle(e.target.value)}
+                                                                            className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-250 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-primary/20"
+                                                                        />
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => handleSaveTaskEdit(task)}
+                                                                            className="p-1.5 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors"
+                                                                        >
+                                                                            <span className="material-symbols-outlined text-[16px]">save</span>
+                                                                        </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => setEditingTaskId(null)}
+                                                                            className="p-1.5 bg-slate-105 dark:bg-slate-800 text-slate-500 dark:text-slate-400 rounded-lg hover:bg-slate-200 transition-colors"
+                                                                        >
+                                                                            <span className="material-symbols-outlined text-[16px]">close</span>
+                                                                        </button>
+                                                                    </div>
+                                                                ) : (
+                                                                    <p className={`text-xs font-bold leading-snug transition-all flex items-center gap-1.5 flex-wrap ${
+                                                                        isCompleted
+                                                                            ? 'text-slate-400 dark:text-slate-500 line-through'
+                                                                            : isOverdue
+                                                                            ? 'text-red-650 dark:text-red-400'
+                                                                            : 'text-slate-850 dark:text-slate-200'
+                                                                    }`}>
+                                                                        {task.title}
+                                                                        {task.source === 'manual' && (
+                                                                            <span className="px-1.5 py-0.5 rounded text-[8px] font-black bg-purple-500/10 text-purple-600 border border-purple-500/20 uppercase tracking-widest shrink-0">Custom</span>
+                                                                        )}
+                                                                    </p>
+                                                                )}
+                                                            </div>
+
+                                                            <div className="shrink-0 flex items-center gap-1.5">
+                                                                <span className={`px-2 py-0.5 rounded-lg border text-[9px] font-extrabold uppercase tracking-wide shrink-0 ${priorityColors}`}>
+                                                                    {task.priority || 'Medium'}
+                                                                </span>
+
+                                                                {/* Hover Actions Menu */}
+                                                                {!isEditing && (
+                                                                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-white dark:bg-slate-800 pl-2 rounded-l-lg border-l border-slate-100 dark:border-slate-800">
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => { setEditingTaskId(task.id); setEditingTaskTitle(task.title); }}
+                                                                            className="p-1.5 text-slate-400 hover:text-primary dark:hover:text-primary-dark hover:bg-slate-100 dark:hover:bg-slate-900 rounded-lg transition-all"
+                                                                            title="Edit Task Title"
+                                                                        >
+                                                                            <Edit2 size={13} />
+                                                                        </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => handleDeleteBookingTask(task.id)}
+                                                                            className="p-1.5 text-slate-405 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all"
+                                                                            title="Delete Task"
+                                                                        >
+                                                                            <Trash2 size={13} />
+                                                                        </button>
+                                                                    </div>
                                                                 )}
                                                             </div>
                                                         </div>
-                                                        <div className="flex-1 min-w-0">
-                                                            <p className={`text-xs font-bold leading-snug transition-all ${
-                                                                isCompleted
-                                                                    ? 'text-slate-400 dark:text-slate-500 line-through'
-                                                                    : 'text-slate-850 dark:text-slate-200'
-                                                            }`}>
-                                                                {task.title}
-                                                            </p>
-                                                            {task.description && (
-                                                                <p className={`text-[10px] mt-1 leading-relaxed ${
-                                                                    isCompleted
-                                                                        ? 'text-slate-400 dark:text-slate-600'
-                                                                        : 'text-slate-500 dark:text-slate-400'
-                                                                }`}>
-                                                                    {task.description}
-                                                                </p>
-                                                            )}
-                                                        </div>
-                                                        {task.assignedTo && (
-                                                            <div className="shrink-0 flex flex-col items-end gap-1.5">
-                                                                <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-855 text-slate-500 dark:text-slate-400 text-[9px] font-bold">
-                                                                    Owner: {staff.find(s => String(s.id) === String(task.assignedTo))?.name || 'System'}
-                                                                </span>
-                                                                {task.dueDate && (
-                                                                    <span className="text-[8px] text-slate-400 dark:text-slate-500 font-mono">
-                                                                        Due: {new Date(task.dueDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+
+                                                        {/* Task Details Row (Completion Logs, Notes, Reassignment, Due Dates) */}
+                                                        <div className="flex flex-wrap items-center justify-between gap-y-2 border-t border-slate-100 dark:border-slate-800/60 pt-2.5 mt-0.5 text-[10px] text-slate-500 dark:text-slate-400">
+                                                            {/* Due Date Info */}
+                                                            <div className="flex items-center gap-1 flex-wrap">
+                                                                <span className="material-symbols-outlined text-[13px]">calendar_today</span>
+                                                                <span>Due:</span>
+                                                                {task.dueDate ? (
+                                                                    <span className={`font-mono font-bold ${isOverdue ? 'text-red-550 dark:text-red-400' : 'text-slate-700 dark:text-slate-300'}`}>
+                                                                        {new Date(task.dueDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                                                        {isOverdue && ' (Overdue)'}
                                                                     </span>
+                                                                ) : (
+                                                                    <span className="italic">No due date</span>
+                                                                )}
+                                                            </div>
+
+                                                            {/* Assignee / Reassign Control */}
+                                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                                                <span className="material-symbols-outlined text-[13px]">assignment_ind</span>
+                                                                <span>Assigned to:</span>
+                                                                {reassigningTaskId === task.id ? (
+                                                                    <select
+                                                                        value={task.assignedTo || ''}
+                                                                        onChange={(e) => handleReassignTask(task.id, e.target.value)}
+                                                                        onBlur={() => setReassigningTaskId(null)}
+                                                                        autoFocus
+                                                                        className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-1 py-0.5 text-[10px] font-bold text-slate-800 dark:text-slate-200 outline-none focus:ring-1 focus:ring-primary/20"
+                                                                    >
+                                                                        <option value="">Unassigned</option>
+                                                                        {staff.map(s => (
+                                                                            <option key={s.id} value={s.id}>{s.name}</option>
+                                                                        ))}
+                                                                    </select>
+                                                                ) : (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => setReassigningTaskId(task.id)}
+                                                                        className="font-bold text-slate-700 dark:text-slate-300 hover:text-primary hover:underline flex items-center gap-0.5"
+                                                                        title="Click to reassign task"
+                                                                    >
+                                                                        {staff.find(s => String(s.id) === String(task.assignedTo))?.name || 'Unassigned'}
+                                                                        <span className="material-symbols-outlined text-[10px]">edit</span>
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Task Description if set */}
+                                                        {task.description && (
+                                                            <p className="text-[10px] text-slate-400 dark:text-slate-550 leading-relaxed pl-8">
+                                                                {task.description}
+                                                            </p>
+                                                        )}
+
+                                                        {/* Completion Note & Audit Details if complete */}
+                                                        {isCompleted && (task.completedBy || task.completionNote) && (
+                                                            <div className="mt-1.5 pl-8 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-100 dark:border-slate-850 space-y-1">
+                                                                <div className="flex items-center gap-1.5 text-[9.5px] font-black uppercase text-emerald-600 dark:text-emerald-450 tracking-wider">
+                                                                    <span className="material-symbols-outlined text-[13px]">check_circle</span>
+                                                                    Completed
+                                                                    {task.completedBy && ` by ${task.completedBy}`}
+                                                                    {task.completedAt && ` on ${new Date(task.completedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`}
+                                                                </div>
+                                                                {task.completionNote && (
+                                                                    <p className="text-[10.5px] italic text-slate-650 dark:text-slate-355 font-medium">
+                                                                        Note: &ldquo;{task.completionNote}&rdquo;
+                                                                    </p>
                                                                 )}
                                                             </div>
                                                         )}
@@ -1021,39 +1487,15 @@ export const Bookings: React.FC = () => {
                                                 );
                                             })
                                         ) : (
-                                            <div className="p-8 text-center border-2 border-dashed border-slate-100 dark:border-slate-800 rounded-2xl">
-                                                <span className="material-symbols-outlined text-4xl text-slate-350 dark:text-slate-700 mb-2">assignment_late</span>
-                                                <p className="text-xs font-bold text-slate-500 dark:text-slate-400">No Operations checklist tasks</p>
-                                                <p className="text-[10px] text-slate-400 mt-1 max-w-sm mx-auto">
-                                                    Operations checklists are automatically generated based on the service type (e.g. Tour, Hotel, Car). Ensure booking details are correct.
+                                            <div className="p-10 text-center border-2 border-dashed border-slate-150 dark:border-slate-850 rounded-3xl animate-in fade-in">
+                                                <span className="material-symbols-outlined text-4xl text-slate-300 dark:text-slate-700 mb-2">assignment_late</span>
+                                                <p className="text-xs font-bold text-slate-550 dark:text-slate-400">No matching checklist tasks</p>
+                                                <p className="text-[10px] text-slate-405 mt-1 max-w-sm mx-auto">
+                                                    There are no tasks matching the selected filter. Try changing the filter or load predefined checklist templates.
                                                 </p>
                                             </div>
                                         )}
                                     </div>
-
-                                    {/* Add Manual Task Form */}
-                                    <form onSubmit={handleAddManualBookingTask} className="mt-4 flex flex-col sm:flex-row gap-2 border-t border-slate-100 dark:border-slate-800 pt-4">
-                                        <input
-                                            type="text"
-                                            value={manualTaskTitle}
-                                            onChange={e => setManualTaskTitle(e.target.value)}
-                                            placeholder="Add a custom checklist task..."
-                                            className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-250 dark:border-slate-700 rounded-xl px-4 py-2.5 text-xs font-semibold text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500/20"
-                                            required
-                                        />
-                                        <input
-                                            type="date"
-                                            value={manualTaskDueDate}
-                                            onChange={e => setManualTaskDueDate(e.target.value)}
-                                            className="bg-slate-50 dark:bg-slate-900 border border-slate-250 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 dark:text-slate-350 outline-none focus:ring-2 focus:ring-emerald-500/20 w-full sm:w-36"
-                                        />
-                                        <button
-                                            type="submit"
-                                            className="bg-emerald-500 hover:bg-emerald-600 text-white px-5 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-1 shadow-md active:scale-95 transition-all shrink-0"
-                                        >
-                                            <span className="material-symbols-outlined text-[14px]">add</span> Add Task
-                                        </button>
-                                    </form>
                                 </div>
                             ) : (
                                 <>
@@ -1427,6 +1869,86 @@ export const Bookings: React.FC = () => {
                 </div>
                 );
             })()}
+
+            {/* Playbook Generate Confirmation Modal */}
+            {showPlaybookConfirm && (
+                <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+                    <div className="bg-white dark:bg-[#1A2633] w-full max-w-sm rounded-2xl shadow-2xl p-6 border border-slate-100 dark:border-slate-800 space-y-4">
+                        <div className="size-12 rounded-full bg-emerald-100 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto">
+                            <span className="material-symbols-outlined text-2xl">auto_awesome</span>
+                        </div>
+                        <div className="text-center">
+                            <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-tight">Load Predefined Playbook?</h3>
+                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 leading-relaxed">
+                                Loading a template checklist will add new operational tasks for <strong className="text-slate-700 dark:text-slate-205">{selectedPredefinedPlaybookType}</strong>. Custom tasks will NOT be deleted.
+                            </p>
+                        </div>
+                        <div className="flex gap-2.5 pt-2">
+                            <button
+                                type="button"
+                                onClick={() => setShowPlaybookConfirm(false)}
+                                className="flex-1 py-2 px-3 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-black uppercase text-slate-550 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={confirmGeneratePlaybook}
+                                className="flex-1 py-2 px-3 bg-emerald-500 hover:bg-emerald-650 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-sm transition-all"
+                            >
+                                Load Playbook
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Task Completion Note Modal */}
+            {completionNoteTask && (
+                <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+                    <div className="bg-white dark:bg-[#1A2633] w-full max-w-md rounded-2xl shadow-2xl p-6 border border-slate-100 dark:border-slate-800 space-y-4">
+                        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
+                            <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-tight flex items-center gap-1.5">
+                                <span className="material-symbols-outlined text-emerald-500 text-[18px]">verified</span>
+                                Complete Task
+                            </h3>
+                            <button type="button" onClick={() => setCompletionNoteTask(null)} className="text-slate-400 hover:text-slate-600"><X size={16} /></button>
+                        </div>
+                        <div>
+                            <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                                {completionNoteTask.title}
+                            </p>
+                            <p className="text-[10px] text-slate-405 mt-1">Add an optional completion note/remark for the team log.</p>
+                        </div>
+                        <div>
+                            <textarea
+                                value={completionNoteText}
+                                onChange={e => setCompletionNoteText(e.target.value)}
+                                placeholder="e.g. Booking confirmed with supplier, voucher sent to customer..."
+                                className="w-full min-h-[80px] bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-xs font-semibold text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-primary/20 resize-none"
+                                maxLength={250}
+                            />
+                        </div>
+                        <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                            <button
+                                type="button"
+                                onClick={() => setCompletionNoteTask(null)}
+                                className="px-4 py-2 text-xs font-black uppercase text-slate-550 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleConfirmCompletion}
+                                className="px-5 py-2 bg-emerald-500 hover:bg-emerald-660 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow-md active:scale-95 transition-all flex items-center gap-1"
+                            >
+                                <span className="material-symbols-outlined text-[15px]">check_circle</span>
+                                Mark Complete
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Create/Edit Modal */}
             {isModalOpen && (

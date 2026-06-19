@@ -38,7 +38,7 @@ const StatusBadge = ({ status }: { status: string }) => {
 };
 
 export const Leads: React.FC = () => {
-    const { addFollowUp, followUps, customers, addCustomer, tasks, updateTask, addTask, updateFollowUp } = useData();
+    const { addFollowUp, followUps, customers, addCustomer, tasks, updateTask, addTask, deleteTask, updateFollowUp } = useData();
     const { leads, addLead, updateLead, deleteLead, addLeadLog, updateLeadLog, deleteLeadLog, isLoading, refetchLeads } = useLeads();
     const { addBooking } = useBookings();
     const { currentUser, staff, hasPermission } = useAuth();
@@ -100,29 +100,55 @@ export const Leads: React.FC = () => {
 
     const [manualTaskTitle, setManualTaskTitle] = useState('');
     const [manualTaskDueDate, setManualTaskDueDate] = useState('');
+    const [manualTaskPriority, setManualTaskPriority] = useState<'Low'|'Medium'|'High'|'Urgent'>('Medium'); // Fix #13
+    const [manualTaskAssignee, setManualTaskAssignee] = useState<string>('');                               // Fix #13
+    const [showManualTaskForm, setShowManualTaskForm] = useState(false);                                    // Fix #29
     const [selectedPredefinedPlaybookStatus, setSelectedPredefinedPlaybookStatus] = useState<string>('');
+    const [taskFilter, setTaskFilter] = useState<'all'|'pending'|'inprogress'|'completed'|'overdue'>('all'); // Fix #15
+    const [showOnlyMine, setShowOnlyMine] = useState(false);                                               // Fix #18
+    const [completionNoteTask, setCompletionNoteTask] = useState<Task|null>(null);                          // Fix #14
+    const [completionNoteText, setCompletionNoteText] = useState('');                                       // Fix #14
+    const [showPlaybookConfirm, setShowPlaybookConfirm] = useState(false);                                  // Fix #4
+    const [reassigningTaskId, setReassigningTaskId] = useState<string|null>(null);                          // Fix #12
+    const [editingTaskId, setEditingTaskId] = useState<string|null>(null);                                  // Fix #8
+    const [editingTaskTitle, setEditingTaskTitle] = useState('');                                           // Fix #8
+    const [playbookKeys, setPlaybookKeys] = useState<{leadStages:string[], bookingTypes:string[]}>({       // Fix #24
+        leadStages: ['New','Warm','Hot','Offer Sent','Converted','Cold'],
+        bookingTypes: ['Tour','Hotel','Car','Bus','Train','Flight']
+    });
 
     useEffect(() => {
         setLeadModalTab('info');
+        setTaskFilter('all');
+        setShowOnlyMine(false);
+        setShowManualTaskForm(false);
         if (selectedLead) {
             setSelectedPredefinedPlaybookStatus(selectedLead.status);
+            setManualTaskAssignee(String(selectedLead.assignedTo || currentUser?.id || ''));
         }
     }, [selectedLeadId, selectedLead]);
+
+    // Fix #24: Load dynamic playbook keys from backend on mount
+    useEffect(() => {
+        api.getPlaybookKeys().then(keys => setPlaybookKeys(keys)).catch(() => {});
+    }, []);
 
     const handleAddManualTask = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!selectedLead || !manualTaskTitle.trim()) return;
 
+        // Fix #2: No hardcoded id — let backend generate UUID
+        // Fix #13: Include priority and assignee from form
         const newTask: Partial<Task> = {
-            id: `TSK-${Date.now()}`,
             title: manualTaskTitle.trim(),
-            description: 'Manually added checklist task',
+            description: '',
             status: 'Pending',
-            priority: 'Medium',
+            priority: manualTaskPriority,
             dueDate: manualTaskDueDate || new Date().toISOString().split('T')[0],
             category: 'checklist',
+            source: 'manual',   // Fix #1: tag as manual so playbook reload won't delete it
             relatedLeadId: selectedLead.id,
-            assignedTo: selectedLead.assignedTo || currentUser?.id || staff?.[0]?.id || 'System',
+            assignedTo: manualTaskAssignee || selectedLead.assignedTo || currentUser?.id || staff?.[0]?.id || 'System',
             assignedBy: currentUser?.id || staff?.[0]?.id || 'System',
             createdAt: new Date().toISOString()
         };
@@ -131,21 +157,29 @@ export const Leads: React.FC = () => {
             await addTask(newTask as Task);
             setManualTaskTitle('');
             setManualTaskDueDate('');
+            setManualTaskPriority('Medium');
+            setShowManualTaskForm(false); // Fix #29: collapse form after submit
             window.dispatchEvent(new CustomEvent('tasks-changed'));
-            toast.success('Manual task added successfully');
+            toast.success('Custom task added');
         } catch (err) {
             console.error('Failed to add manual task:', err);
             toast.error('Failed to add task');
         }
     };
 
+    // Fix #4: Guard generate playbook with confirm modal
     const handleGeneratePlaybook = async () => {
         if (!selectedLead) return;
+        setShowPlaybookConfirm(true);
+    };
+    const confirmGeneratePlaybook = async () => {
+        if (!selectedLead) return;
+        setShowPlaybookConfirm(false);
         const statusToUse = selectedPredefinedPlaybookStatus || selectedLead.status;
         try {
             await api.generateLeadPlaybook(selectedLead.id, statusToUse);
             window.dispatchEvent(new CustomEvent('tasks-changed'));
-            toast.success(`Checklist loaded successfully`);
+            toast.success(`${statusToUse} playbook loaded`);
         } catch (err) {
             console.error('Failed to generate playbook:', err);
             toast.error('Failed to load playbook checklist');
@@ -520,20 +554,116 @@ export const Leads: React.FC = () => {
     const completedLeadCount = leadChecklist.filter(t => t.status === 'Completed').length;
     const leadChecklistProgress = leadChecklist.length > 0 ? Math.round((completedLeadCount / leadChecklist.length) * 100) : 0;
 
+    // Fix #9: 3-state toggle Pending → In Progress → Completed
+    // Fix #14: Intercept before Completed to show note popup
     const handleToggleTask = async (task: Task) => {
-        const newStatus = task.status === 'Completed' ? 'Pending' : 'Completed';
-        const completedAt = newStatus === 'Completed' ? new Date().toISOString() : undefined;
+        const cycle: Record<string, string> = { 'Pending': 'In Progress', 'In Progress': 'Completed', 'Completed': 'Pending', 'Overdue': 'In Progress' };
+        const newStatus = cycle[task.status] || 'Pending';
+        if (newStatus === 'Completed') {
+            // Fix #14: show note modal before saving completion
+            setCompletionNoteTask(task);
+            setCompletionNoteText('');
+            return;
+        }
         try {
-            await updateTask(task.id, {
-                status: newStatus,
-                completedAt
-            });
+            await updateTask(task.id, { status: newStatus as any });
             window.dispatchEvent(new CustomEvent('tasks-changed'));
-            toast.success(`Task marked as ${newStatus.toLowerCase()}`);
+            toast.success(`Task marked as ${newStatus}`);
         } catch (e) {
             console.error('Failed to toggle task:', e);
             toast.error('Failed to update task status');
         }
+    };
+
+    // Fix #14: Confirm completion with optional note
+    // Fix #11: Record who completed it + Fix #23: Log to lead timeline
+    const handleConfirmCompletion = async () => {
+        if (!completionNoteTask || !selectedLead) return;
+        const now = new Date().toISOString();
+        const completedByName = currentUser?.name || staff.find(s => String(s.id) === String(currentUser?.id))?.name || 'Staff';
+        try {
+            await updateTask(completionNoteTask.id, {
+                status: 'Completed',
+                completedAt: now,
+                completedBy: completedByName,  // Fix #11
+                completionNote: completionNoteText.trim() || undefined,  // Fix #14
+            });
+            // Fix #23: Log completion to lead timeline
+            if (addLeadLog) {
+                await addLeadLog(selectedLead.id, {
+                    id: `LOG-${Date.now()}`,
+                    type: 'Note',
+                    content: `✅ Task completed: "${completionNoteTask.title}"${completionNoteText.trim() ? ` — ${completionNoteText.trim()}` : ''}`,
+                    date: now,
+                    author: completedByName,
+                    sender: completedByName,
+                } as any);
+            }
+            window.dispatchEvent(new CustomEvent('tasks-changed'));
+            toast.success('Task marked complete');
+        } catch (e) {
+            toast.error('Failed to complete task');
+        } finally {
+            setCompletionNoteTask(null);
+            setCompletionNoteText('');
+        }
+    };
+
+    // Fix #7: Delete task
+    const handleDeleteLeadTask = async (taskId: string) => {
+        if (!confirm('Delete this task? This cannot be undone.')) return;
+        try {
+            await deleteTask(taskId);
+            window.dispatchEvent(new CustomEvent('tasks-changed'));
+            toast.success('Task deleted');
+        } catch (e) { toast.error('Failed to delete task'); }
+    };
+
+    // Fix #8: Save inline task title edit
+    const handleSaveTaskEdit = async (task: Task) => {
+        if (!editingTaskTitle.trim()) return;
+        try {
+            await updateTask(task.id, { title: editingTaskTitle.trim() });
+            setEditingTaskId(null);
+            window.dispatchEvent(new CustomEvent('tasks-changed'));
+            toast.success('Task updated');
+        } catch (e) { toast.error('Failed to update task'); }
+    };
+
+    // Fix #12: Reassign task to different staff
+    const handleReassignTask = async (taskId: string, newAssigneeId: string) => {
+        try {
+            await updateTask(taskId, { assignedTo: newAssigneeId });
+            setReassigningTaskId(null);
+            window.dispatchEvent(new CustomEvent('tasks-changed'));
+            toast.success('Task reassigned');
+        } catch (e) { toast.error('Failed to reassign task'); }
+    };
+
+    // Fix #16: Bulk mark all pending tasks as complete
+    const handleMarkAllComplete = async () => {
+        if (!selectedLead) return;
+        const pending = leadChecklist.filter(t => t.status !== 'Completed');
+        if (!pending.length) return;
+        const completedByName = currentUser?.name || 'Staff';
+        const now = new Date().toISOString();
+        for (const task of pending) {
+            try { await updateTask(task.id, { status: 'Completed', completedAt: now, completedBy: completedByName }); } catch {}
+        }
+        window.dispatchEvent(new CustomEvent('tasks-changed'));
+        toast.success(`${pending.length} tasks marked complete`);
+    };
+
+    // Fix #16: Clear all completed tasks
+    const handleClearCompleted = async () => {
+        const completed = leadChecklist.filter(t => t.status === 'Completed');
+        if (!completed.length) return;
+        if (!confirm(`Delete ${completed.length} completed task(s)?`)) return;
+        for (const task of completed) {
+            try { await deleteTask(task.id); } catch {}
+        }
+        window.dispatchEvent(new CustomEvent('tasks-changed'));
+        toast.success('Completed tasks cleared');
     };
 
     return (
@@ -974,6 +1104,12 @@ export const Leads: React.FC = () => {
                             >
                                 <span className="material-symbols-outlined text-[16px]">playlist_add_check</span>
                                 Tasks & Playbook
+                                {/* Fix #30: Pending count badge */}
+                                {leadChecklist.filter(t => t.status !== 'Completed').length > 0 && (
+                                    <span className="ml-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-black bg-red-500 text-white leading-none">
+                                        {leadChecklist.filter(t => t.status !== 'Completed').length}
+                                    </span>
+                                )}
                             </button>
                             {selectedLead.partnerId && (
                                 <button
@@ -1052,168 +1188,386 @@ export const Leads: React.FC = () => {
                                 </form>
                             </div>
                         ) : leadModalTab === 'tasks' ? (
-                            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
-                                {/* Playbook Header Card */}
-                                <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                                    <div>
-                                        <div className="flex items-center gap-2 mb-1">
-                                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-primary/10 text-primary">
-                                                Active Playbook
-                                            </span>
-                                            <span className="text-xs text-slate-400">•</span>
-                                            <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
-                                                {selectedLead.status} Stage
-                                            </span>
-                                        </div>
-                                        <h3 className="text-sm font-black text-slate-800 dark:text-white uppercase tracking-tight">
-                                            {selectedLead.status} Playbook Action Plan
-                                        </h3>
-                                    </div>
-                                    <div className="flex items-center gap-3 shrink-0">
-                                        <div className="text-right">
-                                            <p className="text-[10px] text-slate-400 font-bold uppercase">Progress</p>
-                                            <p className="text-sm font-black text-slate-800 dark:text-white">
-                                                {completedLeadCount}/{leadChecklist.length} ({leadChecklistProgress}%)
-                                            </p>
-                                        </div>
-                                        <div className="w-20 bg-slate-200 dark:bg-slate-700 h-2 rounded-full overflow-hidden">
-                                            <div
-                                                className="bg-primary h-full rounded-full transition-all duration-500"
-                                                style={{ width: `${leadChecklistProgress}%` }}
-                                            ></div>
-                                        </div>
-                                    </div>
-                                </div>
+                            (() => {
+                                // Fix #10: Overdue detection
+                                const today = new Date(); today.setHours(0,0,0,0);
+                                const isOverdue = (t: Task) => t.status !== 'Completed' && t.dueDate && new Date(t.dueDate) < today;
+                                // Fix #26: Dynamic progress bar gradient
+                                const progressColor = leadChecklistProgress >= 100 ? '#10b981' : leadChecklistProgress >= 70 ? '#34d399' : leadChecklistProgress >= 30 ? '#f59e0b' : '#f97316';
+                                // Fix #15: Filtered task list
+                                const filteredTasks = leadChecklist.filter(t => {
+                                    if (showOnlyMine && String(t.assignedTo) !== String(currentUser?.id)) return false; // Fix #18
+                                    if (taskFilter === 'pending') return t.status === 'Pending';
+                                    if (taskFilter === 'inprogress') return t.status === 'In Progress';
+                                    if (taskFilter === 'completed') return t.status === 'Completed';
+                                    if (taskFilter === 'overdue') return isOverdue(t);
+                                    return true;
+                                });
+                                // Fix #5: Priority badge colors
+                                const priorityColor: Record<string,string> = { 'Urgent': 'bg-red-100 text-red-700', 'High': 'bg-orange-100 text-orange-700', 'Medium': 'bg-blue-100 text-blue-700', 'Low': 'bg-slate-100 text-slate-500' };
 
-                                {/* Predefined Playbook Loader */}
-                                <div className="p-4 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-sm">
-                                    <div className="flex items-center gap-2">
-                                        <span className="material-symbols-outlined text-[20px] text-primary">auto_awesome</span>
-                                        <div>
-                                            <p className="text-xs font-bold text-slate-800 dark:text-slate-100">Load Predefined Checklist Template</p>
-                                            <p className="text-[10px] text-slate-400">Initialize tasks for any Lead Stage or Booking Type</p>
-                                        </div>
-                                    </div>
-                                    <div className="flex gap-2 w-full sm:w-auto">
-                                        <select
-                                            value={selectedPredefinedPlaybookStatus}
-                                            onChange={e => setSelectedPredefinedPlaybookStatus(e.target.value)}
-                                            className="flex-1 sm:flex-none bg-slate-50 dark:bg-slate-900 border border-slate-250 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-350 outline-none w-full sm:w-44"
-                                        >
-                                            <optgroup label="Lead Stages">
-                                                {['New', 'Warm', 'Hot', 'Offer Sent', 'Converted', 'Cold'].map(s => (
-                                                    <option key={s} value={s}>{s} Playbook</option>
-                                                ))}
-                                            </optgroup>
-                                            <optgroup label="Service Types">
-                                                {['Tour', 'Hotel', 'Car', 'Bus', 'Train', 'Flight'].map(t => (
-                                                    <option key={t} value={t}>{t === 'Car' ? 'Cab (Car)' : t} Playbook</option>
-                                                ))}
-                                            </optgroup>
-                                        </select>
-                                        <button
-                                            onClick={handleGeneratePlaybook}
-                                            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white dark:bg-slate-700 dark:hover:bg-slate-600 rounded-xl text-xs font-bold shadow-sm transition-all"
-                                        >
-                                            Load
-                                        </button>
-                                    </div>
-                                </div>
+                                return (
+                                <div className="space-y-5 animate-in fade-in slide-in-from-bottom-2">
 
-                                {/* Task Checklist Items */}
-                                <div className="space-y-3">
-                                    {leadChecklist.length > 0 ? (
-                                        leadChecklist.map((task) => {
-                                            const isCompleted = task.status === 'Completed';
-                                            return (
-                                                <div
-                                                    key={task.id}
-                                                    onClick={() => handleToggleTask(task)}
-                                                    className={`group p-4 rounded-xl border transition-all duration-200 cursor-pointer flex items-start gap-4 select-none ${
-                                                        isCompleted
-                                                            ? 'bg-slate-50/50 dark:bg-slate-900/20 border-slate-100 dark:border-slate-800/80 opacity-70'
-                                                            : 'bg-white dark:bg-[#1E293B] border-slate-100 dark:border-slate-800 hover:border-primary/40 dark:hover:border-primary/40 hover:shadow-sm'
-                                                    }`}
-                                                >
-                                                    <div className="mt-0.5 shrink-0">
-                                                        <div className={`w-5 h-5 rounded-md border flex items-center justify-center transition-all ${
-                                                            isCompleted
-                                                                ? 'bg-primary border-primary text-white'
-                                                                : 'border-slate-300 dark:border-slate-600 group-hover:border-primary'
-                                                        }`}>
-                                                            {isCompleted && (
-                                                                <span className="material-symbols-outlined text-[16px] font-black">check</span>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                    <div className="flex-1 min-w-0">
-                                                        <p className={`text-xs font-bold leading-snug transition-all ${
-                                                            isCompleted
-                                                                ? 'text-slate-400 dark:text-slate-500 line-through'
-                                                                : 'text-slate-800 dark:text-slate-200'
-                                                        }`}>
-                                                            {task.title}
-                                                        </p>
-                                                        {task.description && (
-                                                            <p className={`text-[10px] mt-1 leading-relaxed ${
-                                                                isCompleted
-                                                                    ? 'text-slate-400 dark:text-slate-600'
-                                                                    : 'text-slate-500 dark:text-slate-400'
-                                                            }`}>
-                                                                {task.description}
-                                                            </p>
-                                                        )}
-                                                    </div>
-                                                    {task.assignedTo && (
-                                                        <div className="shrink-0 flex flex-col items-end gap-1.5">
-                                                            <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[9px] font-bold">
-                                                                Owner: {staff.find(s => String(s.id) === String(task.assignedTo))?.name || 'System'}
-                                                            </span>
-                                                            {task.dueDate && (
-                                                                <span className="text-[8px] text-slate-400 dark:text-slate-500 font-mono">
-                                                                    Due: {new Date(task.dueDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-                                                                </span>
-                                                            )}
-                                                        </div>
-                                                    )}
+                                    {/* Fix #4: Playbook Confirm Modal */}
+                                    {showPlaybookConfirm && (
+                                        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                                            <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-2xl max-w-sm w-full mx-4">
+                                                <div className="flex items-center gap-3 mb-3">
+                                                    <span className="material-symbols-outlined text-amber-500 text-2xl">warning</span>
+                                                    <h3 className="text-sm font-black text-slate-800 dark:text-white">Replace Playbook?</h3>
                                                 </div>
-                                            );
-                                        })
-                                    ) : (
-                                        <div className="p-8 text-center border-2 border-dashed border-slate-100 dark:border-slate-800 rounded-2xl">
-                                            <span className="material-symbols-outlined text-4xl text-slate-300 dark:text-slate-700 mb-2">assignment_late</span>
-                                            <p className="text-xs font-bold text-slate-500 dark:text-slate-400">No Playbook checklist tasks</p>
-                                            <p className="text-[10px] text-slate-400 mt-1 max-w-sm mx-auto">
-                                                Checklist playbooks are automatically generated when a lead enters a stage (e.g. Warm, Hot, Offer Sent). Change the lead status to initialize tasks.
-                                            </p>
+                                                <p className="text-xs text-slate-500 mb-5">
+                                                    Loading the <strong>{selectedPredefinedPlaybookStatus}</strong> playbook will replace all existing pending playbook tasks.
+                                                    <span className="text-emerald-600 font-bold"> Your manually added tasks will be preserved.</span>
+                                                </p>
+                                                <div className="flex gap-2">
+                                                    <button onClick={() => setShowPlaybookConfirm(false)} className="flex-1 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 transition-all">Cancel</button>
+                                                    <button onClick={confirmGeneratePlaybook} className="flex-1 py-2 rounded-xl text-xs font-bold bg-primary text-white hover:bg-primary-dark transition-all shadow-md">Yes, Load Playbook</button>
+                                                </div>
+                                            </div>
                                         </div>
                                     )}
-                                </div>
 
-                                {/* Add Manual Task Form */}
-                                <form onSubmit={handleAddManualTask} className="mt-4 flex flex-col sm:flex-row gap-2 border-t border-slate-100 dark:border-slate-800 pt-4">
-                                    <input
-                                        type="text"
-                                        value={manualTaskTitle}
-                                        onChange={e => setManualTaskTitle(e.target.value)}
-                                        placeholder="Add a custom checklist task..."
-                                        className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-250 dark:border-slate-700 rounded-xl px-4 py-2.5 text-xs font-semibold text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-primary/20"
-                                        required
-                                    />
-                                    <input
-                                        type="date"
-                                        value={manualTaskDueDate}
-                                        onChange={e => setManualTaskDueDate(e.target.value)}
-                                        className="bg-slate-50 dark:bg-slate-900 border border-slate-250 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 dark:text-slate-350 outline-none focus:ring-2 focus:ring-primary/20 w-full sm:w-36"
-                                    />
-                                    <button
-                                        type="submit"
-                                        className="bg-primary hover:bg-primary-dark text-white px-5 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-1 shadow-md active:scale-95 transition-all shrink-0"
-                                    >
-                                        <Plus size={14} /> Add Task
-                                    </button>
-                                </form>
-                            </div>
+                                    {/* Fix #14: Completion Note Modal */}
+                                    {completionNoteTask && (
+                                        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                                            <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-2xl max-w-sm w-full mx-4">
+                                                <div className="flex items-center gap-3 mb-3">
+                                                    <span className="material-symbols-outlined text-emerald-500 text-2xl">task_alt</span>
+                                                    <h3 className="text-sm font-black text-slate-800 dark:text-white">Complete Task</h3>
+                                                </div>
+                                                <p className="text-xs font-bold text-slate-700 dark:text-slate-200 mb-2">{completionNoteTask.title}</p>
+                                                <textarea
+                                                    value={completionNoteText}
+                                                    onChange={e => setCompletionNoteText(e.target.value)}
+                                                    placeholder="Add a completion note (optional)..."
+                                                    rows={3}
+                                                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-primary/20 resize-none mb-4"
+                                                />
+                                                <div className="flex gap-2">
+                                                    <button onClick={() => { setCompletionNoteTask(null); setCompletionNoteText(''); }} className="flex-1 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 transition-all">Cancel</button>
+                                                    <button onClick={handleConfirmCompletion} className="flex-1 py-2 rounded-xl text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 transition-all shadow-md">✓ Mark Complete</button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Progress Header Card */}
+                                    <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                            <div>
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-primary/10 text-primary">Active Playbook</span>
+                                                    <span className="text-xs text-slate-400">•</span>
+                                                    <span className="text-xs font-bold text-slate-500 dark:text-slate-400">{selectedLead.status} Stage</span>
+                                                </div>
+                                                <h3 className="text-sm font-black text-slate-800 dark:text-white uppercase tracking-tight">{selectedLead.status} Playbook Action Plan</h3>
+                                            </div>
+                                            <div className="flex items-center gap-3 shrink-0">
+                                                <div className="text-right">
+                                                    <p className="text-[10px] text-slate-400 font-bold uppercase">Progress</p>
+                                                    <p className="text-sm font-black text-slate-800 dark:text-white">{completedLeadCount}/{leadChecklist.length} ({leadChecklistProgress}%)</p>
+                                                </div>
+                                                {/* Fix #26: Dynamic gradient progress bar */}
+                                                <div className="w-20 bg-slate-200 dark:bg-slate-700 h-2.5 rounded-full overflow-hidden">
+                                                    <div
+                                                        className="h-full rounded-full transition-all duration-700"
+                                                        style={{ width: `${leadChecklistProgress}%`, background: progressColor, boxShadow: leadChecklistProgress === 100 ? `0 0 8px ${progressColor}` : 'none' }}
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+                                        {/* Fix #21: 100% completion banner */}
+                                        {leadChecklistProgress === 100 && leadChecklist.length > 0 && (
+                                            <div className="mt-4 p-3 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 flex items-center gap-3">
+                                                <span className="text-2xl">🎉</span>
+                                                <div>
+                                                    <p className="text-xs font-black text-emerald-700 dark:text-emerald-400">All tasks complete!</p>
+                                                    <p className="text-[10px] text-emerald-600 dark:text-emerald-500">Ready to advance this lead to the next stage?</p>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Fix #15: Filter + Fix #16: Bulk actions + Fix #18: Mine-only toggle */}
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        {(['all','pending','inprogress','completed','overdue'] as const).map(f => (
+                                            <button key={f} onClick={() => setTaskFilter(f)}
+                                                className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${
+                                                    taskFilter === f ? 'bg-primary text-white shadow' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700'
+                                                }`}>
+                                                {f === 'all' ? 'All' : f === 'inprogress' ? 'In Progress' : f.charAt(0).toUpperCase()+f.slice(1)}
+                                                {f === 'all' && <span className="ml-1 opacity-70">({leadChecklist.length})</span>}
+                                                {f === 'pending' && <span className="ml-1 opacity-70">({leadChecklist.filter(t=>t.status==='Pending').length})</span>}
+                                                {f === 'overdue' && <span className="ml-1 opacity-70">({leadChecklist.filter(t=>isOverdue(t)).length})</span>}
+                                            </button>
+                                        ))}
+                                        <label className="ml-auto flex items-center gap-1.5 cursor-pointer">
+                                            <input type="checkbox" checked={showOnlyMine} onChange={e=>setShowOnlyMine(e.target.checked)} className="rounded accent-primary" />
+                                            <span className="text-[10px] font-bold text-slate-500">My Tasks Only</span>
+                                        </label>
+                                        {leadChecklist.some(t => t.status !== 'Completed') && (
+                                            <button onClick={handleMarkAllComplete} className="text-[10px] font-bold text-emerald-600 hover:text-emerald-700 px-2 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 hover:bg-emerald-100 transition-all">✓ Mark All Done</button>
+                                        )}
+                                        {leadChecklist.some(t => t.status === 'Completed') && (
+                                            <button onClick={handleClearCompleted} className="text-[10px] font-bold text-red-500 hover:text-red-600 px-2 py-1 rounded-lg bg-red-50 dark:bg-red-900/20 hover:bg-red-100 transition-all">× Clear Completed</button>
+                                        )}
+                                    </div>
+
+                                    {/* Playbook Loader */}
+                                    <div className="p-4 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-sm">
+                                        <div className="flex items-center gap-2">
+                                            <span className="material-symbols-outlined text-[20px] text-primary">auto_awesome</span>
+                                            <div>
+                                                <p className="text-xs font-bold text-slate-800 dark:text-slate-100">Load Predefined Checklist Template</p>
+                                                <p className="text-[10px] text-slate-400">Existing manual tasks are preserved</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex gap-2 w-full sm:w-auto">
+                                            {/* Fix #24: Dynamic playbook keys from backend */}
+                                            <select
+                                                value={selectedPredefinedPlaybookStatus}
+                                                onChange={e => setSelectedPredefinedPlaybookStatus(e.target.value)}
+                                                className="flex-1 sm:flex-none bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-300 outline-none w-full sm:w-44"
+                                            >
+                                                <optgroup label="Lead Stages">
+                                                    {playbookKeys.leadStages.map(s => (
+                                                        <option key={s} value={s}>{s} Playbook</option>
+                                                    ))}
+                                                </optgroup>
+                                                <optgroup label="Service Types">
+                                                    {playbookKeys.bookingTypes.map(t => (
+                                                        <option key={t} value={t}>{t === 'Car' ? 'Cab (Car)' : t} Playbook</option>
+                                                    ))}
+                                                </optgroup>
+                                            </select>
+                                            <button
+                                                onClick={handleGeneratePlaybook}
+                                                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white dark:bg-slate-700 dark:hover:bg-slate-600 rounded-xl text-xs font-bold shadow-sm transition-all"
+                                            >
+                                                Load
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Task Cards */}
+                                    <div className="space-y-2.5">
+                                        {filteredTasks.length > 0 ? (
+                                            filteredTasks.map((task) => {
+                                                const isCompleted = task.status === 'Completed';
+                                                const isInProgress = task.status === 'In Progress';
+                                                const taskIsOverdue = isOverdue(task);
+                                                const ownerName = staff.find(s => String(s.id) === String(task.assignedTo))?.name || 'System';
+
+                                                return (
+                                                    <div
+                                                        key={task.id}
+                                                        className={`group p-4 rounded-xl border transition-all duration-200 flex items-start gap-3.5 ${
+                                                            isCompleted ? 'bg-slate-50/50 dark:bg-slate-900/20 border-slate-100 dark:border-slate-800/80 opacity-75'
+                                                            : taskIsOverdue ? 'bg-red-50/50 dark:bg-red-900/10 border-red-200 dark:border-red-900/50'
+                                                            : isInProgress ? 'bg-amber-50/50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-900/50'
+                                                            : 'bg-white dark:bg-[#1E293B] border-slate-100 dark:border-slate-800 hover:border-primary/30 hover:shadow-sm'
+                                                        }`}
+                                                    >
+                                                        {/* Fix #9: 3-state toggle button */}
+                                                        <button
+                                                            onClick={() => handleToggleTask(task)}
+                                                            className={`mt-0.5 shrink-0 w-5 h-5 rounded-md border flex items-center justify-center transition-all ${
+                                                                isCompleted ? 'bg-emerald-500 border-emerald-500 text-white'
+                                                                : isInProgress ? 'bg-amber-400 border-amber-400 text-white'
+                                                                : taskIsOverdue ? 'border-red-400 text-red-400 hover:bg-red-50'
+                                                                : 'border-slate-300 dark:border-slate-600 hover:border-primary'
+                                                            }`}
+                                                        >
+                                                            {isCompleted && <span className="material-symbols-outlined text-[14px]">check</span>}
+                                                            {isInProgress && <span className="material-symbols-outlined text-[12px]">hourglass_top</span>}
+                                                        </button>
+
+                                                        {/* Content */}
+                                                        <div className="flex-1 min-w-0">
+                                                            {/* Fix #8: Inline edit */}
+                                                            {editingTaskId === task.id ? (
+                                                                <div className="flex gap-2 mb-1">
+                                                                    <input
+                                                                        autoFocus
+                                                                        value={editingTaskTitle}
+                                                                        onChange={e => setEditingTaskTitle(e.target.value)}
+                                                                        onKeyDown={e => { if (e.key === 'Enter') handleSaveTaskEdit(task); if (e.key === 'Escape') setEditingTaskId(null); }}
+                                                                        className="flex-1 text-xs font-bold bg-slate-50 dark:bg-slate-800 border border-primary/40 rounded-lg px-2 py-1 outline-none"
+                                                                    />
+                                                                    <button onClick={() => handleSaveTaskEdit(task)} className="text-[10px] font-bold text-emerald-600 px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100">Save</button>
+                                                                    <button onClick={() => setEditingTaskId(null)} className="text-[10px] font-bold text-slate-500 px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200">✕</button>
+                                                                </div>
+                                                            ) : (
+                                                                <p className={`text-xs font-bold leading-snug mb-1 ${
+                                                                    isCompleted ? 'text-slate-400 line-through' : taskIsOverdue ? 'text-red-700 dark:text-red-400' : 'text-slate-800 dark:text-slate-200'
+                                                                }`}>{task.title}</p>
+                                                            )}
+
+                                                            {task.description && !editingTaskId && (
+                                                                <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed mb-1.5">{task.description}</p>
+                                                            )}
+
+                                                            {/* Fix #27: completedAt + Fix #11: completedBy */}
+                                                            {isCompleted && (task.completedAt || task.completedBy) && (
+                                                                <p className="text-[9px] text-emerald-600 dark:text-emerald-400 font-bold mt-1">
+                                                                    ✓ Completed{task.completedBy ? ` by ${task.completedBy}` : ''}{task.completedAt ? ` · ${new Date(task.completedAt).toLocaleDateString('en-IN', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })}` : ''}
+                                                                </p>
+                                                            )}
+                                                            {isCompleted && task.completionNote && (
+                                                                <p className="text-[9px] italic text-slate-400 mt-0.5">Note: {task.completionNote}</p>
+                                                            )}
+
+                                                            {/* Badges row */}
+                                                            <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                                                                {/* Fix #5: Priority badge */}
+                                                                <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase ${priorityColor[task.priority] || 'bg-slate-100 text-slate-500'}`}>{task.priority}</span>
+                                                                {/* Fix #25: Source badge */}
+                                                                <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold ${
+                                                                    task.source === 'manual' ? 'bg-violet-100 text-violet-600' : 'bg-sky-100 text-sky-600'
+                                                                }`}>
+                                                                    {task.source === 'manual' ? '✦ Custom' : '📋 Playbook'}
+                                                                </span>
+                                                                {/* Fix #10: Overdue badge */}
+                                                                {taskIsOverdue && <span className="px-1.5 py-0.5 rounded text-[8px] font-black bg-red-100 text-red-600 animate-pulse">OVERDUE</span>}
+                                                                {isInProgress && <span className="px-1.5 py-0.5 rounded text-[8px] font-black bg-amber-100 text-amber-700">IN PROGRESS</span>}
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Right: owner + due + actions */}
+                                                        <div className="shrink-0 flex flex-col items-end gap-1.5">
+                                                            {/* Fix #12: Reassign dropdown */}
+                                                            {reassigningTaskId === task.id ? (
+                                                                <select
+                                                                    autoFocus
+                                                                    defaultValue={String(task.assignedTo)}
+                                                                    onChange={e => handleReassignTask(task.id, e.target.value)}
+                                                                    onBlur={() => setReassigningTaskId(null)}
+                                                                    className="text-[9px] font-bold bg-white dark:bg-slate-800 border border-primary/40 rounded-lg px-2 py-1 outline-none max-w-[100px]"
+                                                                >
+                                                                    {staff.map(s => <option key={s.id} value={String(s.id)}>{s.name}</option>)}
+                                                                </select>
+                                                            ) : (
+                                                                <button
+                                                                    onClick={() => setReassigningTaskId(task.id)}
+                                                                    className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[9px] font-bold hover:bg-primary/10 hover:text-primary transition-all"
+                                                                >
+                                                                    {ownerName}
+                                                                </button>
+                                                            )}
+
+                                                            {task.dueDate && (
+                                                                <span className={`text-[8px] font-mono ${
+                                                                    taskIsOverdue ? 'text-red-500 font-bold' : 'text-slate-400'
+                                                                }`}>
+                                                                    {taskIsOverdue ? '⚠ ' : ''}Due: {new Date(task.dueDate).toLocaleDateString('en-IN', { day:'numeric', month:'short' })}
+                                                                </span>
+                                                            )}
+
+                                                            {/* Fix #7, #8: Delete + Edit action buttons */}
+                                                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                <button
+                                                                    onClick={() => { setEditingTaskId(task.id); setEditingTaskTitle(task.title); }}
+                                                                    className="p-1 rounded text-slate-400 hover:text-primary hover:bg-primary/10 transition-all"
+                                                                    title="Edit task"
+                                                                >
+                                                                    <Edit2 size={11} />
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => handleDeleteLeadTask(task.id)}
+                                                                    className="p-1 rounded text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all"
+                                                                    title="Delete task"
+                                                                >
+                                                                    <Trash2 size={11} />
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })
+                                        ) : leadChecklist.length === 0 ? (
+                                            // Fix #28: Empty state with generate button
+                                            <div className="p-8 text-center border-2 border-dashed border-slate-100 dark:border-slate-800 rounded-2xl">
+                                                <span className="material-symbols-outlined text-4xl text-slate-300 dark:text-slate-700 mb-2 block">assignment_late</span>
+                                                <p className="text-xs font-bold text-slate-500 dark:text-slate-400">No checklist tasks yet</p>
+                                                <p className="text-[10px] text-slate-400 mt-1 mb-4">Playbooks are auto-generated on lead stage changes, or load one manually.</p>
+                                                <button
+                                                    onClick={handleGeneratePlaybook}
+                                                    className="px-4 py-2 bg-primary text-white rounded-xl text-xs font-bold shadow hover:bg-primary-dark transition-all"
+                                                >
+                                                    Generate {selectedLead.status} Playbook
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <div className="p-4 text-center text-xs text-slate-400">No tasks match the selected filter.</div>
+                                        )}
+                                    </div>
+
+                                    {/* Fix #29: Collapsible manual task form */}
+                                    <div className="border-t border-slate-100 dark:border-slate-800 pt-4">
+                                        {!showManualTaskForm ? (
+                                            <button
+                                                onClick={() => setShowManualTaskForm(true)}
+                                                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-400 hover:text-primary hover:border-primary/40 transition-all"
+                                            >
+                                                <Plus size={14} /> Add Custom Task
+                                            </button>
+                                        ) : (
+                                            <form onSubmit={handleAddManualTask} className="space-y-3">
+                                                <div className="flex items-center justify-between">
+                                                    <p className="text-xs font-bold text-slate-700 dark:text-slate-200">Add Custom Task</p>
+                                                    <button type="button" onClick={() => setShowManualTaskForm(false)} className="text-slate-400 hover:text-slate-600"><X size={14} /></button>
+                                                </div>
+                                                {/* Fix #13: Title + due date */}
+                                                <div className="flex flex-col sm:flex-row gap-2">
+                                                    <input
+                                                        type="text"
+                                                        value={manualTaskTitle}
+                                                        onChange={e => setManualTaskTitle(e.target.value)}
+                                                        placeholder="Task title..."
+                                                        className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-primary/20"
+                                                        required
+                                                    />
+                                                    <input
+                                                        type="date"
+                                                        value={manualTaskDueDate}
+                                                        onChange={e => setManualTaskDueDate(e.target.value)}
+                                                        className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold outline-none focus:ring-2 focus:ring-primary/20 w-full sm:w-36"
+                                                    />
+                                                </div>
+                                                {/* Fix #13: Priority + Assignee */}
+                                                <div className="flex gap-2">
+                                                    <select
+                                                        value={manualTaskPriority}
+                                                        onChange={e => setManualTaskPriority(e.target.value as any)}
+                                                        className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold outline-none"
+                                                    >
+                                                        {['Low','Medium','High','Urgent'].map(p => <option key={p} value={p}>{p} Priority</option>)}
+                                                    </select>
+                                                    <select
+                                                        value={manualTaskAssignee}
+                                                        onChange={e => setManualTaskAssignee(e.target.value)}
+                                                        className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold outline-none"
+                                                    >
+                                                        <option value="">Assign to...</option>
+                                                        {staff.map(s => <option key={s.id} value={String(s.id)}>{s.name}</option>)}
+                                                    </select>
+                                                </div>
+                                                <button
+                                                    type="submit"
+                                                    className="w-full bg-primary hover:bg-primary-dark text-white py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-1 shadow-md active:scale-95 transition-all"
+                                                >
+                                                    <Plus size={14} /> Add Task
+                                                </button>
+                                            </form>
+                                        )}
+                                    </div>
+
+                                </div>
+                                );
+                            })()
+
                         ) : (
                             <>
 

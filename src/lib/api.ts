@@ -1557,8 +1557,11 @@ export const api = {
             assignedTo: t.assigned_to, assignedBy: t.assigned_by,
             status: t.status, priority: t.priority, dueDate: t.due_date,
             createdAt: t.created_at, completedAt: t.completed_at,
+            completedBy: t.completed_by || undefined,
+            completionNote: t.completion_note || undefined,
             relatedLeadId: t.related_lead_id, relatedBookingId: t.related_booking_id,
-            category: t.category
+            category: t.category,
+            source: (t.source as 'playbook' | 'manual') || 'playbook'
         }));
     },
     createTask: async (task: Partial<Task>) => {
@@ -1567,8 +1570,11 @@ export const api = {
             assigned_to: task.assignedTo, assigned_by: task.assignedBy,
             status: task.status || 'Pending', priority: task.priority || 'Medium',
             due_date: task.dueDate, completed_at: task.completedAt,
+            completed_by: task.completedBy || null,
+            completion_note: task.completionNote || null,
             related_lead_id: task.relatedLeadId, related_booking_id: task.relatedBookingId,
-            category: task.category
+            category: task.category,
+            source: task.source || 'manual'  // Fix #2: manual tasks always tagged as 'manual'
         });
     },
     updateTask: async (id: string, updates: Partial<Task>) => {
@@ -1581,12 +1587,19 @@ export const api = {
         if (updates.priority !== undefined) dbUpdates.priority = updates.priority;
         if (updates.dueDate !== undefined) dbUpdates.due_date = updates.dueDate;
         if (updates.completedAt !== undefined) dbUpdates.completed_at = updates.completedAt;
+        if (updates.completedBy !== undefined) dbUpdates.completed_by = updates.completedBy;         // Fix #11
+        if (updates.completionNote !== undefined) dbUpdates.completion_note = updates.completionNote; // Fix #14
         if (updates.relatedLeadId !== undefined) dbUpdates.related_lead_id = updates.relatedLeadId;
         if (updates.relatedBookingId !== undefined) dbUpdates.related_booking_id = updates.relatedBookingId;
         if (updates.category !== undefined) dbUpdates.category = updates.category;
         await crud.update('tasks', id, dbUpdates);
     },
     deleteTask: async (id: string) => { await crud.remove('tasks', id); },
+    // Fix #24: Fetch available playbook keys from backend so dropdown auto-updates
+    getPlaybookKeys: async (): Promise<{ leadStages: string[]; bookingTypes: string[] }> => {
+        const data = await fetchApi('/api/playbook-keys');
+        return data || { leadStages: ['New','Warm','Hot','Offer Sent','Converted','Cold'], bookingTypes: ['Tour','Hotel','Car','Bus','Train','Flight'] };
+    },
     generateLeadPlaybook: async (id: string, status?: string): Promise<void> => {
         await fetchApi(`/api/leads/${encodeURIComponent(id)}/generate-playbook`, {
             method: 'POST',

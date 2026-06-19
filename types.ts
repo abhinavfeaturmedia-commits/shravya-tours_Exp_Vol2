@@ -779,9 +779,12 @@ export interface Task {
   dueDate: string;
   createdAt: string;
   completedAt?: string;
+  completedBy?: string;        // Fix #11: who completed this task
+  completionNote?: string;     // Fix #14: note added on completion
   relatedLeadId?: string;
   relatedBookingId?: string;
   category?: string;
+  source?: 'playbook' | 'manual'; // Fix #1, #25: distinguish auto-generated vs custom tasks
 }
 
 // Daily Targets

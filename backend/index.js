@@ -63,6 +63,20 @@ const pool = mysql.createPool({
     keepAliveInitialDelay: 10000
 });
 
+// ─── DB Migration: Add new task columns if not present ───
+async function runMigration() {
+    try {
+        await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS source VARCHAR(20) NOT NULL DEFAULT 'playbook'`);
+        await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS completed_by VARCHAR(100) DEFAULT NULL`);
+        await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS completion_note TEXT DEFAULT NULL`);
+        // Back-fill existing manual-style tasks (those with a description of 'Manually added checklist task')
+        await pool.query(`UPDATE tasks SET source = 'manual' WHERE description = 'Manually added checklist task' AND source = 'playbook'`);
+        console.log('[Migration] tasks table columns verified/added: source, completed_by, completion_note');
+    } catch (err) {
+        console.error('[Migration Error]', err.message);
+    }
+}
+
 // Helper to save uploaded file to database
 async function saveUploadedFileToDb(file) {
     try {
@@ -1319,68 +1333,70 @@ async function ensureTasksCategoryColumn() {
 ensureTasksCategoryColumn();
 
 // ─── Playbooks & Checklists Mapping ───
+// Fix #5: Added priority to every task. Fix #6: Added dueDaysOffset (relative to booking date for bookings, relative to today for leads)
 const LEAD_STAGE_PLAYBOOKS = {
     'New': [
-        { title: 'Send WhatsApp greeting message', description: 'Introduce Shravya Tours and acknowledge receipt of inquiry.' },
-        { title: 'Call customer to qualify requirements', description: 'Understand duration, pax count, budget, and destinations.' },
-        { title: 'Update lead source and assignment', description: 'Ensure source tracking and owner details are correct.' }
+        { title: 'Send WhatsApp greeting message', description: 'Introduce Shravya Tours and acknowledge receipt of inquiry.', priority: 'High', dueDaysOffset: 0 },
+        { title: 'Call customer to qualify requirements', description: 'Understand duration, pax count, budget, and destinations.', priority: 'High', dueDaysOffset: 0 },
+        { title: 'Update lead source and assignment', description: 'Ensure source tracking and owner details are correct.', priority: 'Medium', dueDaysOffset: 1 }
     ],
     'Warm': [
-        { title: 'Research destination & plan options', description: 'Review flight connections and hotel options for traveler details.' },
-        { title: 'Create initial itinerary draft', description: 'Design a draft itinerary matching the client requirements.' },
-        { title: 'Send initial pricing estimate', description: 'Provide a ballpark figure for client review.' }
+        { title: 'Research destination & plan options', description: 'Review flight connections and hotel options for traveler details.', priority: 'Medium', dueDaysOffset: 1 },
+        { title: 'Create initial itinerary draft', description: 'Design a draft itinerary matching the client requirements.', priority: 'High', dueDaysOffset: 2 },
+        { title: 'Send initial pricing estimate', description: 'Provide a ballpark figure for client review.', priority: 'High', dueDaysOffset: 3 }
     ],
     'Hot': [
-        { title: 'Customize itinerary based on feedback', description: 'Adjust activities, hotels, and timing.' },
-        { title: 'Verify supplier/hotel availability', description: 'Double check rooms and services for selected dates.' },
-        { title: 'Prepare final official proposal', description: 'Build formal proposal with final pricing and inclusions.' }
+        { title: 'Customize itinerary based on feedback', description: 'Adjust activities, hotels, and timing.', priority: 'High', dueDaysOffset: 1 },
+        { title: 'Verify supplier/hotel availability', description: 'Double check rooms and services for selected dates.', priority: 'Urgent', dueDaysOffset: 1 },
+        { title: 'Prepare final official proposal', description: 'Build formal proposal with final pricing and inclusions.', priority: 'Urgent', dueDaysOffset: 2 }
     ],
     'Offer Sent': [
-        { title: 'Follow up on proposal acceptance', description: 'Call or message the traveler to review the sent proposal.' },
-        { title: 'Offer flexible payment terms', description: 'Explain deposit options and balance payment timeline.' },
-        { title: 'Address customization requests', description: 'Modify details if they request last-minute tweaks.' }
+        { title: 'Follow up on proposal acceptance', description: 'Call or message the traveler to review the sent proposal.', priority: 'High', dueDaysOffset: 1 },
+        { title: 'Offer flexible payment terms', description: 'Explain deposit options and balance payment timeline.', priority: 'Medium', dueDaysOffset: 2 },
+        { title: 'Address customization requests', description: 'Modify details if they request last-minute tweaks.', priority: 'Medium', dueDaysOffset: 2 }
     ],
     'Converted': [
-        { title: 'Verify payment receipt & confirmation', description: 'Confirm that deposit/advance payment is received in accounts.' },
-        { title: 'Sync lead data to booking', description: 'Verify all travel documents and contact details.' },
-        { title: 'Send official confirmation voucher', description: 'Issue tour confirmation voucher to client.' }
+        { title: 'Verify payment receipt & confirmation', description: 'Confirm that deposit/advance payment is received in accounts.', priority: 'Urgent', dueDaysOffset: 0 },
+        { title: 'Sync lead data to booking', description: 'Verify all travel documents and contact details.', priority: 'High', dueDaysOffset: 1 },
+        { title: 'Send official confirmation voucher', description: 'Issue tour confirmation voucher to client.', priority: 'High', dueDaysOffset: 1 }
     ],
     'Cold': [
-        { title: 'Send final re-engagement offer', description: 'Send a special coupon code or limited-time discount.' },
-        { title: 'Document lost reasons', description: 'Log why the lead was lost or went cold.' }
+        { title: 'Send final re-engagement offer', description: 'Send a special coupon code or limited-time discount.', priority: 'Low', dueDaysOffset: 0 },
+        { title: 'Document lost reasons', description: 'Log why the lead was lost or went cold.', priority: 'Low', dueDaysOffset: 1 }
     ]
 };
 
+// Fix #6: Booking tasks use dueDaysOffset relative to booking travel date (negative = before travel, positive = after creation)
 const BOOKING_TYPE_PLAYBOOKS = {
     'Tour': [
-        { title: 'Create WhatsApp group for group tours', description: 'Include travelers, tour leader, and support contacts.' },
-        { title: 'Issue tour vouchers and itinerary details', description: 'Provide PDF vouchers for all booked elements.' },
-        { title: 'Assign tour coordinator / guide', description: 'Confirm guide availability and share contact info.' },
-        { title: 'Coordinate transport operator details', description: 'Confirm pickup times and driver information.' },
-        { title: 'Re-confirm hotel bookings', description: 'Ensure hotels are ready for check-in.' }
+        { title: 'Create WhatsApp group for group tours', description: 'Include travelers, tour leader, and support contacts.', priority: 'High', dueDaysOffset: -7 },
+        { title: 'Issue tour vouchers and itinerary details', description: 'Provide PDF vouchers for all booked elements.', priority: 'High', dueDaysOffset: -5 },
+        { title: 'Assign tour coordinator / guide', description: 'Confirm guide availability and share contact info.', priority: 'Urgent', dueDaysOffset: -3 },
+        { title: 'Coordinate transport operator details', description: 'Confirm pickup times and driver information.', priority: 'High', dueDaysOffset: -2 },
+        { title: 'Re-confirm hotel bookings', description: 'Ensure hotels are ready for check-in.', priority: 'Urgent', dueDaysOffset: -1 }
     ],
     'Hotel': [
-        { title: 'Send booking details to hotel', description: 'Confirm room category and meal plan details.' },
-        { title: 'Obtain hotel voucher reference ID', description: 'Confirm room booking is registered in hotel PMS.' },
-        { title: 'Verify special requests (bedding/check-in)', description: 'Confirm king bed, twin beds, or early arrival if requested.' }
+        { title: 'Send booking details to hotel', description: 'Confirm room category and meal plan details.', priority: 'High', dueDaysOffset: -5 },
+        { title: 'Obtain hotel voucher reference ID', description: 'Confirm room booking is registered in hotel PMS.', priority: 'High', dueDaysOffset: -3 },
+        { title: 'Verify special requests (bedding/check-in)', description: 'Confirm king bed, twin beds, or early arrival if requested.', priority: 'Medium', dueDaysOffset: -1 }
     ],
     'Car': [
-        { title: 'Assign driver and share contact details', description: 'Share contact information with traveler via WhatsApp.' },
-        { title: 'Inspect vehicle cleanliness & condition', description: 'Ensure the assigned vehicle is serviced and clean.' },
-        { title: 'Confirm pick-up time and location details', description: 'Send exact coordinates and time to driver.' }
+        { title: 'Assign driver and share contact details', description: 'Share contact information with traveler via WhatsApp.', priority: 'High', dueDaysOffset: -2 },
+        { title: 'Inspect vehicle cleanliness & condition', description: 'Ensure the assigned vehicle is serviced and clean.', priority: 'Medium', dueDaysOffset: -1 },
+        { title: 'Confirm pick-up time and location details', description: 'Send exact coordinates and time to driver.', priority: 'Urgent', dueDaysOffset: -1 }
     ],
     'Bus': [
-        { title: 'Confirm seat numbers and boarding point', description: 'Provide boarding point map and timing to passenger.' },
-        { title: 'Share bus operator tracking link', description: 'Enable tracking for traveler on travel day.' }
+        { title: 'Confirm seat numbers and boarding point', description: 'Provide boarding point map and timing to passenger.', priority: 'High', dueDaysOffset: -2 },
+        { title: 'Share bus operator tracking link', description: 'Enable tracking for traveler on travel day.', priority: 'Medium', dueDaysOffset: -1 }
     ],
     'Train': [
-        { title: 'Verify PNR status', description: 'Check seat numbers, coach numbers, and confirmation status.' },
-        { title: 'Send ticket PDF to customer', description: 'Share confirmation via email/WhatsApp.' }
+        { title: 'Verify PNR status', description: 'Check seat numbers, coach numbers, and confirmation status.', priority: 'Urgent', dueDaysOffset: -3 },
+        { title: 'Send ticket PDF to customer', description: 'Share confirmation via email/WhatsApp.', priority: 'High', dueDaysOffset: -2 }
     ],
     'Flight': [
-        { title: 'Generate & send air tickets', description: 'Email e-ticket to traveler.' },
-        { title: 'Perform web check-in', description: 'Select preferred seats and retrieve boarding passes 24 hours prior.' },
-        { title: 'Verify terminal & flight status', description: 'Check for delays or terminal updates 4 hours before departure.' }
+        { title: 'Generate & send air tickets', description: 'Email e-ticket to traveler.', priority: 'Urgent', dueDaysOffset: -5 },
+        { title: 'Perform web check-in', description: 'Select preferred seats and retrieve boarding passes 24 hours prior.', priority: 'High', dueDaysOffset: -1 },
+        { title: 'Verify terminal & flight status', description: 'Check for delays or terminal updates 4 hours before departure.', priority: 'High', dueDaysOffset: 0 }
     ]
 };
 
@@ -1395,21 +1411,25 @@ async function generateLeadPlaybook(leadId, status, assignedTo, userEmail) {
             if (staffRows.length > 0) staffId = String(staffRows[0].id);
         }
         
-        // Delete existing pending checklist tasks for this lead
+        // Fix #1: Only delete playbook-sourced pending tasks — preserves manually added tasks
         await pool.query(
-            "DELETE FROM tasks WHERE related_lead_id = ? AND category = 'checklist' AND status = 'Pending'",
+            "DELETE FROM tasks WHERE related_lead_id = ? AND category = 'checklist' AND source = 'playbook' AND status != 'Completed'",
             [leadId]
         );
         
-        const today = new Date().toISOString().split('T')[0];
+        // Fix #6: Lead tasks use offset from today (creation/status-change date)
+        const today = new Date();
         const defaultAssignee = assignedTo || staffId;
         
         for (const t of tasksToInsert) {
             const taskId = crypto.randomUUID();
+            const dueDate = new Date(today);
+            dueDate.setDate(dueDate.getDate() + (t.dueDaysOffset || 0));
+            const dueDateStr = dueDate.toISOString().split('T')[0];
             await pool.query(
-                `INSERT INTO tasks (id, title, description, assigned_to, assigned_by, status, priority, due_date, category, related_lead_id, created_at)
-                 VALUES (?, ?, ?, ?, ?, 'Pending', 'Medium', ?, 'checklist', ?, NOW())`,
-                [taskId, t.title, t.description, defaultAssignee, staffId, today, leadId]
+                `INSERT INTO tasks (id, title, description, assigned_to, assigned_by, status, priority, due_date, category, source, related_lead_id, created_at)
+                 VALUES (?, ?, ?, ?, ?, 'Pending', ?, ?, 'checklist', 'playbook', ?, NOW())`,
+                [taskId, t.title, t.description, defaultAssignee, staffId, t.priority || 'Medium', dueDateStr, leadId]
             );
         }
         console.log(`[Lead Playbook] Generated ${tasksToInsert.length} checklist tasks for lead ${leadId} (key: ${playbookKey})`);
@@ -1420,8 +1440,12 @@ async function generateLeadPlaybook(leadId, status, assignedTo, userEmail) {
 
 async function generateBookingPlaybook(bookingId, type, assignedTo, userEmail) {
     const playbookKey = type;
-    const tasksToInsert = BOOKING_TYPE_PLAYBOOKS[playbookKey] || LEAD_STAGE_PLAYBOOKS[playbookKey];
-    if (!playbookKey || !tasksToInsert) return;
+    // Fix #3: Remove wrong LEAD_STAGE_PLAYBOOKS fallback — bookings only use booking templates
+    const tasksToInsert = BOOKING_TYPE_PLAYBOOKS[playbookKey];
+    if (!playbookKey || !tasksToInsert) {
+        console.warn(`[Booking Playbook] No template found for booking type: "${playbookKey}". Skipping.`);
+        return;
+    }
     try {
         let staffId = 'System';
         if (userEmail) {
@@ -1429,21 +1453,34 @@ async function generateBookingPlaybook(bookingId, type, assignedTo, userEmail) {
             if (staffRows.length > 0) staffId = String(staffRows[0].id);
         }
         
-        // Delete existing pending checklist tasks for this booking
+        // Fix #1: Only delete playbook-sourced pending tasks — preserves manually added tasks
         await pool.query(
-            "DELETE FROM tasks WHERE related_booking_id = ? AND category = 'checklist' AND status = 'Pending'",
+            "DELETE FROM tasks WHERE related_booking_id = ? AND category = 'checklist' AND source = 'playbook' AND status != 'Completed'",
             [bookingId]
         );
         
-        const today = new Date().toISOString().split('T')[0];
+        // Fix #6: Booking tasks use offset relative to booking travel date
         const defaultAssignee = assignedTo || staffId;
+        let bookingTravelDate = null;
+        try {
+            const [[bRow]] = await pool.query('SELECT date FROM bookings WHERE id = ?', [bookingId]);
+            if (bRow && bRow.date) bookingTravelDate = new Date(bRow.date);
+        } catch (e) { /* fallback to today */ }
+        const anchorDate = bookingTravelDate || new Date();
         
         for (const t of tasksToInsert) {
             const taskId = crypto.randomUUID();
+            const dueDate = new Date(anchorDate);
+            dueDate.setDate(dueDate.getDate() + (t.dueDaysOffset || 0));
+            // Ensure due date is not in the past — clamp to today minimum
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            if (dueDate < today) dueDate.setTime(today.getTime());
+            const dueDateStr = dueDate.toISOString().split('T')[0];
             await pool.query(
-                `INSERT INTO tasks (id, title, description, assigned_to, assigned_by, status, priority, due_date, category, related_booking_id, created_at)
-                 VALUES (?, ?, ?, ?, ?, 'Pending', 'Medium', ?, 'checklist', ?, NOW())`,
-                [taskId, t.title, t.description, defaultAssignee, staffId, today, bookingId]
+                `INSERT INTO tasks (id, title, description, assigned_to, assigned_by, status, priority, due_date, category, source, related_booking_id, created_at)
+                 VALUES (?, ?, ?, ?, ?, 'Pending', ?, ?, 'checklist', 'playbook', ?, NOW())`,
+                [taskId, t.title, t.description, defaultAssignee, staffId, t.priority || 'Medium', dueDateStr, bookingId]
             );
         }
         console.log(`[Booking Playbook] Generated ${tasksToInsert.length} checklist tasks for booking ${bookingId} (key: ${playbookKey})`);
@@ -5311,7 +5348,18 @@ app.get('*', (req, res) => {
 // ═══════════════════════════════════════════
 // START SERVER
 // ═══════════════════════════════════════════
+// Fix #17: Expose available playbook keys so frontend can dynamically populate the dropdown
+app.get('/api/playbook-keys', authMiddleware, (req, res) => {
+    res.json({
+        leadStages: Object.keys(LEAD_STAGE_PLAYBOOKS),
+        bookingTypes: Object.keys(BOOKING_TYPE_PLAYBOOKS)
+    });
+});
+
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, '0.0.0.0', async () => {
     console.log(`Server running on port ${PORT}`);
+    // Run DB migration on startup to add new task columns
+    await runMigration();
+    syncLocalUploadsToDb();
 });
