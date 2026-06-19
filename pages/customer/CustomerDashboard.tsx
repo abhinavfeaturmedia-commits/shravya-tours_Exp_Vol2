@@ -169,6 +169,7 @@ export const CustomerDashboard: React.FC = () => {
   // CoTraveler Add Form
   const [coTravelerForm, setCoTravelerForm] = useState({ name: '', relation: 'Friend', phone: '', passport_no: '', dob: '' });
   const [coTravelerError, setCoTravelerError] = useState<string | null>(null);
+  const [editingCoTravelerId, setEditingCoTravelerId] = useState<number | null>(null);
 
   // Doc Vault Add Form
   const [docType, setDocType] = useState('Passport');
@@ -280,7 +281,7 @@ export const CustomerDashboard: React.FC = () => {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {
-        const data = await res.json();
+        const data = await res.json() as any;
         setWishlist(data);
         // Pre-fill compare selection with first two items
         if (data.length >= 2 && compareIds.length === 0) {
@@ -322,7 +323,7 @@ export const CustomerDashboard: React.FC = () => {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {
-        const data = await res.json();
+        const data = await res.json() as any;
         setCoTravelers(data);
       }
     } catch {
@@ -338,21 +339,52 @@ export const CustomerDashboard: React.FC = () => {
     setCoTravelerError(null);
     try {
       const token = localStorage.getItem(CUSTOMER_JWT_KEY);
-      const res = await fetch(`${API_BASE}/api/customer/co-travelers`, {
-        method: 'POST',
+      const isEdit = editingCoTravelerId !== null;
+      const url = isEdit
+        ? `${API_BASE}/api/customer/co-travelers/${editingCoTravelerId}`
+        : `${API_BASE}/api/customer/co-travelers`;
+      
+      const res = await fetch(url, {
+        method: isEdit ? 'PUT' : 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(coTravelerForm)
       });
-      if (!res.ok) throw new Error('Failed to add co-traveler');
+      if (!res.ok) throw new Error(isEdit ? 'Failed to update co-traveler' : 'Failed to add co-traveler');
+      
       setCoTravelerForm({ name: '', relation: 'Friend', phone: '', passport_no: '', dob: '' });
+      setEditingCoTravelerId(null);
       fetchCoTravelers();
-      alert('Co-traveler added successfully!');
+      alert(isEdit ? 'Co-traveler updated successfully!' : 'Co-traveler added successfully!');
     } catch (err: any) {
       setCoTravelerError(err.message);
     }
+  };
+
+  const handleEditClick = (traveler: any) => {
+    const formatLocalIso = (dateStr?: string) => {
+        if (!dateStr) return '';
+        const d = new Date(dateStr);
+        if (isNaN(d.getTime())) return '';
+        if (d.getFullYear() <= 1900) return '';
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
+
+    setEditingCoTravelerId(traveler.id);
+    setCoTravelerForm({
+      name: traveler.name,
+      relation: traveler.relation || 'Friend',
+      phone: traveler.phone || '',
+      passport_no: traveler.passport_no || '',
+      dob: formatLocalIso(traveler.dob)
+    });
+  };
+
+  const handleCancelEdit = () => {
+    setEditingCoTravelerId(null);
+    setCoTravelerForm({ name: '', relation: 'Friend', phone: '', passport_no: '', dob: '' });
   };
 
   const handleDeleteCoTraveler = async (cid: number) => {
@@ -1219,8 +1251,12 @@ export const CustomerDashboard: React.FC = () => {
               {/* Add Co-Traveler Form */}
               <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] shadow-sm space-y-4">
                 <div>
-                  <h3 className="font-display font-bold text-xs uppercase tracking-wider text-slate-400">Add Co-Traveler</h3>
-                  <p className="text-[10px] text-slate-400 mt-0.5">Register co-traveler info to expedite booking check-ins.</p>
+                  <h3 className="font-display font-bold text-xs uppercase tracking-wider text-slate-400">
+                    {editingCoTravelerId ? 'Edit Co-Traveler' : 'Add Co-Traveler'}
+                  </h3>
+                  <p className="text-[10px] text-slate-400 mt-0.5">
+                    {editingCoTravelerId ? 'Modify co-traveler info and save changes.' : 'Register co-traveler info to expedite booking check-ins.'}
+                  </p>
                 </div>
                 {coTravelerError && (
                   <div className="p-2 bg-red-50 text-red-500 text-[10px] font-bold rounded-lg">{coTravelerError}</div>
@@ -1280,9 +1316,20 @@ export const CustomerDashboard: React.FC = () => {
                       />
                     </div>
                   </div>
-                  <button type="submit" className="w-full py-2 bg-slate-900 text-white rounded-xl font-bold text-xs mt-1">
-                    Add Passenger
-                  </button>
+                  {editingCoTravelerId ? (
+                    <div className="flex gap-2 mt-1">
+                      <button type="submit" className="flex-grow py-2 bg-[#C9732A] text-white rounded-xl font-bold text-xs shadow-md">
+                        Update Passenger
+                      </button>
+                      <button type="button" onClick={handleCancelEdit} className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl font-bold text-xs hover:bg-slate-50 transition-colors">
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button type="submit" className="w-full py-2 bg-slate-900 text-white rounded-xl font-bold text-xs mt-1">
+                      Add Passenger
+                    </button>
+                  )}
                 </form>
               </div>
 
@@ -1305,9 +1352,14 @@ export const CustomerDashboard: React.FC = () => {
                             <span>{c.passport_no || 'No ID Logged'}</span>
                           </div>
                         </div>
-                        <button onClick={() => handleDeleteCoTraveler(c.id)} className="p-1 text-slate-405 hover:text-red-500 rounded-lg">
-                          <span className="material-symbols-outlined text-[16px]">delete</span>
-                        </button>
+                        <div className="flex gap-1 shrink-0">
+                          <button onClick={() => handleEditClick(c)} className="p-1 text-slate-400 hover:text-slate-650 rounded-lg" title="Edit Companion">
+                            <span className="material-symbols-outlined text-[16px]">edit</span>
+                          </button>
+                          <button onClick={() => handleDeleteCoTraveler(c.id)} className="p-1 text-slate-400 hover:text-red-500 rounded-lg" title="Delete Companion">
+                            <span className="material-symbols-outlined text-[16px]">delete</span>
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>

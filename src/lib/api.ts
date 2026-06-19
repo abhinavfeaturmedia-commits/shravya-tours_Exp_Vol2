@@ -519,6 +519,7 @@ export const api = {
                 partnerId: row.partner_id || undefined,
                 partnerName: row.partner_name || undefined,
                 partnerCompanyName: row.partner_company_name || undefined,
+                leadId: row.lead_id || undefined,
                 
                 // Mapped Carry-Forward Fields
                 whatsapp: row.whatsapp || undefined,
@@ -612,6 +613,7 @@ export const api = {
             notes: booking.details || '',
             assigned_to: booking.assignedTo || null,
             partner_id: booking.partnerId || null,
+            lead_id: booking.leadId || null,
             
             // New Carry-Forward Fields
             whatsapp: booking.whatsapp || null,
@@ -661,6 +663,9 @@ export const api = {
         }
         if (updates.partnerId !== undefined) {
             dbUpdates.partner_id = updates.partnerId || null;
+        }
+        if (updates.leadId !== undefined) {
+            dbUpdates.lead_id = updates.leadId || null;
         }
         if (updates.guests !== undefined) {
             let adultsCount = 1;
@@ -2091,8 +2096,8 @@ export const api = {
 
     // ─── MEMBERSHIP PLANS ───
     getMembershipPlans: () =>
-        crud.getAll('membership_plans', { order: 'created_at', asc: true }).then((rows: any[]) =>
-            rows.map((r: any) => ({
+        crud.getAll('membership_plans', { order: 'created_at', asc: true }).then((res: any) =>
+            (res.data || []).map((r: any) => ({
                 id: r.id,
                 name: r.name,
                 tier: r.tier,
@@ -2157,8 +2162,8 @@ export const api = {
 
     // ─── CUSTOMER MEMBERSHIPS ───
     getCustomerMemberships: () =>
-        crud.getAll('customer_memberships', { order: 'created_at', asc: false }).then((rows: any[]) =>
-            rows.map((r: any) => ({
+        crud.getAll('customer_memberships', { order: 'created_at', asc: false }).then((res: any) =>
+            (res.data || []).map((r: any) => ({
                 id: r.id,
                 customerId: r.customer_id,
                 customerName: r.customer_name,

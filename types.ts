@@ -88,6 +88,7 @@ export interface Booking {
   partnerId?: string;          // Link to Partner
   partnerName?: string;
   partnerCompanyName?: string;
+  leadId?: string;             // Associated lead ID if converted
   
   // NEW: Lead CRM Carry Forward Fields
   whatsapp?: string;           // WhatsApp Number

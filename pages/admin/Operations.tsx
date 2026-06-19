@@ -112,7 +112,7 @@ export const Operations: React.FC = () => {
                 live.push({ ...b, paxCount, duration, liveEndDate: end });
             } else if (start > today && start <= in7Days && b.status === 'Confirmed') {
                 upcoming.push({ ...b, paxCount });
-            } else if ((end < today && b.status === 'Completed') || b.liveStatus === 'Completed') {
+            } else if ((end < today && b.status !== 'Cancelled' && b.liveStatus !== 'Cancelled') || b.status === 'Completed' || b.liveStatus === 'Completed') {
                 completed.push(b);
             }
         });
@@ -128,11 +128,8 @@ export const Operations: React.FC = () => {
 
     // ─── Fault Detection ──────────────────────────────────────────────────────
     const faults = useMemo(() => {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-
         return tourStats.live.map(tour => {
-            const issues: { type: 'issue' | 'no-driver' | 'overdue'; label: string }[] = [];
+            const issues: { type: 'issue' | 'no-driver'; label: string }[] = [];
 
             // 1. Manually flagged as Issue
             if ((tour as any).liveStatus === 'Issue') {
@@ -143,12 +140,6 @@ export const Operations: React.FC = () => {
             const hasTransport = tour.supplierBookings?.some(sb => sb.serviceType === 'Transport');
             if (!hasTransport) {
                 issues.push({ type: 'no-driver', label: 'No driver / transport assigned' });
-            }
-
-            // 3. Tour is past end date but still showing as live (not yet marked completed)
-            const endDate = (tour as any).liveEndDate as Date;
-            if (endDate < today) {
-                issues.push({ type: 'overdue', label: 'Tour overdue — not marked Completed' });
             }
 
             return issues.length > 0 ? { tour, issues } : null;
@@ -391,14 +382,11 @@ export const Operations: React.FC = () => {
                                                                     className={`inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full ${
                                                                         issue.type === 'issue'
                                                                             ? 'bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400'
-                                                                            : issue.type === 'no-driver'
-                                                                            ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400'
-                                                                            : 'bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-400'
+                                                                            : 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400'
                                                                     }`}
                                                                 >
                                                                     {issue.type === 'issue' && '🔴'}
                                                                     {issue.type === 'no-driver' && '🚗'}
-                                                                    {issue.type === 'overdue' && '⏰'}
                                                                     {issue.label}
                                                                 </span>
                                                             ))}
@@ -419,14 +407,6 @@ export const Operations: React.FC = () => {
                                                                 className="text-[11px] font-bold px-3 py-1.5 bg-green-100 hover:bg-green-200 dark:bg-green-900/30 dark:hover:bg-green-900/50 text-green-700 dark:text-green-400 rounded-lg transition-colors"
                                                             >
                                                                 Mark Resolved
-                                                            </button>
-                                                        )}
-                                                        {(tour as any).liveEndDate < new Date(new Date().setHours(0,0,0,0)) && (
-                                                            <button
-                                                                onClick={() => handleLiveStatusChange(tour.id, 'Completed')}
-                                                                className="text-[11px] font-bold px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg transition-colors"
-                                                            >
-                                                                Mark Done
                                                             </button>
                                                         )}
                                                     </div>
@@ -535,7 +515,6 @@ export const Operations: React.FC = () => {
                                                     >
                                                         <option value="Live">🟢 Live</option>
                                                         <option value="Issue">🔴 Issue</option>
-                                                        <option value="Completed">✅ Done</option>
                                                         <option value="Cancelled">❌ Cancel</option>
                                                     </select>
 

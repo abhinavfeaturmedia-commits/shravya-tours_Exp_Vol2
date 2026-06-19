@@ -2388,7 +2388,6 @@ app.post('/api/customer/co-travelers', customerAuthMiddleware, async (req, res) 
     }
 });
 
-// Delete co-traveler
 app.delete('/api/customer/co-travelers/:id', customerAuthMiddleware, async (req, res) => {
     try {
         await pool.query(
@@ -2399,6 +2398,28 @@ app.delete('/api/customer/co-travelers/:id', customerAuthMiddleware, async (req,
     } catch (err) {
         console.error('[Customer Co-Travelers] Delete error:', err.message);
         return res.status(500).json({ error: 'Failed to delete co-traveler.' });
+    }
+});
+
+// Update co-traveler
+app.put('/api/customer/co-travelers/:id', customerAuthMiddleware, async (req, res) => {
+    const { id } = req.params;
+    const { name, relation, phone, passport_no, dob } = req.body || {};
+    if (!name) return res.status(400).json({ error: 'Name is required.' });
+    try {
+        const [result] = await pool.query(`
+            UPDATE customer_co_travelers 
+            SET name = ?, relation = ?, phone = ?, passport_no = ?, dob = ?
+            WHERE id = ? AND customer_id = ?
+        `, [name, relation || null, phone || null, passport_no || null, dob || null, id, req.customer.id]);
+        
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ error: 'Co-traveler not found or unauthorized.' });
+        }
+        return res.json({ message: 'Co-traveler updated successfully!' });
+    } catch (err) {
+        console.error('[Customer Co-Travelers] Update error:', err.message);
+        return res.status(500).json({ error: 'Failed to update co-traveler.' });
     }
 });
 
@@ -3169,6 +3190,19 @@ app.put('/api/crud/:table/:id', authMiddleware, validateTable, writeGuard, permi
                     "UPDATE tasks SET assigned_to = ? WHERE related_lead_id = ? AND category = 'checklist' AND status = 'Pending'",
                     [newAssignee, id]
                 );
+                // Propagate assignment to associated bookings
+                await pool.query(
+                    "UPDATE bookings SET assigned_to = ? WHERE lead_id = ?",
+                    [newAssignee, id]
+                );
+                // Fallback for legacy bookings: sync by matching email/phone
+                const [[lead]] = await pool.query("SELECT email, phone FROM leads WHERE id = ?", [id]);
+                if (lead && (lead.email || lead.phone)) {
+                    await pool.query(
+                        "UPDATE bookings SET assigned_to = ? WHERE (customer_email = ? AND customer_email != '') OR (customer_phone = ? AND customer_phone != '')",
+                        [newAssignee, lead.email || null, lead.phone || null]
+                    );
+                }
             }
             
             // Fallback: if no checklist tasks exist, generate them

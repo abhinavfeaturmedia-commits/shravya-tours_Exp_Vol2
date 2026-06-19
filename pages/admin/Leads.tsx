@@ -398,6 +398,7 @@ export const Leads: React.FC = () => {
                 details: `Converted from Lead. Destination: ${selectedLead.destination}. Budget: ${formatPrice(selectedLead.potentialValue || 0)}.`,
                 assignedTo: selectedLead.assignedTo || staff?.id || currentUser?.id,
                 partnerId: selectedLead.partnerId,
+                leadId: selectedLead.id,
                 
                 // Carry forward lead CRM details to Booking
                 whatsapp: selectedLead.whatsapp,
