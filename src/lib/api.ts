@@ -515,7 +515,7 @@ export const api = {
                 durationDays: row.duration_days ? Number(row.duration_days) : undefined,
                 paxCount: row.pax_count ? Number(row.pax_count) : undefined,
                 whatsappGroupUrl: row.whatsapp_group_url || undefined,
-                liveStatus: row.live_status as any || 'Live',
+                liveStatus: row.live_status as any || undefined,
                 partnerId: row.partner_id || undefined,
                 partnerName: row.partner_name || undefined,
                 partnerCompanyName: row.partner_company_name || undefined,
@@ -568,6 +568,10 @@ export const api = {
         if (sb.bookingStatus !== undefined) dbSb.booking_status = sb.bookingStatus;
         if (sb.paymentDueDate !== undefined) dbSb.payment_due_date = sb.paymentDueDate ? sb.paymentDueDate : null;
         if (sb.notes !== undefined) dbSb.notes = sb.notes || null;
+        // Transport-specific fields (Live Operations) — must be mapped here for edits to persist
+        if (sb.driverName !== undefined) dbSb.driver_name = sb.driverName || null;
+        if (sb.driverPhone !== undefined) dbSb.driver_phone = sb.driverPhone || null;
+        if (sb.vehicleNumber !== undefined) dbSb.vehicle_number = sb.vehicleNumber || null;
         await crud.update('supplier_bookings', id, dbSb);
     },
 
@@ -601,6 +605,8 @@ export const api = {
             number_of_people: finalAdults,
             pax_child: finalChildren,
             pax_count: finalAdults + finalChildren,
+            // Store explicit duration so Operations page doesn't need fragile package lookup
+            duration_days: booking.durationDays || null,
             status: booking.status === 'Confirmed' ? 'confirmed' : 'pending',
             payment_status: booking.payment === 'Paid' ? 'paid' : 'pending', // Enums: pending, paid, failed, refunded
             notes: booking.details || '',
@@ -682,6 +688,10 @@ export const api = {
         }
         if ((updates as any).whatsappGroupUrl !== undefined) {
             dbUpdates.whatsapp_group_url = (updates as any).whatsappGroupUrl || null;
+        }
+        // Live Operations: allow updating tour duration directly from Operations page
+        if (updates.durationDays !== undefined) {
+            dbUpdates.duration_days = updates.durationDays || null;
         }
         
         // Serialize new carry-forward fields if present in updates
