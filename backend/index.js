@@ -465,7 +465,10 @@ async function ensureLiveOpsSchema() {
 
     // 1b. New columns on leads table
     const leadAlterations = [
-        "ALTER TABLE leads ADD COLUMN IF NOT EXISTS alt_phone VARCHAR(50) DEFAULT NULL"
+        "ALTER TABLE leads ADD COLUMN IF NOT EXISTS alt_phone VARCHAR(50) DEFAULT NULL",
+        // Returning customer linking (Rank 1 + Rank 4 feature)
+        "ALTER TABLE leads ADD COLUMN IF NOT EXISTS customer_id VARCHAR(64) DEFAULT NULL",
+        "ALTER TABLE leads ADD COLUMN IF NOT EXISTS is_returning_customer TINYINT(1) DEFAULT 0"
     ];
     for (const sql of leadAlterations) {
         try { await pool.query(sql); }
@@ -1710,6 +1713,45 @@ async function auditLog(action, table, details, performedBy) {
     }
 }
 
+// ─── Returning Customer Helpers (Rank 3 + Rank 1) ───
+
+/**
+ * Normalises any phone number to its last 10 digits for consistent matching.
+ * Strips country codes (+91, 91), spaces, dashes, brackets.
+ * Examples: '+91-9876543210' → '9876543210', '09876543210' → '9876543210'
+ */
+function normalisePhone(phone) {
+    if (!phone) return null;
+    const digits = String(phone).replace(/\D/g, ''); // strip everything non-numeric
+    if (!digits) return null;
+    return digits.length >= 10 ? digits.slice(-10) : digits;
+}
+
+/**
+ * Searches the customers table for a record whose phone / alt_phone / whatsapp
+ * matches the normalised input. Returns the first match or null.
+ * Uses RIGHT(REPLACE(...), 10) so the comparison is format-agnostic in SQL too.
+ */
+async function findMatchingCustomer(normPhone) {
+    if (!normPhone || normPhone.length < 6) return null;
+    try {
+        const [rows] = await pool.query(`
+            SELECT id, name, type, bookings_count
+            FROM customers
+            WHERE
+                RIGHT(REPLACE(REPLACE(REPLACE(REPLACE(phone, ' ', ''), '-', ''), '+', ''), '()', ''), 10) = ?
+                OR RIGHT(REPLACE(REPLACE(REPLACE(REPLACE(alt_phone, ' ', ''), '-', ''), '+', ''), '()', ''), 10) = ?
+                OR RIGHT(REPLACE(REPLACE(REPLACE(REPLACE(whatsapp, ' ', ''), '-', ''), '+', ''), '()', ''), 10) = ?
+            LIMIT 1
+        `, [normPhone, normPhone, normPhone]);
+        return rows.length > 0 ? rows[0] : null;
+    } catch (err) {
+        // Non-fatal: if query fails, proceed without linking
+        console.warn('[ReturnCustomer] findMatchingCustomer error:', err.message);
+        return null;
+    }
+}
+
 // ─── Health Check ───
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', message: 'Backend is running' });
@@ -2378,17 +2420,33 @@ app.post('/api/customer/enquiries', customerAuthMiddleware, async (req, res) => 
     const id = crypto.randomBytes(16).toString('hex');
     const leadId = crypto.randomBytes(16).toString('hex');
     try {
+        // ─── Returning Customer Check (Rank 1 + Rank 3 + Rank 4) ───
+        const inputPhone = phone || req.customer.phone;
+        const normPhone = normalisePhone(inputPhone);
+        const matchedCustomer = await findMatchingCustomer(normPhone);
+        const leadSource   = matchedCustomer ? 'Returning Customer' : 'Customer Portal';
+        const leadPriority = matchedCustomer ? 'High' : 'Medium';
+        const linkedCustomerId = matchedCustomer ? matchedCustomer.id : null;
+        const isReturning  = matchedCustomer ? 1 : 0;
+        if (matchedCustomer) {
+            console.log(`[ReturnCustomer] Portal enquiry from ${name || req.customer.name} matched customer: ${matchedCustomer.name} (${matchedCustomer.id})`);
+        }
+        // ─────────────────────────────────────────────────────────────
+
         await pool.query(`
             INSERT INTO customer_enquiries (id, customer_id, name, email, phone, destination, travel_date, pax, budget, message)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `, [id, req.customer.id, name || req.customer.name, email || req.customer.email, phone || null, destination, travel_date || null, pax || 1, budget || null, message || null]);
+        `, [id, req.customer.id, name || req.customer.name, email || req.customer.email, inputPhone || null, destination, travel_date || null, pax || 1, budget || null, message || null]);
 
         await pool.query(`
-            INSERT INTO leads (id, name, email, phone, destination, travelers, budget, preferences, source, status, priority, package_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Customer Portal', 'New', 'High', ?)
-        `, [leadId, name || req.customer.name, email || req.customer.email, phone || null, destination, pax || 1, budget || null, message || null, packageId || null]);
+            INSERT INTO leads (id, name, email, phone, destination, travelers, budget, preferences,
+                               source, status, priority, package_id, customer_id, is_returning_customer)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'New', ?, ?, ?, ?)
+        `, [leadId, name || req.customer.name, email || req.customer.email, inputPhone || null,
+            destination, pax || 1, budget || null, message || null,
+            leadSource, leadPriority, packageId || null, linkedCustomerId, isReturning]);
 
-        return res.json({ message: 'Enquiry submitted successfully!' });
+        return res.json({ message: 'Enquiry submitted successfully!', isReturningCustomer: !!matchedCustomer });
     } catch (err) {
         console.error('[Customer Enquiry] Create error:', err.message);
         return res.status(500).json({ error: 'Failed to submit enquiry.' });
@@ -3167,6 +3225,29 @@ app.post('/api/crud/:table', authMiddleware, validateTable, writeGuard, permissi
             await generateBookingPlaybook(fetchedId, inserted[0].type, inserted[0].assigned_to, req.user?.email);
         }
 
+        // ─── Returning Customer Auto-Link for Admin-Created Leads (Rank 1 + Rank 3 + Rank 4) ───
+        // Only runs if no customer_id was explicitly provided by the form
+        if (table === 'leads' && body.phone && !body.customer_id) {
+            try {
+                const normPhone = normalisePhone(body.phone);
+                const matchedCustomer = await findMatchingCustomer(normPhone);
+                if (matchedCustomer) {
+                    await pool.query(
+                        'UPDATE leads SET customer_id = ?, is_returning_customer = 1 WHERE id = ?',
+                        [matchedCustomer.id, fetchedId]
+                    );
+                    // Refresh the inserted row so the response contains the linked fields
+                    const [refreshed] = await pool.query(`SELECT * FROM \`leads\` WHERE id = ?`, [fetchedId]);
+                    if (refreshed[0]) inserted[0] = refreshed[0];
+                    console.log(`[ReturnCustomer] Admin lead ${fetchedId} auto-linked to customer: ${matchedCustomer.name} (${matchedCustomer.id})`);
+                }
+            } catch (linkErr) {
+                // Non-fatal — lead was already created, just log the warning
+                console.warn('[ReturnCustomer] Admin lead link failed (non-fatal):', linkErr.message);
+            }
+        }
+        // ─────────────────────────────────────────────────────────────────────────────────────────
+
         res.status(201).json({ data: inserted[0] || { id: fetchedId } });
     } catch (error) {
         console.error(`POST /${table} error:`, error);
@@ -3744,7 +3825,17 @@ app.get('/api/leads-with-logs', authMiddleware, async (req, res) => {
     }
 
     try {
-        let leadsQuery = 'SELECT l.*, p.name as partner_name, p.company_name as partner_company_name FROM leads l LEFT JOIN partners p ON l.partner_id = p.id';
+        // JOIN partners and customers so returning-customer info is available in admin UI (Rank 2)
+        let leadsQuery = `
+            SELECT l.*,
+                   p.name as partner_name, p.company_name as partner_company_name,
+                   c.name as matched_customer_name,
+                   c.type as matched_customer_type,
+                   c.bookings_count as matched_customer_bookings_count
+            FROM leads l
+            LEFT JOIN partners p ON l.partner_id = p.id
+            LEFT JOIN customers c ON l.customer_id = c.id
+        `;
         const params = [];
         if (req.user?.role !== 'admin' && req.user?.role !== 'Admin' && !isAdmin) {
             leadsQuery += ' WHERE l.assigned_to = ?';
@@ -4325,10 +4416,22 @@ app.post('/api/partner/leads', partnerAuthMiddleware, async (req, res) => {
             }
         }
 
+        // ─── Returning Customer Check (Rank 1 + Rank 3 + Rank 4) ───
+        const normPhone = normalisePhone(lead.phone);
+        const matchedCustomer = await findMatchingCustomer(normPhone);
+        const linkedCustomerId = matchedCustomer ? matchedCustomer.id : null;
+        const isReturning     = matchedCustomer ? 1 : 0;
+        // For partner leads: keep source as 'Partner Referral' but bump priority if returning
+        const leadPriority = matchedCustomer ? 'High' : 'Medium';
+        if (matchedCustomer) {
+            console.log(`[ReturnCustomer] Partner lead from ${lead.name} matched customer: ${matchedCustomer.name} (${matchedCustomer.id})`);
+        }
+        // ──────────────────────────────────────────────────────────
+
         const leadId = `PLEAD-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
         await pool.query(
-            `INSERT INTO leads (id, name, email, phone, location, destination, start_date, end_date, travelers, budget, type, status, priority, potential_value, source, preferences, partner_id, package_id, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'New', 'Medium', ?, 'Partner Referral', ?, ?, ?, NOW())`,
+            `INSERT INTO leads (id, name, email, phone, location, destination, start_date, end_date, travelers, budget, type, status, priority, potential_value, source, preferences, partner_id, package_id, customer_id, is_returning_customer, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'New', ?, ?, 'Partner Referral', ?, ?, ?, ?, ?, NOW())`,
             [
                 leadId,
                 lead.name, lead.email || '', lead.phone || '',
@@ -4336,13 +4439,16 @@ app.post('/api/partner/leads', partnerAuthMiddleware, async (req, res) => {
                 lead.startDate || null, lead.endDate || null,
                 lead.travelers || '2 Adults', lead.budget || 'Flexible',
                 lead.type || 'Tour',
+                leadPriority,
                 Number(lead.potentialValue) || 0,
                 lead.preferences || '',
                 currentPartnerId,
-                lead.packageId || null
+                lead.packageId || null,
+                linkedCustomerId,
+                isReturning
             ]
         );
-        res.json({ message: 'Lead submitted successfully', leadId });
+        res.json({ message: 'Lead submitted successfully', leadId, isReturningCustomer: !!matchedCustomer });
     } catch (err) {
         console.error('Partner submit lead error:', err);
         res.status(500).json({ error: 'Failed to submit lead' });

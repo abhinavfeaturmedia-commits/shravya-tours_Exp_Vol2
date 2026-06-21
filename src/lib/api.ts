@@ -782,9 +782,19 @@ export const api = {
             partnerId: row.partner_id || undefined,
             partnerName: row.partner_name || undefined,
             partnerCompanyName: row.partner_company_name || undefined,
-            
-            // New Carry-Forward Field
-            altPhone: row.alt_phone || undefined
+
+            // Carry-Forward Field
+            altPhone: row.alt_phone || undefined,
+
+            // Returning Customer Auto-Link Fields (Rank 1 + Rank 4)
+            customerId: row.customer_id || undefined,
+            isReturningCustomer: !!row.is_returning_customer,
+            // UI-only: populated from leads-with-logs JOIN with customers table (Rank 2)
+            matchedCustomerName: row.matched_customer_name || undefined,
+            matchedCustomerType: row.matched_customer_type || undefined,
+            matchedCustomerBookingsCount: row.matched_customer_bookings_count != null
+                ? Number(row.matched_customer_bookings_count)
+                : undefined,
         }));
     },
 

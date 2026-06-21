@@ -34,7 +34,7 @@ export const Bookings: React.FC = () => {
 
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isEditMode, setIsEditMode] = useState(false);
-    const [selectedBookingForSuppliers, setSelectedBookingForSuppliers] = useState<Booking | null>(null);
+    const [selectedBookingForSuppliersId, setSelectedBookingForSuppliersId] = useState<string | null>(null);
     const [bookingForLedgerId, setBookingForLedgerId] = useState<string | null>(null);
     const [viewingBookingId, setViewingBookingId] = useState<string | null>(null);
     const [printingTxId, setPrintingTxId] = useState<string | null>(null);
@@ -67,9 +67,10 @@ export const Bookings: React.FC = () => {
         }
     };
 
-    // Always derive from live bookings array so modal auto-refreshes after transactions
+    // Always derive from live bookings array so modals auto-refresh after mutations
     const bookingForLedger = bookingForLedgerId ? bookings.find(b => b.id === bookingForLedgerId) ?? null : null;
     const viewingBooking = viewingBookingId ? bookings.find(b => b.id === viewingBookingId) ?? null : null;
+    const selectedBookingForSuppliers = selectedBookingForSuppliersId ? bookings.find(b => b.id === selectedBookingForSuppliersId) ?? null : null;
 
     const [noteText, setNoteText] = useState('');
     const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
@@ -2330,7 +2331,7 @@ export const Bookings: React.FC = () => {
                                                             <button onClick={() => setBookingForLedgerId(booking.id)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors">
                                                                 <span className="material-symbols-outlined text-[18px] text-indigo-500">account_balance_wallet</span> Billing Ledger
                                                             </button>
-                                                            <button onClick={() => setSelectedBookingForSuppliers(booking)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors">
+                                                            <button onClick={() => setSelectedBookingForSuppliersId(booking.id)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors">
                                                                 <span className="material-symbols-outlined text-[18px] text-emerald-500">inventory</span> Manage Suppliers
                                                             </button>
                                                             {hasPermission('bookings', 'manage') && (
@@ -2548,12 +2549,12 @@ export const Bookings: React.FC = () => {
 
             </div>
 
-            {/* Supplier Management Modal */}
+            {/* Supplier Management Modal — booking derived live from bookings[] so it auto-refreshes */}
             {
                 selectedBookingForSuppliers && (
                     <SupplierManagementModal
                         isOpen={!!selectedBookingForSuppliers}
-                        onClose={() => setSelectedBookingForSuppliers(null)}
+                        onClose={() => setSelectedBookingForSuppliersId(null)}
                         booking={selectedBookingForSuppliers}
                     />
                 )}

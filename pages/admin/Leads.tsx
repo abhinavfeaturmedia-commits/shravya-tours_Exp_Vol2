@@ -974,6 +974,9 @@ export const Leads: React.FC = () => {
                                                         {isPartner && (
                                                             <span className="inline-flex items-center text-[9px] font-black px-1.5 py-0.5 rounded bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-400 border border-violet-200/50 uppercase tracking-wider">Partner</span>
                                                         )}
+                                                        {lead.isReturningCustomer && (
+                                                            <span className="inline-flex items-center gap-0.5 text-[9px] font-black px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 border border-amber-200/50 uppercase tracking-wider">🔁 Returning</span>
+                                                        )}
                                                     </h3>
                                                     <p className="text-xs text-slate-500 truncate">
                                                         {lead.leadNumber ? <span className="font-mono font-bold text-primary mr-1">LD-{String(lead.leadNumber).padStart(4, '0')}</span> : null}
@@ -1008,6 +1011,9 @@ export const Leads: React.FC = () => {
                                                     {lead.name}
                                                     {isPartner && (
                                                         <span className="inline-flex items-center text-[9px] font-black px-1.5 py-0.5 rounded bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-400 border border-violet-200/50 uppercase tracking-wider">Partner</span>
+                                                    )}
+                                                    {lead.isReturningCustomer && (
+                                                        <span className="inline-flex items-center gap-0.5 text-[9px] font-black px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 border border-amber-200/50 uppercase tracking-wider">🔁</span>
                                                     )}
                                                 </h3>
                                                 <p className="text-xs text-slate-500 truncate">{lead.destination}</p>
@@ -1132,6 +1138,41 @@ export const Leads: React.FC = () => {
 
                     {/* Content Body */}
                     <div className="p-6 flex-1 overflow-y-auto">
+
+                        {/* ── Returning Customer Alert Banner (Rank 2) ── */}
+                        {selectedLead.isReturningCustomer && selectedLead.customerId && (
+                            <div className="flex items-start gap-3 p-3.5 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/60 mb-5 animate-in fade-in slide-in-from-top-1 duration-200">
+                                <div className="h-8 w-8 shrink-0 rounded-full bg-amber-100 dark:bg-amber-800/40 flex items-center justify-center text-base">
+                                    🔁
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-black text-amber-800 dark:text-amber-300 leading-tight">
+                                        Returning Customer Detected
+                                    </p>
+                                    <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">
+                                        Phone matched existing profile:
+                                        <span className="font-bold ml-1">{selectedLead.matchedCustomerName || 'Known Customer'}</span>
+                                        {selectedLead.matchedCustomerType && (
+                                            <span className="ml-1.5 px-1.5 py-0.5 rounded bg-amber-200/60 dark:bg-amber-800/40 text-[10px] font-bold uppercase tracking-wide">
+                                                {selectedLead.matchedCustomerType}
+                                            </span>
+                                        )}
+                                        {selectedLead.matchedCustomerBookingsCount != null && selectedLead.matchedCustomerBookingsCount > 0 && (
+                                            <span className="ml-1 text-amber-500">· {selectedLead.matchedCustomerBookingsCount} past booking{selectedLead.matchedCustomerBookingsCount !== 1 ? 's' : ''}</span>
+                                        )}
+                                    </p>
+                                </div>
+                                <a
+                                    href={`/admin/customers?id=${selectedLead.customerId}`}
+                                    className="shrink-0 text-xs font-black text-amber-700 dark:text-amber-400 hover:text-amber-900 dark:hover:text-amber-200 underline underline-offset-2 transition-colors whitespace-nowrap"
+                                    title="View customer profile"
+                                >
+                                    View Profile →
+                                </a>
+                            </div>
+                        )}
+                        {/* ── End Returning Customer Banner ── */}
+
                         {leadModalTab === 'chat' ? (
                             <div className="flex flex-col h-[55vh] justify-between">
                                 {/* Chat Messages */}

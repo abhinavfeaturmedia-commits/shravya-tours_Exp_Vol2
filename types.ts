@@ -193,7 +193,6 @@ export interface AuditLog {
 
 export interface Lead {
   id: string;                      // Internal UUID from DB
-  customerId?: string;             // Link to Customer Profile
   leadNumber?: number;             // DB AUTO_INCREMENT number → displayed as LD-0001
   packageId?: string;              // Source package that generated this lead (for admin linkage)
   name: string;
@@ -231,6 +230,14 @@ export interface Lead {
   
   // NEW: Lead CRM Carry Forward Fields
   altPhone?: string;           // Alternate Phone Number
+
+  // Returning Customer Auto-Link Fields (Rank 1 / Rank 4)
+  customerId?: string;             // Linked customer profile ID (auto-matched by phone)
+  isReturningCustomer?: boolean;   // true when phone matched an existing customer record
+  // UI-only fields populated from the leads-with-logs JOIN (not stored on Lead itself):
+  matchedCustomerName?: string;         // Name of the matched customer
+  matchedCustomerType?: string;         // 'New' | 'Returning' | 'VIP'
+  matchedCustomerBookingsCount?: number; // How many past bookings they have
 }
 
 export interface CustomerPreference {
