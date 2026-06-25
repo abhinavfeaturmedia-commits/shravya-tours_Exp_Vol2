@@ -1196,7 +1196,7 @@ export const MarketingLogs: React.FC = () => {
                                                             onClick={() => handleToggleReaction(log.id, type)}
                                                             className={`px-3 py-1 rounded-full text-xs font-bold transition-all border flex items-center gap-1.5 ${
                                                                 userReacted
-                                                                    ? 'bg-indigo-50 border-indigo-250 text-indigo-650 dark:bg-indigo-950/40 dark:border-indigo-800 dark:text-indigo-400 scale-105'
+                                                                    ? 'bg-indigo-50 border-indigo-200 text-indigo-600 dark:bg-indigo-950/40 dark:border-indigo-800 dark:text-indigo-400 scale-105'
                                                                     : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-850'
                                                             }`}
                                                         >

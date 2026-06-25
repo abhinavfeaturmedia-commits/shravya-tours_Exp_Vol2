@@ -1315,6 +1315,22 @@ async function ensureInvoiceCustomFields() {
         try {
             await pool.query("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS balance_due DECIMAL(10,2) DEFAULT 0.00");
         } catch(e) { /* already exists */ }
+        // Add is_gst column to invoices if it doesn't exist
+        try {
+            await pool.query("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS is_gst TINYINT(1) DEFAULT 1");
+        } catch(e) { /* already exists */ }
+        // Add client_gst column to invoices if it doesn't exist
+        try {
+            await pool.query("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS client_gst VARCHAR(50) DEFAULT NULL");
+        } catch(e) { /* already exists */ }
+        // Add gst_type column to invoices if it doesn't exist
+        try {
+            await pool.query("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS gst_type VARCHAR(20) DEFAULT 'CGST_SGST'");
+        } catch(e) { /* already exists */ }
+        // Add hsn_sac column to invoice_items if it doesn't exist
+        try {
+            await pool.query("ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS hsn_sac VARCHAR(50) DEFAULT '9985'");
+        } catch(e) { /* already exists */ }
         console.log('[InvoiceCustomFields Migration] Table and columns ensured.');
     } catch (err) {
         console.error('[InvoiceCustomFields Migration] Failed:', err.message);

@@ -8,6 +8,7 @@ import {
 import { toast } from 'sonner';
 import { useSettings } from '../../context/SettingsContext';
 import { generateTrueInvoicePDF } from '../../utils/pdfGenerator';
+import { ActionMenu } from '../../components/ui/ActionMenu';
 
 export const InvoicesDashboard: React.FC = () => {
     const navigate = useNavigate();
@@ -338,26 +339,36 @@ export const InvoicesDashboard: React.FC = () => {
                                                 {inv.status || 'Draft'}
                                             </span>
                                         </td>
-                                        <td className="py-4 px-6 text-right">
-                                            <div className={`flex justify-end gap-2 transition-opacity ${downloadingId === inv.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
-                                                <button
-                                                    disabled={downloadingId === inv.id}
-                                                    onClick={() => handleDownloadPDF(inv)}
-                                                    className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50"
-                                                    title="Download PDF"
-                                                >
-                                                    {downloadingId === inv.id ? (
-                                                        <Loader2 size={16} className="animate-spin text-blue-600" />
-                                                    ) : (
-                                                        <Download size={16} />
-                                                    )}
-                                                </button>
-                                                <button onClick={() => navigate(`/admin/invoices/edit/${inv.id}`)} className="p-2 text-slate-400 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition-colors">
-                                                    <Edit size={16} />
-                                                </button>
-                                                <button onClick={() => handleDelete(inv.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
-                                                    <Trash2 size={16} />
-                                                </button>
+                                        <td className="py-4 px-6 text-right" onClick={(e) => e.stopPropagation()}>
+                                            <div className="flex justify-end">
+                                                <ActionMenu>
+                                                    <button
+                                                        disabled={downloadingId === inv.id}
+                                                        onClick={() => handleDownloadPDF(inv)}
+                                                        className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60 flex items-center gap-2 transition-colors disabled:opacity-50"
+                                                    >
+                                                        {downloadingId === inv.id ? (
+                                                            <Loader2 size={16} className="animate-spin text-blue-600" />
+                                                        ) : (
+                                                            <Download size={16} className="text-slate-400" />
+                                                        )}
+                                                        <span>Download PDF</span>
+                                                    </button>
+                                                    <button
+                                                        onClick={() => navigate(`/admin/invoices/edit/${inv.id}`)}
+                                                        className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60 flex items-center gap-2 transition-colors"
+                                                    >
+                                                        <Edit size={16} className="text-slate-400" />
+                                                        <span>Edit Invoice</span>
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleDelete(inv.id)}
+                                                        className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-2 transition-colors border-t border-slate-100 dark:border-slate-800"
+                                                    >
+                                                        <Trash2 size={16} className="text-slate-400" />
+                                                        <span>Delete</span>
+                                                    </button>
+                                                </ActionMenu>
                                             </div>
                                         </td>
                                     </tr>

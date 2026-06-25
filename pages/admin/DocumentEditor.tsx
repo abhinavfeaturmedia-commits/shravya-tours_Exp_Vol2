@@ -55,6 +55,9 @@ export const DocumentEditor: React.FC = () => {
 
     const [docData, setDocData] = useState({
         document_type: paramType,
+        is_gst: 1,
+        client_gst: '',
+        gst_type: 'CGST_SGST',
         client_name: '',
         email: '',
         phone: '',
@@ -368,7 +371,9 @@ export const DocumentEditor: React.FC = () => {
     };
 
     const subtotal = items.reduce((sum, item) => sum + (Number(item.quantity || 0) * Number(item.unit_price || 0)), 0);
-    const taxTotal = items.reduce((sum, item) => sum + ((Number(item.quantity || 0) * Number(item.unit_price || 0)) * (Number(item.tax_rate || 0) / 100)), 0);
+    const taxTotal = docData.is_gst === 1
+        ? items.reduce((sum, item) => sum + ((Number(item.quantity || 0) * Number(item.unit_price || 0)) * (Number(item.tax_rate || 0) / 100)), 0)
+        : 0;
     const discountAmt = Math.max(0, Math.min(subtotal, discount));
     
     // Read allowance values
@@ -448,7 +453,8 @@ export const DocumentEditor: React.FC = () => {
                     unit_price: Number(item.unit_price || 0),
                     tax_rate: Number(item.tax_rate || 0),
                     tax_amount: (Number(item.quantity || 1) * Number(item.unit_price || 0)) * (Number(item.tax_rate || 0) / 100),
-                    total: (Number(item.quantity || 1) * Number(item.unit_price || 0)) * (1 + Number(item.tax_rate || 0) / 100)
+                    total: (Number(item.quantity || 1) * Number(item.unit_price || 0)) * (1 + Number(item.tax_rate || 0) / 100),
+                    hsn_sac: item.hsn_sac || '9985'
                 };
                 await fetch('/api/crud/invoice_items', {
                     method: 'POST',
@@ -557,7 +563,8 @@ export const DocumentEditor: React.FC = () => {
                     unit_price: Number(item.unit_price || 0),
                     tax_rate: Number(item.tax_rate || 0),
                     tax_amount: (Number(item.quantity || 1) * Number(item.unit_price || 0)) * (Number(item.tax_rate || 0) / 100),
-                    total: (Number(item.quantity || 1) * Number(item.unit_price || 0)) * (1 + Number(item.tax_rate || 0) / 100)
+                    total: (Number(item.quantity || 1) * Number(item.unit_price || 0)) * (1 + Number(item.tax_rate || 0) / 100),
+                    hsn_sac: item.hsn_sac || '9985'
                 };
                 if (isNew) {
                     await fetch('/api/crud/invoice_items', {
@@ -1274,6 +1281,32 @@ export const DocumentEditor: React.FC = () => {
                                     </button>
                                 </h3>
                                 <div className="space-y-2 text-sm">
+                                    {/* GST vs Non-GST Selector */}
+                                    <div className="flex gap-2 mb-3.5 print:hidden">
+                                        <button
+                                            type="button"
+                                            onClick={() => setDocData({ ...docData, is_gst: 1 })}
+                                            className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-bold transition-all border ${
+                                                docData.is_gst === 1 
+                                                    ? 'bg-orange-50 text-orange-600 border-orange-200 dark:bg-orange-500/10 dark:text-orange-400 dark:border-orange-500/20' 
+                                                    : 'bg-white dark:bg-slate-800 text-slate-500 border-slate-200/50 dark:border-slate-700/80 hover:bg-slate-50 dark:hover:bg-slate-750'
+                                            }`}
+                                        >
+                                            GST Tax Invoice
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setDocData({ ...docData, is_gst: 0 })}
+                                            className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-bold transition-all border ${
+                                                docData.is_gst === 0 
+                                                    ? 'bg-orange-50 text-orange-600 border-orange-200 dark:bg-orange-500/10 dark:text-orange-400 dark:border-orange-500/20' 
+                                                    : 'bg-white dark:bg-slate-800 text-slate-500 border-slate-200/50 dark:border-slate-700/80 hover:bg-slate-50 dark:hover:bg-slate-750'
+                                            }`}
+                                        >
+                                            Non-GST / Retail
+                                        </button>
+                                    </div>
+
                                     <input
                                         type="text"
                                         value={docData.client_name}
@@ -1308,6 +1341,34 @@ export const DocumentEditor: React.FC = () => {
                                             className="bg-transparent border-b border-dashed border-transparent hover:border-slate-200 dark:hover:border-slate-800 focus:border-orange-500 dark:focus:border-orange-500 flex-1 outline-none focus:ring-0 py-0.5 text-slate-600 dark:text-slate-300 placeholder:text-slate-400 dark:placeholder:text-slate-600 transition-all"
                                         />
                                     </div>
+
+                                    {/* Client GSTIN & GST Type (Only if GST is selected) */}
+                                    {docData.is_gst === 1 && (
+                                        <div className="space-y-2 pt-2 border-t border-slate-150 dark:border-slate-800/80 transition-all animate-in fade-in duration-300">
+                                            <div className="flex items-center gap-1.5 text-xs">
+                                                <span className="font-bold text-slate-400 dark:text-slate-500">Client GSTIN:</span>
+                                                <input
+                                                    type="text"
+                                                    value={docData.client_gst || ''}
+                                                    onChange={(e) => setDocData({ ...docData, client_gst: e.target.value.toUpperCase() })}
+                                                    placeholder="GSTIN (e.g. 27AAAAA0000A1Z0)"
+                                                    maxLength={15}
+                                                    className="bg-transparent border-b border-dashed border-transparent hover:border-slate-200 dark:hover:border-slate-800 focus:border-orange-500 dark:focus:border-orange-500 flex-1 outline-none focus:ring-0 py-0.5 text-slate-600 dark:text-slate-350 font-mono tracking-wide placeholder:text-slate-400 dark:placeholder:text-slate-600 transition-all text-xs"
+                                                />
+                                            </div>
+                                            <div className="flex items-center gap-1.5 text-xs">
+                                                <span className="font-bold text-slate-400 dark:text-slate-500">GST Type:</span>
+                                                <select
+                                                    value={docData.gst_type || 'CGST_SGST'}
+                                                    onChange={(e) => setDocData({ ...docData, gst_type: e.target.value })}
+                                                    className="bg-transparent border-b border-dashed border-transparent hover:border-slate-200 dark:hover:border-slate-800 focus:border-orange-500 dark:focus:border-orange-500 flex-1 outline-none focus:ring-0 py-0.5 text-slate-700 dark:text-slate-300 font-bold transition-all text-xs cursor-pointer dark:bg-slate-900"
+                                                >
+                                                    <option value="CGST_SGST">Intra-state (CGST + SGST)</option>
+                                                    <option value="IGST">Inter-state (IGST)</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -1318,10 +1379,16 @@ export const DocumentEditor: React.FC = () => {
                                 <thead>
                                     <tr className="bg-[#091C3B] dark:bg-slate-800 text-white text-xs font-bold uppercase tracking-wider" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
                                         <th className="text-left px-4 py-4 w-[5%]">#</th>
-                                        <th className="text-left px-4 py-4 w-[47%]">Description</th>
-                                        <th className="text-center px-2 py-4 w-[10%]">Qty</th>
-                                        <th className="text-center px-2 py-4 w-[18%]">Total Days / Km</th>
+                                        <th className={`text-left px-4 py-4 ${docData.is_gst === 1 ? 'w-[35%]' : 'w-[47%]'}`}>Description</th>
+                                        {docData.is_gst === 1 && (
+                                            <th className="text-center px-2 py-4 w-[12%]">HSN/SAC</th>
+                                        )}
+                                        <th className={`text-center px-2 py-4 ${docData.is_gst === 1 ? 'w-[8%]' : 'w-[10%]'}`}>Qty</th>
+                                        <th className={`text-center px-2 py-4 ${docData.is_gst === 1 ? 'w-[12%]' : 'w-[18%]'}`}>Total Days / Km</th>
                                         <th className="text-right px-2 py-4 w-[10%]">Rate (₹)</th>
+                                        {docData.is_gst === 1 && (
+                                            <th className="text-right px-2 py-4 w-[8%]">GST (%)</th>
+                                        )}
                                         <th className="text-right px-4 py-4 w-[10%]">Amount (₹)</th>
                                         <th className="w-0 p-0 print:hidden"></th>
                                     </tr>
@@ -1340,6 +1407,17 @@ export const DocumentEditor: React.FC = () => {
                                                     className="w-full bg-transparent outline-none resize-none text-slate-700 dark:text-slate-200 leading-relaxed font-semibold focus:border-orange-500 focus:ring-0 border-b border-dashed border-transparent hover:border-slate-200 dark:hover:border-slate-700 transition-all text-xs py-0.5"
                                                 />
                                             </td>
+                                            {docData.is_gst === 1 && (
+                                                <td className="px-2 py-4.5 align-top text-center">
+                                                    <input
+                                                        type="text"
+                                                        value={item.hsn_sac || '9985'}
+                                                        onChange={(e) => handleItemChange(index, 'hsn_sac', e.target.value)}
+                                                        placeholder="9985"
+                                                        className="w-full bg-transparent text-center text-slate-700 dark:text-slate-200 outline-none border-b border-dashed border-transparent focus:border-orange-500 focus:ring-0 font-semibold transition-all text-xs"
+                                                    />
+                                                </td>
+                                            )}
                                             <td className="px-2 py-4.5 align-top text-center">
                                                 <input
                                                     type="number" min="1"
@@ -1365,6 +1443,21 @@ export const DocumentEditor: React.FC = () => {
                                                     className="w-full bg-transparent text-right text-slate-700 dark:text-slate-200 outline-none border-b border-dashed border-transparent focus:border-orange-500 focus:ring-0 font-semibold transition-all text-xs"
                                                 />
                                             </td>
+                                            {docData.is_gst === 1 && (
+                                                <td className="px-2 py-4.5 align-top text-right">
+                                                    <select
+                                                        value={item.tax_rate || 0}
+                                                        onChange={(e) => handleItemChange(index, 'tax_rate', parseFloat(e.target.value) || 0)}
+                                                        className="w-full bg-transparent text-right text-slate-700 dark:text-slate-200 outline-none border-b border-dashed border-transparent focus:border-orange-500 focus:ring-0 font-semibold transition-all text-xs py-0 dark:bg-slate-900 cursor-pointer"
+                                                    >
+                                                        <option value="0">0%</option>
+                                                        <option value="5">5%</option>
+                                                        <option value="12">12%</option>
+                                                        <option value="18">18%</option>
+                                                        <option value="28">28%</option>
+                                                    </select>
+                                                </td>
+                                            )}
                                             <td className="px-4 py-4.5 align-top text-right text-[#091C3B] dark:text-white tabular-nums font-bold text-xs">
                                                 ₹{(Number(item.quantity || 0) * Number(item.unit_price || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                                             </td>
@@ -1576,9 +1669,7 @@ export const DocumentEditor: React.FC = () => {
                                                 </span>
                                             </div>
                                         ))}
-
-                                        {/* Add Custom Field Button */}
-                                        <button
+<button
                                             type="button"
                                             onClick={addCustomField}
                                             className="flex items-center gap-1.5 text-[10px] font-bold text-orange-500 hover:text-orange-600 dark:text-orange-400 dark:hover:text-orange-300 bg-orange-50 dark:bg-orange-500/10 border border-dashed border-orange-300 dark:border-orange-500/30 rounded-xl px-3 py-1.5 mt-1 transition-all hover:border-orange-400 dark:hover:border-orange-400 print:hidden w-full justify-center"
@@ -1591,11 +1682,31 @@ export const DocumentEditor: React.FC = () => {
                                             <span>Subtotal (Base Items):</span>
                                             <span className="tabular-nums font-medium">₹{subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                                         </div>
-                                        {taxTotal > 0 && (
-                                            <div className="flex justify-between items-center text-[10px] text-slate-400">
-                                                <span>Tax Total:</span>
-                                                <span className="tabular-nums font-medium">₹{taxTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                                            </div>
+                                        {docData.is_gst === 1 && taxTotal > 0 ? (
+                                            docData.gst_type === 'IGST' ? (
+                                                <div className="flex justify-between items-center text-[10px] text-slate-400">
+                                                    <span>IGST Total:</span>
+                                                    <span className="tabular-nums font-medium">₹{taxTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    <div className="flex justify-between items-center text-[10px] text-slate-400">
+                                                        <span>CGST Total:</span>
+                                                        <span className="tabular-nums font-medium">₹{(taxTotal / 2).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                                    </div>
+                                                    <div className="flex justify-between items-center text-[10px] text-slate-400">
+                                                        <span>SGST Total:</span>
+                                                        <span className="tabular-nums font-medium">₹{(taxTotal / 2).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                                    </div>
+                                                </>
+                                            )
+                                        ) : (
+                                            taxTotal > 0 && (
+                                                <div className="flex justify-between items-center text-[10px] text-slate-400">
+                                                    <span>Tax Total:</span>
+                                                    <span className="tabular-nums font-medium">₹{taxTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                                </div>
+                                            )
                                         )}
                                     </div>
                                     

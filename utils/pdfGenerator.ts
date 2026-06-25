@@ -488,8 +488,12 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
     doc.setLineWidth(1);
     doc.line(15, 39, 45, 39);
 
-    // ── FIX #9: Invoice type label (TAX INVOICE / PROFORMA INVOICE / QUOTATION) ──
-    const invoiceTypeLabel = isProforma ? 'PROFORMA INVOICE' : isQuote ? 'QUOTATION' : 'TAX INVOICE';
+    // ── FIX #9: Invoice type label (TAX INVOICE / PROFORMA INVOICE / QUOTATION / RETAIL INVOICE) ──
+    const invoiceTypeLabel = isProforma
+        ? 'PROFORMA INVOICE'
+        : isQuote
+            ? 'QUOTATION'
+            : (docData.is_gst === 0 ? 'RETAIL INVOICE' : 'TAX INVOICE');
     doc.setFont("helvetica", "bold");
     doc.setFontSize(10);
     doc.setTextColor(9, 28, 59);
@@ -718,6 +722,17 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
     clientY += 4;
     doc.text(`Phone: ${cleanText(docData.phone || "+91 00000 00000")}`, 116, clientY);
 
+    if (docData.is_gst === 1 && docData.client_gst) {
+        clientY += 4;
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(7);
+        doc.setTextColor(100, 116, 139);
+        doc.text(`GSTIN: ${cleanText(docData.client_gst.toUpperCase())}`, 116, clientY);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(7.5);
+        doc.setTextColor(71, 85, 105);
+    }
+
     // Travel Dates & Pax (pinned to bottom of card)
     if (docData.travel_dates || docData.adults) {
         doc.setFont("helvetica", "bold");
@@ -731,32 +746,124 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
     // ═══════════════════════════════════════════════════════════
     // LINE ITEMS TABLE
     // ═══════════════════════════════════════════════════════════
-    const bodyData = items.map((item, idx) => {
-        const qty = Number(item.quantity) || 1;
-        const daysKm = item.total_days_km || '1';
-        const rate = Number(item.unit_price) || 0;
-        const total = qty * rate;
-        return [
-            (idx + 1).toString(),
-            item.description ? cleanText(item.description) : 'Tour Service Operator',
-            qty.toString(),
-            daysKm.toString(),
-            `Rs. ${rate.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
-            `Rs. ${total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
-        ];
-    });
+    let tableHeaders: string[][] = [];
+    let tableColStyles: Record<number, any> = {};
+    let bodyData: any[] = [];
 
     const totalQtyDays = items.reduce((acc, item) => acc + (Number(item.total_days_km) || 0), 0);
-    const subtotalAmount = items.reduce((acc, item) => acc + (Number(item.quantity) || 1) * (Number(item.unit_price) || 0), 0);
-    bodyData.push(['', 'TOTAL', '', totalQtyDays > 0 ? totalQtyDays.toString() : '1', '',
-        `Rs. ${subtotalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`]);
+    const subtotalAmount = items.reduce((acc, item) => acc + (Number(item.quantity || 1) * Number(item.unit_price || 0)), 0);
+
+    if (docData.is_gst === 1) {
+        const isIGST = docData.gst_type === 'IGST';
+        if (isIGST) {
+            tableHeaders = [['#', 'DESCRIPTION', 'HSN/SAC', 'QTY', 'RATE', 'TAXABLE VAL', 'IGST', 'TOTAL']];
+            tableColStyles = {
+                0: { cellWidth: 8, halign: 'center' },
+                1: { halign: 'left', cellWidth: 52 },
+                2: { cellWidth: 18, halign: 'center' },
+                3: { cellWidth: 10, halign: 'center' },
+                4: { cellWidth: 24, halign: 'right' },
+                5: { cellWidth: 24, halign: 'right' },
+                6: { cellWidth: 22, halign: 'right' },
+                7: { cellWidth: 22, halign: 'right' }
+            };
+
+            bodyData = items.map((item, idx) => {
+                const qty = Number(item.quantity) || 1;
+                const rate = Number(item.unit_price) || 0;
+                const baseAmount = qty * rate;
+                const taxRate = Number(item.tax_rate) || 0;
+                const taxAmount = baseAmount * (taxRate / 100);
+                const total = baseAmount + taxAmount;
+                return [
+                    (idx + 1).toString(),
+                    item.description ? cleanText(item.description) : 'Tour Service Operator',
+                    item.hsn_sac || '9985',
+                    qty.toString(),
+                    `Rs. ${rate.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+                    `Rs. ${baseAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+                    `${taxRate}%\nRs. ${taxAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+                    `Rs. ${total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+                ];
+            });
+
+            const totalTaxAmt = items.reduce((acc, item) => acc + (Number(item.quantity || 1) * Number(item.unit_price || 0) * (Number(item.tax_rate || 0) / 100)), 0);
+            const totalFullAmt = subtotalAmount + totalTaxAmt;
+            bodyData.push(['', 'TOTAL', '', '', '', `Rs. ${subtotalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, `Rs. ${totalTaxAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, `Rs. ${totalFullAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`]);
+        } else {
+            tableHeaders = [['#', 'DESCRIPTION', 'HSN/SAC', 'QTY', 'RATE', 'TAXABLE VAL', 'CGST', 'SGST', 'TOTAL']];
+            tableColStyles = {
+                0: { cellWidth: 8, halign: 'center' },
+                1: { halign: 'left', cellWidth: 46 },
+                2: { cellWidth: 18, halign: 'center' },
+                3: { cellWidth: 10, halign: 'center' },
+                4: { cellWidth: 22, halign: 'right' },
+                5: { cellWidth: 22, halign: 'right' },
+                6: { cellWidth: 18, halign: 'right' },
+                7: { cellWidth: 18, halign: 'right' },
+                8: { cellWidth: 18, halign: 'right' }
+            };
+
+            bodyData = items.map((item, idx) => {
+                const qty = Number(item.quantity) || 1;
+                const rate = Number(item.unit_price) || 0;
+                const baseAmount = qty * rate;
+                const taxRate = Number(item.tax_rate) || 0;
+                const taxAmount = baseAmount * (taxRate / 100);
+                const total = baseAmount + taxAmount;
+                return [
+                    (idx + 1).toString(),
+                    item.description ? cleanText(item.description) : 'Tour Service Operator',
+                    item.hsn_sac || '9985',
+                    qty.toString(),
+                    `Rs. ${rate.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+                    `Rs. ${baseAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+                    `${(taxRate / 2)}%\nRs. ${(taxAmount / 2).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+                    `${(taxRate / 2)}%\nRs. ${(taxAmount / 2).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+                    `Rs. ${total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+                ];
+            });
+
+            const totalTaxAmt = items.reduce((acc, item) => acc + (Number(item.quantity || 1) * Number(item.unit_price || 0) * (Number(item.tax_rate || 0) / 100)), 0);
+            const totalFullAmt = subtotalAmount + totalTaxAmt;
+            bodyData.push(['', 'TOTAL', '', '', '', `Rs. ${subtotalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, `Rs. ${(totalTaxAmt / 2).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, `Rs. ${(totalTaxAmt / 2).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, `Rs. ${totalFullAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`]);
+        }
+    } else {
+        tableHeaders = [['#', 'DESCRIPTION', 'QTY', 'TOTAL DAYS / KM', 'RATE', 'AMOUNT']];
+        tableColStyles = {
+            0: { cellWidth: 8, halign: 'center' },
+            1: { halign: 'left', cellWidth: 65 },
+            2: { cellWidth: 13, halign: 'center' },
+            3: { cellWidth: 32, halign: 'center' },
+            4: { cellWidth: 31, halign: 'right' },
+            5: { cellWidth: 31, halign: 'right' }
+        };
+
+        bodyData = items.map((item, idx) => {
+            const qty = Number(item.quantity) || 1;
+            const daysKm = item.total_days_km || '1';
+            const rate = Number(item.unit_price) || 0;
+            const total = qty * rate;
+            return [
+                (idx + 1).toString(),
+                item.description ? cleanText(item.description) : 'Tour Service Operator',
+                qty.toString(),
+                daysKm.toString(),
+                `Rs. ${rate.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+                `Rs. ${total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+            ];
+        });
+
+        bodyData.push(['', 'TOTAL', '', totalQtyDays > 0 ? totalQtyDays.toString() : '1', '',
+            `Rs. ${subtotalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`]);
+    }
 
     const tableStartY = cardY + cardHeight + 5;
 
     autoTable(doc, {
         startY: tableStartY,
         margin: { left: 15, right: 15 },
-        head: [['#', 'DESCRIPTION', 'QTY', 'TOTAL DAYS / KM', 'RATE', 'AMOUNT']],
+        head: tableHeaders,
         body: bodyData,
         theme: 'grid',
         styles: {
@@ -765,15 +872,7 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
         },
         headStyles: { fillColor: [255, 255, 255], textColor: [9, 28, 59], fontStyle: 'bold', fontSize: 8, halign: 'center', valign: 'middle', cellPadding: 3.5, lineWidth: 0.2, lineColor: [200, 200, 200] },
         bodyStyles: { fontSize: 7.5, valign: 'middle', halign: 'center', cellPadding: 3.5, textColor: [30, 41, 59] },
-        columnStyles: {
-            0: { cellWidth: 8, halign: 'center' },
-            1: { halign: 'left', cellWidth: 65 },
-            2: { cellWidth: 13, halign: 'center' },
-            3: { cellWidth: 32, halign: 'center' },
-            4: { cellWidth: 31, halign: 'right' },
-            5: { cellWidth: 31, halign: 'right' }
-            // Total = 8+65+13+32+31+31 = 180mm ✓
-        },
+        columnStyles: tableColStyles,
         didParseCell: (data) => {
             if (data.row.index === bodyData.length - 1) {
                 data.cell.styles.fontStyle = 'bold';
@@ -932,7 +1031,9 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
 
     // Count rows dynamically (fixed + custom + conditional)
     let rowCount = 5; // subtotal + driver + km + hrs + advance
-    if (taxTotal > 0) rowCount++;
+    if (taxTotal > 0) {
+        rowCount += (docData.is_gst === 1 && docData.gst_type !== 'IGST') ? 2 : 1;
+    }
     if (discountAmt > 0) rowCount++;
     rowCount += cfList.length; // custom extra fields
     const totalsCardH = rowCount * 4.5 + 35; // fixed bottom: divider+TOTAL+PAID+DUE ≈ 35mm
@@ -968,7 +1069,18 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
     drawTotRow(lExtraKm, extraKmCharges);
     drawTotRow(lExtraHrs, extraHrsCharges);
     drawTotRow(lAdvance, advanceReceived);
-    if (taxTotal > 0) drawTotRow("Tax Total", taxTotal);
+    if (taxTotal > 0) {
+        if (docData.is_gst === 1) {
+            if (docData.gst_type === 'IGST') {
+                drawTotRow("IGST (Integrated GST)", taxTotal);
+            } else {
+                drawTotRow("CGST (Central GST)", taxTotal / 2);
+                drawTotRow("SGST (State/UT GST)", taxTotal / 2);
+            }
+        } else {
+            drawTotRow("Tax Total", taxTotal);
+        }
+    }
     if (discountAmt > 0) drawTotRow(lDiscount, discountAmt, true, false, [220, 38, 38]);
 
     // ── Custom extra charge/deduction fields ──

@@ -1262,7 +1262,7 @@ export const PackageDetail: React.FC = () => {
         )}
 
         {/* Main Content */}
-        <div className="max-w-7xl mx-auto px-4 md:px-8">
+        <div className="max-w-[1600px] mx-auto px-4 md:px-8 xl:px-12">
 
           {/* Header Block */}
           <div className="flex flex-col xl:flex-row gap-8 mb-8">
@@ -1345,7 +1345,7 @@ export const PackageDetail: React.FC = () => {
                 </div>
 
                 {/* Desktop Premium Collage Layout */}
-                <div className="hidden md:block relative w-full aspect-[16/7] max-h-[420px]">
+                <div className="hidden md:block relative w-full aspect-[16/7] max-h-[500px]">
                   {tour.gallery.length >= 4 ? (
                     <div className="grid grid-cols-4 grid-rows-2 gap-3 h-full w-full rounded-[2rem] overflow-hidden shadow-lg bg-white dark:bg-slate-900">
                       {/* Left: Large landscape */}
@@ -1584,7 +1584,7 @@ export const PackageDetail: React.FC = () => {
                     onClick={() => scrollToSection(tab.id)}
                     className={`whitespace-nowrap px-5 py-2.5 rounded-full text-xs font-black uppercase tracking-wider transition-all duration-300 ${
                       activeTab === tab.id
-                        ? 'bg-indigo-650 text-white shadow-md shadow-indigo-650/20'
+                        ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
                         : 'bg-white dark:bg-[#151d29] border border-slate-200 dark:border-slate-800 text-slate-655 dark:text-slate-400 hover:border-indigo-500/50'
                     }`}
                   >
@@ -2109,7 +2109,7 @@ export const PackageDetail: React.FC = () => {
           {/* Client Testimonials (Full Width Section) */}
           <section className="mt-16 bg-slate-50/50 dark:bg-slate-900/30 p-8 md:p-12 rounded-[2rem] border border-slate-200/60 dark:border-slate-800/50 shadow-sm">
             <div className="text-center max-w-2xl mx-auto mb-10">
-              <span className="text-[10px] font-black uppercase tracking-widest text-indigo-650 block mb-2">Reviews</span>
+              <span className="text-[10px] font-black uppercase tracking-widest text-indigo-600 block mb-2">Reviews</span>
               <h2 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">What Our Clients Say About Us</h2>
             </div>
             
@@ -2125,7 +2125,7 @@ export const PackageDetail: React.FC = () => {
                   }}
                   className={`px-4 py-2.5 rounded-full text-xs font-black uppercase tracking-wider transition-all duration-300 border ${
                     selectedReviewTag === tag
-                      ? 'bg-indigo-650 text-white border-indigo-650 shadow-md shadow-indigo-650/10'
+                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/10'
                       : 'bg-white dark:bg-[#151d29] border-slate-200 dark:border-slate-800 text-slate-650 dark:text-slate-400 hover:border-indigo-500/50'
                   }`}
                 >
@@ -2211,7 +2211,7 @@ export const PackageDetail: React.FC = () => {
                           type="button"
                           onClick={() => setReviewIndex(idx)}
                           className={`size-2.5 rounded-full transition-all duration-300 ${
-                            idx === reviewIndex ? 'bg-indigo-650 w-6' : 'bg-slate-300 dark:bg-slate-700 hover:bg-slate-400'
+                            idx === reviewIndex ? 'bg-indigo-600 w-6' : 'bg-slate-300 dark:bg-slate-700 hover:bg-slate-400'
                           }`}
                           aria-label={`Go to slide page ${idx + 1}`}
                         />
