@@ -71,8 +71,29 @@ export const AdminDashboard: React.FC = () => {
 
     // --- Enhanced Business Intelligence Calculations ---
 
-    // Revenue Metrics
-    const totalRevenue = bookings.reduce((acc, b) => b.payment === 'Paid' ? acc + b.amount : acc, 0);
+    // ─── Shared helper: net cash received for a booking (verified txs only) ───
+    const getNetPaid = (b: any): number => {
+        const paid = (b.transactions || [])
+            .filter((t: any) => t.type === 'Payment' && t.status === 'Verified')
+            .reduce((s: number, t: any) => s + t.amount, 0);
+        const refunded = (b.transactions || [])
+            .filter((t: any) => t.type === 'Refund' && t.status === 'Verified')
+            .reduce((s: number, t: any) => s + t.amount, 0);
+        return Math.max(0, paid - refunded);
+    };
+
+    // Fix #1 — Revenue = sum of verified payments received, not just Paid-status bookings
+    const totalRevenue = useMemo(() =>
+        bookings
+            .filter(b => b.status !== 'Cancelled')
+            .reduce((acc, b) => acc + getNetPaid(b), 0),
+    [bookings]);
+
+    // Total booking value (invoice total, for reference)
+    const totalBookingValue = bookings
+        .filter(b => b.status !== 'Cancelled')
+        .reduce((acc, b) => acc + b.amount, 0);
+
     const bookingCount = bookings.length;
     const activePackages = packages.filter(p => p.status === 'Active').length;
 
@@ -91,9 +112,19 @@ export const AdminDashboard: React.FC = () => {
     const newLeadsCount = leads.filter(l => l.status === 'New').length;
     const hotLeadsCount = leads.filter(l => l.status === 'Hot').length;
     const convertedLeadsCount = leads.filter(l => l.status === 'Converted').length;
-    const totalLeadsValue = leads.reduce((sum, l) => sum + l.potentialValue, 0);
 
-    // Conversion Rate Calculation
+    // Fix #3 — Pipeline Value: only active pipeline statuses (exclude Cold & Converted)
+    const ACTIVE_PIPELINE_STATUSES = ['New', 'Warm', 'Hot', 'Offer Sent'];
+    const totalLeadsValue = leads
+        .filter(l => ACTIVE_PIPELINE_STATUSES.includes(l.status))
+        .reduce((sum, l) => sum + l.potentialValue, 0);
+
+    // Fix #2 — Win Rate: Converted ÷ (Converted + Cold) — closed-deal denominator only
+    const closedLeadsCount = leads.filter(l => l.status === 'Converted' || l.status === 'Cold').length;
+    const winRate = closedLeadsCount > 0
+        ? Math.round((convertedLeadsCount / closedLeadsCount) * 100)
+        : 0;
+    // Legacy conversionRate kept for smart-alerts threshold check
     const conversionRate = leads.length > 0
         ? Math.round((convertedLeadsCount / leads.length) * 100)
         : 0;
@@ -103,12 +134,12 @@ export const AdminDashboard: React.FC = () => {
     const ongoingBookings = bookings.filter(b => b.status === 'Confirmed' && today >= b.date && today <= (b.endDate || b.date)).length;
     const unpaidBookings = bookings.filter(b => b.payment === 'Unpaid').length;
 
-    // Recent Week Analysis (simulated comparison)
-    const thisWeekBookings = bookings.filter(b => {
-        const bookingDate = new Date(b.date);
+    // Fix #6 — Count new bookings this week by CREATION date, not travel date
+    const thisWeekNewBookings = bookings.filter(b => {
+        const createdDate = new Date((b as any).createdAt || b.date);
         const weekAgo = new Date();
         weekAgo.setDate(weekAgo.getDate() - 7);
-        return bookingDate >= weekAgo;
+        return createdDate >= weekAgo;
     }).length;
 
     // Smart Alerts & Recommendations
@@ -341,20 +372,18 @@ export const AdminDashboard: React.FC = () => {
         bookings.forEach(b => {
             if (b.status === 'Cancelled') return;
 
-            // Receivables calculations
-            if (b.payment === 'Unpaid' || b.payment === 'Deposit') {
-                const paid = (b.transactions || []).filter(t => t.type === 'Payment' && t.status === 'Verified').reduce((sum, t) => sum + t.amount, 0);
-                const refunded = (b.transactions || []).filter(t => t.type === 'Refund' && t.status === 'Verified').reduce((sum, t) => sum + t.amount, 0);
-                const netPaid = paid - refunded;
-                const remaining = b.amount - netPaid;
-                if (remaining > 0) receivables += remaining;
-            }
+            // Fix #8 — Receivables: clamp to 0 to prevent negative values on overpayments
+            // Use verified payments only — Pending transactions don't count as collected
+            const netPaid = getNetPaid(b);
+            const remaining = b.amount - netPaid;
+            // Only add to receivables if there IS an outstanding balance
+            if (remaining > 0) receivables += remaining;
 
             // Payables calculations (Supplier Bookings)
             if (b.supplierBookings) {
                 b.supplierBookings.forEach(sb => {
                     if (sb.bookingStatus !== 'Cancelled' && (sb.paymentStatus === 'Unpaid' || sb.paymentStatus === 'Partially Paid')) {
-                        const remaining = sb.cost - (sb.paidAmount || 0);
+                        const remaining = Math.max(0, sb.cost - (sb.paidAmount || 0));
                         if (remaining > 0) payables += remaining;
                     }
                 });
@@ -389,20 +418,20 @@ export const AdminDashboard: React.FC = () => {
     const revenueData = useMemo(() => {
         const yearOffset = selectedYear === 'This Year' ? 0 : 1;
         const targetYear = new Date().getFullYear() - yearOffset;
-        
+
         const monthlyData = [
-            { name: 'Jan', revenue: 0, bookings: 0 },
-            { name: 'Feb', revenue: 0, bookings: 0 },
-            { name: 'Mar', revenue: 0, bookings: 0 },
-            { name: 'Apr', revenue: 0, bookings: 0 },
-            { name: 'May', revenue: 0, bookings: 0 },
-            { name: 'Jun', revenue: 0, bookings: 0 },
-            { name: 'Jul', revenue: 0, bookings: 0 },
-            { name: 'Aug', revenue: 0, bookings: 0 },
-            { name: 'Sep', revenue: 0, bookings: 0 },
-            { name: 'Oct', revenue: 0, bookings: 0 },
-            { name: 'Nov', revenue: 0, bookings: 0 },
-            { name: 'Dec', revenue: 0, bookings: 0 },
+            { name: 'Jan', revenue: 0, bookingValue: 0, bookings: 0 },
+            { name: 'Feb', revenue: 0, bookingValue: 0, bookings: 0 },
+            { name: 'Mar', revenue: 0, bookingValue: 0, bookings: 0 },
+            { name: 'Apr', revenue: 0, bookingValue: 0, bookings: 0 },
+            { name: 'May', revenue: 0, bookingValue: 0, bookings: 0 },
+            { name: 'Jun', revenue: 0, bookingValue: 0, bookings: 0 },
+            { name: 'Jul', revenue: 0, bookingValue: 0, bookings: 0 },
+            { name: 'Aug', revenue: 0, bookingValue: 0, bookings: 0 },
+            { name: 'Sep', revenue: 0, bookingValue: 0, bookings: 0 },
+            { name: 'Oct', revenue: 0, bookingValue: 0, bookings: 0 },
+            { name: 'Nov', revenue: 0, bookingValue: 0, bookings: 0 },
+            { name: 'Dec', revenue: 0, bookingValue: 0, bookings: 0 },
         ];
 
         bookings.forEach(b => {
@@ -410,7 +439,9 @@ export const AdminDashboard: React.FC = () => {
             const d = new Date(b.date);
             if (d.getFullYear() === targetYear) {
                 const month = d.getMonth();
-                monthlyData[month].revenue += b.amount || 0;
+                // Fix #4 & #5 — Chart shows actual cash collected, not invoice total
+                monthlyData[month].revenue += getNetPaid(b);
+                monthlyData[month].bookingValue += b.amount || 0;
                 monthlyData[month].bookings += 1;
             }
         });
@@ -420,19 +451,33 @@ export const AdminDashboard: React.FC = () => {
 
     const CustomTooltip = ({ active, payload, label }: any) => {
         if (active && payload && payload.length) {
+            const d = payload[0].payload;
             return (
-                <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 shadow-xl z-50">
+                <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 shadow-xl z-50 min-w-[200px]">
                     <p className="font-bold text-slate-900 dark:text-white mb-2">{label}</p>
-                    <div className="space-y-1">
-                        <p className="text-sm flex items-center gap-2">
-                            <span className="w-3 h-3 rounded-full bg-indigo-500"></span>
-                            <span className="text-slate-500 dark:text-slate-400">Revenue:</span>
+                    <div className="space-y-1.5">
+                        <p className="text-sm flex items-center justify-between gap-4">
+                            <span className="flex items-center gap-1.5">
+                                <span className="w-3 h-3 rounded-full bg-indigo-500"></span>
+                                <span className="text-slate-500 dark:text-slate-400">Collected</span>
+                            </span>
                             <span className="font-bold text-slate-900 dark:text-white">{formatPrice(payload[0].value)}</span>
                         </p>
-                        <p className="text-sm flex items-center gap-2">
-                            <span className="w-3 h-3 rounded-full bg-emerald-500"></span>
-                            <span className="text-slate-500 dark:text-slate-400">Bookings:</span>
-                            <span className="font-bold text-slate-900 dark:text-white">{payload[0].payload.bookings}</span>
+                        {d.bookingValue > 0 && d.bookingValue !== payload[0].value && (
+                            <p className="text-sm flex items-center justify-between gap-4">
+                                <span className="flex items-center gap-1.5">
+                                    <span className="w-3 h-3 rounded-full bg-slate-300 dark:bg-slate-600"></span>
+                                    <span className="text-slate-500 dark:text-slate-400">Invoice Total</span>
+                                </span>
+                                <span className="font-medium text-slate-500 dark:text-slate-400">{formatPrice(d.bookingValue)}</span>
+                            </p>
+                        )}
+                        <p className="text-sm flex items-center justify-between gap-4">
+                            <span className="flex items-center gap-1.5">
+                                <span className="w-3 h-3 rounded-full bg-emerald-500"></span>
+                                <span className="text-slate-500 dark:text-slate-400">Bookings</span>
+                            </span>
+                            <span className="font-bold text-slate-900 dark:text-white">{d.bookings}</span>
                         </p>
                     </div>
                 </div>
@@ -491,11 +536,41 @@ export const AdminDashboard: React.FC = () => {
             {/* 2. Key Performance Indicators - Premium Gradient Cards */}
             <div className="flex overflow-x-auto snap-x snap-mandatory gap-4 pb-2 -mx-6 px-6 lg:mx-0 lg:px-0 lg:grid lg:grid-cols-5 lg:gap-6 lg:overflow-visible hide-scrollbar">
                 {[
-                    { label: 'Total Revenue', value: formatPriceCompact(totalRevenue), icon: 'payments', gradient: 'from-emerald-500 to-teal-600', shadowColor: 'shadow-emerald-500/20', trend: thisWeekBookings > 0 ? `${thisWeekBookings} this week` : 'No bookings', trendUp: thisWeekBookings > 0 },
-                    { label: 'Active Members', value: activeMembersCount, icon: 'workspace_premium', gradient: 'from-amber-400 to-orange-500', shadowColor: 'shadow-amber-500/20', trend: 'Growing base', trendUp: true },
-                    { label: 'Conversion Rate', value: `${conversionRate}%`, icon: 'trending_up', gradient: 'from-blue-500 to-indigo-600', shadowColor: 'shadow-blue-500/20', trend: conversionRate > 20 ? 'Above avg' : 'Needs focus', trendUp: conversionRate > 20 },
-                    { label: 'Pipeline Value', value: formatPriceCompact(totalLeadsValue), icon: 'account_balance', gradient: 'from-violet-500 to-purple-600', shadowColor: 'shadow-violet-500/20', trend: `${hotLeadsCount} hot leads`, trendUp: hotLeadsCount > 0 },
-                    { label: 'Active Packages', value: activePackages, icon: 'travel_explore', gradient: 'from-orange-500 to-rose-500', shadowColor: 'shadow-orange-500/20', trend: `${masterDataStats.locations} destinations`, trendUp: null },
+                    {
+                        label: 'Revenue Collected',
+                        value: formatPriceCompact(totalRevenue),
+                        icon: 'payments',
+                        gradient: 'from-emerald-500 to-teal-600',
+                        shadowColor: 'shadow-emerald-500/20',
+                        // Fix #6 — use booking creation date, not travel date
+                        trend: thisWeekNewBookings > 0 ? `${thisWeekNewBookings} new this week` : 'No new bookings',
+                        trendUp: thisWeekNewBookings > 0,
+                        subtitle: totalBookingValue > totalRevenue ? `of ${formatPriceCompact(totalBookingValue)} invoiced` : undefined,
+                    },
+                    { label: 'Active Members', value: activeMembersCount, icon: 'workspace_premium', gradient: 'from-amber-400 to-orange-500', shadowColor: 'shadow-amber-500/20', trend: 'Growing base', trendUp: true, subtitle: undefined },
+                    {
+                        // Fix #2 — Win Rate: Converted ÷ (Converted + Cold)
+                        label: 'Win Rate',
+                        value: `${winRate}%`,
+                        icon: 'trending_up',
+                        gradient: 'from-blue-500 to-indigo-600',
+                        shadowColor: 'shadow-blue-500/20',
+                        trend: winRate > 50 ? 'Above avg' : 'Needs focus',
+                        trendUp: winRate > 50,
+                        subtitle: `${convertedLeadsCount} won of ${closedLeadsCount} closed`,
+                    },
+                    {
+                        // Fix #3 — Pipeline: only active statuses, not Cold/Converted
+                        label: 'Active Pipeline',
+                        value: formatPriceCompact(totalLeadsValue),
+                        icon: 'account_balance',
+                        gradient: 'from-violet-500 to-purple-600',
+                        shadowColor: 'shadow-violet-500/20',
+                        trend: `${hotLeadsCount} hot leads`,
+                        trendUp: hotLeadsCount > 0,
+                        subtitle: `${leads.filter(l => ACTIVE_PIPELINE_STATUSES.includes(l.status)).length} active leads`,
+                    },
+                    { label: 'Active Packages', value: activePackages, icon: 'travel_explore', gradient: 'from-orange-500 to-rose-500', shadowColor: 'shadow-orange-500/20', trend: `${masterDataStats.locations} destinations`, trendUp: null, subtitle: undefined },
                 ].map((kpi, idx) => (
                     <div key={idx} className="min-w-[85vw] sm:min-w-[45vw] lg:min-w-0 shrink-0 snap-center group relative bg-white dark:bg-slate-900/50 rounded-3xl border border-slate-100 dark:border-slate-800 overflow-hidden card-lift">
                         {/* Gradient Background Accent */}
@@ -515,6 +590,9 @@ export const AdminDashboard: React.FC = () => {
                             <div>
                                 <p className="text-slate-500 dark:text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1">{kpi.label}</p>
                                 <h3 className="text-4xl kpi-number text-slate-900 dark:text-white mt-1">{kpi.value}</h3>
+                                {kpi.subtitle && (
+                                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-1 font-medium">{kpi.subtitle}</p>
+                                )}
                             </div>
                         </div>
                     </div>

@@ -533,7 +533,8 @@ export const api = {
                 officeAddress: row.office_address || undefined,
                 appliedCouponCode: row.applied_coupon_code || undefined,
                 couponDiscountAmount: row.coupon_discount_amount !== null ? Number(row.coupon_discount_amount) : undefined,
-                originalPrice: row.original_price !== null ? Number(row.original_price) : undefined
+                originalPrice: row.original_price !== null ? Number(row.original_price) : undefined,
+                createdAt: row.created_at ? new Date(row.created_at).toISOString() : undefined,
             };
         });
     },

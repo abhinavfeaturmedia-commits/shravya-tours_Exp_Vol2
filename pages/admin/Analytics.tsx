@@ -233,6 +233,18 @@ export const Analytics: React.FC = () => {
    const [activeTab, setActiveTab] = useState<'financial' | 'sales' | 'team' | 'bi'>('financial');
    const [isSyncing, setIsSyncing] = useState(false);
 
+   // Fix #7/8/9/12 — Shared helper: net verified cash received for a booking
+   // Uses only 'Verified' status transactions; clamps to 0 to prevent negatives on overpayments
+   const getNetPaid = (b: any): number => {
+      const paid = (b.transactions || [])
+         .filter((t: any) => t.type === 'Payment' && (t.status === 'Verified' || !t.status))
+         .reduce((s: number, t: any) => s + t.amount, 0);
+      const refunded = (b.transactions || [])
+         .filter((t: any) => t.type === 'Refund' && (t.status === 'Verified' || !t.status))
+         .reduce((s: number, t: any) => s + t.amount, 0);
+      return Math.max(0, paid - refunded);
+   };
+
    const handleSync = async () => {
       setIsSyncing(true);
       try {
@@ -301,8 +313,8 @@ export const Analytics: React.FC = () => {
    }, [followUps, isWithinRange]);
 
    const metrics = useMemo(() => {
-      let totalRevenue = 0; // Total Customer Price
-      let totalReceived = 0; // Actual Money In
+      let totalRevenue = 0; // Fix #7 — Total RECEIVED (verified payments), not invoiced total
+      let totalReceived = 0; // Same as totalRevenue (for clarity in template)
       let totalCost = 0;    // Total Supplier Cost
       let totalPaidOut = 0; // Actual Money Out
 
@@ -312,25 +324,20 @@ export const Analytics: React.FC = () => {
       const categoryExpenses: Record<string, number> = {};
 
       filteredBookings.forEach(booking => {
-         // Customer Side
-         totalRevenue += booking.amount;
+         // Fix #7 — Revenue = actual cash collected, not booking invoice amount
+         const netPaid = getNetPaid(booking);
+         totalRevenue += netPaid;
+         totalReceived += netPaid;
 
-         const received = (booking.transactions || [])
-            .filter(t => t.type === 'Payment' && (t.status === 'Verified' || !t.status))
-            .reduce((sum, t) => sum + t.amount, 0);
-
-         const refunded = (booking.transactions || [])
-            .filter(t => t.type === 'Refund' && (t.status === 'Verified' || !t.status))
-            .reduce((sum, t) => sum + t.amount, 0);
-
-         totalReceived += (received - refunded);
-         pendingCollections += (booking.amount - (received - refunded));
+         // Fix #8 — Clamp pendingCollections to 0 (prevent negative if customer overpaid)
+         const outstanding = Math.max(0, booking.amount - netPaid);
+         pendingCollections += outstanding;
 
          // Supplier Side
          (booking.supplierBookings || []).forEach(sb => {
             totalCost += sb.cost;
             totalPaidOut += sb.paidAmount;
-            pendingPayables += (sb.cost - sb.paidAmount);
+            pendingPayables += Math.max(0, sb.cost - sb.paidAmount);
 
             // Expense Categorization (MIS)
             const cat = sb.serviceType || 'Other';
@@ -338,6 +345,7 @@ export const Analytics: React.FC = () => {
          });
       });
 
+      // Profit: Revenue received minus supplier costs committed
       const netProfit = totalRevenue - totalCost;
       const profitMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
       const cashFlow = totalReceived - totalPaidOut;
@@ -363,15 +371,16 @@ export const Analytics: React.FC = () => {
 
       const data = months.map(m => ({ month: m, revenue: 0, cost: 0, profit: 0 }));
 
-      // Only process bookings that fall in the current year for this specific chart (can be adapted to timeRange)
+      // Fix #9 — Use actual payments received per booking, not invoice totals
       filteredBookings.forEach(b => {
          const bDate = new Date(b.date);
          if (bDate.getFullYear() === currentYear) {
             const mIndex = bDate.getMonth();
             const cost = (b.supplierBookings || []).reduce((sum, sb) => sum + sb.cost, 0);
-            data[mIndex].revenue += b.amount;
+            const netPaid = getNetPaid(b);
+            data[mIndex].revenue += netPaid;
             data[mIndex].cost += cost;
-            data[mIndex].profit += (b.amount - cost);
+            data[mIndex].profit += (netPaid - cost);
          }
       });
 
@@ -388,8 +397,10 @@ export const Analytics: React.FC = () => {
             if (st) {
                const existing = map.get(st.id) || { name: st.name, initials: st.initials, color: st.color, revenue: 0, profit: 0 };
                const cost = (b.supplierBookings || []).reduce((sum, sb) => sum + sb.cost, 0);
-               existing.revenue += b.amount;
-               existing.profit += (b.amount - cost);
+               // Fix #9 — agent revenue = actual cash collected, profit = collected minus cost
+               const netPaid = getNetPaid(b);
+               existing.revenue += netPaid;
+               existing.profit += (netPaid - cost);
                map.set(st.id, existing);
             }
          }
@@ -409,9 +420,13 @@ export const Analytics: React.FC = () => {
          existing.totalLeads++;
          if (l.status === 'Converted') {
             existing.converted++;
-            // Find corresponding booking to get revenue
-            const b = globalBookings.find(bk => bk.id === l.bookingId || bk.customerId === l.customerId);
-            if (b) existing.revenueFromConverted += b.amount;
+            // Fix #10 — Match booking by bookingId, customerId, OR email (most reliable fallback)
+            const b = globalBookings.find(bk =>
+               bk.id === l.bookingId ||
+               (bk as any).customerId === l.customerId ||
+               (l.email && bk.email && bk.email.toLowerCase() === l.email.toLowerCase())
+            );
+            if (b) existing.revenueFromConverted += getNetPaid(b);
          }
          sources.set(src, existing);
       });
@@ -431,10 +446,11 @@ export const Analytics: React.FC = () => {
          const dest = (b.title || '').split('-')[0].trim() || 'Unknown Package';
          const existing = destMap.get(dest) || { count: 0, revenue: 0, profit: 0 };
          const cost = (b.supplierBookings || []).reduce((sum, sb) => sum + sb.cost, 0);
+         const netPaid = getNetPaid(b);
 
          existing.count += 1;
-         existing.revenue += b.amount;
-         existing.profit += (b.amount - cost);
+         existing.revenue += netPaid;
+         existing.profit += (netPaid - cost);
          destMap.set(dest, existing);
       });
 
@@ -451,18 +467,16 @@ export const Analytics: React.FC = () => {
 
    // --- NEW: 5. Average Conversion Time ---
    const averageConversionTimeDays = useMemo(() => {
-      // Estimate: time from lead creation to the first booking-related log entry (type='Quote' or 'System'),
-      // or fall back to time from addedOn to the last log entry for converted leads.
-      // This avoids inflating the metric by measuring to "today".
       let totalDays = 0;
       let convertedCount = 0;
 
       (filteredLeads || []).forEach(l => {
          if (l.status === 'Converted' && l.addedOn) {
-            const start = new Date(l.addedOn).getTime();
-            // Use the most recent log timestamp as a proxy for conversion time
             const lastLog = (l.logs || []).slice(-1)[0];
-            const end = lastLog ? new Date(lastLog.timestamp).getTime() : new Date().getTime();
+            // Fix #11 — Skip leads with no log data; don't default to "today" (inflates the metric)
+            if (!lastLog) return;
+            const start = new Date(l.addedOn).getTime();
+            const end = new Date(lastLog.timestamp).getTime();
             const days = Math.round(Math.abs(end - start) / (1000 * 3600 * 24));
             if (days <= 365) { // Exclude outliers over 1 year
                totalDays += Math.max(days, 1);
@@ -471,7 +485,8 @@ export const Analytics: React.FC = () => {
          }
       });
 
-      return convertedCount > 0 ? Math.round(totalDays / convertedCount) : 0;
+      // Return null when no reliable data — UI should show 'N/A' instead of '0 days'
+      return convertedCount > 0 ? Math.round(totalDays / convertedCount) : null;
    }, [filteredLeads]);
 
    // --- NEW: 6. Accounts Aging Report (Receivables) ---
@@ -481,9 +496,8 @@ export const Analytics: React.FC = () => {
 
       filteredBookings.forEach(b => {
          if (b.payment === 'Unpaid' || b.payment === 'Deposit') {
-            const paid = (b.transactions || []).filter(t => t.type === 'Payment' && (t.status === 'Verified' || !t.status)).reduce((sum, t) => sum + t.amount, 0);
-            const refunded = (b.transactions || []).filter(t => t.type === 'Refund' && (t.status === 'Verified' || !t.status)).reduce((sum, t) => sum + t.amount, 0);
-            const remaining = b.amount - (paid - refunded);
+            // Fix #9 — Use getNetPaid for accurate outstanding balance (already clamped ≥ 0)
+            const remaining = Math.max(0, b.amount - getNetPaid(b));
 
             if (remaining > 0) {
                const bDate = new Date(b.date).getTime();
@@ -528,12 +542,33 @@ export const Analytics: React.FC = () => {
    }, [filteredLeads]);
 
    // --- NEW: Customer Lifetime Value ---
+   // Fix #12 — Compute CLV live from bookings by email match (avoids stale background-sync totalSpent)
    const clvData = useMemo(() => {
       const cList = customers || [];
-      const avgCLV = cList.length > 0 ? Math.round(cList.reduce((s, c) => s + (c.totalSpent || 0), 0) / cList.length) : 0;
-      const top5 = [...cList].sort((a, b) => (b.totalSpent || 0) - (a.totalSpent || 0)).slice(0, 5);
+
+      // Build email -> netPaid map using ALL time RBAC-scoped bookings (not just filtered period)
+      const spentByEmail = new Map<string, number>();
+      (bookings || []).forEach(b => {
+         if (b.status === 'Cancelled') return;
+         const email = ((b as any).email || '').toLowerCase();
+         if (!email) return;
+         spentByEmail.set(email, (spentByEmail.get(email) || 0) + getNetPaid(b));
+      });
+
+      // Enrich each customer: prefer live computed value, fall back to stored totalSpent
+      const enriched = cList.map(c => ({
+         ...c,
+         computedSpent: spentByEmail.get((c.email || '').toLowerCase()) ?? (c.totalSpent || 0)
+      }));
+
+      const avgCLV = enriched.length > 0
+         ? Math.round(enriched.reduce((s, c) => s + c.computedSpent, 0) / enriched.length)
+         : 0;
+      const top5 = [...enriched]
+         .sort((a, b) => b.computedSpent - a.computedSpent)
+         .slice(0, 5);
       return { avgCLV, top5, total: cList.length };
-   }, [customers]);
+   }, [customers, bookings]);
 
    // --- NEW: Package Popularity vs Profitability ---
    const pkgVsProfit = useMemo(() => {
@@ -542,7 +577,8 @@ export const Analytics: React.FC = () => {
          const key = b.title || 'Unknown';
          const e = m.get(key) || { count: 0, revenue: 0, profit: 0 };
          const cost = (b.supplierBookings || []).reduce((s, sb) => s + sb.cost, 0);
-         e.count++; e.revenue += b.amount; e.profit += (b.amount - cost);
+         const netPaid = getNetPaid(b);
+         e.count++; e.revenue += netPaid; e.profit += (netPaid - cost);
          m.set(key, e);
       });
       return Array.from(m.entries())
@@ -779,10 +815,11 @@ export const Analytics: React.FC = () => {
                   </div>
                   <p className="text-slate-500 dark:text-slate-400 text-sm font-bold uppercase tracking-wider">Avg Time to Close</p>
                   <h3 className="text-4xl kpi-number text-slate-900 dark:text-white mt-2">
-                     {averageConversionTimeDays} <span className="text-lg text-slate-500">days</span>
+                     {averageConversionTimeDays !== null ? averageConversionTimeDays : '—'}
+                     {averageConversionTimeDays !== null && <span className="text-lg text-slate-500"> days</span>}
                   </h3>
                   <p className="text-slate-400 text-xs font-bold mt-2">
-                     From lead to conversion
+                     {averageConversionTimeDays !== null ? 'From lead to conversion' : 'Add logs to leads to track'}
                   </p>
                </div>
             </div>
@@ -1119,9 +1156,19 @@ export const Analytics: React.FC = () => {
                   <div className="bg-white dark:bg-[#1A2633] p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col items-center justify-center">
                      <Timer size={40} className="text-primary mb-3 opacity-80" />
                      <p className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-2">Avg. Lead-to-Booking Time</p>
-                     <div className="text-6xl kpi-number text-slate-900 dark:text-white">{averageConversionTimeDays}</div>
-                     <p className="text-slate-400 text-sm mt-1">days from first inquiry to conversion</p>
-                     <p className="text-xs text-slate-400 mt-4 italic">{averageConversionTimeDays > 30 ? '⚠️ High — consider faster quote turnaround.' : averageConversionTimeDays === 0 ? 'No data yet.' : '✅ Good pace.'}</p>
+                     <div className="text-6xl kpi-number text-slate-900 dark:text-white">
+                        {averageConversionTimeDays !== null ? averageConversionTimeDays : '—'}
+                     </div>
+                     <p className="text-slate-400 text-sm mt-1">
+                        {averageConversionTimeDays !== null ? 'days from first inquiry to conversion' : 'No log data on converted leads yet'}
+                     </p>
+                     <p className="text-xs text-slate-400 mt-4 italic">
+                        {averageConversionTimeDays === null
+                           ? '💡 Add log entries to leads to start tracking.'
+                           : averageConversionTimeDays > 30
+                              ? '⚠️ High — consider faster quote turnaround.'
+                              : '✅ Good pace.'}
+                     </p>
                   </div>
                </div>
 
@@ -1316,7 +1363,7 @@ export const Analytics: React.FC = () => {
                                  <p className="font-bold text-sm text-slate-900 dark:text-white truncate">{c.name}</p>
                                  <p className="text-xs text-slate-500">{c.bookingsCount} booking{c.bookingsCount !== 1 ? 's' : ''} · {c.type}</p>
                               </div>
-                              <span className="kpi-number text-amber-600 dark:text-amber-400">{fmtShort(c.totalSpent)}</span>
+                              <span className="kpi-number text-amber-600 dark:text-amber-400">{fmtShort((c as any).computedSpent ?? c.totalSpent)}</span>
                            </div>
                         ))}
                         {clvData.top5.length === 0 && <p className="text-center text-slate-400 italic text-sm py-6">No customer data yet.</p>}
