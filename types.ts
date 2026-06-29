@@ -276,6 +276,8 @@ export interface Customer {
   isWhatsappSame?: boolean;
   address?: string;
   officeAddress?: string;
+  billingAddress?: string;
+  gstin?: string;
 }
 
 

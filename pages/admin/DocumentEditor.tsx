@@ -267,10 +267,9 @@ export const DocumentEditor: React.FC = () => {
                     ...prev,
                     client_name: data.name || '',
                     email: data.email || '',
-                    // Fix: customers table has phone and address columns
                     phone: data.phone || prev.phone || '',
-                    address: data.address || prev.address || '',
-                    // customers don't store GSTIN — leave existing client_gst intact
+                    address: data.billing_address || data.address || prev.address || '',
+                    client_gst: data.gstin || prev.client_gst || '',
                 }));
             }
         } catch (e) { console.error(e); } finally { setLoading(false); }

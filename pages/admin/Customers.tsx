@@ -24,9 +24,7 @@ export const Customers: React.FC = () => {
     // MATCH RULES (strict priority — avoids double-counting):
     //   1. customerId  — direct DB foreign key, most reliable
     //   2. email       — fallback, only when both sides are non-empty
-    //   EXCLUDED: phone — phones are NOT unique. Empty strings ("") or shared numbers
-    //             cause ONE booking to match THOUSANDS of customers → inflated counts.
-    //   EXCLUDED: b.customer === c.id — 'customer' field is the customer NAME, not ID
+    //   3. phone       — fallback, only when both sides are non-empty and non-blank
     const liveBookingStats = useMemo(() => {
         const stats: Record<string, { count: number; spent: number }> = {};
         bookings.forEach(b => {
@@ -45,6 +43,14 @@ export const Customers: React.FC = () => {
                 matchedCustomer = customers.find(
                     c => c.email && c.email.trim() !== '' &&
                     b.email!.toLowerCase() === c.email.toLowerCase()
+                );
+            }
+
+            // Priority 3: Phone match — only when both sides are non-empty
+            if (!matchedCustomer && b.phone && b.phone.trim() !== '') {
+                matchedCustomer = customers.find(
+                    c => c.phone && c.phone.trim() !== '' &&
+                    b.phone.trim() === c.phone.trim()
                 );
             }
 
@@ -572,6 +578,18 @@ const CustomerDetailsDrawer: React.FC<{
                                     {customer.officeAddress || <span className="text-slate-400 dark:text-slate-500 italic">No office address stored.</span>}
                                 </span>
                             </div>
+                            <div className="md:col-span-2">
+                                <span className="text-xs font-bold text-slate-400 uppercase block mb-1">Billing Address</span>
+                                <span className="font-semibold text-slate-800 dark:text-slate-200 block bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800 min-h-[50px] whitespace-pre-wrap">
+                                    {customer.billingAddress || <span className="text-slate-400 dark:text-slate-500 italic">No billing address stored.</span>}
+                                </span>
+                            </div>
+                            <div className="md:col-span-2">
+                                <span className="text-xs font-bold text-slate-400 uppercase block mb-1">GSTIN Number</span>
+                                <span className="font-semibold text-slate-800 dark:text-slate-200 block bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800 min-h-[40px] whitespace-pre-wrap">
+                                    {customer.gstin || <span className="text-slate-400 dark:text-slate-500 italic">No GSTIN stored.</span>}
+                                </span>
+                            </div>
                         </div>
                     </div>
 
@@ -812,6 +830,8 @@ const customerSchema = z.object({
     isWhatsappSame: z.boolean().optional(),
     address: z.string().optional(),
     officeAddress: z.string().optional(),
+    billingAddress: z.string().optional(),
+    gstin: z.string().optional(),
 });
 
 type CustomerFormData = z.infer<typeof customerSchema>;
@@ -837,7 +857,9 @@ const AddEditCustomerModal: React.FC<{
             whatsapp: '',
             isWhatsappSame: false,
             address: '',
-            officeAddress: ''
+            officeAddress: '',
+            billingAddress: '',
+            gstin: ''
         }
     });
 
@@ -866,7 +888,9 @@ const AddEditCustomerModal: React.FC<{
                 whatsapp: customer.whatsapp || '',
                 isWhatsappSame: !!customer.isWhatsappSame,
                 address: customer.address || '',
-                officeAddress: customer.officeAddress || ''
+                officeAddress: customer.officeAddress || '',
+                billingAddress: customer.billingAddress || '',
+                gstin: customer.gstin || ''
             });
         } else {
             reset({
@@ -882,7 +906,9 @@ const AddEditCustomerModal: React.FC<{
                 whatsapp: '',
                 isWhatsappSame: false,
                 address: '',
-                officeAddress: ''
+                officeAddress: '',
+                billingAddress: '',
+                gstin: ''
             });
         }
     }, [customer, reset, isOpen]);
@@ -990,6 +1016,18 @@ const AddEditCustomerModal: React.FC<{
                         <div>
                             <label className="text-xs font-bold uppercase text-slate-500 ml-1 mb-1 block">Office Address</label>
                             <textarea {...register('officeAddress')} className="w-full rounded-xl bg-slate-50 dark:bg-slate-800 border-none p-3 font-bold outline-none focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white resize-none h-20" placeholder="Office Address" />
+                        </div>
+                    </div>
+
+                    {/* Billing Address and GSTIN */}
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="text-xs font-bold uppercase text-slate-500 ml-1 mb-1 block">Billing Address</label>
+                            <textarea {...register('billingAddress')} className="w-full rounded-xl bg-slate-50 dark:bg-slate-800 border-none p-3 font-bold outline-none focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white resize-none h-20" placeholder="Billing Address" />
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold uppercase text-slate-500 ml-1 mb-1 block">GSTIN Number</label>
+                            <input {...register('gstin')} className="w-full rounded-xl bg-slate-50 dark:bg-slate-800 border-none p-3 font-bold outline-none focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white" placeholder="GSTIN (e.g. 27AAAAA0000A1Z0)" />
                         </div>
                     </div>
 

@@ -1336,7 +1336,9 @@ export const api = {
             whatsapp: c.whatsapp || '',
             isWhatsappSame: c.is_whatsapp_same === 1 || c.is_whatsapp_same === true,
             address: c.address || '',
-            officeAddress: c.office_address || ''
+            officeAddress: c.office_address || '',
+            billingAddress: c.billing_address || '',
+            gstin: c.gstin || ''
         }));
     },
 
@@ -1362,7 +1364,9 @@ export const api = {
             whatsapp: c.whatsapp || '',
             isWhatsappSame: c.is_whatsapp_same === 1 || c.is_whatsapp_same === true,
             address: c.address || '',
-            officeAddress: c.office_address || ''
+            officeAddress: c.office_address || '',
+            billingAddress: c.billing_address || '',
+            gstin: c.gstin || ''
         });
         if (email) {
             const { data } = await crud.getAll('customers', { filters: { email } });
@@ -1395,7 +1399,9 @@ export const api = {
             whatsapp: customer.whatsapp || null,
             is_whatsapp_same: customer.isWhatsappSame ? 1 : 0,
             address: customer.address || null,
-            office_address: customer.officeAddress || null
+            office_address: customer.officeAddress || null,
+            billing_address: customer.billingAddress || null,
+            gstin: customer.gstin || null
         });
         return data;
     },
@@ -1420,6 +1426,8 @@ export const api = {
         if (updates.isWhatsappSame !== undefined) dbUpdates.is_whatsapp_same = updates.isWhatsappSame ? 1 : 0;
         if (updates.address !== undefined) dbUpdates.address = updates.address || null;
         if (updates.officeAddress !== undefined) dbUpdates.office_address = updates.officeAddress || null;
+        if (updates.billingAddress !== undefined) dbUpdates.billing_address = updates.billingAddress || null;
+        if (updates.gstin !== undefined) dbUpdates.gstin = updates.gstin || null;
         await crud.update('customers', id, dbUpdates);
     },
 
