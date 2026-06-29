@@ -20,16 +20,34 @@ export const Customers: React.FC = () => {
     const { customers, bookings, leads, addCustomer, updateCustomer, deleteCustomer, importCustomers, getActiveMembershipForCustomer, membershipPlans } = useData();
     const { hasPermission } = useAuth();
 
-    // Compute live booking stats (count and spent) from actual bookings (avoids stale DB counters)
+    // Compute live booking stats (count and spent) from actual bookings
+    // MATCH RULES (strict priority — avoids double-counting):
+    //   1. customerId  — direct DB foreign key, most reliable
+    //   2. email       — fallback, only when both sides are non-empty
+    //   EXCLUDED: phone — phones are NOT unique. Empty strings ("") or shared numbers
+    //             cause ONE booking to match THOUSANDS of customers → inflated counts.
+    //   EXCLUDED: b.customer === c.id — 'customer' field is the customer NAME, not ID
     const liveBookingStats = useMemo(() => {
         const stats: Record<string, { count: number; spent: number }> = {};
         bookings.forEach(b => {
-            const matchedCustomer = customers.find(c =>
-                (b.customerId && c.id === b.customerId) ||
-                (b.customer && c.id === b.customer) ||
-                (b.email && c.email && b.email.toLowerCase() === c.email.toLowerCase()) ||
-                (b.phone && c.phone && b.phone === c.phone)
-            );
+            // Skip cancelled — they should not count as trips or spend
+            if (b.status === 'Cancelled') return;
+
+            let matchedCustomer: typeof customers[0] | undefined;
+
+            // Priority 1: Direct DB customer ID link
+            if (b.customerId) {
+                matchedCustomer = customers.find(c => c.id === b.customerId);
+            }
+
+            // Priority 2: Email match — only when both sides are non-empty
+            if (!matchedCustomer && b.email && b.email.trim() !== '') {
+                matchedCustomer = customers.find(
+                    c => c.email && c.email.trim() !== '' &&
+                    b.email!.toLowerCase() === c.email.toLowerCase()
+                );
+            }
+
             if (matchedCustomer) {
                 if (!stats[matchedCustomer.id]) {
                     stats[matchedCustomer.id] = { count: 0, spent: 0 };
@@ -40,6 +58,7 @@ export const Customers: React.FC = () => {
         });
         return stats;
     }, [bookings, customers]);
+
 
     const [search, setSearch] = useState('');
     const [sortField, setSortField] = useState<SortField>('lastActive');
@@ -409,13 +428,22 @@ const CustomerDetailsDrawer: React.FC<{
 
     const history = useMemo(() => {
         if (!customer) return [];
-        const relatedBookings = bookings.filter(b => b.email === customer.email || b.phone === customer.phone || b.customer === customer.id || b.customerId === customer.id);
-        const relatedLeads = leads.filter(l => l.email === customer.email || l.phone === customer.phone);
+        const relatedBookings = bookings.filter(b => {
+            if (b.status === 'Cancelled') return false;
+            if (b.customerId && b.customerId === customer.id) return true;
+            if (b.email && b.email.trim() !== '' && customer.email && customer.email.trim() !== '' &&
+                b.email.toLowerCase() === customer.email.toLowerCase()) return true;
+            return false;
+        });
+        const relatedLeads = leads.filter(l =>
+            (l.email && customer.email && l.email.toLowerCase() === customer.email.toLowerCase())
+        );
         return [
             ...relatedBookings.map(b => ({ type: 'Booking', date: b.date, title: b.title, details: `₹${b.amount} • ${b.status}`, id: b.id })),
             ...relatedLeads.map(l => ({ type: 'Lead', date: l.addedOn, title: l.destination, details: l.status, id: l.id }))
         ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     }, [customer, bookings, leads]);
+
 
     if (!customer) return null;
 
@@ -572,7 +600,13 @@ const CustomerDetailsDrawer: React.FC<{
                                 </thead>
                                 <tbody className="divide-y divide-slate-50 dark:divide-slate-800/50">
                                     {(() => {
-                                        const customerBookings = bookings.filter(b => (b.customerId && b.customerId === customer.id) || (b.customer && b.customer === customer.id) || (b.email && customer.email && b.email.toLowerCase() === customer.email.toLowerCase()) || (b.phone && customer.phone && b.phone === customer.phone))
+                                        const customerBookings = bookings.filter(b => {
+                                            if (b.status === 'Cancelled') return false;
+                                            if (b.customerId && b.customerId === customer.id) return true;
+                                            if (b.email && b.email.trim() !== '' && customer.email && customer.email.trim() !== '' &&
+                                                b.email.toLowerCase() === customer.email.toLowerCase()) return true;
+                                            return false;
+                                        })
                                             .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
                                             
                                         if (customerBookings.length === 0) {
@@ -641,9 +675,14 @@ const CustomerDetailsDrawer: React.FC<{
                         <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider mb-4">Activity Timeline</h3>
                         <div className="space-y-6 pl-4 border-l border-slate-100 dark:border-slate-700">
                             {(() => {
-                                const customerBookings = bookings.filter(b => (b.customerId && b.customerId === customer.id) || (b.customer && b.customer === customer.id) || (b.email && customer.email && b.email.toLowerCase() === customer.email.toLowerCase()) || (b.phone && customer.phone && b.phone === customer.phone));
+                                const customerBookings = bookings.filter(b => {
+                                    if (b.customerId && b.customerId === customer.id) return true;
+                                    if (b.email && b.email.trim() !== '' && customer.email && customer.email.trim() !== '' &&
+                                        b.email.toLowerCase() === customer.email.toLowerCase()) return true;
+                                    return false;
+                                });
                                 // @ts-ignore
-                                const customerLeads = leads.filter(l => (l.customerId && l.customerId === customer.id) || (l.email && customer.email && l.email.toLowerCase() === customer.email.toLowerCase()) || (l.phone && customer.phone && l.phone === customer.phone));
+                                const customerLeads = leads.filter(l => (l.customerId && l.customerId === customer.id) || (l.email && customer.email && l.email.toLowerCase() === customer.email.toLowerCase()));
                                 
                                 const timelineItems = [
                                     ...customerBookings.map(b => ({ type: 'Booking', date: b.date, title: b.title || 'Trip booked', amount: b.amount, status: b.status, id: b.id })),
