@@ -433,10 +433,13 @@ const CustomerDetailsDrawer: React.FC<{
             if (b.customerId && b.customerId === customer.id) return true;
             if (b.email && b.email.trim() !== '' && customer.email && customer.email.trim() !== '' &&
                 b.email.toLowerCase() === customer.email.toLowerCase()) return true;
+            if (b.phone && b.phone.trim() !== '' && customer.phone && customer.phone.trim() !== '' && 
+                b.phone.trim() === customer.phone.trim()) return true;
             return false;
         });
         const relatedLeads = leads.filter(l =>
-            (l.email && customer.email && l.email.toLowerCase() === customer.email.toLowerCase())
+            (l.email && customer.email && l.email.toLowerCase() === customer.email.toLowerCase()) ||
+            (l.phone && customer.phone && l.phone.trim() !== '' && customer.phone.trim() !== '' && l.phone.trim() === customer.phone.trim())
         );
         return [
             ...relatedBookings.map(b => ({ type: 'Booking', date: b.date, title: b.title, details: `₹${b.amount} • ${b.status}`, id: b.id })),
@@ -519,6 +522,8 @@ const CustomerDetailsDrawer: React.FC<{
                                 if (b.customerId && b.customerId === customer.id) return true;
                                 if (b.email && b.email.trim() !== '' && customer.email && customer.email.trim() !== '' &&
                                     b.email.toLowerCase() === customer.email.toLowerCase()) return true;
+                                if (b.phone && b.phone.trim() !== '' && customer.phone && customer.phone.trim() !== '' && 
+                                    b.phone.trim() === customer.phone.trim()) return true;
                                 return false;
                             }).reduce((sum, b) => sum + (Number(b.amount) || 0), 0)) / 1000).toFixed(1)}k</div>
                         </div>
@@ -611,6 +616,8 @@ const CustomerDetailsDrawer: React.FC<{
                                             if (b.customerId && b.customerId === customer.id) return true;
                                             if (b.email && b.email.trim() !== '' && customer.email && customer.email.trim() !== '' &&
                                                 b.email.toLowerCase() === customer.email.toLowerCase()) return true;
+                                            if (b.phone && b.phone.trim() !== '' && customer.phone && customer.phone.trim() !== '' && 
+                                                b.phone.trim() === customer.phone.trim()) return true;
                                             return false;
                                         })
                                             .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -685,6 +692,8 @@ const CustomerDetailsDrawer: React.FC<{
                                     if (b.customerId && b.customerId === customer.id) return true;
                                     if (b.email && b.email.trim() !== '' && customer.email && customer.email.trim() !== '' &&
                                         b.email.toLowerCase() === customer.email.toLowerCase()) return true;
+                                    if (b.phone && b.phone.trim() !== '' && customer.phone && customer.phone.trim() !== '' && 
+                                        b.phone.trim() === customer.phone.trim()) return true;
                                     return false;
                                 });
                                 // @ts-ignore
