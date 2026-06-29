@@ -81,7 +81,7 @@ const MasterModal: React.FC<{
         if (activeTab === 'lead-sources' && !form.name) {
             return toast.error('Name is required');
         }
-        if (activeTab === 'terms' && !form.name) {
+        if (activeTab === 'terms' && !form.title) {
             return toast.error('Title is required');
         }
 
@@ -105,6 +105,8 @@ const MasterModal: React.FC<{
         if (activeTab === 'meal-plans' && !data.code) data.code = 'CP';
         if (activeTab === 'lead-sources' && !data.category) data.category = 'Organic';
         if (activeTab === 'terms' && !data.category) data.category = 'Other';
+        // Terms template: form.name was incorrectly used; remap to title to match the type
+        if (activeTab === 'terms' && !data.title && data.name) { data.title = data.name; delete data.name; }
 
         // Sanitize numeric inputs
         if (data.pricePerNight) data.pricePerNight = Number(data.pricePerNight);
@@ -413,8 +415,8 @@ const MasterModal: React.FC<{
                     <div>
                         <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Title *</label>
                         <input
-                            value={form.name || ''}
-                            onChange={e => setForm({ ...form, name: e.target.value })}
+                            value={form.title || ''}
+                            onChange={e => setForm({ ...form, title: e.target.value })}
                             className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none"
                             placeholder="e.g. Standard Cancellation Policy"
                             autoFocus

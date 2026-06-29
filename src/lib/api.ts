@@ -1788,7 +1788,10 @@ export const api = {
     getMasterTermsTemplates: async (): Promise<MasterTermsTemplate[]> => {
         const { data } = await crud.getAll('master_terms_templates', { order: 'created_at', asc: false });
         return (data || []).map((r: any) => ({
-            ...r, isDefault: Boolean(r.is_default)
+            ...r,
+            // Backcompat: old records may have null title; fall back to name, then category-based label
+            title: r.title || r.name || (r.category ? `${r.category} Terms` : 'Untitled Template'),
+            isDefault: Boolean(r.is_default)
         })) as MasterTermsTemplate[];
     },
     createMasterTermsTemplate: async (item: Partial<MasterTermsTemplate>) => { 

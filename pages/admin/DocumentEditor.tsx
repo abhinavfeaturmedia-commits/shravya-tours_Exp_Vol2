@@ -82,6 +82,8 @@ export const DocumentEditor: React.FC = () => {
         phone: '',
         address: '',
         travel_dates: '',
+        travel_date_from: '',
+        travel_date_to: '',
         due_date: '',
         booking_id: paramBookingId,
         lead_id: paramLeadId,
@@ -212,6 +214,8 @@ export const DocumentEditor: React.FC = () => {
                             ...prev,
                             client_name: p.clientName || '',
                             travel_dates: p.startDate || '',
+                            travel_date_from: p.startDate || '',
+                            travel_date_to: p.endDate || '',
                             adults: p.adults || 2,
                             children: p.children || 0,
                         }));
@@ -265,6 +269,8 @@ export const DocumentEditor: React.FC = () => {
                     phone: data.customer_phone || data.phone || prev.phone || '',
                     address: data.residential_address || data.address || prev.address || '',
                     travel_dates: data.booking_date || data.date ? new Date(data.booking_date || data.date).toISOString().split('T')[0] : '',
+                    travel_date_from: data.start_date ? new Date(data.start_date).toISOString().split('T')[0] : (data.booking_date ? new Date(data.booking_date).toISOString().split('T')[0] : ''),
+                    travel_date_to: data.end_date ? new Date(data.end_date).toISOString().split('T')[0] : '',
                     adults: data.number_of_people || data.travelers || 2
                 }));
                 if (data.total_price || data.amount) {
@@ -288,6 +294,8 @@ export const DocumentEditor: React.FC = () => {
                     phone: data.phone || prev.phone || '',
                     adults: data.travelers && data.travelers !== 'N/A' ? data.travelers : 2,
                     travel_dates: data.start_date || data.travelDate ? new Date(data.start_date || data.travelDate).toISOString().split('T')[0] : '',
+                    travel_date_from: data.start_date ? new Date(data.start_date).toISOString().split('T')[0] : (data.travelDate ? new Date(data.travelDate).toISOString().split('T')[0] : ''),
+                    travel_date_to: data.end_date ? new Date(data.end_date).toISOString().split('T')[0] : '',
                 }));
                 const budget = data.potential_value || data.budget;
                 if (budget) {
@@ -318,7 +326,10 @@ export const DocumentEditor: React.FC = () => {
     const fetchDocument = async () => {
         try {
             const token = (localStorage.getItem('shravya_jwt') || localStorage.getItem('token'));
-            const res = await fetch(`/api/crud/invoices/${id}`, { headers: { 'Authorization': `Bearer ${token}` } });
+            const res = await fetch(`/api/crud/invoices/${id}`, { 
+                headers: { 'Authorization': `Bearer ${token}` },
+                cache: 'no-store'
+            });
             if (res.ok) {
                 const { data } = await res.json();
                 setDocData(data);
@@ -334,7 +345,10 @@ export const DocumentEditor: React.FC = () => {
                 }
 
                 // Load invoice items
-                const itemsRes = await fetch(`/api/crud/invoice_items?eq_invoice_id=${id}`, { headers: { 'Authorization': `Bearer ${token}` } });
+                const itemsRes = await fetch(`/api/crud/invoice_items?eq_invoice_id=${id}`, { 
+                    headers: { 'Authorization': `Bearer ${token}` },
+                    cache: 'no-store'
+                });
                 if (itemsRes.ok) {
                     const itemsData = await itemsRes.json();
                     if (itemsData.data && itemsData.data.length > 0) {
@@ -343,7 +357,10 @@ export const DocumentEditor: React.FC = () => {
                 }
 
                 // Load custom extra charge fields
-                const cfRes = await fetch(`/api/crud/invoice_custom_fields?eq_invoice_id=${id}`, { headers: { 'Authorization': `Bearer ${token}` } });
+                const cfRes = await fetch(`/api/crud/invoice_custom_fields?eq_invoice_id=${id}`, { 
+                    headers: { 'Authorization': `Bearer ${token}` },
+                    cache: 'no-store'
+                });
                 if (cfRes.ok) {
                     const cfData = await cfRes.json();
                     if (cfData.data && cfData.data.length > 0) {
@@ -406,6 +423,8 @@ export const DocumentEditor: React.FC = () => {
                 phone: record.customer_phone || record.phone || prev.phone || '',
                 address: record.residential_address || record.address || prev.address || '',
                 travel_dates: record.booking_date || record.date ? new Date(record.booking_date || record.date).toISOString().split('T')[0] : prev.travel_dates,
+                travel_date_from: record.start_date ? new Date(record.start_date).toISOString().split('T')[0] : (record.booking_date ? new Date(record.booking_date).toISOString().split('T')[0] : prev.travel_date_from),
+                travel_date_to: record.end_date ? new Date(record.end_date).toISOString().split('T')[0] : prev.travel_date_to,
                 adults: record.number_of_people || record.travelers || prev.adults
             }));
             if (record.total_price && items.length === 1 && items[0].unit_price === 0) {
@@ -421,6 +440,8 @@ export const DocumentEditor: React.FC = () => {
                 // Fix: lead records have a phone column directly
                 phone: record.phone || prev.phone || '',
                 travel_dates: record.start_date || record.travelDate ? new Date(record.start_date || record.travelDate).toISOString().split('T')[0] : prev.travel_dates,
+                travel_date_from: record.start_date ? new Date(record.start_date).toISOString().split('T')[0] : (record.travelDate ? new Date(record.travelDate).toISOString().split('T')[0] : prev.travel_date_from),
+                travel_date_to: record.end_date ? new Date(record.end_date).toISOString().split('T')[0] : prev.travel_date_to,
                 adults: record.travelers !== 'N/A' && record.travelers ? record.travelers : prev.adults
             }));
             const budget = record.budget || record.potential_value;
@@ -788,7 +809,13 @@ export const DocumentEditor: React.FC = () => {
                 toast.success('Document saved successfully!');
             }
             setIsDirty(false);
-            navigate('/admin/invoices');
+            
+            if (generate) {
+                navigate('/admin/invoices');
+            } else if (!isEdit) {
+                // If it was a new draft, swap the URL so the next save updates the same document
+                navigate(`/admin/invoices/edit/${invoiceId}`, { replace: true });
+            }
 
         } catch (error) {
             console.error(error);
@@ -1361,6 +1388,47 @@ export const DocumentEditor: React.FC = () => {
                                             placeholder="Not set"
                                         />
                                         <span className="hidden print:inline font-bold text-[#091C3B]">{docData.due_date ? new Date(docData.due_date).toLocaleDateString('en-US', {month:'short', day:'2-digit', year:'numeric'}) : '—'}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Travel Date Range Row */}
+                            <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3 print:flex print:flex-col print:gap-1.5 text-xs">
+                                <div className="bg-orange-50/40 dark:bg-orange-500/5 border border-orange-200/60 dark:border-orange-500/20 rounded-2xl p-3.5 flex flex-col justify-center transition-colors">
+                                    <span className="text-[10px] text-orange-500 dark:text-orange-400 font-extrabold uppercase tracking-wider mb-1 flex items-center gap-1">
+                                        ✈ Travel Date From
+                                    </span>
+                                    <div className="flex items-center gap-1.5">
+                                        <input
+                                            type="date"
+                                            value={docData.travel_date_from ? String(docData.travel_date_from).split('T')[0] : ''}
+                                            onChange={e => { setDocData(prev => ({...prev, travel_date_from: e.target.value || ''})); setIsDirty(true); }}
+                                            disabled={isLocked}
+                                            className="font-bold text-[#091C3B] dark:text-white bg-transparent border-0 outline-none text-xs p-0 w-full print:hidden disabled:opacity-60 cursor-pointer"
+                                            placeholder="dd-mm-yyyy"
+                                        />
+                                        <span className="hidden print:inline font-bold text-[#091C3B]">{docData.travel_date_from ? new Date(docData.travel_date_from).toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'}) : '—'}</span>
+                                    </div>
+                                </div>
+                                <div className="bg-orange-50/40 dark:bg-orange-500/5 border border-orange-200/60 dark:border-orange-500/20 rounded-2xl p-3.5 flex flex-col justify-center transition-colors">
+                                    <span className="text-[10px] text-orange-500 dark:text-orange-400 font-extrabold uppercase tracking-wider mb-1 flex items-center gap-1">
+                                        🏁 Travel Date To
+                                        {docData.travel_date_from && docData.travel_date_to && (() => {
+                                            const diff = Math.round((new Date(docData.travel_date_to).getTime() - new Date(docData.travel_date_from).getTime()) / (1000 * 60 * 60 * 24));
+                                            return diff > 0 ? <span className="ml-auto text-[9px] bg-orange-100 dark:bg-orange-500/10 text-orange-600 dark:text-orange-400 px-1.5 py-0.5 rounded-md font-black">{diff}N/{diff+1}D</span> : null;
+                                        })()}
+                                    </span>
+                                    <div className="flex items-center gap-1.5">
+                                        <input
+                                            type="date"
+                                            value={docData.travel_date_to ? String(docData.travel_date_to).split('T')[0] : ''}
+                                            min={docData.travel_date_from || undefined}
+                                            onChange={e => { setDocData(prev => ({...prev, travel_date_to: e.target.value || ''})); setIsDirty(true); }}
+                                            disabled={isLocked}
+                                            className="font-bold text-[#091C3B] dark:text-white bg-transparent border-0 outline-none text-xs p-0 w-full print:hidden disabled:opacity-60 cursor-pointer"
+                                            placeholder="dd-mm-yyyy"
+                                        />
+                                        <span className="hidden print:inline font-bold text-[#091C3B]">{docData.travel_date_to ? new Date(docData.travel_date_to).toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'}) : '—'}</span>
                                     </div>
                                 </div>
                             </div>
@@ -2035,7 +2103,7 @@ export const DocumentEditor: React.FC = () => {
                                                                     {masterTermsTemplates
                                                                         .filter(t => t.status === 'Active' && t.category === cat)
                                                                         .map(tmpl => {
-                                                                            const tmplTitle = tmpl.name || tmpl.title || 'Untitled Template';
+                                                                            const tmplTitle = tmpl.title || 'Untitled Template';
                                                                             const cleanContent = cleanHtmlToPlainText(tmpl.content);
                                                                             const isChecked = (docData.notes || '').includes(cleanContent);
                                                                             return (

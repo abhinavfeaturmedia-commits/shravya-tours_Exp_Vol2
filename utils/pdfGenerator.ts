@@ -748,12 +748,30 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
     }
 
     // Travel Dates & Pax (pinned to bottom of card)
-    if (docData.travel_dates || docData.adults) {
+    if (docData.travel_date_from || docData.travel_dates || docData.adults) {
         doc.setFont("helvetica", "bold");
         doc.setFontSize(7);
         doc.setTextColor(9, 28, 59);
         const travelY = cardY + cardHeight - 11;
-        if (docData.travel_dates) doc.text(`Travel Dates: ${cleanText(docData.travel_dates)}`, 116, travelY);
+
+        // Build travel date label: prefer date range over single legacy date
+        let travelLabel = '';
+        if (docData.travel_date_from) {
+            const fromDate = new Date(docData.travel_date_from).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+            if (docData.travel_date_to) {
+                const toDate = new Date(docData.travel_date_to).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+                const diffMs = new Date(docData.travel_date_to).getTime() - new Date(docData.travel_date_from).getTime();
+                const nights = Math.round(diffMs / (1000 * 60 * 60 * 24));
+                const daysLabel = nights > 0 ? ` (${nights}N/${nights + 1}D)` : '';
+                travelLabel = `${fromDate} → ${toDate}${daysLabel}`;
+            } else {
+                travelLabel = `From: ${fromDate}`;
+            }
+        } else if (docData.travel_dates) {
+            travelLabel = cleanText(docData.travel_dates);
+        }
+
+        if (travelLabel) doc.text(`Travel Dates: ${travelLabel}`, 116, travelY);
         doc.text(`Pax: ${docData.adults || 0} Adults, ${docData.children || 0} Children`, 116, travelY + 4);
     }
 
