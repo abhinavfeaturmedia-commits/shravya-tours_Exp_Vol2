@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { Save, ArrowLeft, Plus, Trash2, CheckCircle2, Printer, CreditCard, User, Mail, MapPin, Calendar, Users, FileCheck, ChevronDown, Loader2, Search, Link, Copy, Edit3, X, Check, FileText, ChevronRight } from 'lucide-react';
+import { Save, ArrowLeft, Plus, Trash2, CheckCircle2, Printer, CreditCard, User, Mail, MapPin, Calendar, Users, FileCheck, ChevronDown, Loader2, Search, Link, Copy, Edit3, X, Check, FileText, ChevronRight, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSettings } from '../../context/SettingsContext';
 import { useData } from '../../context/DataContext';
@@ -63,6 +63,7 @@ export const DocumentEditor: React.FC = () => {
         phone: '',
         address: '',
         travel_dates: '',
+        due_date: '',
         booking_id: paramBookingId,
         lead_id: paramLeadId,
         customer_id: paramCustomerId,
@@ -97,7 +98,8 @@ export const DocumentEditor: React.FC = () => {
         const q = (query !== undefined ? query : catalogSearch).trim();
         try {
             const token = (localStorage.getItem('shravya_jwt') || localStorage.getItem('token'));
-            const res = await fetch(`/api/crud/packages`, { headers: { 'Authorization': `Bearer ${token}` } });
+            const searchParam = q ? `&like_title=${encodeURIComponent(q)}` : '';
+            const res = await fetch(`/api/crud/packages?limit=50${searchParam}`, { headers: { 'Authorization': `Bearer ${token}` } });
             if (res.ok) {
                 const { data } = await res.json();
                 const filtered = q ? data.filter((d: any) => 
@@ -128,6 +130,7 @@ export const DocumentEditor: React.FC = () => {
     const [discount, setDiscount] = useState(0);
     const [loading, setLoading] = useState(isEdit);
     const [saving, setSaving] = useState(false);
+    const [isDirty, setIsDirty] = useState(false);
 
     // Record Payment modal
     const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -197,6 +200,17 @@ export const DocumentEditor: React.FC = () => {
         }
     }, [masterTermsTemplates, isEdit]);
 
+    // ── Unsaved-changes guard ─────────────────────────────────────────────
+    useEffect(() => {
+        const handler = (e: BeforeUnloadEvent) => {
+            if (!isDirty) return;
+            e.preventDefault();
+            e.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
+        };
+        window.addEventListener('beforeunload', handler);
+        return () => window.removeEventListener('beforeunload', handler);
+    }, [isDirty]);
+
     const prefillFromBooking = async (bId: string) => {
         try {
             const token = (localStorage.getItem('shravya_jwt') || localStorage.getItem('token')) || localStorage.getItem('token');
@@ -257,6 +271,11 @@ export const DocumentEditor: React.FC = () => {
                 const { data } = await res.json();
                 setDocData(data);
 
+                // Fix #10 — Restore saved discount
+                if (data.discount !== undefined && data.discount !== null) {
+                    setDiscount(Number(data.discount) || 0);
+                }
+
                 // Parse renamed field labels (stored as JSON string)
                 if (data.field_labels) {
                     try { setFieldLabels(JSON.parse(data.field_labels)); } catch {}
@@ -285,6 +304,8 @@ export const DocumentEditor: React.FC = () => {
                         })));
                     }
                 }
+
+                setIsDirty(false); // freshly loaded — no unsaved changes
             } else {
                 toast.error('Document not found');
                 navigate('/admin/invoices');
@@ -303,9 +324,12 @@ export const DocumentEditor: React.FC = () => {
         setSearchHasRun(true);
         try {
             const token = (localStorage.getItem('shravya_jwt') || localStorage.getItem('token'));
-            const res = await fetch(`/api/crud/${t}`, { headers: { 'Authorization': `Bearer ${token}` } });
+            // Use server-side search when query is provided to avoid fetching all records
+            const searchParam = q ? `&search=${encodeURIComponent(q)}` : '';
+            const res = await fetch(`/api/crud/${t}?limit=50${searchParam}`, { headers: { 'Authorization': `Bearer ${token}` } });
             if (res.ok) {
                 const { data } = await res.json();
+                // Client-side fallback filter for fields the server search may not cover
                 const filtered = q
                     ? data.filter((d: any) =>
                         (d.customer_name || d.name || d.customer || '').toLowerCase().includes(q.toLowerCase()) ||
@@ -413,7 +437,8 @@ export const DocumentEditor: React.FC = () => {
     };
 
 
-    const isLocked = docData.status === 'Sent' || docData.payment_status === 'Paid';
+    // Fix #9 — Only lock Paid and Void invoices; Sent invoices remain editable for typo fixes
+    const isLocked = docData.payment_status === 'Paid' || docData.status === 'Void';
 
     const duplicateToDraft = async () => {
         setSaving(true);
@@ -509,10 +534,12 @@ export const DocumentEditor: React.FC = () => {
                 discount: discountAmt,
                 total_amount: totalAmount,
                 balance_due: balanceDue,
-                status: generate ? 'Sent' : 'Draft',
+                status: generate ? (docData.status === 'Void' ? 'Void' : 'Sent') : (docData.status || 'Draft'),
                 payment_status: docData.payment_status || 'Unpaid',
                 amount_paid: docData.amount_paid || 0,
-                issue_date: new Date().toISOString().split('T')[0],
+                // Fix #6 — Preserve existing issue_date; only default to today for new documents
+                issue_date: isEdit ? (docData.issue_date || new Date().toISOString().split('T')[0]) : new Date().toISOString().split('T')[0],
+                due_date: docData.due_date || null,
                 field_labels: Object.keys(fieldLabels).length > 0 ? JSON.stringify(fieldLabels) : null
             };
 
@@ -672,8 +699,11 @@ export const DocumentEditor: React.FC = () => {
 
             if (generate) {
                 await generateTrueInvoicePDF({ ...payload, id: invoiceId }, items, co, fi, customFields, fieldLabels);
+                toast.success('PDF generated and downloaded! Document marked as Sent.');
+            } else {
+                toast.success('Document saved successfully!');
             }
-            toast.success(`Document ${generate ? 'generated' : 'saved as draft'} successfully!`);
+            setIsDirty(false);
             navigate('/admin/invoices');
 
         } catch (error) {
@@ -722,8 +752,13 @@ export const DocumentEditor: React.FC = () => {
                 body: JSON.stringify(txPayload)
             });
 
-            // 3. Update local state
-            setDocData(prev => ({ ...prev, amount_paid: newAmountPaid, payment_status: newStatus }));
+            // 3. Update local state (including recalculated balance_due)
+            setDocData(prev => ({ 
+                ...prev, 
+                amount_paid: newAmountPaid, 
+                payment_status: newStatus,
+                balance_due: newBalanceDue
+            }));
             setShowPaymentModal(false);
             setPaymentAmount(0);
             setPaymentNote('');
@@ -1150,7 +1185,7 @@ export const DocumentEditor: React.FC = () => {
                             {isSaveDropdownOpen && (
                                 <>
                                     <div className="fixed inset-0 z-40" onClick={() => setIsSaveDropdownOpen(false)} />
-                                    <div className="absolute right-0 top-full mt-2 w-44 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-50 overflow-hidden py-1 animate-[scaleIn_0.15s_ease-out]">
+                                    <div className="absolute right-0 top-full mt-2 w-52 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-50 overflow-hidden py-1 animate-[scaleIn_0.15s_ease-out]">
                                         <button
                                             onClick={() => {
                                                 setIsSaveDropdownOpen(false);
@@ -1160,6 +1195,17 @@ export const DocumentEditor: React.FC = () => {
                                         >
                                             <Save size={13} className="text-slate-400" />
                                             Save Draft
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                setIsSaveDropdownOpen(false);
+                                                setDocData(prev => ({...prev, status: 'Void'}));
+                                                setTimeout(() => handleSave(false), 0);
+                                            }}
+                                            className="w-full text-left px-4 py-2.5 text-xs text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 flex items-center gap-2 font-medium border-t border-slate-100 dark:border-slate-700"
+                                        >
+                                            <AlertCircle size={13} className="text-purple-400" />
+                                            Mark as Void
                                         </button>
                                     </div>
                                 </>
@@ -1208,9 +1254,26 @@ export const DocumentEditor: React.FC = () => {
                                 </div>
                                 <div className="grid grid-cols-[100px_1fr] items-center">
                                     <span className="text-slate-400 dark:text-slate-500">Invoice Date</span>
-                                    <span className="font-bold text-[#091C3B] dark:text-white">
-                                        {new Date(docData.issue_date || new Date()).toLocaleDateString('en-US', {month:'short', day:'2-digit', year:'numeric'})}
-                                    </span>
+                                    <input
+                                        type="date"
+                                        value={docData.issue_date ? docData.issue_date.split('T')[0] : new Date().toISOString().split('T')[0]}
+                                        onChange={e => { setDocData(prev => ({...prev, issue_date: e.target.value})); setIsDirty(true); }}
+                                        disabled={isLocked}
+                                        className="font-bold text-[#091C3B] dark:text-white bg-transparent border-b border-dashed border-transparent hover:border-slate-300 dark:hover:border-slate-600 focus:border-orange-400 outline-none text-sm print:hidden disabled:opacity-60"
+                                    />
+                                    <span className="hidden print:inline font-bold text-[#091C3B]">{new Date(docData.issue_date || new Date()).toLocaleDateString('en-US', {month:'short', day:'2-digit', year:'numeric'})}</span>
+                                </div>
+                                <div className="grid grid-cols-[100px_1fr] items-center">
+                                    <span className="text-slate-400 dark:text-slate-500">Due Date</span>
+                                    <input
+                                        type="date"
+                                        value={docData.due_date ? String(docData.due_date).split('T')[0] : ''}
+                                        onChange={e => { setDocData(prev => ({...prev, due_date: e.target.value || null})); setIsDirty(true); }}
+                                        disabled={isLocked}
+                                        className="font-bold text-[#091C3B] dark:text-white bg-transparent border-b border-dashed border-transparent hover:border-slate-300 dark:hover:border-slate-600 focus:border-orange-400 outline-none text-sm print:hidden disabled:opacity-60"
+                                        placeholder="Not set"
+                                    />
+                                    <span className="hidden print:inline font-bold text-[#091C3B]">{docData.due_date ? new Date(docData.due_date).toLocaleDateString('en-US', {month:'short', day:'2-digit', year:'numeric'}) : '—'}</span>
                                 </div>
                             </div>
                         </div>
@@ -1310,7 +1373,7 @@ export const DocumentEditor: React.FC = () => {
                                     <input
                                         type="text"
                                         value={docData.client_name}
-                                        onChange={(e) => setDocData({ ...docData, client_name: e.target.value })}
+                                        onChange={(e) => { setDocData({ ...docData, client_name: e.target.value }); setIsDirty(true); }}
                                         placeholder="Client Name *"
                                         className="font-bold text-base bg-transparent border-b border-dashed border-transparent hover:border-slate-200 dark:hover:border-slate-800 focus:border-orange-500 dark:focus:border-orange-500 w-full outline-none focus:ring-0 py-0.5 text-[#091C3B] dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-600 transition-all"
                                     />
@@ -1669,7 +1732,7 @@ export const DocumentEditor: React.FC = () => {
                                                 </span>
                                             </div>
                                         ))}
-<button
+                                        <button
                                             type="button"
                                             onClick={addCustomField}
                                             className="flex items-center gap-1.5 text-[10px] font-bold text-orange-500 hover:text-orange-600 dark:text-orange-400 dark:hover:text-orange-300 bg-orange-50 dark:bg-orange-500/10 border border-dashed border-orange-300 dark:border-orange-500/30 rounded-xl px-3 py-1.5 mt-1 transition-all hover:border-orange-400 dark:hover:border-orange-400 print:hidden w-full justify-center"

@@ -2842,9 +2842,13 @@ app.get('/api/invoices/stats', authMiddleware, async (req, res) => {
         const [rows] = await pool.query(`
             SELECT 
                 SUM(total_amount) as totalRevenue,
-                SUM(total_amount - amount_paid) as pendingAmount,
+                SUM(CASE WHEN payment_status != 'Paid' THEN (total_amount - COALESCE(amount_paid, 0)) ELSE 0 END) as pendingAmount,
                 COUNT(CASE WHEN payment_status = 'Paid' AND MONTH(issue_date) = MONTH(CURRENT_DATE()) AND YEAR(issue_date) = YEAR(CURRENT_DATE()) THEN 1 END) as paidThisMonthCount,
-                SUM(CASE WHEN due_date < CURRENT_DATE() AND payment_status != 'Paid' THEN (total_amount - amount_paid) ELSE 0 END) as overdueAmount
+                SUM(CASE WHEN payment_status = 'Paid' AND MONTH(issue_date) = MONTH(CURRENT_DATE()) AND YEAR(issue_date) = YEAR(CURRENT_DATE()) THEN total_amount ELSE 0 END) as paidThisMonthAmount,
+                SUM(CASE WHEN due_date < CURRENT_DATE() AND payment_status != 'Paid' THEN (total_amount - COALESCE(amount_paid, 0)) ELSE 0 END) as overdueAmount,
+                COUNT(CASE WHEN payment_status IN ('Unpaid', 'Partially Paid') THEN 1 END) as pendingCount,
+                COUNT(CASE WHEN due_date < CURRENT_DATE() AND payment_status != 'Paid' THEN 1 END) as overdueCount,
+                COUNT(*) as totalCount
             FROM invoices
             WHERE status != 'Draft'
         `);
@@ -2966,6 +2970,25 @@ app.get('/api/crud/:table', optionalAuthMiddleware, injectPackageStatusFilter, v
                     params.push(val);
                 }
             });
+        }
+
+        // Build WHERE clauses from like_ prefixed query params (partial text search)
+        const likeFilters = Object.entries(req.query).filter(([k]) => k.startsWith('like_'));
+        if (likeFilters.length > 0) {
+            likeFilters.forEach(([key, val]) => {
+                const col = key.replace('like_', '');
+                if (isValidColumn(col)) {
+                    whereClauses.push(`\`${col}\` LIKE ?`);
+                    params.push(`%${val}%`);
+                }
+            });
+        }
+
+        // Multi-column search: ?search=term searches client_name, id, email, phone
+        if (req.query.search) {
+            const term = `%${req.query.search}%`;
+            whereClauses.push(`(\`client_name\` LIKE ? OR \`id\` LIKE ? OR \`email\` LIKE ?)`);
+            params.push(term, term, term);
         }
 
         if (whereClauses.length > 0) {

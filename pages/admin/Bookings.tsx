@@ -6,7 +6,7 @@ import { api } from '../../src/lib/api';
 import { generateReceiptPDF } from '../../utils/pdfGenerator';
 import { SupplierManagementModal } from '../../components/admin/SupplierManagementModal';
 import { LedgerManagementModal } from '../../components/admin/LedgerManagementModal';
-import { RequestDeletionModal } from '../../components/ui/RequestDeletionModal';
+
 import { ActionMenu } from '../../components/ui/ActionMenu';
 import { SuggestPopup, isDismissed, isSnoozed } from '../../components/ui/SuggestPopup';
 import { useLocation, useNavigate } from 'react-router-dom';
