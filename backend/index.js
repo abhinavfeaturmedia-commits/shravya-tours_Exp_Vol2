@@ -3717,12 +3717,13 @@ app.delete('/api/customers/:id', authMiddleware, async (req, res) => {
     }
 });
 
-// POST /api/sync-customers-from-bookings — Backfill customers from all bookings
-// Deduplicates by email (primary) or phone (fallback). Safe to run multiple times.
+// POST /api/sync-customers-from-bookings — Recompute customer stats from bookings
+// Uses SET (not +=) so it is safe to run multiple times (idempotent).
+// Match priority: customer_id FK (authoritative) → email (non-empty fallback).
+// Phone is intentionally excluded — phones are not unique (multiple customers share numbers).
 app.post('/api/sync-customers-from-bookings', authMiddleware, async (req, res) => {
     console.log(`[Customer Sync] Triggered by ${req.user?.email}`);
 
-    // Check permission
     if (req.user?.role !== 'admin' && req.user?.role !== 'Admin') {
         const { permissions, isAdmin } = await getStaffPermissionsAndScope(req.user?.email);
         if (!isAdmin && !permissions.customers?.manage) {
@@ -3731,67 +3732,105 @@ app.post('/api/sync-customers-from-bookings', authMiddleware, async (req, res) =
     }
 
     try {
-        const [bookings] = await pool.query('SELECT * FROM bookings ORDER BY created_at ASC');
-        const [existingCustomers] = await pool.query('SELECT * FROM customers');
+        // ── Step 1: Compute exact stats per customer using customer_id FK ────────────
+        // This is the most reliable match. customer_id is a direct DB foreign key.
+        const [byIdStats] = await pool.query(`
+            SELECT
+                b.customer_id,
+                COUNT(*)           AS booking_count,
+                SUM(b.total_price) AS total_spent
+            FROM bookings b
+            WHERE b.customer_id IS NOT NULL
+              AND b.customer_id != ''
+              AND b.status != 'Cancelled'
+            GROUP BY b.customer_id
+        `);
 
-        // Build lookup maps for fast dedup
-        const byEmail = new Map(); // email -> customer row
-        const byPhone = new Map(); // phone -> customer row
-        existingCustomers.forEach(c => {
-            if (c.email && c.email.trim()) byEmail.set(c.email.trim().toLowerCase(), c);
-            if (c.phone && c.phone.trim()) byPhone.set(c.phone.trim(), c);
+        // ── Step 2: For bookings WITHOUT customer_id, group by email ─────────────────
+        // Only when email is non-empty. This handles legacy/manually-entered bookings.
+        const [byEmailStats] = await pool.query(`
+            SELECT
+                b.customer_email,
+                COUNT(*)           AS booking_count,
+                SUM(b.total_price) AS total_spent
+            FROM bookings b
+            WHERE (b.customer_id IS NULL OR b.customer_id = '')
+              AND b.customer_email IS NOT NULL
+              AND b.customer_email != ''
+              AND b.status != 'Cancelled'
+            GROUP BY LOWER(TRIM(b.customer_email))
+        `);
+
+        // ── Step 3: Build lookup of email → customer_id for email-only stats ─────────
+        const [customers] = await pool.query('SELECT id, email FROM customers WHERE email IS NOT NULL AND email != \'\'');
+        const emailToCustomerId = new Map();
+        customers.forEach(c => {
+            if (c.email) emailToCustomerId.set(c.email.trim().toLowerCase(), c.id);
         });
 
-        let created = 0, updated = 0, skipped = 0;
+        // ── Step 4: Merge stats — customer_id stats take precedence ──────────────────
+        // Key: customer DB id → { count, spent }
+        const statsMap = new Map(); // customerId → { count, spent }
 
-        for (const booking of bookings) {
-            const name = booking.customer_name || '';
-            const email = (booking.customer_email || '').trim().toLowerCase();
-            const phone = (booking.customer_phone || '').trim();
-            const amount = Number(booking.total_price) || 0;
+        // Apply customerId-based stats
+        for (const row of byIdStats) {
+            const cid = row.customer_id;
+            const existing = statsMap.get(cid) || { count: 0, spent: 0 };
+            statsMap.set(cid, {
+                count: existing.count + Number(row.booking_count),
+                spent: existing.spent + (Number(row.total_spent) || 0)
+            });
+        }
 
-            if (!name) { skipped++; continue; }
+        // Apply email-based stats (only for customers not yet covered by customerId match)
+        for (const row of byEmailStats) {
+            const email = (row.customer_email || '').trim().toLowerCase();
+            const cid = emailToCustomerId.get(email);
+            if (!cid) continue; // No matching customer record
+            if (statsMap.has(cid)) continue; // Already covered by customerId match
+            statsMap.set(cid, {
+                count: Number(row.booking_count),
+                spent: Number(row.total_spent) || 0
+            });
+        }
 
-            // Find existing customer
-            let existing = null;
-            if (email) existing = byEmail.get(email);
-            if (!existing && phone) existing = byPhone.get(phone);
+        // ── Step 5: SET (not +=) the computed values for each customer ────────────────
+        let updated = 0;
+        for (const [cid, stats] of statsMap.entries()) {
+            await pool.query(
+                'UPDATE customers SET total_spent = ?, bookings_count = ? WHERE id = ?',
+                [stats.spent, stats.count, cid]
+            );
+            updated++;
+        }
 
-            if (existing) {
-                // Update aggregates
-                const newSpent = (Number(existing.total_spent) || 0) + amount;
-                const newCount = (Number(existing.bookings_count) || 0) + 1;
+        // ── Step 6: Zero out customers with no bookings (prevent stale counts) ────────
+        const coveredIds = [...statsMap.keys()];
+        if (coveredIds.length < customers.length) {
+            // Only zero-out customers who have non-zero values but no matching bookings
+            const placeholders = coveredIds.map(() => '?').join(',');
+            if (coveredIds.length > 0) {
                 await pool.query(
-                    'UPDATE customers SET total_spent = ?, bookings_count = ? WHERE id = ?',
-                    [newSpent, newCount, existing.id]
+                    `UPDATE customers SET total_spent = 0, bookings_count = 0
+                     WHERE id NOT IN (${placeholders}) AND (total_spent > 0 OR bookings_count > 0)`,
+                    coveredIds
                 );
-                // Update map to prevent double-counting if same booking email appears again
-                existing.total_spent = newSpent;
-                existing.bookings_count = newCount;
-                updated++;
             } else {
-                // Create new customer from booking data
-                const newId = `CUST-BK-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
                 await pool.query(
-                    `INSERT INTO customers (id, name, email, phone, location, type, status, total_spent, bookings_count, notes, tags, preferences)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                    [newId, name, email || null, phone || null, '', 'New', 'Active', amount, 1, '[]', '[]', '{}']
+                    'UPDATE customers SET total_spent = 0, bookings_count = 0 WHERE total_spent > 0 OR bookings_count > 0'
                 );
-                const newCust = { id: newId, name, email, phone, total_spent: amount, bookings_count: 1 };
-                if (email) byEmail.set(email, newCust);
-                if (phone) byPhone.set(phone, newCust);
-                created++;
             }
         }
 
-        console.log(`[Customer Sync] Done — created: ${created}, updated: ${updated}, skipped: ${skipped}`);
-        auditLog('Sync', 'customers', `Synced customers from bookings: created=${created}, updated=${updated}`, req.user?.email);
-        res.json({ status: 'success', created, updated, skipped });
+        console.log(`[Customer Sync] Done — customers updated: ${updated}`);
+        auditLog('Sync', 'customers', `Recomputed customer stats from bookings: updated=${updated}`, req.user?.email);
+        res.json({ status: 'success', created: 0, updated, skipped: 0 });
     } catch (error) {
         console.error('[Customer Sync] Error:', error.message);
         res.status(500).json({ error: 'Failed to sync customers from bookings', details: error.message });
     }
 });
+
 
 
 app.get('/api/bookings-with-package', authMiddleware, async (req, res) => {

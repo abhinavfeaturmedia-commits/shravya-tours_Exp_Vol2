@@ -221,7 +221,7 @@ export const Customers: React.FC = () => {
                                                     {(() => {
                                                         const stats = liveBookingStats[customer.id];
                                                         const isReturning = stats && stats.count > 1;
-                                                        const totalSpent = stats?.spent ?? customer.totalSpent ?? 0;
+                                                        const totalSpent = stats?.spent ?? 0;
                                                         const isVIP = customer.type === 'VIP' || totalSpent >= 500000;
                                                         const activeMembership = getActiveMembershipForCustomer(customer.id);
                                                         const planDef = activeMembership ? membershipPlans.find(p => p.id === activeMembership.planId) : null;
@@ -252,11 +252,11 @@ export const Customers: React.FC = () => {
                                         <td className="p-4 text-sm font-bold text-slate-600 dark:text-slate-400">
                                             <span className="flex items-center gap-1.5">
                                                 <span className="material-symbols-outlined text-[16px] text-slate-300">flight</span>
-                                                {liveBookingStats[customer.id]?.count ?? customer.bookingsCount ?? 0} trips
+                                                {liveBookingStats[customer.id]?.count ?? 0} trips
                                             </span>
                                         </td>
                                         <td className="p-4 text-sm font-bold text-slate-900 dark:text-white">
-                                            ₹{(liveBookingStats[customer.id]?.spent ?? customer.totalSpent ?? 0).toLocaleString()}
+                                            ₹{(liveBookingStats[customer.id]?.spent ?? 0).toLocaleString()}
                                         </td>
                                         <td className="p-4 text-sm text-slate-500">
                                             {customer.lastActive ? new Date(customer.lastActive).toLocaleDateString() : new Date(customer.joinedDate).toLocaleDateString()}
@@ -514,7 +514,13 @@ const CustomerDetailsDrawer: React.FC<{
                         </div>
                         <div className="flex-1 bg-white dark:bg-slate-800 p-4 rounded-xl border border-emerald-100 dark:border-emerald-900/30 shadow-sm">
                             <div className="text-xs font-bold text-emerald-500 uppercase flex items-center gap-1 mb-1">Total Spent</div>
-                            <div className="text-xl font-black text-slate-900 dark:text-white">₹{((bookings.filter(b => (b.customerId && b.customerId === customer.id) || (b.customer && b.customer === customer.id) || (b.email && customer.email && b.email.toLowerCase() === customer.email.toLowerCase()) || (b.phone && customer.phone && b.phone === customer.phone)).reduce((sum, b) => sum + (Number(b.amount) || 0), 0) || customer.totalSpent || 0) / 1000).toFixed(1)}k</div>
+                            <div className="text-xl font-black text-slate-900 dark:text-white">₹{((bookings.filter(b => {
+                                if (b.status === 'Cancelled') return false;
+                                if (b.customerId && b.customerId === customer.id) return true;
+                                if (b.email && b.email.trim() !== '' && customer.email && customer.email.trim() !== '' &&
+                                    b.email.toLowerCase() === customer.email.toLowerCase()) return true;
+                                return false;
+                            }).reduce((sum, b) => sum + (Number(b.amount) || 0), 0)) / 1000).toFixed(1)}k</div>
                         </div>
                     </div>
 
