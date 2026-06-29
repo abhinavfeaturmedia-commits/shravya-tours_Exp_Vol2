@@ -221,6 +221,9 @@ export const DocumentEditor: React.FC = () => {
                     ...prev,
                     client_name: data.customer_name || data.customer || '',
                     email: data.customer_email || data.email || '',
+                    // Fix: bookings stores phone as customer_phone, address as residential_address
+                    phone: data.customer_phone || data.phone || prev.phone || '',
+                    address: data.residential_address || data.address || prev.address || '',
                     travel_dates: data.booking_date || data.date ? new Date(data.booking_date || data.date).toISOString().split('T')[0] : '',
                     adults: data.number_of_people || data.travelers || 2
                 }));
@@ -241,6 +244,8 @@ export const DocumentEditor: React.FC = () => {
                     ...prev,
                     client_name: data.name || '',
                     email: data.email || '',
+                    // Fix: leads stores phone as `phone`; no address/GSTIN on leads
+                    phone: data.phone || prev.phone || '',
                     adults: data.travelers && data.travelers !== 'N/A' ? data.travelers : 2,
                     travel_dates: data.start_date || data.travelDate ? new Date(data.start_date || data.travelDate).toISOString().split('T')[0] : '',
                 }));
@@ -258,7 +263,15 @@ export const DocumentEditor: React.FC = () => {
             const res = await fetch(`/api/crud/customers/${cId}`, { headers: { 'Authorization': `Bearer ${token}` } });
             if (res.ok) {
                 const { data } = await res.json();
-                setDocData(prev => ({ ...prev, client_name: data.name || '', email: data.email || '' }));
+                setDocData(prev => ({
+                    ...prev,
+                    client_name: data.name || '',
+                    email: data.email || '',
+                    // Fix: customers table has phone and address columns
+                    phone: data.phone || prev.phone || '',
+                    address: data.address || prev.address || '',
+                    // customers don't store GSTIN — leave existing client_gst intact
+                }));
             }
         } catch (e) { console.error(e); } finally { setLoading(false); }
     };
@@ -350,6 +363,9 @@ export const DocumentEditor: React.FC = () => {
                 lead_id: null,
                 client_name: record.customer_name || record.customer || record.name || '',
                 email: record.customer_email || record.email || '',
+                // Fix: booking search results return customer_phone and residential_address
+                phone: record.customer_phone || record.phone || prev.phone || '',
+                address: record.residential_address || record.address || prev.address || '',
                 travel_dates: record.booking_date || record.date ? new Date(record.booking_date || record.date).toISOString().split('T')[0] : prev.travel_dates,
                 adults: record.number_of_people || record.travelers || prev.adults
             }));
@@ -363,6 +379,8 @@ export const DocumentEditor: React.FC = () => {
                 booking_id: null,
                 client_name: record.name || '',
                 email: record.email || '',
+                // Fix: lead records have a phone column directly
+                phone: record.phone || prev.phone || '',
                 travel_dates: record.start_date || record.travelDate ? new Date(record.start_date || record.travelDate).toISOString().split('T')[0] : prev.travel_dates,
                 adults: record.travelers !== 'N/A' && record.travelers ? record.travelers : prev.adults
             }));
@@ -371,6 +389,7 @@ export const DocumentEditor: React.FC = () => {
                 setItems([{ id: generateId(), description: `Custom Tour: ${record.destination || 'Destination'}`, quantity: 1, total_days_km: '1', unit_price: Number(budget), tax_rate: 0 }]);
             }
         }
+        setIsDirty(true);
         setShowLinkPanel(false);
     };
 
