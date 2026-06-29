@@ -1208,7 +1208,21 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [customers, logAction]);
   
-  const importCustomers = useCallback((newCustomers: Customer[]) => setCustomers(p => [...newCustomers, ...p]), []);
+  const importCustomers = useCallback((newCustomers: Customer[]) => {
+    // Deduplicate: skip any customer whose email already exists in the current list
+    const deduplicated = newCustomers.filter(c =>
+        !c.email || !customers.some(x => x.email?.toLowerCase() === c.email.toLowerCase())
+    );
+    if (deduplicated.length === 0) return;
+    setCustomers(p => [...deduplicated, ...p]);
+    // Persist to API in background — fire and forget (non-blocking)
+    deduplicated.forEach(c => {
+        api.createCustomer(c).catch(err =>
+            console.warn('Import: Failed to persist customer to DB:', c.name, err)
+        );
+    });
+    logAction('Import', 'Customers', `Imported ${deduplicated.length} customer(s) (${newCustomers.length - deduplicated.length} duplicates skipped)`);
+  }, [customers, logAction]);
 
   // Inventory
   const updateInventory = useCallback(async (dateStr: string, slot: DailySlot) => {

@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { Booking, BookingStatus } from '../../types';
 import { toast } from 'sonner';
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 
 export const useBookings = () => {
     const queryClient = useQueryClient();
@@ -12,7 +12,16 @@ export const useBookings = () => {
         queryFn: () => api.getBookings(),
     });
 
-    const bookings = (data as Booking[]) || [];
+    const bookings = useMemo(() => {
+        const raw = (data as Booking[]) || [];
+        // De-duplicate by booking id — safety net against backend JOINs
+        // that may produce row multiplication (e.g. duplicate customer records).
+        const seen = new Map<string, Booking>();
+        for (const b of raw) {
+            if (!seen.has(b.id)) seen.set(b.id, b);
+        }
+        return Array.from(seen.values());
+    }, [data]);
 
     // Listen for transaction changes from DataContext and invalidate the bookings cache
     // This bridges the gap between DataContext (addBookingTransaction) and React Query (useBookings)

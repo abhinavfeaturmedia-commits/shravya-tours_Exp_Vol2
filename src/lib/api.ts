@@ -627,7 +627,8 @@ export const api = {
             office_address: booking.officeAddress || null,
             applied_coupon_code: booking.appliedCouponCode || null,
             coupon_discount_amount: booking.couponDiscountAmount || 0.00,
-            original_price: booking.originalPrice || null
+            original_price: booking.originalPrice || null,
+            customer_id: booking.customerId || null
         };
 
         if (booking.packageId) dbBooking.package_id = booking.packageId;
@@ -1315,7 +1316,10 @@ export const api = {
 
     // --- CUSTOMERS ---
     getCustomers: async (): Promise<Customer[]> => {
-        const { data } = await crud.getAll('customers', { order: 'created_at', asc: false });
+        // Use the dedicated endpoint that computes booking stats server-side
+        // (count, spent, lastActive) via customer_id → email → phone matching.
+        // This is authoritative and not subject to RBAC scoping.
+        const { data } = await fetchApi('/api/customers-with-stats');
         return (data || []).map((c: any) => ({
             id: c.id,
             name: c.name,
@@ -1324,9 +1328,11 @@ export const api = {
             location: c.location,
             type: c.type,
             status: c.status,
-            totalSpent: c.total_spent,
-            bookingsCount: c.bookings_count,
+            // Use server-computed stats (authoritative), fall back to DB columns
+            totalSpent: c.computed_total_spent ?? c.total_spent ?? 0,
+            bookingsCount: c.computed_bookings_count ?? c.bookings_count ?? 0,
             joinedDate: c.created_at,
+            lastActive: c.computed_last_active || undefined,
             notes: typeof c.notes === 'string' ? JSON.parse(c.notes) : (c.notes || []),
             tags: typeof c.tags === 'string' ? JSON.parse(c.tags) : (c.tags || []),
             preferences: typeof c.preferences === 'string' ? JSON.parse(c.preferences) : (c.preferences || {}),

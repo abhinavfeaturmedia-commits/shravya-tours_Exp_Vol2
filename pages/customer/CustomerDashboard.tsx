@@ -1,10 +1,64 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useCustomerAuth, CUSTOMER_JWT_KEY } from '../../context/CustomerAuthContext';
 import { useData } from '../../context/DataContext';
 import { getLocationName, formatPrice, formatPriceCompact } from '../../utils/packageUtils';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
+
+// ── Toast Notification System ──
+interface ToastMessage {
+  id: number;
+  type: 'success' | 'error' | 'info';
+  text: string;
+}
+
+let toastIdCounter = 0;
+
+function ToastContainer({ toasts, onDismiss }: { toasts: ToastMessage[]; onDismiss: (id: number) => void }) {
+  if (toasts.length === 0) return null;
+  const iconMap = { success: 'check_circle', error: 'error', info: 'info' };
+  const bgMap = { success: '#E8F5E9', error: '#FFEBEE', info: '#E3F2FD' };
+  const colorMap = { success: '#2E7D32', error: '#C62828', info: '#1565C0' };
+  return (
+    <div className="fixed top-24 right-6 z-[100] space-y-2 max-w-sm w-full pointer-events-none">
+      {toasts.map(t => (
+        <div key={t.id} className="pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-2xl shadow-lg border animate-in slide-in-from-right duration-300"
+          style={{ background: bgMap[t.type], borderColor: `${colorMap[t.type]}20`, color: colorMap[t.type] }}>
+          <span className="material-symbols-outlined text-[20px] shrink-0">{iconMap[t.type]}</span>
+          <span className="text-xs font-bold flex-grow">{t.text}</span>
+          <button onClick={() => onDismiss(t.id)} className="shrink-0 opacity-60 hover:opacity-100">
+            <span className="material-symbols-outlined text-[16px]">close</span>
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Confirmation Modal ──
+function ConfirmModal({ open, title, message, onConfirm, onCancel }: {
+  open: boolean; title: string; message: string; onConfirm: () => void; onCancel: () => void;
+}) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/55 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95 duration-200">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="size-10 bg-red-50 rounded-xl flex items-center justify-center">
+            <span className="material-symbols-outlined text-red-500 text-[22px]">warning</span>
+          </div>
+          <h3 className="font-display font-bold text-base text-slate-900">{title}</h3>
+        </div>
+        <p className="text-xs text-slate-500 leading-relaxed mb-5">{message}</p>
+        <div className="flex gap-2">
+          <button onClick={onCancel} className="flex-1 py-2.5 border border-[#EDE8DF] text-slate-600 rounded-xl font-bold text-xs hover:bg-slate-50 transition-colors">Cancel</button>
+          <button onClick={onConfirm} className="flex-1 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-xl font-bold text-xs shadow-sm transition-colors">Confirm</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 interface Booking {
   id: string;
@@ -115,6 +169,36 @@ export const CustomerDashboard: React.FC = () => {
   const [showProfileModal, setShowProfileModal] = useState<boolean>(false);
   const [showSupportModal, setShowSupportModal] = useState<boolean>(false);
   
+  // Toast & Confirm state
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [confirmState, setConfirmState] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
+  
+  const showToast = useCallback((type: 'success' | 'error' | 'info', text: string) => {
+    const id = ++toastIdCounter;
+    setToasts(prev => [...prev, { id, type, text }]);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
+  }, []);
+  
+  const dismissToast = useCallback((id: number) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  }, []);
+  
+  const showConfirm = useCallback((title: string, message: string, onConfirm: () => void) => {
+    setConfirmState({ open: true, title, message, onConfirm });
+  }, []);
+  
+  const closeConfirm = useCallback(() => {
+    setConfirmState({ open: false, title: '', message: '', onConfirm: () => {} });
+  }, []);
+
+  // Notification outside-click ref
+  const notifRef = useRef<HTMLDivElement>(null);
+
+  // Form submission guards
+  const [coTravelerLoading, setCoTravelerLoading] = useState(false);
+  const [referralLoading, setReferralLoading] = useState(false);
+  const [docUploading, setDocUploading] = useState(false);
+  
   // Data States
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loadingBookings, setLoadingBookings] = useState(true);
@@ -204,9 +288,6 @@ export const CustomerDashboard: React.FC = () => {
   const [couponLoading, setCouponLoading] = useState(false);
   const [couponMsg, setCouponMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // Compare packages selection (ID list)
-  const [compareIds, setCompareIds] = useState<string[]>([]);
-
   const handleLogout = () => {
     logout();
     navigate('/customer/login', { replace: true });
@@ -283,15 +364,11 @@ export const CustomerDashboard: React.FC = () => {
       if (res.ok) {
         const data = await res.json() as any;
         setWishlist(data);
-        // Pre-fill compare selection with first two items
-        if (data.length >= 2 && compareIds.length === 0) {
-          setCompareIds([data[0].id, data[1].id]);
-        }
       }
     } catch {
       setWishlist([]);
     } finally {
-      setLoadingWishlist(true);
+      setLoadingWishlist(false);
     }
   };
 
@@ -335,8 +412,9 @@ export const CustomerDashboard: React.FC = () => {
 
   const handleAddCoTraveler = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!coTravelerForm.name.trim()) return;
+    if (!coTravelerForm.name.trim() || coTravelerLoading) return;
     setCoTravelerError(null);
+    setCoTravelerLoading(true);
     try {
       const token = localStorage.getItem(CUSTOMER_JWT_KEY);
       const isEdit = editingCoTravelerId !== null;
@@ -357,9 +435,11 @@ export const CustomerDashboard: React.FC = () => {
       setCoTravelerForm({ name: '', relation: 'Friend', phone: '', passport_no: '', dob: '' });
       setEditingCoTravelerId(null);
       fetchCoTravelers();
-      alert(isEdit ? 'Co-traveler updated successfully!' : 'Co-traveler added successfully!');
+      showToast('success', isEdit ? 'Co-traveler updated successfully!' : 'Co-traveler added successfully!');
     } catch (err: any) {
       setCoTravelerError(err.message);
+    } finally {
+      setCoTravelerLoading(false);
     }
   };
 
@@ -387,18 +467,23 @@ export const CustomerDashboard: React.FC = () => {
     setCoTravelerForm({ name: '', relation: 'Friend', phone: '', passport_no: '', dob: '' });
   };
 
-  const handleDeleteCoTraveler = async (cid: number) => {
-    if (!confirm('Are you sure you want to delete this traveler?')) return;
-    try {
-      const token = localStorage.getItem(CUSTOMER_JWT_KEY);
-      const res = await fetch(`${API_BASE}/api/customer/co-travelers/${cid}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) fetchCoTravelers();
-    } catch (err) {
-      console.error(err);
-    }
+  const handleDeleteCoTraveler = (cid: number) => {
+    showConfirm('Delete Co-Traveler', 'Are you sure you want to remove this traveler? This action cannot be undone.', async () => {
+      closeConfirm();
+      try {
+        const token = localStorage.getItem(CUSTOMER_JWT_KEY);
+        const res = await fetch(`${API_BASE}/api/customer/co-travelers/${cid}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          fetchCoTravelers();
+          showToast('success', 'Co-traveler removed.');
+        }
+      } catch (err) {
+        showToast('error', 'Failed to delete co-traveler.');
+      }
+    });
   };
 
   // 4. Fetch Documents
@@ -426,12 +511,14 @@ export const CustomerDashboard: React.FC = () => {
       setDocUploadError('Please select a file.');
       return;
     }
+    if (docUploading) return;
     setDocUploadError(null);
+    setDocUploading(true);
     try {
       const token = localStorage.getItem(CUSTOMER_JWT_KEY);
       const formData = new FormData();
       formData.append('doc_type', docType);
-      formData.append('document', docFile);
+      formData.append('file', docFile);
 
       const res = await fetch(`${API_BASE}/api/customer/documents`, {
         method: 'POST',
@@ -442,24 +529,31 @@ export const CustomerDashboard: React.FC = () => {
       setDocFile(null);
       setShowUploadModal(false);
       fetchDocuments();
-      alert('Document uploaded successfully!');
+      showToast('success', 'Document uploaded to secure vault!');
     } catch (err: any) {
       setDocUploadError(err.message);
+    } finally {
+      setDocUploading(false);
     }
   };
 
-  const handleDeleteDoc = async (docId: string) => {
-    if (!confirm('Delete this document from vault?')) return;
-    try {
-      const token = localStorage.getItem(CUSTOMER_JWT_KEY);
-      const res = await fetch(`${API_BASE}/api/customer/documents/${docId}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) fetchDocuments();
-    } catch (err) {
-      console.error(err);
-    }
+  const handleDeleteDoc = (docId: string) => {
+    showConfirm('Delete Document', 'Remove this document from your secure vault? This cannot be undone.', async () => {
+      closeConfirm();
+      try {
+        const token = localStorage.getItem(CUSTOMER_JWT_KEY);
+        const res = await fetch(`${API_BASE}/api/customer/documents/${docId}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          fetchDocuments();
+          showToast('success', 'Document removed.');
+        }
+      } catch (err) {
+        showToast('error', 'Failed to delete document.');
+      }
+    });
   };
 
   // 5. Fetch Loyalty & Referrals
@@ -486,8 +580,9 @@ export const CustomerDashboard: React.FC = () => {
 
   const handleSendReferral = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!referralEmail.trim()) return;
+    if (!referralEmail.trim() || referralLoading) return;
     setReferralMsg(null);
+    setReferralLoading(true);
     try {
       const token = localStorage.getItem(CUSTOMER_JWT_KEY);
       const res = await fetch(`${API_BASE}/api/customer/referral`, {
@@ -500,7 +595,7 @@ export const CustomerDashboard: React.FC = () => {
       });
       const data = await res.json();
       if (res.ok) {
-        setReferralMsg('Invitation logged successfully!');
+        showToast('success', 'Referral invitation sent successfully!');
         setReferralEmail('');
         fetchLoyalty();
       } else {
@@ -508,6 +603,8 @@ export const CustomerDashboard: React.FC = () => {
       }
     } catch {
       setReferralMsg('Error logging referral.');
+    } finally {
+      setReferralLoading(false);
     }
   };
 
@@ -592,45 +689,62 @@ export const CustomerDashboard: React.FC = () => {
     fetchBookings();
     fetchNotifications();
     
-    // Polling notifications and chat messages
+    // Polling — pause when tab is hidden
     const int = setInterval(() => {
+      if (document.hidden) return;
       fetchNotifications();
-      if (activeTab === 'support') fetchChat();
+      if (showSupportModal) fetchChat();
     }, 12000);
     return () => clearInterval(int);
-  }, [fetchBookings, activeTab]);
+  }, [fetchBookings, showSupportModal]);
 
-  // Tab Load triggers
+  // Close notification dropdown on outside click
   useEffect(() => {
-    if (activeTab === 'wishlist' || activeTab === 'discovery') fetchWishlist();
-    if (activeTab === 'co-travelers' || activeTab === 'profile') fetchCoTravelers();
-    if (activeTab === 'documents' || activeTab === 'profile') fetchDocuments();
-    if (activeTab === 'rewards' || activeTab === 'profile') fetchLoyalty();
-    if (activeTab === 'support') fetchChat();
-    if (activeTab === 'profile') {
-      if (customer) {
-        setProfileForm({
-          name: customer.name || '',
-          phone: customer.phone || '',
-          whatsapp: customer.whatsapp || '',
-          address: customer.address || '',
-          dob: customer.dob || ''
-        });
-        
-        let savedPrefs = { destinations: '', dietary: 'None', budget: 'Standard', hotelType: '3 Star Standard' };
-        if (customer.travel_preferences) {
-          try {
-            savedPrefs = typeof customer.travel_preferences === 'string'
-              ? JSON.parse(customer.travel_preferences)
-              : customer.travel_preferences;
-          } catch {
-            // fallback
-          }
-        }
-        setPreferences(savedPrefs);
+    if (!showNotificationDropdown) return;
+    const handler = (e: MouseEvent) => {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
+        setShowNotificationDropdown(false);
       }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showNotificationDropdown]);
+
+  // Sub-tab load triggers (fixed: was using stale activeTab names)
+  useEffect(() => {
+    if (activeSubTab === 'wishlist') fetchWishlist();
+    if (activeSubTab === 'travelers') { fetchCoTravelers(); }
+    if (activeSubTab === 'documents') fetchDocuments();
+  }, [activeSubTab]);
+
+  // Always load loyalty on mount
+  useEffect(() => {
+    fetchLoyalty();
+  }, []);
+
+  // Profile modal: sync form from customer
+  useEffect(() => {
+    if (showProfileModal && customer) {
+      setProfileForm({
+        name: customer.name || '',
+        phone: customer.phone || '',
+        whatsapp: customer.whatsapp || '',
+        address: customer.address || '',
+        dob: customer.dob || ''
+      });
+      let savedPrefs = { destinations: '', dietary: 'None', budget: 'Standard', hotelType: '3 Star Standard' };
+      if (customer.travel_preferences) {
+        try {
+          savedPrefs = typeof customer.travel_preferences === 'string'
+            ? JSON.parse(customer.travel_preferences)
+            : customer.travel_preferences;
+        } catch {
+          // fallback
+        }
+      }
+      setPreferences(savedPrefs);
     }
-  }, [activeTab, customer]);
+  }, [showProfileModal, customer]);
 
   // Handle Edit profile
   const handleProfileSubmit = async (e: React.FormEvent) => {
@@ -651,6 +765,7 @@ export const CustomerDashboard: React.FC = () => {
       setProfileMsg({ type: 'success', text: 'Profile details saved successfully!' });
       setIsEditingProfile(false);
       refreshCustomer();
+      showToast('success', 'Profile updated!');
     } catch (err: any) {
       setProfileMsg({ type: 'error', text: err.message });
     }
@@ -697,6 +812,7 @@ export const CustomerDashboard: React.FC = () => {
       if (!res.ok) throw new Error(data.error || 'Password update failed');
       setPasswordMsg({ type: 'success', text: 'Password updated successfully!' });
       setPasswordForm({ oldPassword: '', newPassword: '' });
+      showToast('success', 'Password changed successfully!');
     } catch (err: any) {
       setPasswordMsg({ type: 'error', text: err.message });
     }
@@ -732,7 +848,7 @@ export const CustomerDashboard: React.FC = () => {
       setQuoteSuccess('Quote request submitted successfully! Our agents will contact you shortly.');
       setQuoteForm({ destination: '', date: '', travelers: '2 Adults', budget: 'Standard' });
     } catch (err: any) {
-      alert(err.message);
+      showToast('error', err.message);
     } finally {
       setQuoteLoading(false);
     }
@@ -769,7 +885,7 @@ export const CustomerDashboard: React.FC = () => {
       setPayForm({ amount: '', method: 'UPI / GPay / PhonePe', reference: '', notes: '' });
       setPayFile(null);
       fetchTransactions();
-      alert('Receipt uploaded successfully! Staff verification pending.');
+      showToast('success', 'Receipt uploaded! Staff verification pending.');
     } catch (err: any) {
       setPayError(err.message);
     } finally {
@@ -810,7 +926,7 @@ export const CustomerDashboard: React.FC = () => {
 
   // Derived stats
   const completedTripsCount = bookings.filter(b => b.status?.toLowerCase() === 'completed').length;
-  const milesMock = completedTripsCount * 3000 || 12000;
+  const totalSpent = bookings.reduce((sum, b) => sum + Number(b.total_price || 0), 0);
 
   // Derive wishlist package cards details
   const wishlistPackages = useMemo(() => {
@@ -821,19 +937,13 @@ export const CustomerDashboard: React.FC = () => {
     });
   }, [wishlist, packages]);
 
-  // Packages for comparison
-  const comparePackages = useMemo(() => {
-    if (compareIds.length === 0 || !packages) return [];
-    return compareIds.map(id => packages.find(p => p.id === id)).filter((p): p is any => !!p);
-  }, [compareIds, packages]);
-
   const [reviewSubmitted, setReviewSubmitted] = useState(false);
   const [reviewLoading, setReviewLoading] = useState(false);
 
   const handleReviewSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeBooking) {
-      alert("No active booking to submit feedback for.");
+      showToast('error', 'No active booking to submit feedback for.');
       return;
     }
     setReviewLoading(true);
@@ -854,9 +964,9 @@ export const CustomerDashboard: React.FC = () => {
       if (!res.ok) throw new Error('Failed to submit feedback');
       setReviewSubmitted(true);
       setCommentFeedback('');
-      alert('Thank you for your travel reflection feedback!');
+      showToast('success', 'Thank you for your travel reflection feedback!');
     } catch (err: any) {
-      alert(err.message);
+      showToast('error', err.message);
     } finally {
       setReviewLoading(false);
     }
@@ -869,17 +979,35 @@ export const CustomerDashboard: React.FC = () => {
     return 'Good evening';
   }, []);
 
-  // Static itinerary descriptions for day calendar slider
+  // Dynamic itinerary from active booking (falls back to placeholder if no itinerary data)
   const itineraryHighlights = useMemo(() => {
-    return [
-      { day: 1, title: "Arrival & Welcome", desc: "Private transfer from airport to your luxury resort. Enjoy a welcome dinner." },
-      { day: 2, title: "Scenic City Exploration", desc: "A guided walking tour of heritage sights, local markets, and hidden gems." },
-      { day: 3, title: "Panoramic Alpine Ascent", desc: "Breathtaking cable car excursion up the highest viewing decks." },
-      { day: 4, title: "Adventure & Leisure", desc: "Optional paragliding, hot spring dip, or local crafts shopping." },
-      { day: 5, title: "Scenic Rails Journey", desc: "First-class scenic express transit between breathtaking valleys." },
-      { day: 6, title: "Departure Transfer", desc: "Private transfer back to the airport for your return flight." }
-    ];
-  }, []);
+    // Try to derive from active booking's itinerary data if available
+    if (activeBooking && (activeBooking as any).itinerary && Array.isArray((activeBooking as any).itinerary)) {
+      return (activeBooking as any).itinerary.map((item: any, i: number) => ({
+        day: i + 1,
+        title: item.title || `Day ${i + 1}`,
+        desc: item.description || item.desc || 'Details pending confirmation.'
+      }));
+    }
+    // Derive day count from travel dates
+    const dayCount = (() => {
+      if (activeBooking?.travel_date && (activeBooking as any).end_date) {
+        const start = new Date(activeBooking.travel_date);
+        const end = new Date((activeBooking as any).end_date);
+        const diff = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+        return Math.max(1, diff);
+      }
+      return 0;
+    })();
+    if (dayCount > 0) {
+      return Array.from({ length: dayCount }, (_, i) => ({
+        day: i + 1,
+        title: `Day ${i + 1}`,
+        desc: 'Detailed itinerary will be shared by your trip coordinator before departure.'
+      }));
+    }
+    return [];
+  }, [activeBooking]);
 
   const selectedDayInfo = useMemo(() => {
     return itineraryHighlights.find(h => h.day === selectedItineraryDay) || itineraryHighlights[0];
@@ -944,7 +1072,7 @@ export const CustomerDashboard: React.FC = () => {
           </Link>
 
           {/* Notification Inbox */}
-          <div className="relative">
+          <div className="relative" ref={notifRef}>
             <button onClick={() => { setShowNotificationDropdown(!showNotificationDropdown); if(!showNotificationDropdown) handleMarkNotificationsRead(); }}
               className="relative p-2 text-slate-400 hover:text-slate-650 bg-slate-50 hover:bg-slate-100 rounded-xl flex items-center justify-center border border-[#EDE8DF] transition-colors">
               <span className="material-symbols-outlined text-[20px]">notifications</span>
@@ -983,6 +1111,11 @@ export const CustomerDashboard: React.FC = () => {
           {/* Profile settings */}
           <button onClick={() => setShowProfileModal(true)} className="p-2 text-slate-400 hover:text-slate-650 bg-slate-50 hover:bg-slate-100 rounded-xl flex items-center justify-center border border-[#EDE8DF] transition-colors">
             <span className="material-symbols-outlined text-[20px]">settings</span>
+          </button>
+
+          {/* Logout (desktop) */}
+          <button onClick={handleLogout} className="hidden md:flex p-2 text-slate-400 hover:text-red-500 bg-slate-50 hover:bg-red-50 rounded-xl items-center justify-center border border-[#EDE8DF] transition-colors" title="Sign Out">
+            <span className="material-symbols-outlined text-[20px]">logout</span>
           </button>
 
           <div onClick={() => setShowProfileModal(true)} className="size-9 rounded-full bg-primary/10 border border-[#C9732A]/20 overflow-hidden flex items-center justify-center font-bold text-primary text-sm cursor-pointer hover:scale-105 active:scale-95 transition-all">
@@ -1100,7 +1233,15 @@ export const CustomerDashboard: React.FC = () => {
                     </span>
                     
                     <span className="absolute top-4 right-4 bg-white/95 text-slate-800 text-[9px] font-black uppercase px-2.5 py-1 rounded shadow-sm">
-                      8 Days Trip
+                      {(() => {
+                        if (activeBooking.travel_date && (activeBooking as any).end_date) {
+                          const start = new Date(activeBooking.travel_date);
+                          const end = new Date((activeBooking as any).end_date);
+                          const days = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+                          return `${days} Days Trip`;
+                        }
+                        return activeBooking.pax_count ? `${activeBooking.pax_count} Travelers` : 'Trip';
+                      })()}
                     </span>
 
                     <div className="absolute bottom-4 left-4 right-4">
@@ -1318,16 +1459,16 @@ export const CustomerDashboard: React.FC = () => {
                   </div>
                   {editingCoTravelerId ? (
                     <div className="flex gap-2 mt-1">
-                      <button type="submit" className="flex-grow py-2 bg-[#C9732A] text-white rounded-xl font-bold text-xs shadow-md">
-                        Update Passenger
+                      <button type="submit" disabled={coTravelerLoading} className="flex-grow py-2 bg-[#C9732A] text-white rounded-xl font-bold text-xs shadow-md disabled:opacity-60">
+                        {coTravelerLoading ? 'Updating...' : 'Update Passenger'}
                       </button>
                       <button type="button" onClick={handleCancelEdit} className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl font-bold text-xs hover:bg-slate-50 transition-colors">
                         Cancel
                       </button>
                     </div>
                   ) : (
-                    <button type="submit" className="w-full py-2 bg-slate-900 text-white rounded-xl font-bold text-xs mt-1">
-                      Add Passenger
+                  <button type="submit" disabled={coTravelerLoading} className="w-full py-2 bg-slate-900 text-white rounded-xl font-bold text-xs mt-1 disabled:opacity-60">
+                      {coTravelerLoading ? 'Adding...' : 'Add Passenger'}
                     </button>
                   )}
                 </form>
@@ -1431,7 +1572,7 @@ export const CustomerDashboard: React.FC = () => {
               <div>
                 <h4 className="text-[10px] font-black uppercase text-[#388E3C] mt-2">Loyalty points</h4>
                 <p className="text-xl font-bold font-display leading-tight">{loyaltyPoints.toLocaleString()}</p>
-                <span className="text-[9px] font-black underline cursor-pointer mt-1 block hover:opacity-85" onClick={() => { navigator.clipboard.writeText(referralCode); alert('Code copied!'); }}>
+                <span className="text-[9px] font-black underline cursor-pointer mt-1 block hover:opacity-85" onClick={() => { navigator.clipboard.writeText(referralCode); showToast('info', 'Referral code copied!'); }}>
                   Referral: {referralCode || 'SHRAV24X'}
                 </span>
               </div>
@@ -1444,10 +1585,10 @@ export const CustomerDashboard: React.FC = () => {
                 <span className="material-symbols-outlined text-[18px]">flight</span>
               </div>
               <div>
-                <h4 className="text-[10px] font-black uppercase text-[#D84315] mt-2">Miles Traveled</h4>
-                <p className="text-xl font-bold font-display leading-tight">{milesMock.toLocaleString()} mi</p>
+                <h4 className="text-[10px] font-black uppercase text-[#D84315] mt-2">Total Invested</h4>
+                <p className="text-xl font-bold font-display leading-tight">{formatPriceCompact(totalSpent)}</p>
                 <span className="text-[9px] font-bold block mt-1 uppercase tracking-wider text-[#D84315] opacity-80">
-                  {completedTripsCount} Trips completed
+                  {completedTripsCount} Trip{completedTripsCount !== 1 ? 's' : ''} completed
                 </span>
               </div>
             </div>
@@ -1590,30 +1731,41 @@ export const CustomerDashboard: React.FC = () => {
               {activeBooking && <span className="text-[8px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-black">Active Trip Days</span>}
             </div>
 
-            {/* Horizontal Day Selector Slider */}
-            <div className="flex justify-between gap-1 overflow-x-auto select-none py-1 border-b border-slate-50">
-              {itineraryHighlights.map(h => (
-                <button
-                  key={h.day}
-                  onClick={() => setSelectedItineraryDay(h.day)}
-                  className={`size-8 rounded-full flex items-center justify-center font-bold text-xs shrink-0 transition-all ${
-                    selectedItineraryDay === h.day
-                      ? 'bg-slate-900 text-white shadow-md'
-                      : 'bg-[#FDFCF7] border border-slate-150 text-slate-500 hover:bg-slate-50'
-                  }`}
-                >
-                  D{h.day}
-                </button>
-              ))}
-            </div>
+            {itineraryHighlights.length === 0 ? (
+              <div className="text-center py-4">
+                <span className="material-symbols-outlined text-[28px] text-slate-300 block mb-1">calendar_today</span>
+                <p className="text-[10px] text-slate-400 font-semibold">Itinerary details will appear here after booking confirmation.</p>
+              </div>
+            ) : (
+              <>
+                {/* Horizontal Day Selector Slider */}
+                <div className="flex justify-between gap-1 overflow-x-auto select-none py-1 border-b border-slate-50">
+                  {itineraryHighlights.map(h => (
+                    <button
+                      key={h.day}
+                      onClick={() => setSelectedItineraryDay(h.day)}
+                      className={`size-8 rounded-full flex items-center justify-center font-bold text-xs shrink-0 transition-all ${
+                        selectedItineraryDay === h.day
+                          ? 'bg-slate-900 text-white shadow-md'
+                          : 'bg-[#FDFCF7] border border-slate-150 text-slate-500 hover:bg-slate-50'
+                      }`}
+                    >
+                      D{h.day}
+                    </button>
+                  ))}
+                </div>
 
-            {/* Selected day content */}
-            <div className="p-3 bg-[#FDFCF7] border border-slate-100 rounded-xl space-y-1">
-              <h4 className="font-bold text-slate-800 text-xs">{selectedDayInfo.title}</h4>
-              <p className="text-[10px] text-slate-500 font-medium leading-relaxed mt-1">
-                {selectedDayInfo.desc}
-              </p>
-            </div>
+                {/* Selected day content */}
+                {selectedDayInfo && (
+                  <div className="p-3 bg-[#FDFCF7] border border-slate-100 rounded-xl space-y-1">
+                    <h4 className="font-bold text-slate-800 text-xs">{selectedDayInfo.title}</h4>
+                    <p className="text-[10px] text-slate-500 font-medium leading-relaxed mt-1">
+                      {selectedDayInfo.desc}
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
           </div>
 
           {/* Interactive Travel Reflection star/mood rating selector */}
@@ -1689,11 +1841,11 @@ export const CustomerDashboard: React.FC = () => {
 
             <div className="flex items-center gap-3">
               <div className="size-9 bg-[#FFF8F2] border border-[#C9732A]/20 rounded-full flex items-center justify-center font-bold text-[#C9732A] text-xs">
-                ER
+                ST
               </div>
               <div>
-                <h4 className="font-bold text-slate-850 text-xs">Elena R. (Concierge Agent)</h4>
-                <p className="text-[9px] text-slate-400 font-bold mt-0.5">Online &bull; Swiss Destination Desk</p>
+                <h4 className="font-bold text-slate-850 text-xs">Shravya Tours Support</h4>
+                <p className="text-[9px] text-slate-400 font-bold mt-0.5">Online &bull; Operations Desk</p>
               </div>
             </div>
 
@@ -1905,11 +2057,11 @@ export const CustomerDashboard: React.FC = () => {
             <div className="p-4 border-b border-[#EDE8DF] flex items-center justify-between bg-slate-50">
               <div className="flex items-center gap-3">
                 <div className="size-9 bg-[#FFF8F2] border rounded-full flex items-center justify-center font-bold text-primary text-xs">
-                  ER
+                  ST
                 </div>
                 <div>
-                  <h4 className="font-bold text-slate-800 text-xs">Elena R.</h4>
-                  <span className="text-[9px] text-slate-400 font-bold block">Swiss Support Concierge</span>
+                  <h4 className="font-bold text-slate-800 text-xs">Shravya Tours</h4>
+                  <span className="text-[9px] text-slate-400 font-bold block">Support Concierge</span>
                 </div>
               </div>
               <button onClick={() => setShowSupportModal(false)} className="text-slate-400 hover:text-slate-650">
@@ -1994,8 +2146,10 @@ export const CustomerDashboard: React.FC = () => {
                   className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200"
                 />
               </div>
-              <button type="submit" className="w-full py-2.5 bg-[#C9732A] hover:bg-[#b05f20] text-white rounded-xl font-bold text-xs shadow-sm mt-1">
-                Upload to Secure Vault
+              <button type="submit" disabled={docUploading} className="w-full py-2.5 bg-[#C9732A] hover:bg-[#b05f20] text-white rounded-xl font-bold text-xs shadow-sm mt-1 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+                {docUploading ? (
+                  <><span className="animate-spin rounded-full h-3 w-3 border-t-2 border-white border-opacity-80" />Uploading...</>
+                ) : 'Upload to Secure Vault'}
               </button>
             </form>
           </div>
@@ -2057,6 +2211,32 @@ export const CustomerDashboard: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* ── ANNIVERSARY/BIRTHDAY PROMO BANNER ── */}
+      {anniversaryPromo && (
+        <div className="fixed bottom-6 left-6 right-6 md:left-auto md:right-6 md:w-96 z-[90] bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-4 shadow-xl animate-in slide-in-from-bottom duration-300">
+          <div className="flex items-start gap-3">
+            <div className="size-10 bg-amber-100 rounded-xl flex items-center justify-center shrink-0">
+              <span className="material-symbols-outlined text-amber-600 text-[22px]">celebration</span>
+            </div>
+            <div className="flex-grow min-w-0">
+              <h4 className="font-bold text-slate-900 text-sm">{anniversaryPromo.title}</h4>
+              <p className="text-[10px] text-slate-500 mt-0.5 leading-relaxed">{anniversaryPromo.description}</p>
+              <div className="flex items-center gap-2 mt-2">
+                <span className="text-xs font-black text-amber-700 bg-amber-100 px-2.5 py-1 rounded-lg border border-amber-200">{anniversaryPromo.code}</span>
+                <button onClick={() => { navigator.clipboard.writeText(anniversaryPromo.code); showToast('info', 'Promo code copied!'); }} className="text-[10px] font-bold text-amber-600 underline hover:text-amber-800">Copy Code</button>
+              </div>
+            </div>
+            <button onClick={() => setAnniversaryPromo(null)} className="text-slate-400 hover:text-slate-600 shrink-0">
+              <span className="material-symbols-outlined text-[16px]">close</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Toast & Confirmation Overlays ── */}
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+      <ConfirmModal open={confirmState.open} title={confirmState.title} message={confirmState.message} onConfirm={confirmState.onConfirm} onCancel={closeConfirm} />
 
     </div>
   );

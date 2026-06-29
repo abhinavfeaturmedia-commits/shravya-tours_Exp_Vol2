@@ -122,18 +122,18 @@ export interface AppSettings {
 
 export const DEFAULT_SETTINGS: AppSettings = {
   company: {
-    companyName: 'SHRAWELLO Travel Hub',
-    gstNumber: '',
-    registeredAddress: '',
-    email: '',
-    phone: '',
-    website: '',
+    companyName: 'SHRAWELLO Travel Hub and Events LLP',
+    gstNumber: '27AFXFS7018E1ZH',
+    registeredAddress: 'Pimpri Chinchwad, Pune,\nMaharashtra, India - 411062',
+    email: 'hello@shrawello.com',
+    phone: '+91 80109 55675',
+    website: 'https://shrawello.com',
     logoUrl: '/logo.png',
     instagram: '',
     facebook: '',
-    city: '',
-    state: '',
-    pincode: '',
+    city: 'Pune',
+    state: 'Maharashtra',
+    pincode: '411062',
   },
   finance: {
     cgstPercent: 2.5,

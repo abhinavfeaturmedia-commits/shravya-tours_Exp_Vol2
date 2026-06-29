@@ -36,6 +36,25 @@ const generateId = () => {
     }
     return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 };
+function cleanHtmlToPlainText(html: string): string {
+    if (!html) return '';
+    let text = html;
+    // Replace block-level tags with newlines
+    text = text.replace(/<\/(p|div|tr|li|h[1-6]|ul|ol)>/gi, '\n');
+    text = text.replace(/<br\s*\/?>/gi, '\n');
+    // Strip other tags
+    text = text.replace(/<[^>]+>/g, '');
+    // Replace HTML entities
+    text = text.replace(/&nbsp;/g, ' ')
+               .replace(/&amp;/g, '&')
+               .replace(/&lt;/g, '<')
+               .replace(/&gt;/g, '>')
+               .replace(/&quot;/g, '"')
+               .replace(/&#39;/g, "'");
+    // Normalize newlines
+    text = text.replace(/\n{3,}/g, '\n\n');
+    return text.trim();
+}
 
 export const DocumentEditor: React.FC = () => {
     const { settings } = useSettings();
@@ -81,6 +100,27 @@ export const DocumentEditor: React.FC = () => {
 
     // T&C template selector state
     const [termsDropdownOpen, setTermsDropdownOpen] = useState(false);
+
+    const handleToggleTemplate = (tmplContent: string, tmplTitle: string) => {
+        const cleanContent = cleanHtmlToPlainText(tmplContent);
+        const currentNotes = docData.notes || '';
+        const hasTmpl = currentNotes.includes(cleanContent);
+        let newNotes = '';
+        if (hasTmpl) {
+            newNotes = currentNotes.replace(cleanContent, '').trim();
+            newNotes = newNotes.replace(/\n{3,}/g, '\n\n');
+            toast.success(`Template "${tmplTitle}" removed`);
+        } else {
+            if (currentNotes.trim() === '') {
+                newNotes = cleanContent;
+            } else {
+                newNotes = `${currentNotes.trim()}\n\n${cleanContent}`;
+            }
+            toast.success(`Template "${tmplTitle}" appended`);
+        }
+        setDocData(prev => ({ ...prev, notes: newNotes }));
+        setIsDirty(true);
+    };
 
     const [showLinkPanel, setShowLinkPanel] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
@@ -412,10 +452,36 @@ export const DocumentEditor: React.FC = () => {
         setItems(newItems);
     };
 
-    const subtotal = items.reduce((sum, item) => sum + (Number(item.quantity || 0) * Number(item.unit_price || 0)), 0);
+    const parseDaysKm = (val: string | number | undefined | null): number => {
+        if (val === undefined || val === null) return 1;
+        const str = String(val).trim();
+        if (!str) return 1;
+        const match = str.match(/[\d.]+/);
+        if (match) {
+            const num = parseFloat(match[0]);
+            return !isNaN(num) && num > 0 ? num : 1;
+        }
+        return 1;
+    };
+
+    const getDaysKmParts = (val: string | number | undefined | null) => {
+        const str = String(val || '1').trim();
+        const match = str.match(/^([\d.]+)\s*(.*)$/);
+        if (match) {
+            const num = parseFloat(match[1]);
+            const unit = match[2].trim() || 'Days';
+            return { num: isNaN(num) ? 1 : num, unit: unit.toLowerCase() === 'km' ? 'Km' : 'Days' };
+        }
+        return { num: 1, unit: 'Days' };
+    };
+
+    const subtotal = items.reduce((sum, item) => sum + (parseDaysKm(item.total_days_km) * Number(item.unit_price || 0)), 0);
     const taxTotal = docData.is_gst === 1
-        ? items.reduce((sum, item) => sum + ((Number(item.quantity || 0) * Number(item.unit_price || 0)) * (Number(item.tax_rate || 0) / 100)), 0)
+        ? items.reduce((sum, item) => sum + ((parseDaysKm(item.total_days_km) * Number(item.unit_price || 0)) * (Number(item.tax_rate || 0) / 100)), 0)
         : 0;
+    const activeTaxRates: number[] = Array.from(new Set<number>(items.filter(item => Number(item.tax_rate) > 0).map(item => Number(item.tax_rate)))).sort((a: number, b: number) => a - b);
+    const igstRatesStr = activeTaxRates.length > 0 ? ` (${activeTaxRates.map((r: number) => `${r}%`).join(', ')})` : '';
+    const cgstSgstRatesStr = activeTaxRates.length > 0 ? ` (${activeTaxRates.map((r: number) => `${r / 2}%`).join(', ')})` : '';
     const discountAmt = Math.max(0, Math.min(subtotal, discount));
     
     // Read allowance values
@@ -495,8 +561,8 @@ export const DocumentEditor: React.FC = () => {
                     total_days_km: item.total_days_km || '1',
                     unit_price: Number(item.unit_price || 0),
                     tax_rate: Number(item.tax_rate || 0),
-                    tax_amount: (Number(item.quantity || 1) * Number(item.unit_price || 0)) * (Number(item.tax_rate || 0) / 100),
-                    total: (Number(item.quantity || 1) * Number(item.unit_price || 0)) * (1 + Number(item.tax_rate || 0) / 100),
+                    tax_amount: (parseDaysKm(item.total_days_km) * Number(item.unit_price || 0)) * (Number(item.tax_rate || 0) / 100),
+                    total: (parseDaysKm(item.total_days_km) * Number(item.unit_price || 0)) * (1 + Number(item.tax_rate || 0) / 100),
                     hsn_sac: item.hsn_sac || '9985'
                 };
                 await fetch('/api/crud/invoice_items', {
@@ -607,8 +673,8 @@ export const DocumentEditor: React.FC = () => {
                     total_days_km: item.total_days_km || '1',
                     unit_price: Number(item.unit_price || 0),
                     tax_rate: Number(item.tax_rate || 0),
-                    tax_amount: (Number(item.quantity || 1) * Number(item.unit_price || 0)) * (Number(item.tax_rate || 0) / 100),
-                    total: (Number(item.quantity || 1) * Number(item.unit_price || 0)) * (1 + Number(item.tax_rate || 0) / 100),
+                    tax_amount: (parseDaysKm(item.total_days_km) * Number(item.unit_price || 0)) * (Number(item.tax_rate || 0) / 100),
+                    total: (parseDaysKm(item.total_days_km) * Number(item.unit_price || 0)) * (1 + Number(item.tax_rate || 0) / 100),
                     hsn_sac: item.hsn_sac || '9985'
                 };
                 if (isNew) {
@@ -1265,33 +1331,37 @@ export const DocumentEditor: React.FC = () => {
                                 </span>
                             </div>
                             
-                            <div className="mt-6 space-y-2 text-sm text-slate-600 dark:text-slate-400">
-                                <div className="grid grid-cols-[100px_1fr] items-center">
-                                    <span className="text-slate-400 dark:text-slate-500">Invoice No #</span>
-                                    <span className="font-bold text-[#091C3B] dark:text-white">{id ? `${fi.invoicePrefix || 'INV'}${id.slice(0,6).toUpperCase()}` : 'DRAFT'}</span>
+                            <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-3 print:flex print:flex-col print:gap-1.5 text-xs">
+                                <div className="bg-slate-50/50 dark:bg-slate-800/10 border border-slate-100 dark:border-slate-800/60 rounded-2xl p-3.5 flex flex-col justify-center transition-colors">
+                                    <span className="text-[10px] text-slate-400 dark:text-slate-500 font-extrabold uppercase tracking-wider mb-1">Invoice No #</span>
+                                    <span className="font-extrabold text-[#091C3B] dark:text-white text-sm">{id ? `${fi.invoicePrefix || 'INV'}-${id.slice(0,6).toUpperCase()}` : 'DRAFT'}</span>
                                 </div>
-                                <div className="grid grid-cols-[100px_1fr] items-center">
-                                    <span className="text-slate-400 dark:text-slate-500">Invoice Date</span>
-                                    <input
-                                        type="date"
-                                        value={docData.issue_date ? docData.issue_date.split('T')[0] : new Date().toISOString().split('T')[0]}
-                                        onChange={e => { setDocData(prev => ({...prev, issue_date: e.target.value})); setIsDirty(true); }}
-                                        disabled={isLocked}
-                                        className="font-bold text-[#091C3B] dark:text-white bg-transparent border-b border-dashed border-transparent hover:border-slate-300 dark:hover:border-slate-600 focus:border-orange-400 outline-none text-sm print:hidden disabled:opacity-60"
-                                    />
-                                    <span className="hidden print:inline font-bold text-[#091C3B]">{new Date(docData.issue_date || new Date()).toLocaleDateString('en-US', {month:'short', day:'2-digit', year:'numeric'})}</span>
+                                <div className="bg-slate-50/50 dark:bg-slate-800/10 border border-slate-100 dark:border-slate-800/60 rounded-2xl p-3.5 flex flex-col justify-center transition-colors">
+                                    <span className="text-[10px] text-slate-400 dark:text-slate-500 font-extrabold uppercase tracking-wider mb-1">Invoice Date</span>
+                                    <div className="flex items-center gap-1.5">
+                                        <input
+                                            type="date"
+                                            value={docData.issue_date ? docData.issue_date.split('T')[0] : new Date().toISOString().split('T')[0]}
+                                            onChange={e => { setDocData(prev => ({...prev, issue_date: e.target.value})); setIsDirty(true); }}
+                                            disabled={isLocked}
+                                            className="font-bold text-[#091C3B] dark:text-white bg-transparent border-0 outline-none text-xs p-0 w-full print:hidden disabled:opacity-60 cursor-pointer"
+                                        />
+                                        <span className="hidden print:inline font-bold text-[#091C3B]">{new Date(docData.issue_date || new Date()).toLocaleDateString('en-US', {month:'short', day:'2-digit', year:'numeric'})}</span>
+                                    </div>
                                 </div>
-                                <div className="grid grid-cols-[100px_1fr] items-center">
-                                    <span className="text-slate-400 dark:text-slate-500">Due Date</span>
-                                    <input
-                                        type="date"
-                                        value={docData.due_date ? String(docData.due_date).split('T')[0] : ''}
-                                        onChange={e => { setDocData(prev => ({...prev, due_date: e.target.value || null})); setIsDirty(true); }}
-                                        disabled={isLocked}
-                                        className="font-bold text-[#091C3B] dark:text-white bg-transparent border-b border-dashed border-transparent hover:border-slate-300 dark:hover:border-slate-600 focus:border-orange-400 outline-none text-sm print:hidden disabled:opacity-60"
-                                        placeholder="Not set"
-                                    />
-                                    <span className="hidden print:inline font-bold text-[#091C3B]">{docData.due_date ? new Date(docData.due_date).toLocaleDateString('en-US', {month:'short', day:'2-digit', year:'numeric'}) : '—'}</span>
+                                <div className="bg-slate-50/50 dark:bg-slate-800/10 border border-slate-100 dark:border-slate-800/60 rounded-2xl p-3.5 flex flex-col justify-center transition-colors">
+                                    <span className="text-[10px] text-slate-400 dark:text-slate-500 font-extrabold uppercase tracking-wider mb-1">Due Date</span>
+                                    <div className="flex items-center gap-1.5">
+                                        <input
+                                            type="date"
+                                            value={docData.due_date ? String(docData.due_date).split('T')[0] : ''}
+                                            onChange={e => { setDocData(prev => ({...prev, due_date: e.target.value || null})); setIsDirty(true); }}
+                                            disabled={isLocked}
+                                            className="font-bold text-[#091C3B] dark:text-white bg-transparent border-0 outline-none text-xs p-0 w-full print:hidden disabled:opacity-60 cursor-pointer"
+                                            placeholder="Not set"
+                                        />
+                                        <span className="hidden print:inline font-bold text-[#091C3B]">{docData.due_date ? new Date(docData.due_date).toLocaleDateString('en-US', {month:'short', day:'2-digit', year:'numeric'}) : '—'}</span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -1314,94 +1384,108 @@ export const DocumentEditor: React.FC = () => {
 
                     <div className="px-8 pb-10 space-y-6">
                         {/* Billed By / Billed To Cards */}
-                        <div className="grid grid-cols-2 gap-6">
+                        <div className="flex flex-col md:flex-row items-stretch gap-6">
                             
                             {/* Billed By (Static Settings) */}
-                            <div className="bg-slate-50/50 dark:bg-slate-800/20 rounded-2xl p-5 border border-slate-100 dark:border-slate-800/80 transition-colors" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-                                <h3 className="text-sm font-bold text-[#F26222] uppercase tracking-wider mb-3">Billed By</h3>
-                                <div className="space-y-1.5 text-sm text-slate-600 dark:text-slate-300">
-                                    <p className="font-bold text-base text-[#091C3B] dark:text-white">{co.companyName || 'SHRAWELLO Travel Hub'}</p>
-                                    {co.registeredAddress ? (
-                                        <div className="whitespace-pre-line leading-relaxed text-xs">{co.registeredAddress}</div>
-                                    ) : (
-                                        <div className="leading-relaxed text-xs">
-                                            <p>Pimpri chinchwad, Pune ,</p>
-                                            <p>Pune,</p>
-                                            <p>Maharashtra, India - 411062</p>
-                                        </div>
-                                    )}
-                                    <p className="text-xs pt-1">
+                            <div className="flex-1 bg-slate-50/50 dark:bg-slate-800/20 rounded-2xl p-5 border border-slate-100 dark:border-slate-800/80 transition-colors flex flex-col justify-between" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+                                <div>
+                                    <h3 className="text-xs font-extrabold text-[#F26222] uppercase tracking-widest mb-3.5">Billed By</h3>
+                                    <div className="space-y-2 text-sm text-slate-650 dark:text-slate-300">
+                                        <p className="font-extrabold text-base text-[#091C3B] dark:text-white leading-tight">{co.companyName || 'SHRAWELLO Travel Hub and Events LLP'}</p>
+                                        {co.registeredAddress ? (
+                                            <div className="whitespace-pre-line leading-relaxed text-xs text-slate-500 dark:text-slate-400">{co.registeredAddress}</div>
+                                        ) : (
+                                            <div className="leading-relaxed text-xs text-slate-500 dark:text-slate-400">
+                                                <p>Pimpri Chinchwad, Pune,</p>
+                                                <p>Maharashtra, India - 411062</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="space-y-1.5 text-xs text-slate-500 mt-5 border-t border-slate-100 dark:border-slate-800/80 pt-3.5">
+                                    <p>
                                         <span className="font-bold text-slate-400 dark:text-slate-500">Email:</span> {co.email || 'hello@shrawello.com'}
                                     </p>
-                                    <p className="text-xs">
+                                    <p>
                                         <span className="font-bold text-slate-400 dark:text-slate-500">Phone:</span> {co.phone || '+91 80109 55675'}
+                                    </p>
+                                    <p>
+                                        <span className="font-bold text-slate-400 dark:text-slate-500">GSTIN:</span> {co.gstNumber || '27AFXFS7018E1ZH'}
+                                    </p>
+                                    <p>
+                                        <span className="font-bold text-slate-400 dark:text-slate-500">PAN:</span> AFXFS7018E
                                     </p>
                                 </div>
                             </div>
 
                             {/* Billed To (Interactive Form) */}
-                            <div className="bg-slate-50/50 dark:bg-slate-800/20 rounded-2xl p-5 border border-slate-100 dark:border-slate-800/80 hover:border-orange-500/20 dark:hover:border-orange-500/20 transition-all relative group" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-                                <h3 className="text-sm font-bold text-[#F26222] uppercase tracking-wider mb-3 flex items-center justify-between">
-                                    <span className="flex items-center gap-1.5">
-                                        Billed To
-                                        <span className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 dark:text-slate-500">
-                                            <Edit3 size={11} className="inline -mt-0.5 animate-pulse" />
+                            <div className="flex-1 bg-slate-50/50 dark:bg-slate-800/20 rounded-2xl p-5 border border-slate-100 dark:border-slate-800/80 hover:border-orange-500/20 dark:hover:border-orange-500/20 transition-all relative group flex flex-col justify-between" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+                                <div>
+                                    <h3 className="text-xs font-extrabold text-[#F26222] uppercase tracking-widest mb-3 flex items-center justify-between">
+                                        <span className="flex items-center gap-1.5">
+                                            Billed To
+                                            <span className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 dark:text-slate-500">
+                                                <Edit3 size={11} className="inline -mt-0.5 animate-pulse" />
+                                            </span>
                                         </span>
-                                    </span>
-                                    <button
-                                        onClick={() => {
-                                            setShowLinkPanel(true);
-                                            setSearchResults([]);
-                                            setSearchHasRun(false);
-                                            setSearchQuery('');
-                                            setTimeout(() => searchRecords(searchType, ''), 0);
-                                        }}
-                                        className="text-[10px] font-bold text-orange-500 hover:text-orange-600 flex items-center gap-1.5 print:hidden opacity-0 group-hover:opacity-100 transition-opacity bg-white dark:bg-slate-800 px-2.5 py-1.5 rounded-lg border border-slate-200/50 dark:border-slate-700/80 shadow-sm"
-                                    >
-                                        <Link size={11} /> Link Record
-                                    </button>
-                                </h3>
-                                <div className="space-y-2 text-sm">
-                                    {/* GST vs Non-GST Selector */}
-                                    <div className="flex gap-2 mb-3.5 print:hidden">
                                         <button
-                                            type="button"
-                                            onClick={() => setDocData({ ...docData, is_gst: 1 })}
-                                            className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-bold transition-all border ${
-                                                docData.is_gst === 1 
-                                                    ? 'bg-orange-50 text-orange-600 border-orange-200 dark:bg-orange-500/10 dark:text-orange-400 dark:border-orange-500/20' 
-                                                    : 'bg-white dark:bg-slate-800 text-slate-500 border-slate-200/50 dark:border-slate-700/80 hover:bg-slate-50 dark:hover:bg-slate-750'
-                                            }`}
+                                            onClick={() => {
+                                                setShowLinkPanel(true);
+                                                setSearchResults([]);
+                                                setSearchHasRun(false);
+                                                setSearchQuery('');
+                                                setTimeout(() => searchRecords(searchType, ''), 0);
+                                            }}
+                                            className="text-[10px] font-bold text-orange-500 hover:text-orange-600 flex items-center gap-1.5 print:hidden opacity-0 group-hover:opacity-100 transition-opacity bg-white dark:bg-slate-800 px-2.5 py-1.5 rounded-lg border border-slate-200/50 dark:border-slate-700/80 shadow-sm"
                                         >
-                                            GST Tax Invoice
+                                            <Link size={11} /> Link Record
                                         </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => setDocData({ ...docData, is_gst: 0 })}
-                                            className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-bold transition-all border ${
-                                                docData.is_gst === 0 
-                                                    ? 'bg-orange-50 text-orange-600 border-orange-200 dark:bg-orange-500/10 dark:text-orange-400 dark:border-orange-500/20' 
-                                                    : 'bg-white dark:bg-slate-800 text-slate-500 border-slate-200/50 dark:border-slate-700/80 hover:bg-slate-50 dark:hover:bg-slate-750'
-                                            }`}
-                                        >
-                                            Non-GST / Retail
-                                        </button>
-                                    </div>
+                                    </h3>
+                                    <div className="space-y-3 text-sm">
+                                        {/* GST vs Non-GST Selector */}
+                                        <div className="flex gap-2 print:hidden mb-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => setDocData({ ...docData, is_gst: 1 })}
+                                                className={`flex-1 py-1 px-3 rounded-lg text-[10px] font-bold transition-all border ${
+                                                    docData.is_gst === 1 
+                                                        ? 'bg-orange-50 text-orange-600 border-orange-200 dark:bg-orange-500/10 dark:text-orange-400 dark:border-orange-500/20' 
+                                                        : 'bg-white dark:bg-slate-800 text-slate-500 border-slate-200/50 dark:border-slate-700/80 hover:bg-slate-50 dark:hover:bg-slate-750'
+                                                }`}
+                                            >
+                                                GST Tax Invoice
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setDocData({ ...docData, is_gst: 0 })}
+                                                className={`flex-1 py-1 px-3 rounded-lg text-[10px] font-bold transition-all border ${
+                                                    docData.is_gst === 0 
+                                                        ? 'bg-orange-50 text-orange-600 border-orange-200 dark:bg-orange-500/10 dark:text-orange-400 dark:border-orange-500/20' 
+                                                        : 'bg-white dark:bg-slate-800 text-slate-500 border-slate-200/50 dark:border-slate-700/80 hover:bg-slate-50 dark:hover:bg-slate-750'
+                                                }`}
+                                            >
+                                                Non-GST / Retail
+                                            </button>
+                                        </div>
 
-                                    <input
-                                        type="text"
-                                        value={docData.client_name}
-                                        onChange={(e) => { setDocData({ ...docData, client_name: e.target.value }); setIsDirty(true); }}
-                                        placeholder="Client Name *"
-                                        className="font-bold text-base bg-transparent border-b border-dashed border-transparent hover:border-slate-200 dark:hover:border-slate-800 focus:border-orange-500 dark:focus:border-orange-500 w-full outline-none focus:ring-0 py-0.5 text-[#091C3B] dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-600 transition-all"
-                                    />
-                                    <textarea
-                                        value={docData.address}
-                                        onChange={(e) => setDocData({ ...docData, address: e.target.value })}
-                                        placeholder="Billing address"
-                                        rows={2}
-                                        className="bg-transparent border-b border-dashed border-transparent hover:border-slate-200 dark:hover:border-slate-800 focus:border-orange-500 dark:focus:border-orange-500 w-full outline-none focus:ring-0 resize-none text-xs leading-relaxed text-slate-600 dark:text-slate-300 placeholder:text-slate-400 dark:placeholder:text-slate-600 transition-all"
-                                    />
+                                        <input
+                                            type="text"
+                                            value={docData.client_name}
+                                            onChange={(e) => { setDocData({ ...docData, client_name: e.target.value }); setIsDirty(true); }}
+                                            placeholder="Client Name *"
+                                            className="font-bold text-base bg-transparent border-b border-dashed border-slate-200 dark:border-slate-800 hover:border-slate-350 focus:border-orange-500 w-full outline-none focus:ring-0 py-0.5 text-[#091C3B] dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-600 transition-all text-xs"
+                                        />
+                                        <textarea
+                                            value={docData.address}
+                                            onChange={(e) => setDocData({ ...docData, address: e.target.value })}
+                                            placeholder="Billing address"
+                                            rows={2}
+                                            className="bg-transparent border-b border-dashed border-slate-200 dark:border-slate-800 hover:border-slate-350 focus:border-orange-500 w-full outline-none focus:ring-0 resize-none text-xs leading-relaxed text-slate-600 dark:text-slate-300 placeholder:text-slate-400 dark:placeholder:text-slate-600 transition-all py-0.5"
+                                        />
+                                    </div>
+                                </div>
+                                
+                                <div className="space-y-2 mt-5 border-t border-slate-100 dark:border-slate-800/80 pt-3.5">
                                     <div className="flex items-center gap-1.5 text-xs">
                                         <span className="font-bold text-slate-400 dark:text-slate-500">Email:</span>
                                         <input
@@ -1409,7 +1493,7 @@ export const DocumentEditor: React.FC = () => {
                                             value={docData.email}
                                             onChange={(e) => setDocData({ ...docData, email: e.target.value })}
                                             placeholder="Email address"
-                                            className="bg-transparent border-b border-dashed border-transparent hover:border-slate-200 dark:hover:border-slate-800 focus:border-orange-500 dark:focus:border-orange-500 flex-1 outline-none focus:ring-0 py-0.5 text-slate-600 dark:text-slate-300 placeholder:text-slate-400 dark:placeholder:text-slate-600 transition-all"
+                                            className="bg-transparent border-b border-dashed border-slate-200 dark:border-slate-800 hover:border-slate-350 focus:border-orange-500 flex-1 outline-none focus:ring-0 py-0.5 text-slate-605 dark:text-slate-300 placeholder:text-slate-400 dark:placeholder:text-slate-600 transition-all text-xs"
                                         />
                                     </div>
                                     <div className="flex items-center gap-1.5 text-xs">
@@ -1419,13 +1503,13 @@ export const DocumentEditor: React.FC = () => {
                                             value={docData.phone || ''}
                                             onChange={(e) => setDocData({ ...docData, phone: e.target.value })}
                                             placeholder="Phone number"
-                                            className="bg-transparent border-b border-dashed border-transparent hover:border-slate-200 dark:hover:border-slate-800 focus:border-orange-500 dark:focus:border-orange-500 flex-1 outline-none focus:ring-0 py-0.5 text-slate-600 dark:text-slate-300 placeholder:text-slate-400 dark:placeholder:text-slate-600 transition-all"
+                                            className="bg-transparent border-b border-dashed border-slate-200 dark:border-slate-800 hover:border-slate-350 focus:border-orange-500 flex-1 outline-none focus:ring-0 py-0.5 text-slate-605 dark:text-slate-300 placeholder:text-slate-400 dark:placeholder:text-slate-600 transition-all text-xs"
                                         />
                                     </div>
 
                                     {/* Client GSTIN & GST Type (Only if GST is selected) */}
                                     {docData.is_gst === 1 && (
-                                        <div className="space-y-2 pt-2 border-t border-slate-150 dark:border-slate-800/80 transition-all animate-in fade-in duration-300">
+                                        <div className="space-y-2 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 transition-all animate-in fade-in duration-300">
                                             <div className="flex items-center gap-1.5 text-xs">
                                                 <span className="font-bold text-slate-400 dark:text-slate-500">Client GSTIN:</span>
                                                 <input
@@ -1434,7 +1518,7 @@ export const DocumentEditor: React.FC = () => {
                                                     onChange={(e) => setDocData({ ...docData, client_gst: e.target.value.toUpperCase() })}
                                                     placeholder="GSTIN (e.g. 27AAAAA0000A1Z0)"
                                                     maxLength={15}
-                                                    className="bg-transparent border-b border-dashed border-transparent hover:border-slate-200 dark:hover:border-slate-800 focus:border-orange-500 dark:focus:border-orange-500 flex-1 outline-none focus:ring-0 py-0.5 text-slate-600 dark:text-slate-350 font-mono tracking-wide placeholder:text-slate-400 dark:placeholder:text-slate-600 transition-all text-xs"
+                                                    className="bg-transparent border-b border-dashed border-slate-200 dark:border-slate-800 hover:border-slate-355 focus:border-orange-500 flex-1 outline-none focus:ring-0 py-0.5 text-slate-605 dark:text-slate-350 font-mono tracking-wide placeholder:text-slate-400 dark:placeholder:text-slate-600 transition-all text-xs"
                                                 />
                                             </div>
                                             <div className="flex items-center gap-1.5 text-xs">
@@ -1442,7 +1526,7 @@ export const DocumentEditor: React.FC = () => {
                                                 <select
                                                     value={docData.gst_type || 'CGST_SGST'}
                                                     onChange={(e) => setDocData({ ...docData, gst_type: e.target.value })}
-                                                    className="bg-transparent border-b border-dashed border-transparent hover:border-slate-200 dark:hover:border-slate-800 focus:border-orange-500 dark:focus:border-orange-500 flex-1 outline-none focus:ring-0 py-0.5 text-slate-700 dark:text-slate-300 font-bold transition-all text-xs cursor-pointer dark:bg-slate-900"
+                                                    className="bg-transparent border-b border-dashed border-slate-200 dark:border-slate-800 hover:border-slate-355 focus:border-orange-500 flex-1 outline-none focus:ring-0 py-0.5 text-slate-700 dark:text-slate-300 font-bold transition-all text-xs cursor-pointer dark:bg-slate-900"
                                                 >
                                                     <option value="CGST_SGST">Intra-state (CGST + SGST)</option>
                                                     <option value="IGST">Inter-state (IGST)</option>
@@ -1460,76 +1544,97 @@ export const DocumentEditor: React.FC = () => {
                                 <thead>
                                     <tr className="bg-[#091C3B] dark:bg-slate-800 text-white text-xs font-bold uppercase tracking-wider" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
                                         <th className="text-left px-4 py-4 w-[5%]">#</th>
-                                        <th className={`text-left px-4 py-4 ${docData.is_gst === 1 ? 'w-[35%]' : 'w-[47%]'}`}>Description</th>
+                                        <th className={`text-left px-4 py-4 ${docData.is_gst === 1 ? 'w-[30%]' : 'w-[40%]'}`}>Description</th>
                                         {docData.is_gst === 1 && (
-                                            <th className="text-center px-2 py-4 w-[12%]">HSN/SAC</th>
+                                            <th className="text-center px-2 py-4 w-[10%]">HSN/SAC</th>
                                         )}
                                         <th className={`text-center px-2 py-4 ${docData.is_gst === 1 ? 'w-[8%]' : 'w-[10%]'}`}>Qty</th>
-                                        <th className={`text-center px-2 py-4 ${docData.is_gst === 1 ? 'w-[12%]' : 'w-[18%]'}`}>Total Days / Km</th>
-                                        <th className="text-right px-2 py-4 w-[10%]">Rate (₹)</th>
+                                        <th className={`text-center px-2 py-4 ${docData.is_gst === 1 ? 'w-[14%]' : 'w-[18%]'}`}>Total Days / Km</th>
+                                        <th className="text-right px-2 py-4 w-[13%]">Rate (₹)</th>
                                         {docData.is_gst === 1 && (
                                             <th className="text-right px-2 py-4 w-[8%]">GST (%)</th>
                                         )}
-                                        <th className="text-right px-4 py-4 w-[10%]">Amount (₹)</th>
+                                        <th className="text-right px-4 py-4 w-[12%]">Amount (₹)</th>
                                         <th className="w-0 p-0 print:hidden"></th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {items.map((item, index) => {
+                                        const { num: daysKmNum, unit: daysKmUnit } = getDaysKmParts(item.total_days_km);
                                         return (
                                         <tr key={index} className={`group transition-colors border-b border-slate-100 dark:border-slate-800/50 last:border-0 ${index % 2 !== 0 ? 'bg-slate-50/50 dark:bg-slate-800/10' : 'bg-white dark:bg-[#111827]'}`} style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-                                            <td className="px-4 py-4.5 align-top text-slate-400 dark:text-slate-500 font-bold text-xs">{index + 1}.</td>
-                                            <td className="px-4 py-4.5 align-top">
+                                            <td className="px-4 py-4.5 align-middle text-slate-400 dark:text-slate-500 font-bold text-xs">{index + 1}.</td>
+                                            <td className="px-4 py-4.5 align-middle">
                                                 <textarea
                                                     value={item.description}
                                                     onChange={(e) => handleItemChange(index, 'description', e.target.value)}
                                                     placeholder="Enter details of tour packages, flights, stays..."
                                                     rows={2}
-                                                    className="w-full bg-transparent outline-none resize-none text-slate-700 dark:text-slate-200 leading-relaxed font-semibold focus:border-orange-500 focus:ring-0 border-b border-dashed border-transparent hover:border-slate-200 dark:hover:border-slate-700 transition-all text-xs py-0.5"
+                                                    className="w-full bg-slate-50 dark:bg-slate-800/40 outline-none resize-none text-slate-700 dark:text-slate-200 leading-relaxed font-semibold focus:border-orange-500 focus:ring-0 border border-slate-200/60 dark:border-slate-800 focus:bg-white dark:focus:bg-slate-900 rounded-xl transition-all text-xs px-2.5 py-1.5"
                                                 />
                                             </td>
                                             {docData.is_gst === 1 && (
-                                                <td className="px-2 py-4.5 align-top text-center">
+                                                <td className="px-2 py-4.5 align-middle text-center">
                                                     <input
                                                         type="text"
                                                         value={item.hsn_sac || '9985'}
                                                         onChange={(e) => handleItemChange(index, 'hsn_sac', e.target.value)}
                                                         placeholder="9985"
-                                                        className="w-full bg-transparent text-center text-slate-700 dark:text-slate-200 outline-none border-b border-dashed border-transparent focus:border-orange-500 focus:ring-0 font-semibold transition-all text-xs"
+                                                        className="w-full bg-slate-50 dark:bg-slate-800/40 text-center text-slate-700 dark:text-slate-200 outline-none border border-slate-200/60 dark:border-slate-800 focus:border-orange-500 focus:ring-0 font-semibold rounded-xl transition-all text-xs px-2 py-1.5"
                                                     />
                                                 </td>
                                             )}
-                                            <td className="px-2 py-4.5 align-top text-center">
+                                            <td className="px-2 py-4.5 align-middle text-center">
                                                 <input
                                                     type="number" min="1"
                                                     value={item.quantity}
                                                     onChange={(e) => handleItemChange(index, 'quantity', parseFloat(e.target.value) || 0)}
-                                                    className="w-full bg-transparent text-center text-slate-700 dark:text-slate-200 outline-none border-b border-dashed border-transparent focus:border-orange-500 focus:ring-0 font-semibold transition-all text-xs"
+                                                    className="w-full bg-slate-50 dark:bg-slate-800/40 text-center text-slate-700 dark:text-slate-200 outline-none border border-slate-200/60 dark:border-slate-800 focus:border-orange-500 focus:ring-0 font-semibold rounded-xl transition-all text-xs px-2 py-1.5"
                                                 />
                                             </td>
-                                            <td className="px-2 py-4.5 align-top text-center">
-                                                <input
-                                                    type="text"
-                                                    value={item.total_days_km || '1'}
-                                                    onChange={(e) => handleItemChange(index, 'total_days_km', e.target.value)}
-                                                    className="w-full bg-transparent text-center text-slate-700 dark:text-slate-200 outline-none border-b border-dashed border-transparent focus:border-orange-500 focus:ring-0 font-semibold transition-all text-xs"
-                                                    placeholder="1"
-                                                />
+                                            <td className="px-2 py-4.5 align-middle text-center print:text-xs">
+                                                <div className="flex items-center justify-center gap-1.5 print:hidden">
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        step="any"
+                                                        value={daysKmNum}
+                                                        onChange={(e) => {
+                                                            const val = parseFloat(e.target.value);
+                                                            const newNum = isNaN(val) ? 0 : val;
+                                                            handleItemChange(index, 'total_days_km', `${newNum} ${daysKmUnit}`);
+                                                        }}
+                                                        className="w-14 bg-slate-50 dark:bg-slate-800/40 text-center text-slate-700 dark:text-slate-200 outline-none border border-slate-200/60 dark:border-slate-800 focus:border-orange-500 focus:ring-0 font-semibold rounded-xl transition-all text-xs px-1.5 py-1.5"
+                                                    />
+                                                    <select
+                                                        value={daysKmUnit}
+                                                        onChange={(e) => {
+                                                            handleItemChange(index, 'total_days_km', `${daysKmNum} ${e.target.value}`);
+                                                        }}
+                                                        className="bg-slate-50 dark:bg-slate-800/40 text-slate-700 dark:text-slate-200 outline-none border border-slate-200/60 dark:border-slate-800 focus:border-orange-500 focus:ring-0 font-semibold rounded-xl transition-all text-xs py-1.5 px-1 cursor-pointer dark:bg-slate-900"
+                                                    >
+                                                        <option value="Days">Days</option>
+                                                        <option value="Km">Km</option>
+                                                    </select>
+                                                </div>
+                                                <span className="hidden print:inline font-semibold">
+                                                    {item.total_days_km || '1'}
+                                                </span>
                                             </td>
-                                            <td className="px-2 py-4.5 align-top text-right">
+                                            <td className="px-2 py-4.5 align-middle text-right">
                                                 <input
                                                     type="number" min="0"
                                                     value={item.unit_price}
                                                     onChange={(e) => handleItemChange(index, 'unit_price', parseFloat(e.target.value) || 0)}
-                                                    className="w-full bg-transparent text-right text-slate-700 dark:text-slate-200 outline-none border-b border-dashed border-transparent focus:border-orange-500 focus:ring-0 font-semibold transition-all text-xs"
+                                                    className="w-full bg-slate-50 dark:bg-slate-800/40 text-right text-slate-700 dark:text-slate-200 outline-none border border-slate-200/60 dark:border-slate-800 focus:border-orange-500 focus:ring-0 font-semibold rounded-xl transition-all text-xs px-2.5 py-1.5"
                                                 />
                                             </td>
                                             {docData.is_gst === 1 && (
-                                                <td className="px-2 py-4.5 align-top text-right">
+                                                <td className="px-2 py-4.5 align-middle text-right">
                                                     <select
                                                         value={item.tax_rate || 0}
                                                         onChange={(e) => handleItemChange(index, 'tax_rate', parseFloat(e.target.value) || 0)}
-                                                        className="w-full bg-transparent text-right text-slate-700 dark:text-slate-200 outline-none border-b border-dashed border-transparent focus:border-orange-500 focus:ring-0 font-semibold transition-all text-xs py-0 dark:bg-slate-900 cursor-pointer"
+                                                        className="w-full bg-slate-50 dark:bg-slate-800/40 text-right text-slate-700 dark:text-slate-200 outline-none border border-slate-200/60 dark:border-slate-800 focus:border-orange-500 focus:ring-0 font-semibold rounded-xl transition-all text-xs py-1.5 px-2 dark:bg-slate-900 cursor-pointer"
                                                     >
                                                         <option value="0">0%</option>
                                                         <option value="5">5%</option>
@@ -1539,10 +1644,10 @@ export const DocumentEditor: React.FC = () => {
                                                     </select>
                                                 </td>
                                             )}
-                                            <td className="px-4 py-4.5 align-top text-right text-[#091C3B] dark:text-white tabular-nums font-bold text-xs">
-                                                ₹{(Number(item.quantity || 0) * Number(item.unit_price || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                            <td className="px-4 py-4.5 align-middle text-right text-[#091C3B] dark:text-white tabular-nums font-bold text-xs">
+                                                ₹{(parseDaysKm(item.total_days_km) * Number(item.unit_price || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                                             </td>
-                                            <td className="p-0 align-top print:hidden w-8">
+                                            <td className="p-0 align-middle print:hidden w-8">
                                                 <button onClick={() => removeItem(index)} className="p-2.5 text-slate-300 hover:text-red-500 hover:scale-105 active:scale-95 opacity-0 group-hover:opacity-100 transition-all mt-1">
                                                     <Trash2 size={13} />
                                                 </button>
@@ -1552,6 +1657,7 @@ export const DocumentEditor: React.FC = () => {
                                 </tbody>
                             </table>
                         </div>
+
                         
                         {/* Add Item Actions (Hidden in print) */}
                         <div className="flex gap-2 print:hidden mt-2">
@@ -1571,9 +1677,8 @@ export const DocumentEditor: React.FC = () => {
                                 <div>
                                     <p className="text-[10px] text-slate-400 dark:text-slate-500 font-extrabold uppercase tracking-widest mb-1.5">Total (In Words)</p>
                                     <p className="text-xs text-[#091C3B] dark:text-slate-200 font-bold bg-orange-500/5 dark:bg-orange-500/10 border border-orange-500/20 dark:border-orange-500/30 rounded-2xl px-4 py-3 leading-relaxed shadow-inner">
-                                        {numberToWords(totalAmount)} RUPEES ONLY
-                                    </p>
-                                </div>
+                                        {numberToWords(totalAmount)}
+                                    </p>                                </div>
                                 
                                 <div className="bg-slate-50/50 dark:bg-slate-800/20 rounded-2xl p-5 border border-slate-100 dark:border-slate-800/80 transition-colors" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
                                     <h4 className="text-xs font-bold text-[#F26222] uppercase tracking-wider mb-4">Bank Details</h4>
@@ -1657,12 +1762,12 @@ export const DocumentEditor: React.FC = () => {
                                                         </>
                                                     )}
                                                 </div>
-                                                <div className="flex items-center justify-end flex-shrink-0">
+                                                <div className="flex items-center justify-end flex-shrink-0 print:text-xs">
                                                     <input
                                                         type="number" min="0"
                                                         value={(docData as any)[valueKey] || 0}
                                                         onChange={e => setDocData({ ...docData, [valueKey]: parseFloat(e.target.value) || 0 })}
-                                                        className="w-20 text-right bg-transparent border-b border-dashed border-transparent hover:border-slate-200 dark:hover:border-slate-700 focus:border-orange-500 focus:ring-0 outline-none print:hidden -mr-2 font-bold text-slate-800 dark:text-slate-100"
+                                                        className="w-24 text-right bg-slate-50 dark:bg-slate-800/40 outline-none border border-slate-200/60 dark:border-slate-800 focus:border-orange-500 focus:ring-0 font-bold rounded-lg px-2 py-1 transition-all text-xs focus:bg-white dark:focus:bg-slate-900 print:hidden text-slate-800 dark:text-slate-100"
                                                     />
                                                     <span className="hidden print:inline-block tabular-nums font-bold">₹{Number((docData as any)[valueKey] || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                                                 </div>
@@ -1678,12 +1783,12 @@ export const DocumentEditor: React.FC = () => {
                                                 </span>
                                             </div>
                                             {/* Only the amount is editable */}
-                                            <div className="flex items-center justify-end flex-shrink-0">
+                                            <div className="flex items-center justify-end flex-shrink-0 print:text-xs">
                                                 <input
                                                     type="number" min="0"
                                                     value={docData.advance_received || 0}
                                                     onChange={e => setDocData({ ...docData, advance_received: parseFloat(e.target.value) || 0 })}
-                                                    className="w-20 text-right bg-transparent border-b border-dashed border-transparent hover:border-slate-200 dark:hover:border-slate-700 focus:border-orange-500 focus:ring-0 outline-none print:hidden -mr-2 font-bold text-slate-800 dark:text-slate-100"
+                                                    className="w-24 text-right bg-slate-50 dark:bg-slate-800/40 outline-none border border-slate-200/60 dark:border-slate-800 focus:border-orange-500 focus:ring-0 font-bold rounded-lg px-2 py-1 transition-all text-xs focus:bg-white dark:focus:bg-slate-900 print:hidden text-slate-800 dark:text-slate-100"
                                                 />
                                                 <span className="hidden print:inline-block tabular-nums font-bold">₹{Number(docData.advance_received || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                                             </div>
@@ -1698,12 +1803,12 @@ export const DocumentEditor: React.FC = () => {
                                                 </span>
                                             </div>
                                             {/* Only the amount is editable */}
-                                            <div className="flex items-center justify-end flex-shrink-0">
+                                            <div className="flex items-center justify-end flex-shrink-0 print:text-xs">
                                                 <input
                                                     type="number" min="0"
                                                     value={discount}
                                                     onChange={e => setDiscount(parseFloat(e.target.value) || 0)}
-                                                    className="w-20 text-right bg-transparent border-b border-dashed border-transparent hover:border-slate-200 dark:hover:border-slate-700 focus:border-orange-500 focus:ring-0 outline-none print:hidden -mr-2 font-bold text-[#2D6A4F] dark:text-emerald-400"
+                                                    className="w-24 text-right bg-slate-50 dark:bg-slate-800/40 outline-none border border-slate-200/60 dark:border-slate-800 focus:border-orange-500 focus:ring-0 font-bold rounded-lg px-2 py-1 transition-all text-xs focus:bg-white dark:focus:bg-slate-900 print:hidden text-[#2D6A4F] dark:text-emerald-400"
                                                 />
                                                 <span className="hidden print:inline-block tabular-nums text-slate-500 font-bold">(₹{discountAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 })})</span>
                                             </div>
@@ -1718,14 +1823,14 @@ export const DocumentEditor: React.FC = () => {
                                                     placeholder="Field name…"
                                                     value={cf.label}
                                                     onChange={e => updateCustomField(idx, { label: e.target.value })}
-                                                    className="flex-1 min-w-0 text-xs font-semibold bg-transparent border-b border-dashed border-slate-300 dark:border-slate-700 focus:border-orange-500 outline-none text-slate-700 dark:text-slate-200 placeholder:text-slate-300 dark:placeholder:text-slate-600 print:hidden"
+                                                    className="flex-1 min-w-0 text-xs font-semibold bg-slate-50 dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-800 rounded-lg px-2.5 py-1 outline-none text-slate-700 dark:text-slate-200 placeholder:text-slate-300 dark:placeholder:text-slate-600 focus:bg-white dark:focus:bg-slate-900 focus:border-orange-500 focus:ring-0 transition-all print:hidden"
                                                 />
                                                 {/* Amount input */}
                                                 <input
                                                     type="number" min="0"
                                                     value={cf.amount}
                                                     onChange={e => updateCustomField(idx, { amount: parseFloat(e.target.value) || 0 })}
-                                                    className="w-20 text-right bg-transparent border-b border-dashed border-slate-300 dark:border-slate-700 focus:border-orange-500 outline-none font-bold text-slate-800 dark:text-slate-100 print:hidden"
+                                                    className="w-24 text-right bg-slate-50 dark:bg-slate-800/40 outline-none border border-slate-200/60 dark:border-slate-800 focus:border-orange-500 focus:ring-0 font-bold rounded-lg px-2 py-1 transition-all text-xs focus:bg-white dark:focus:bg-slate-900 text-slate-800 dark:text-slate-100 print:hidden"
                                                 />
                                                 {/* +/- toggle */}
                                                 <button
@@ -1766,17 +1871,17 @@ export const DocumentEditor: React.FC = () => {
                                         {docData.is_gst === 1 && taxTotal > 0 ? (
                                             docData.gst_type === 'IGST' ? (
                                                 <div className="flex justify-between items-center text-[10px] text-slate-400">
-                                                    <span>IGST Total:</span>
+                                                    <span>IGST Total{igstRatesStr}:</span>
                                                     <span className="tabular-nums font-medium">₹{taxTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                                                 </div>
                                             ) : (
                                                 <>
                                                     <div className="flex justify-between items-center text-[10px] text-slate-400">
-                                                        <span>CGST Total:</span>
+                                                        <span>CGST Total{cgstSgstRatesStr}:</span>
                                                         <span className="tabular-nums font-medium">₹{(taxTotal / 2).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                                                     </div>
                                                     <div className="flex justify-between items-center text-[10px] text-slate-400">
-                                                        <span>SGST Total:</span>
+                                                        <span>SGST Total{cgstSgstRatesStr}:</span>
                                                         <span className="tabular-nums font-medium">₹{(taxTotal / 2).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                                                     </div>
                                                 </>
@@ -1798,27 +1903,27 @@ export const DocumentEditor: React.FC = () => {
                                     
                                     {/* Live Payment Progress indicator */}
                                     <div className="space-y-3 pt-3.5 bg-emerald-500/5 dark:bg-emerald-500/10 border border-emerald-500/15 dark:border-emerald-500/20 rounded-2xl p-4 transition-colors">
-                                        <div className="flex justify-between items-center text-slate-700 dark:text-slate-200">
-                                            <div className="flex items-center gap-1">
+                                        <div className="flex flex-col gap-2">
+                                            <div className="flex justify-between items-center text-slate-700 dark:text-slate-200">
                                                 <span className="text-[10px] font-extrabold text-emerald-600 dark:text-emerald-400 uppercase tracking-widest">Amount Paid</span>
-                                            </div>
-                                            <div className="flex items-center justify-end">
                                                 <select
                                                     value={docData.payment_status}
                                                     onChange={e => setDocData({...docData, payment_status: e.target.value})}
-                                                    className="bg-transparent border-b border-transparent focus:border-orange-500 focus:ring-0 outline-none print:hidden mr-2 text-[10px] text-emerald-600 dark:text-emerald-400 font-extrabold cursor-pointer"
+                                                    className="bg-transparent border border-emerald-500/20 rounded-lg px-2 py-0.5 outline-none print:hidden text-[10px] text-emerald-600 dark:text-emerald-400 font-extrabold cursor-pointer dark:bg-slate-900 focus:border-emerald-500"
                                                 >
                                                     <option value="Unpaid">Unpaid</option>
                                                     <option value="Partially Paid">Part Paid</option>
                                                     <option value="Paid">Paid</option>
                                                 </select>
+                                            </div>
+                                            <div className="flex justify-end items-center mt-1">
                                                 <input
                                                     type="number" min="0"
                                                     value={docData.amount_paid || 0}
                                                     onChange={e => setDocData({...docData, amount_paid: parseFloat(e.target.value) || 0})}
-                                                    className="w-20 text-right bg-transparent border-b border-dashed border-transparent hover:border-slate-200 dark:hover:border-slate-700 focus:border-orange-500 focus:ring-0 outline-none print:hidden -mr-2 font-black text-emerald-600 dark:text-emerald-400"
+                                                    className="w-full text-right bg-emerald-600/10 dark:bg-emerald-500/10 outline-none border border-emerald-500/20 focus:border-emerald-500 focus:ring-0 font-black rounded-lg px-2.5 py-1.5 transition-all text-xs focus:bg-white dark:focus:bg-slate-900 text-emerald-600 dark:text-emerald-400 print:hidden"
                                                 />
-                                                <span className="hidden print:inline-block tabular-nums font-bold text-emerald-600 dark:text-emerald-400">(₹{(docData.amount_paid || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })})</span>
+                                                <span className="hidden print:inline-block tabular-nums font-bold text-emerald-600 dark:text-emerald-400">₹{(docData.amount_paid || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                                             </div>
                                         </div>
 
@@ -1916,44 +2021,56 @@ export const DocumentEditor: React.FC = () => {
                                                 {/* Backdrop */}
                                                 <div className="fixed inset-0 z-40" onClick={() => setTermsDropdownOpen(false)} />
                                                 {/* Dropdown panel */}
-                                                <div className="absolute right-0 top-full mt-2 w-72 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl z-50 overflow-hidden animate-[scaleIn_0.15s_ease-out]">
-                                                    <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700/80">
-                                                        <p className="text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Select a Template</p>
-                                                        <p className="text-[10px] text-slate-400 mt-0.5">Replaces current text — you can still edit after loading.</p>
+                                                <div className="absolute left-auto right-0 top-full mt-2 w-80 max-w-[calc(100vw-40px)] bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50 overflow-hidden animate-[scaleIn_0.15s_ease-out]">
+                                                    <div className="px-4 py-3 border-b border-slate-200/50 dark:border-slate-800 bg-white dark:bg-slate-950">
+                                                        <p className="text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Select Templates</p>
+                                                        <p className="text-[10px] text-slate-400 mt-0.5">Toggle multiple templates to append or remove them.</p>
                                                     </div>
-                                                    <div className="max-h-64 overflow-y-auto py-1">
+                                                    <div className="max-h-64 overflow-y-auto p-3 space-y-4">
                                                         {/* Group by category */}
                                                         {Array.from(new Set(masterTermsTemplates.filter(t => t.status === 'Active').map(t => t.category))).map(cat => (
-                                                            <div key={cat}>
-                                                                <p className="px-4 pt-2.5 pb-1 text-[9px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest">{cat}</p>
-                                                                {masterTermsTemplates
-                                                                    .filter(t => t.status === 'Active' && t.category === cat)
-                                                                    .map(tmpl => (
-                                                                        <button
-                                                                            key={tmpl.id}
-                                                                            type="button"
-                                                                            onClick={() => {
-                                                                                setDocData(prev => ({ ...prev, notes: tmpl.content }));
-                                                                                setTermsDropdownOpen(false);
-                                                                                toast.success(`Template "${tmpl.title}" loaded`);
-                                                                            }}
-                                                                            className="w-full text-left px-4 py-2.5 text-xs text-slate-700 dark:text-slate-200 hover:bg-orange-50 dark:hover:bg-orange-500/10 flex items-center justify-between gap-2 group transition-colors"
-                                                                        >
-                                                                            <span className="font-semibold truncate">{tmpl.title}</span>
-                                                                            <span className="flex items-center gap-1.5 flex-shrink-0">
-                                                                                {tmpl.isDefault && (
-                                                                                    <span className="text-[9px] bg-orange-100 dark:bg-orange-500/20 text-orange-600 dark:text-orange-400 px-1.5 py-0.5 rounded-full font-bold">Default</span>
-                                                                                )}
-                                                                                <ChevronRight size={11} className="text-slate-300 group-hover:text-orange-400 transition-colors" />
-                                                                            </span>
-                                                                        </button>
-                                                                    ))
-                                                                }
+                                                            <div key={cat} className="space-y-1.5">
+                                                                <p className="px-1 text-[9px] font-extrabold text-slate-450 dark:text-slate-500 uppercase tracking-widest">{cat}</p>
+                                                                <div className="space-y-2">
+                                                                    {masterTermsTemplates
+                                                                        .filter(t => t.status === 'Active' && t.category === cat)
+                                                                        .map(tmpl => {
+                                                                            const tmplTitle = tmpl.name || tmpl.title || 'Untitled Template';
+                                                                            const cleanContent = cleanHtmlToPlainText(tmpl.content);
+                                                                            const isChecked = (docData.notes || '').includes(cleanContent);
+                                                                            return (
+                                                                                <button
+                                                                                    key={tmpl.id}
+                                                                                    type="button"
+                                                                                    onClick={() => handleToggleTemplate(tmpl.content, tmplTitle)}
+                                                                                    className={`w-full text-left p-3 text-xs rounded-xl flex items-start gap-3 transition-all border ${
+                                                                                        isChecked
+                                                                                            ? 'bg-orange-500/[0.03] border-orange-500/30 text-slate-800 dark:text-slate-100 shadow-sm'
+                                                                                            : 'bg-white dark:bg-slate-800/80 border-slate-100 dark:border-slate-850 text-slate-600 dark:text-slate-300 hover:border-slate-200 dark:hover:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-850'
+                                                                                    }`}
+                                                                                >
+                                                                                    <input
+                                                                                        type="checkbox"
+                                                                                        checked={isChecked}
+                                                                                        onChange={() => {}} // handled by button click
+                                                                                        className="rounded border-slate-350 text-orange-500 focus:ring-orange-500 h-3.5 w-3.5 cursor-pointer dark:bg-slate-900 dark:border-slate-700 flex-shrink-0 mt-0.5"
+                                                                                    />
+                                                                                    <div className="flex-1 min-w-0">
+                                                                                        <p className="font-bold leading-tight">{tmplTitle}</p>
+                                                                                        {tmpl.isDefault && (
+                                                                                            <span className="inline-block text-[8px] bg-orange-100 dark:bg-orange-500/20 text-orange-600 dark:text-orange-400 px-1.5 py-0.5 rounded-full font-bold mt-1">Default</span>
+                                                                                        )}
+                                                                                    </div>
+                                                                                </button>
+                                                                            );
+                                                                        })
+                                                                    }
+                                                                </div>
                                                             </div>
                                                         ))}
                                                     </div>
                                                     {/* Footer: link to Masters */}
-                                                    <div className="border-t border-slate-100 dark:border-slate-700/80 px-4 py-2.5">
+                                                    <div className="border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-4 py-2.5">
                                                         <button
                                                             type="button"
                                                             onClick={() => { setTermsDropdownOpen(false); navigate('/admin/masters?tab=terms'); }}

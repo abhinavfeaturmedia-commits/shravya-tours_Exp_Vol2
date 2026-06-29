@@ -456,7 +456,9 @@ async function ensureLiveOpsSchema() {
         "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS service_type VARCHAR(100) DEFAULT NULL",
         "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS applied_coupon_code VARCHAR(100) DEFAULT NULL",
         "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS coupon_discount_amount DECIMAL(10,2) DEFAULT 0.00",
-        "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS original_price DECIMAL(10,2) DEFAULT NULL"
+        "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS original_price DECIMAL(10,2) DEFAULT NULL",
+        // Customer linkage — backfilled by sync endpoint; set on new bookings going forward
+        "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS customer_id VARCHAR(255) DEFAULT NULL"
     ];
     for (const sql of bookingAlterations) {
         try { await pool.query(sql); }
@@ -3717,6 +3719,97 @@ app.delete('/api/customers/:id', authMiddleware, async (req, res) => {
     }
 });
 
+// GET /api/customers-with-stats — Customers with server-computed booking stats
+// Computes bookings_count, total_spent, and last_active from actual bookings data
+// using customer_id → email → phone match priority (same as frontend logic, but
+// authoritative because it runs over ALL bookings without RBAC scoping).
+app.get('/api/customers-with-stats', authMiddleware, async (req, res) => {
+    // Check permission
+    const { permissions, isAdmin } = await getStaffPermissionsAndScope(req.user?.email);
+    if (req.user?.role !== 'admin' && req.user?.role !== 'Admin' && !isAdmin) {
+        if (!permissions.customers?.view) {
+            return res.status(403).json({ error: 'Unauthorized: Customers view access required.' });
+        }
+    }
+
+    try {
+        // Fetch all customers
+        const [customers] = await pool.query('SELECT * FROM customers ORDER BY created_at DESC');
+
+        // Fetch all non-cancelled bookings
+        const [bookings] = await pool.query(
+            "SELECT id, customer_id, customer_email, customer_phone, total_price, booking_date, status FROM bookings WHERE LOWER(status) != 'cancelled'"
+        );
+
+        // Build fast lookup maps: email → customerId, phone → customerId
+        const emailToId = new Map();
+        const phoneToId = new Map();
+        customers.forEach(c => {
+            if (c.email && c.email.trim() !== '') {
+                emailToId.set(c.email.trim().toLowerCase(), c.id);
+            }
+            if (c.phone && c.phone.trim() !== '') {
+                phoneToId.set(c.phone.trim(), c.id);
+            }
+        });
+
+        // Accumulate stats per customer
+        const statsMap = new Map(); // customerId → { count, spent, lastDate }
+        customers.forEach(c => statsMap.set(c.id, { count: 0, spent: 0, lastDate: null }));
+
+        for (const b of bookings) {
+            let matchedCid = null;
+
+            // Priority 1: Direct customer_id FK
+            if (b.customer_id && statsMap.has(b.customer_id)) {
+                matchedCid = b.customer_id;
+            }
+
+            // Priority 2: Email match
+            if (!matchedCid) {
+                const bEmail = (b.customer_email || '').trim().toLowerCase();
+                if (bEmail && emailToId.has(bEmail)) {
+                    matchedCid = emailToId.get(bEmail);
+                }
+            }
+
+            // Priority 3: Phone match
+            if (!matchedCid) {
+                const bPhone = (b.customer_phone || '').trim();
+                if (bPhone && phoneToId.has(bPhone)) {
+                    matchedCid = phoneToId.get(bPhone);
+                }
+            }
+
+            if (matchedCid && statsMap.has(matchedCid)) {
+                const stats = statsMap.get(matchedCid);
+                stats.count += 1;
+                stats.spent += (Number(b.total_price) || 0);
+                const bDate = b.booking_date ? new Date(b.booking_date) : null;
+                if (bDate && (!stats.lastDate || bDate > stats.lastDate)) {
+                    stats.lastDate = bDate;
+                }
+            }
+        }
+
+        // Merge computed stats into customer rows
+        const result = customers.map(c => {
+            const stats = statsMap.get(c.id) || { count: 0, spent: 0, lastDate: null };
+            return {
+                ...c,
+                computed_bookings_count: stats.count,
+                computed_total_spent: stats.spent,
+                computed_last_active: stats.lastDate ? stats.lastDate.toISOString().split('T')[0] : null
+            };
+        });
+
+        res.json({ data: result });
+    } catch (error) {
+        console.error('[Customers With Stats] Error:', error.message);
+        res.status(500).json({ error: 'Failed to fetch customers with stats', details: error.message });
+    }
+});
+
 // POST /api/sync-customers-from-bookings — Recompute customer stats from bookings
 // Uses SET (not +=) so it is safe to run multiple times (idempotent).
 // Match priority: email (non-empty) → phone (non-empty).
@@ -3783,9 +3876,26 @@ app.post('/api/sync-customers-from-bookings', authMiddleware, async (req, res) =
             updated++;
         }
 
-        console.log(`[Customer Sync] Done — customers updated: ${updated}`);
-        auditLog('Sync', 'customers', `Recomputed customer stats from bookings: updated=${updated}`, req.user?.email);
-        res.json({ status: 'success', created: 0, updated, skipped: 0 });
+        // ── Phase 2: Backfill customer_id on individual booking rows ──────────────
+        // This is idempotent: only updates bookings where customer_id is currently NULL.
+        let backfilled = 0;
+        for (const b of bookings) {
+            const bEmail = (b.customer_email || '').trim().toLowerCase();
+            const bPhone = (b.customer_phone || '').trim();
+            const cid = bEmail ? emailToId.get(bEmail) : (bPhone ? phoneToId.get(bPhone) : null);
+            if (cid) {
+                await pool.query(
+                    'UPDATE bookings SET customer_id = ? WHERE id = ? AND (customer_id IS NULL OR customer_id = "")',
+                    [cid, b.id]
+                );
+                backfilled++;
+            }
+        }
+        // ──────────────────────────────────────────────────────────────────────────
+
+        console.log(`[Customer Sync] Done — customers updated: ${updated}, bookings backfilled: ${backfilled}`);
+        auditLog('Sync', 'customers', `Recomputed customer stats from bookings: updated=${updated}, bookings backfilled=${backfilled}`, req.user?.email);
+        res.json({ status: 'success', created: 0, updated, skipped: 0, backfilled });
     } catch (error) {
         console.error('[Customer Sync] Error:', error.message);
         res.status(500).json({ error: 'Failed to sync customers from bookings', details: error.message });
@@ -3804,7 +3914,29 @@ app.get('/api/bookings-with-package', authMiddleware, async (req, res) => {
     }
 
     try {
-        let bookingsQuery = 'SELECT b.*, p.name as partner_name, p.company_name as partner_company_name FROM bookings b LEFT JOIN partners p ON b.partner_id = p.id';
+        // Resolve customer_id by email/phone for bookings that pre-date the
+        // customer_id column. Uses scalar subqueries (with LIMIT 1) instead of
+        // LEFT JOINs to prevent row multiplication when duplicate customer
+        // records share the same email or phone.
+        let bookingsQuery = `
+            SELECT b.*,
+                   p.name         AS partner_name,
+                   p.company_name AS partner_company_name,
+                   COALESCE(
+                       b.customer_id,
+                       (SELECT c1.id FROM customers c1
+                        WHERE b.customer_email != '' AND b.customer_email IS NOT NULL
+                          AND LOWER(b.customer_email) = LOWER(c1.email)
+                        LIMIT 1),
+                       (SELECT c2.id FROM customers c2
+                        WHERE (b.customer_email IS NULL OR b.customer_email = '')
+                          AND b.customer_phone != '' AND b.customer_phone IS NOT NULL
+                          AND b.customer_phone = c2.phone
+                        LIMIT 1)
+                   )              AS resolved_customer_id
+            FROM bookings b
+            LEFT JOIN partners p ON b.partner_id = p.id
+        `;
         const params = [];
         if (req.user?.role !== 'admin' && req.user?.role !== 'Admin' && !isAdmin) {
             bookingsQuery += ' WHERE b.assigned_to = ?';
@@ -3812,6 +3944,14 @@ app.get('/api/bookings-with-package', authMiddleware, async (req, res) => {
         }
         bookingsQuery += ' ORDER BY b.created_at DESC';
         const [bookings] = await pool.query(bookingsQuery, params);
+
+        // Remap resolved_customer_id → customer_id so existing frontend mapping works
+        bookings.forEach(b => {
+            if (!b.customer_id && b.resolved_customer_id) {
+                b.customer_id = b.resolved_customer_id;
+            }
+            delete b.resolved_customer_id;
+        });
 
         const bookingIds = bookings.map(b => b.id);
         if (bookingIds.length === 0) {

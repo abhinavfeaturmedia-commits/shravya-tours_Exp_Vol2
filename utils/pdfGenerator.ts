@@ -406,6 +406,18 @@ export function numberToWords(amount: number): string {
     return words + ' Only';
 }
 
+const parseDaysKm = (val: string | number | undefined | null): number => {
+    if (val === undefined || val === null) return 1;
+    const str = String(val).trim();
+    if (!str) return 1;
+    const match = str.match(/[\d.]+/);
+    if (match) {
+        const num = parseFloat(match[0]);
+        return !isNaN(num) && num > 0 ? num : 1;
+    }
+    return 1;
+};
+
 export const generateTrueInvoicePDF = async (docData: any, items: any[], company: any, finance: any, customFields?: { label: string; amount: number; is_deduction: boolean }[], fieldLabels?: Record<string, string>) => {
     // ── Load UPI QR Code Asynchronously ──
     const loadQrCode = (upiId: string, amount: number, customQr?: string): Promise<HTMLImageElement | null> => {
@@ -639,7 +651,7 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
     doc.setFontSize(8.5);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(9, 28, 59);
-    const compNameRaw = company.companyName || "SHRAWELLO TRAVEL HUB";
+    const compNameRaw = company.companyName || "SHRAWELLO Travel Hub and Events LLP";
     const compNameLines = doc.splitTextToSize(compNameRaw, cardWidth - 14);
     doc.text(compNameLines.slice(0, 2), 22, cardY + 15.5);
     const compNameShift = (Math.min(compNameLines.length, 2) - 1) * 3.5;
@@ -655,18 +667,20 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
             addrY += 3.8;
         });
     } else {
-        doc.text("A508, Wisteria, Patil Nagar,", 22, addrY); addrY += 3.8;
-        doc.text("Chikhali, PCMC, Pune, MH - 411062", 22, addrY); addrY += 3.8;
+        doc.text("Pimpri Chinchwad, Pune,", 22, addrY); addrY += 3.8;
+        doc.text("Maharashtra, India - 411062", 22, addrY); addrY += 3.8;
     }
 
-    // GSTIN Display
-    if (company.gstNumber) {
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(7);
-        doc.setTextColor(100, 116, 139);
-        doc.text(`GSTIN: ${company.gstNumber}`, 22, addrY);
-        addrY += 4.2;
-    }
+    // GSTIN & PAN Display
+    const compGst = company.gstNumber || '27AFXFS7018E1ZH';
+    const compPan = 'AFXFS7018E';
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`GSTIN: ${compGst}`, 22, addrY);
+    addrY += 3.8;
+    doc.text(`PAN: ${compPan}`, 22, addrY);
+    addrY += 4.2;
 
     // Email & Phone
     doc.setFont("helvetica", "normal");
@@ -750,8 +764,8 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
     let tableColStyles: Record<number, any> = {};
     let bodyData: any[] = [];
 
-    const totalQtyDays = items.reduce((acc, item) => acc + (Number(item.total_days_km) || 0), 0);
-    const subtotalAmount = items.reduce((acc, item) => acc + (Number(item.quantity || 1) * Number(item.unit_price || 0)), 0);
+    const totalQtyDays = items.reduce((acc, item) => acc + (parseDaysKm(item.total_days_km) || 0), 0);
+    const subtotalAmount = items.reduce((acc, item) => acc + (parseDaysKm(item.total_days_km) * Number(item.unit_price || 0)), 0);
 
     if (docData.is_gst === 1) {
         const isIGST = docData.gst_type === 'IGST';
@@ -770,8 +784,9 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
 
             bodyData = items.map((item, idx) => {
                 const qty = Number(item.quantity) || 1;
+                const daysKm = parseDaysKm(item.total_days_km);
                 const rate = Number(item.unit_price) || 0;
-                const baseAmount = qty * rate;
+                const baseAmount = daysKm * rate;
                 const taxRate = Number(item.tax_rate) || 0;
                 const taxAmount = baseAmount * (taxRate / 100);
                 const total = baseAmount + taxAmount;
@@ -787,7 +802,7 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
                 ];
             });
 
-            const totalTaxAmt = items.reduce((acc, item) => acc + (Number(item.quantity || 1) * Number(item.unit_price || 0) * (Number(item.tax_rate || 0) / 100)), 0);
+            const totalTaxAmt = items.reduce((acc, item) => acc + (parseDaysKm(item.total_days_km) * Number(item.unit_price || 0) * (Number(item.tax_rate || 0) / 100)), 0);
             const totalFullAmt = subtotalAmount + totalTaxAmt;
             bodyData.push(['', 'TOTAL', '', '', '', `Rs. ${subtotalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, `Rs. ${totalTaxAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, `Rs. ${totalFullAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`]);
         } else {
@@ -806,8 +821,9 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
 
             bodyData = items.map((item, idx) => {
                 const qty = Number(item.quantity) || 1;
+                const daysKm = parseDaysKm(item.total_days_km);
                 const rate = Number(item.unit_price) || 0;
-                const baseAmount = qty * rate;
+                const baseAmount = daysKm * rate;
                 const taxRate = Number(item.tax_rate) || 0;
                 const taxAmount = baseAmount * (taxRate / 100);
                 const total = baseAmount + taxAmount;
@@ -824,7 +840,7 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
                 ];
             });
 
-            const totalTaxAmt = items.reduce((acc, item) => acc + (Number(item.quantity || 1) * Number(item.unit_price || 0) * (Number(item.tax_rate || 0) / 100)), 0);
+            const totalTaxAmt = items.reduce((acc, item) => acc + (parseDaysKm(item.total_days_km) * Number(item.unit_price || 0) * (Number(item.tax_rate || 0) / 100)), 0);
             const totalFullAmt = subtotalAmount + totalTaxAmt;
             bodyData.push(['', 'TOTAL', '', '', '', `Rs. ${subtotalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, `Rs. ${(totalTaxAmt / 2).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, `Rs. ${(totalTaxAmt / 2).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, `Rs. ${totalFullAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`]);
         }
@@ -841,14 +857,15 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
 
         bodyData = items.map((item, idx) => {
             const qty = Number(item.quantity) || 1;
-            const daysKm = item.total_days_km || '1';
+            const daysKmStr = item.total_days_km || '1';
+            const daysKmVal = parseDaysKm(daysKmStr);
             const rate = Number(item.unit_price) || 0;
-            const total = qty * rate;
+            const total = daysKmVal * rate;
             return [
                 (idx + 1).toString(),
                 item.description ? cleanText(item.description) : 'Tour Service Operator',
                 qty.toString(),
-                daysKm.toString(),
+                daysKmStr.toString(),
                 `Rs. ${rate.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
                 `Rs. ${total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
             ];

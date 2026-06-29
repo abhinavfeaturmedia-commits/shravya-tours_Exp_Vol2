@@ -12,6 +12,20 @@ import { DataImportModal, ColumnMapping } from '../../src/components/admin/DataI
 import { ActionMenu } from '../../components/ui/ActionMenu';
 import { useNavigate } from 'react-router-dom';
 
+// ─── Booking Match Helper ─────────────────────────────────────────────────────
+// Matches bookings to a customer using: DB foreign-key → email → phone (priority).
+// Pass includesCancelled=true to include Cancelled bookings (e.g. for timeline).
+const getCustomerBookings = (customer: Customer, bookings: Booking[], includesCancelled = false) =>
+    bookings.filter(b => {
+        if (!includesCancelled && b.status === 'Cancelled') return false;
+        if (b.customerId && b.customerId === customer.id) return true;
+        if (b.email && b.email.trim() !== '' && customer.email && customer.email.trim() !== '' &&
+            b.email.toLowerCase() === customer.email.toLowerCase()) return true;
+        if (b.phone && b.phone.trim() !== '' && customer.phone && customer.phone.trim() !== '' &&
+            b.phone.trim() === customer.phone.trim()) return true;
+        return false;
+    });
+
 // --- Sort & Filter Types ---
 type SortField = 'name' | 'totalSpent' | 'bookingsCount' | 'joinedDate' | 'lastActive';
 type SortOrder = 'asc' | 'desc';
@@ -20,50 +34,22 @@ export const Customers: React.FC = () => {
     const { customers, bookings, leads, addCustomer, updateCustomer, deleteCustomer, importCustomers, getActiveMembershipForCustomer, membershipPlans } = useData();
     const { hasPermission } = useAuth();
 
-    // Compute live booking stats (count and spent) from actual bookings
-    // MATCH RULES (strict priority — avoids double-counting):
-    //   1. customerId  — direct DB foreign key, most reliable
-    //   2. email       — fallback, only when both sides are non-empty
-    //   3. phone       — fallback, only when both sides are non-empty and non-blank
+    // Server-computed booking stats are now embedded in the customer object
+    // (bookingsCount, totalSpent, lastActive) from /api/customers-with-stats.
+    // This helper provides a consistent interface used by the list, sorting, and export.
+    const getCustomerStats = (customer: Customer) => ({
+        count: customer.bookingsCount ?? 0,
+        spent: customer.totalSpent ?? 0
+    });
+
+    // Build a lookup map for compatibility with existing code that uses liveBookingStats[id]
     const liveBookingStats = useMemo(() => {
         const stats: Record<string, { count: number; spent: number }> = {};
-        bookings.forEach(b => {
-            // Skip cancelled — they should not count as trips or spend
-            if (b.status === 'Cancelled') return;
-
-            let matchedCustomer: typeof customers[0] | undefined;
-
-            // Priority 1: Direct DB customer ID link
-            if (b.customerId) {
-                matchedCustomer = customers.find(c => c.id === b.customerId);
-            }
-
-            // Priority 2: Email match — only when both sides are non-empty
-            if (!matchedCustomer && b.email && b.email.trim() !== '') {
-                matchedCustomer = customers.find(
-                    c => c.email && c.email.trim() !== '' &&
-                    b.email!.toLowerCase() === c.email.toLowerCase()
-                );
-            }
-
-            // Priority 3: Phone match — only when both sides are non-empty
-            if (!matchedCustomer && b.phone && b.phone.trim() !== '') {
-                matchedCustomer = customers.find(
-                    c => c.phone && c.phone.trim() !== '' &&
-                    b.phone.trim() === c.phone.trim()
-                );
-            }
-
-            if (matchedCustomer) {
-                if (!stats[matchedCustomer.id]) {
-                    stats[matchedCustomer.id] = { count: 0, spent: 0 };
-                }
-                stats[matchedCustomer.id].count += 1;
-                stats[matchedCustomer.id].spent += (Number(b.amount) || 0);
-            }
+        customers.forEach(c => {
+            stats[c.id] = getCustomerStats(c);
         });
         return stats;
-    }, [bookings, customers]);
+    }, [customers]);
 
 
     const [search, setSearch] = useState('');
@@ -76,21 +62,39 @@ export const Customers: React.FC = () => {
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null); // For Details Drawer
     const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null); // For Edit Modal
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
     // Data Processing
     const processedCustomers = useMemo(() => {
         let result = customers.filter(c =>
             (c.name.toLowerCase().includes(search.toLowerCase()) ||
                 c.email.toLowerCase().includes(search.toLowerCase()) ||
-                c.phone.includes(search)) &&
-            (activeTab === 'All' || c.type === (activeTab === 'New' ? 'New' : 'VIP'))
+                (c.phone || '').includes(search)) &&
+            (activeTab === 'All' ||
+             (activeTab === 'VIP'
+                ? (c.type === 'VIP' || (liveBookingStats[c.id]?.spent ?? 0) >= 500000)
+                : c.type === 'New'))
         );
 
         return result.sort((a, b) => {
-            const valA = a[sortField];
-            const valB = b[sortField];
+            let valA: string | number;
+            let valB: string | number;
 
-            if (valA === undefined || valB === undefined) return 0;
+            // Always sort by live-computed stats, not stale DB fields
+            if (sortField === 'totalSpent') {
+                valA = liveBookingStats[a.id]?.spent ?? 0;
+                valB = liveBookingStats[b.id]?.spent ?? 0;
+            } else if (sortField === 'bookingsCount') {
+                valA = liveBookingStats[a.id]?.count ?? 0;
+                valB = liveBookingStats[b.id]?.count ?? 0;
+            } else if (sortField === 'lastActive') {
+                // Fall back to joinedDate when lastActive is missing
+                valA = a.lastActive || a.joinedDate;
+                valB = b.lastActive || b.joinedDate;
+            } else {
+                valA = (a[sortField] as string | number) ?? '';
+                valB = (b[sortField] as string | number) ?? '';
+            }
 
             if (typeof valA === 'string' && typeof valB === 'string') {
                 return sortOrder === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
@@ -100,7 +104,7 @@ export const Customers: React.FC = () => {
             }
             return 0;
         });
-    }, [customers, search, activeTab, sortField, sortOrder]);
+    }, [customers, search, activeTab, sortField, sortOrder, liveBookingStats]);
 
     // Pagination
     const { currentPage, setCurrentPage, itemsPerPage, setItemsPerPage, paginateData } = usePagination(processedCustomers.length, 10);
@@ -113,6 +117,18 @@ export const Customers: React.FC = () => {
             setSortField(field);
             setSortOrder('desc');
         }
+    };
+
+    // Bulk-select handlers
+    const handleSelectAll = (checked: boolean) => {
+        setSelectedIds(checked ? new Set(paginatedCustomers.map(c => c.id)) : new Set());
+    };
+    const handleSelectOne = (id: string, checked: boolean) => {
+        setSelectedIds(prev => {
+            const next = new Set(prev);
+            if (checked) next.add(id); else next.delete(id);
+            return next;
+        });
     };
 
     // Export Excel
@@ -131,7 +147,13 @@ export const Customers: React.FC = () => {
             { header: 'Tags', key: c => c.tags?.join('; ') || '', width: 30 }
         ];
 
-        exportToExcel(processedCustomers, columns, {
+        // Merge live stats into export so exported data is accurate
+        const exportData = processedCustomers.map(c => ({
+            ...c,
+            totalSpent: liveBookingStats[c.id]?.spent ?? c.totalSpent,
+            bookingsCount: liveBookingStats[c.id]?.count ?? c.bookingsCount,
+        }));
+        exportToExcel(exportData, columns, {
             filename: `Customers_Export_${new Date().toISOString().split('T')[0]}`,
             sheetName: 'Customers',
             title: 'SHRAWELLO Travel Hub - Customers Report',
@@ -174,7 +196,7 @@ export const Customers: React.FC = () => {
                             {(['All', 'VIP', 'New'] as const).map(tab => (
                                 <button
                                     key={tab}
-                                    onClick={() => setActiveTab(tab)}
+                                    onClick={() => { setActiveTab(tab); setCurrentPage(1); setSelectedIds(new Set()); }}
                                     className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === tab ? 'bg-white dark:bg-slate-700 shadow-sm text-slate-900 dark:text-white' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
                                 >
                                     {tab === 'All' ? 'All Customers' : tab === 'VIP' ? 'VIP Members' : 'New Customers'}
@@ -188,18 +210,32 @@ export const Customers: React.FC = () => {
                                 type="text"
                                 placeholder="Search by name, email..."
                                 value={search}
-                                onChange={(e) => setSearch(e.target.value)}
+                                onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); setSelectedIds(new Set()); }}
                                 className="w-full pl-11 pr-4 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
                             />
                         </div>
                     </div>
 
+                    {/* Bulk Action Banner */}
+                    {selectedIds.size > 0 && (
+                        <div className="px-6 py-2.5 bg-primary/10 border-b border-primary/20 flex items-center justify-between">
+                            <span className="text-sm font-bold text-primary">{selectedIds.size} customer{selectedIds.size > 1 ? 's' : ''} selected</span>
+                            <button onClick={() => setSelectedIds(new Set())} className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 font-medium transition-colors">Clear selection</button>
+                        </div>
+                    )}
                     {/* Table */}
                     <div className="overflow-x-auto flex-1">
                         <table className="w-full text-left border-collapse">
                             <thead>
                                 <tr className="bg-slate-50/50 dark:bg-slate-800/20 text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400 font-extrabold border-b border-slate-100 dark:border-slate-800">
-                                    <th className="p-4 w-12 text-center"><input type="checkbox" className="rounded text-primary focus:ring-primary" /></th>
+                                    <th className="p-4 w-12 text-center">
+                                        <input
+                                            type="checkbox"
+                                            checked={paginatedCustomers.length > 0 && paginatedCustomers.every(c => selectedIds.has(c.id))}
+                                            onChange={e => handleSelectAll(e.target.checked)}
+                                            className="rounded text-primary focus:ring-primary"
+                                        />
+                                    </th>
                                     <th onClick={() => handleSort('name')} className="p-4 cursor-pointer hover:text-primary transition-colors select-none">Customer Name</th>
                                     <th className="p-4">Email / Contact</th>
                                     <th onClick={() => handleSort('bookingsCount')} className="p-4 cursor-pointer hover:text-primary transition-colors select-none">Total Bookings</th>
@@ -212,7 +248,12 @@ export const Customers: React.FC = () => {
                                 {paginatedCustomers.map(customer => (
                                     <tr key={customer.id} onClick={() => setSelectedCustomer(customer)} className="group hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-all cursor-pointer">
                                         <td className="p-4 w-12 text-center" onClick={e => e.stopPropagation()}>
-                                            <input type="checkbox" className="rounded text-primary focus:ring-primary opacity-0 group-hover:opacity-100 transition-opacity" />
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedIds.has(customer.id)}
+                                                onChange={e => handleSelectOne(customer.id, e.target.checked)}
+                                                className={`rounded text-primary focus:ring-primary transition-opacity ${selectedIds.has(customer.id) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+                                            />
                                         </td>
                                         <td className="p-4">
                                             <div className="flex items-center gap-3">
@@ -342,14 +383,14 @@ export const Customers: React.FC = () => {
                     customer={editingCustomer}
                     onSubmit={(data) => {
                         if (editingCustomer) {
+                            // DataContext.updateCustomer already fires its own success toast
                             updateCustomer(editingCustomer.id, data);
-                            toast.success('Customer updated');
                             if (selectedCustomer?.id === editingCustomer.id) {
                                 setSelectedCustomer(prev => prev ? { ...prev, ...data } : null);
                             }
                         } else {
                             addCustomer({
-                                id: `CUST-${Date.now()}`,
+                                id: crypto.randomUUID(),
                                 ...data,
                                 totalSpent: 0,
                                 bookingsCount: 0,
@@ -358,7 +399,6 @@ export const Customers: React.FC = () => {
                                 preferences: { dietary: [], flight: [], accommodation: [] },
                                 notes: []
                             });
-                            toast.success('Customer added');
                         }
                         setIsAddModalOpen(false);
                     }}
@@ -412,6 +452,7 @@ const CustomerDetailsDrawer: React.FC<{
     onEdit: () => void;
 }> = ({ isOpen, onClose, customer, bookings, leads, updateCustomer, onEdit }) => {
     const { getActiveMembershipForCustomer, membershipPlans } = useData();
+    const { user } = useAuth();
     const [note, setNote] = useState('');
     const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
     const [editNoteText, setEditNoteText] = useState('');
@@ -462,7 +503,7 @@ const CustomerDetailsDrawer: React.FC<{
         const newNote: CustomerNote = {
             id: `NOTE-${Date.now()}`,
             text: note,
-            author: 'You',
+            author: user?.name || 'Admin',
             date: new Date().toISOString()
         };
         const existingNotes = customer.notes || [];
@@ -512,28 +553,41 @@ const CustomerDetailsDrawer: React.FC<{
                     </button>
                 </div>
                 <div className="flex-1 overflow-y-auto p-6 space-y-8 bg-slate-50/50 dark:bg-black/20">
-                    <div className="flex gap-4">
-                        <div className="flex-1 bg-white dark:bg-slate-800 p-4 rounded-xl border border-amber-100 dark:border-amber-900/30 shadow-sm">
-                            <div className="text-xs font-bold text-amber-500 uppercase flex items-center gap-1 mb-1">Gold Member</div>
-                            <div className="text-xl font-black text-slate-900 dark:text-white">Tier 2</div>
-                        </div>
-                        <div className="flex-1 bg-white dark:bg-slate-800 p-4 rounded-xl border border-blue-100 dark:border-blue-900/30 shadow-sm">
-                            <div className="text-xs font-bold text-blue-500 uppercase flex items-center gap-1 mb-1">Local Time</div>
-                            <div className="text-xl font-black text-slate-900 dark:text-white">UTC +05:30</div>
-                        </div>
-                        <div className="flex-1 bg-white dark:bg-slate-800 p-4 rounded-xl border border-emerald-100 dark:border-emerald-900/30 shadow-sm">
-                            <div className="text-xs font-bold text-emerald-500 uppercase flex items-center gap-1 mb-1">Total Spent</div>
-                            <div className="text-xl font-black text-slate-900 dark:text-white">₹{((bookings.filter(b => {
-                                if (b.status === 'Cancelled') return false;
-                                if (b.customerId && b.customerId === customer.id) return true;
-                                if (b.email && b.email.trim() !== '' && customer.email && customer.email.trim() !== '' &&
-                                    b.email.toLowerCase() === customer.email.toLowerCase()) return true;
-                                if (b.phone && b.phone.trim() !== '' && customer.phone && customer.phone.trim() !== '' && 
-                                    b.phone.trim() === customer.phone.trim()) return true;
-                                return false;
-                            }).reduce((sum, b) => sum + (Number(b.amount) || 0), 0)) / 1000).toFixed(1)}k</div>
-                        </div>
-                    </div>
+                    {/* Top Stats Row — real-time data, no hardcoded values */}
+                    {(() => {
+                        const activeMembership = getActiveMembershipForCustomer(customer.id);
+                        const plan = activeMembership ? membershipPlans.find(p => p.id === activeMembership.planId) : null;
+                        // Use server-computed stats; fall back to booking-based computation for real-time accuracy
+                        const bookingBasedSpent = getCustomerBookings(customer, bookings).reduce((sum, b) => sum + (Number(b.amount) || 0), 0);
+                        const totalSpent = Math.max(customer.totalSpent ?? 0, bookingBasedSpent);
+                        return (
+                            <div className="flex gap-4">
+                                <div className="flex-1 bg-white dark:bg-slate-800 p-4 rounded-xl border shadow-sm" style={{ borderColor: activeMembership ? `${plan?.color || '#F59E0B'}40` : undefined }}>
+                                    <div className="text-xs font-bold uppercase flex items-center gap-1 mb-1" style={{ color: plan?.color || (activeMembership ? '#F59E0B' : '#9CA3AF') }}>
+                                        <span className="material-symbols-outlined text-[12px]">{activeMembership ? 'workspace_premium' : 'person_outline'}</span>
+                                        {activeMembership ? 'Membership' : 'No Membership'}
+                                    </div>
+                                    <div className="text-xl font-black text-slate-900 dark:text-white">{activeMembership ? `${activeMembership.tier} Tier` : '—'}</div>
+                                </div>
+                                <div className="flex-1 bg-white dark:bg-slate-800 p-4 rounded-xl border border-blue-100 dark:border-blue-900/30 shadow-sm">
+                                    <div className="text-xs font-bold text-blue-500 uppercase flex items-center gap-1 mb-1">
+                                        <span className="material-symbols-outlined text-[12px]">calendar_today</span>
+                                        Customer Since
+                                    </div>
+                                    <div className="text-xl font-black text-slate-900 dark:text-white">
+                                        {new Date(customer.joinedDate).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}
+                                    </div>
+                                </div>
+                                <div className="flex-1 bg-white dark:bg-slate-800 p-4 rounded-xl border border-emerald-100 dark:border-emerald-900/30 shadow-sm">
+                                    <div className="text-xs font-bold text-emerald-500 uppercase flex items-center gap-1 mb-1">
+                                        <span className="material-symbols-outlined text-[12px]">payments</span>
+                                        Total Spent
+                                    </div>
+                                    <div className="text-xl font-black text-slate-900 dark:text-white">₹{(totalSpent / 1000).toFixed(1)}k</div>
+                                </div>
+                            </div>
+                        );
+                    })()}
 
                     {/* Contact & Profile Details Card */}
                     <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
@@ -629,15 +683,7 @@ const CustomerDetailsDrawer: React.FC<{
                                 </thead>
                                 <tbody className="divide-y divide-slate-50 dark:divide-slate-800/50">
                                     {(() => {
-                                        const customerBookings = bookings.filter(b => {
-                                            if (b.status === 'Cancelled') return false;
-                                            if (b.customerId && b.customerId === customer.id) return true;
-                                            if (b.email && b.email.trim() !== '' && customer.email && customer.email.trim() !== '' &&
-                                                b.email.toLowerCase() === customer.email.toLowerCase()) return true;
-                                            if (b.phone && b.phone.trim() !== '' && customer.phone && customer.phone.trim() !== '' && 
-                                                b.phone.trim() === customer.phone.trim()) return true;
-                                            return false;
-                                        })
+                                        const customerBookings = getCustomerBookings(customer, bookings)
                                             .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
                                             
                                         if (customerBookings.length === 0) {
@@ -695,7 +741,7 @@ const CustomerDetailsDrawer: React.FC<{
                                         <p className="text-xs text-slate-500">
                                             +{m.hotelDiscount}% Hotel · +{m.flightDiscount}% Flight · +{m.tourDiscount}% Tour · +{m.cabDiscount}% Cab
                                         </p>
-                                        <button onClick={() => window.location.href = '/admin/memberships'} className="text-xs text-primary font-medium hover:underline mt-2 block">Manage →</button>
+                                        <button onClick={() => { navigate('/admin/memberships'); onClose(); }} className="text-xs text-primary font-medium hover:underline mt-2 block">Manage →</button>
                                     </div>
                                 </div>
                             </div>
@@ -706,16 +752,12 @@ const CustomerDetailsDrawer: React.FC<{
                         <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider mb-4">Activity Timeline</h3>
                         <div className="space-y-6 pl-4 border-l border-slate-100 dark:border-slate-700">
                             {(() => {
-                                const customerBookings = bookings.filter(b => {
-                                    if (b.customerId && b.customerId === customer.id) return true;
-                                    if (b.email && b.email.trim() !== '' && customer.email && customer.email.trim() !== '' &&
-                                        b.email.toLowerCase() === customer.email.toLowerCase()) return true;
-                                    if (b.phone && b.phone.trim() !== '' && customer.phone && customer.phone.trim() !== '' && 
-                                        b.phone.trim() === customer.phone.trim()) return true;
-                                    return false;
-                                });
-                                // @ts-ignore
-                                const customerLeads = leads.filter(l => (l.customerId && l.customerId === customer.id) || (l.email && customer.email && l.email.toLowerCase() === customer.email.toLowerCase()));
+                                // includesCancelled=true so full booking history appears in timeline
+                                const customerBookings = getCustomerBookings(customer, bookings, true);
+                                const customerLeads = leads.filter(l =>
+                                    (l.email && customer.email && l.email.toLowerCase() === customer.email.toLowerCase()) ||
+                                    (l.phone && customer.phone && l.phone.trim() !== '' && customer.phone.trim() !== '' && l.phone.trim() === customer.phone.trim())
+                                );
                                 
                                 const timelineItems = [
                                     ...customerBookings.map(b => ({ type: 'Booking', date: b.date, title: b.title || 'Trip booked', amount: b.amount, status: b.status, id: b.id })),
@@ -807,7 +849,7 @@ const CustomerDetailsDrawer: React.FC<{
                     </button>
                     <div className="grid grid-cols-2 gap-2">
                         <button onClick={onEdit} className="py-2.5 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-300 font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">Edit Profile</button>
-                        <button onClick={() => window.location.href = `/admin/invoices/new?customer_id=${customer.id}&type=Invoice`} className="py-2.5 bg-slate-900 text-white rounded-xl font-bold text-sm hover:bg-slate-800 transition-colors shadow-lg">Create Invoice</button>
+                        <button onClick={() => { navigate('/admin/invoices/new', { state: { customer_id: customer.id, type: 'Invoice', customerName: customer.name, customerEmail: customer.email, customerPhone: customer.phone } }); onClose(); }} className="py-2.5 bg-slate-900 text-white rounded-xl font-bold text-sm hover:bg-slate-800 transition-colors shadow-lg">Create Invoice</button>
                     </div>
                 </div>
             </div>
@@ -840,7 +882,7 @@ const AddEditCustomerModal: React.FC<{
     isOpen: boolean;
     onClose: () => void;
     customer: Customer | null;
-    onSubmit: (data: any) => void;
+    onSubmit: (data: CustomerFormData & { tags: string[] }) => void;
 }> = ({ isOpen, onClose, customer, onSubmit }) => {
     const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<CustomerFormData>({
         resolver: zodResolver(customerSchema),

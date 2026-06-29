@@ -394,7 +394,7 @@ export const BookingDetail: React.FC = () => {
             return (
               <button
                 key={item.key}
-                onClick={() => navigate('/my-account')}
+                onClick={() => navigate('/my-account', { state: { tab: item.key } })}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-xs relative ${
                   item.active ? 'bg-[#F5EDE0] text-slate-900' : 'text-slate-500'
                 }`}
@@ -433,7 +433,7 @@ export const BookingDetail: React.FC = () => {
               ]).map(item => (
                 <button
                   key={item.key}
-                  onClick={() => { navigate('/my-account'); setIsMobileSidebarOpen(false); }}
+                  onClick={() => { navigate('/my-account', { state: { tab: item.key } }); setIsMobileSidebarOpen(false); }}
                   className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl font-bold text-xs ${
                     item.active ? 'bg-primary/10 text-primary' : 'text-slate-500'
                   }`}
@@ -496,11 +496,11 @@ export const BookingDetail: React.FC = () => {
             </div>
 
             <div className="flex gap-2 no-print">
-              <button onClick={() => alert('Voucher download initiated...')} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl border flex items-center gap-1.5">
+              <button onClick={() => window.print()} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl border flex items-center gap-1.5">
                 <span className="material-symbols-outlined text-[16px]">download</span>
                 Download Voucher
               </button>
-              <button onClick={() => alert('Detailed PDF itinerary download started...')} className="px-4 py-2 bg-[#D2E65B] text-slate-900 font-bold text-xs rounded-xl flex items-center gap-1.5" style={{ backgroundColor: '#2D6A4F', color: '#fff' }}>
+              <button onClick={() => window.print()} className="px-4 py-2 bg-[#D2E65B] text-slate-900 font-bold text-xs rounded-xl flex items-center gap-1.5" style={{ backgroundColor: '#2D6A4F', color: '#fff' }}>
                 <span className="material-symbols-outlined text-[16px]">picture_as_pdf</span>
                 Itinerary PDF
               </button>
