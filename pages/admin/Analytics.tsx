@@ -68,7 +68,7 @@ const TrendChart: React.FC<{ pts: TrendPoint[]; fmt: (n: number) => string }> = 
          {/* Header */}
          <div className="flex flex-wrap justify-between items-center mb-5 gap-3">
             <h4 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2 section-heading-accent">
-               <TrendingUp size={20} className="text-primary" /> Year-to-Date Performance Trend
+               <TrendingUp size={20} className="text-primary" /> Monthly Revenue & Profit Trend
             </h4>
             <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
                {(['both', 'revenue', 'profit'] as const).map(m => (
@@ -233,14 +233,14 @@ export const Analytics: React.FC = () => {
    const [activeTab, setActiveTab] = useState<'financial' | 'sales' | 'team' | 'bi'>('financial');
    const [isSyncing, setIsSyncing] = useState(false);
 
-   // Fix #7/8/9/12 — Shared helper: net verified cash received for a booking
-   // Uses only 'Verified' status transactions; clamps to 0 to prevent negatives on overpayments
+   // Shared helper: net verified cash received for a booking
+   // Only 'Verified' transactions count — Pending/Rejected excluded to prevent inflated revenue
    const getNetPaid = (b: any): number => {
       const paid = (b.transactions || [])
-         .filter((t: any) => t.type === 'Payment' && (t.status === 'Verified' || !t.status))
+         .filter((t: any) => t.type === 'Payment' && t.status === 'Verified')
          .reduce((s: number, t: any) => s + t.amount, 0);
       const refunded = (b.transactions || [])
-         .filter((t: any) => t.type === 'Refund' && (t.status === 'Verified' || !t.status))
+         .filter((t: any) => t.type === 'Refund' && t.status === 'Verified')
          .reduce((s: number, t: any) => s + t.amount, 0);
       return Math.max(0, paid - refunded);
    };
@@ -364,28 +364,45 @@ export const Analytics: React.FC = () => {
       };
    }, [filteredBookings]);
 
-   // --- NEW: 1. Monthly Revenue vs. Cost (Trendly) ---
+   // --- 1. Monthly Revenue & Profit Trend ---
+   // 'thisYear' filter → Jan–Dec of current year.
+   // All other filters → rolling 12 months so cross-year data is never silently dropped.
    const monthlyTrends = useMemo(() => {
-      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      const currentYear = new Date().getFullYear();
+      const now = new Date();
+      const currentYear = now.getFullYear();
 
-      const data = months.map(m => ({ month: m, revenue: 0, cost: 0, profit: 0 }));
+      let points: { label: string; year: number; mIndex: number }[];
 
-      // Fix #9 — Use actual payments received per booking, not invoice totals
+      if (timeRange === 'thisYear') {
+         const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+         points = monthNames.map((m, i) => ({ label: m, year: currentYear, mIndex: i }));
+      } else {
+         // Rolling last 12 calendar months
+         points = [];
+         for (let i = 11; i >= 0; i--) {
+            const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            const shortName = d.toLocaleString('default', { month: 'short' });
+            const yearSuffix = d.getFullYear() !== currentYear ? ` '${String(d.getFullYear()).slice(2)}` : '';
+            points.push({ label: shortName + yearSuffix, year: d.getFullYear(), mIndex: d.getMonth() });
+         }
+      }
+
+      const data = points.map(p => ({ month: p.label, revenue: 0, profit: 0, year: p.year, mIndex: p.mIndex }));
+
       filteredBookings.forEach(b => {
+         if (!b.date) return;
          const bDate = new Date(b.date);
-         if (bDate.getFullYear() === currentYear) {
-            const mIndex = bDate.getMonth();
-            const cost = (b.supplierBookings || []).reduce((sum, sb) => sum + sb.cost, 0);
+         const idx = data.findIndex(d => d.year === bDate.getFullYear() && d.mIndex === bDate.getMonth());
+         if (idx >= 0) {
+            const cost = (b.supplierBookings || []).reduce((sum: number, sb: any) => sum + sb.cost, 0);
             const netPaid = getNetPaid(b);
-            data[mIndex].revenue += netPaid;
-            data[mIndex].cost += cost;
-            data[mIndex].profit += (netPaid - cost);
+            data[idx].revenue += netPaid;
+            data[idx].profit += (netPaid - cost);
          }
       });
 
-      return data;
-   }, [filteredBookings]);
+      return data.map(({ month, revenue, profit }) => ({ month, revenue, profit }));
+   }, [filteredBookings, timeRange]);
 
    // --- NEW: 2. Top Selling Agents (Team Performance) ---
    const agentPerformance = useMemo(() => {
@@ -421,7 +438,7 @@ export const Analytics: React.FC = () => {
          if (l.status === 'Converted') {
             existing.converted++;
             // Fix #10 — Match booking by bookingId, customerId, OR email (most reliable fallback)
-            const b = globalBookings.find(bk =>
+            const b = filteredBookings.find(bk =>
                bk.id === l.bookingId ||
                (bk as any).customerId === l.customerId ||
                (l.email && bk.email && bk.email.toLowerCase() === l.email.toLowerCase())
@@ -436,7 +453,7 @@ export const Analytics: React.FC = () => {
          ...data,
          rate: data.totalLeads > 0 ? Math.round((data.converted / data.totalLeads) * 100) : 0
       })).sort((a, b) => b.revenueFromConverted - a.revenueFromConverted);
-   }, [filteredLeads, globalBookings]);
+   }, [filteredLeads, filteredBookings]);
 
    // --- NEW: 4. Most Profitable Destinations ---
    const destProfitability = useMemo(() => {
@@ -472,11 +489,20 @@ export const Analytics: React.FC = () => {
 
       (filteredLeads || []).forEach(l => {
          if (l.status === 'Converted' && l.addedOn) {
-            const lastLog = (l.logs || []).slice(-1)[0];
-            // Fix #11 — Skip leads with no log data; don't default to "today" (inflates the metric)
-            if (!lastLog) return;
+            const logs = (l.logs || []);
+            // Look for an explicit conversion system log (most accurate end timestamp)
+            const conversionLog = logs.find((log: any) =>
+               log.type === 'System' && (
+                  log.content?.toLowerCase().includes('converted') ||
+                  log.content?.toLowerCase().includes('booking created') ||
+                  log.content?.toLowerCase().includes('status changed')
+               )
+            );
+            // Fall back to last log only when no explicit conversion event is found
+            const targetLog = conversionLog || (logs.length > 0 ? logs[logs.length - 1] : null);
+            if (!targetLog) return;
             const start = new Date(l.addedOn).getTime();
-            const end = new Date(lastLog.timestamp).getTime();
+            const end = new Date(targetLog.timestamp).getTime();
             const days = Math.round(Math.abs(end - start) / (1000 * 3600 * 24));
             if (days <= 365) { // Exclude outliers over 1 year
                totalDays += Math.max(days, 1);
@@ -485,8 +511,11 @@ export const Analytics: React.FC = () => {
          }
       });
 
-      // Return null when no reliable data — UI should show 'N/A' instead of '0 days'
-      return convertedCount > 0 ? Math.round(totalDays / convertedCount) : null;
+      // Return null when data is unreliable:
+      // avg ≤ 1 means most leads were entered retroactively (same day as booking) — clamped by Math.max(days, 1)
+      if (convertedCount === 0) return null;
+      const avg = totalDays / convertedCount;
+      return avg > 1.5 ? Math.round(avg) : null;
    }, [filteredLeads]);
 
    // --- NEW: 6. Accounts Aging Report (Receivables) ---
@@ -514,30 +543,62 @@ export const Analytics: React.FC = () => {
       return buckets;
    }, [filteredBookings]);
 
-   // --- NEW: Lost Lead Analysis ---
+   // --- Lost Lead Analysis ---
    const lostLeadAnalysis = useMemo(() => {
       const all = filteredLeads || [];
-      const byStatus = ['New','Warm','Hot','Cold','Offer Sent','Converted'].reduce((acc, s) => {
+      // Include 'Lost' alongside 'Cold' so the pipeline card shows both statuses
+      const byStatus = ['New','Warm','Hot','Cold','Lost','Offer Sent','Converted'].reduce((acc, s) => {
          acc[s] = all.filter(l => l.status === s).length; return acc;
       }, {} as Record<string, number>);
       return { byStatus, total: all.length };
    }, [filteredLeads]);
 
-   // --- NEW: Follow-Up Effectiveness ---
+   // --- Follow-Up Effectiveness ---
+   // Filters out retroactively-entered bookings (status=Converted with ≤1 log)
+   // to avoid skewing the 'Without Follow-Up' cohort with pre-CRM direct entries.
    const followUpEffect = useMemo(() => {
-      const fuLeads = new Set((filteredFollowUps || []).map(f => f.leadId));
+      const fuLeadIds = new Set((filteredFollowUps || []).map(f => f.leadId));
       const all = filteredLeads || [];
-      const wFU = all.filter(l => fuLeads.has(l.id));
-      const woFU = all.filter(l => !fuLeads.has(l.id));
-      const rWith = wFU.length > 0 ? Math.round(wFU.filter(l => l.status === 'Converted').length / wFU.length * 100) : 0;
-      const rWithout = woFU.length > 0 ? Math.round(woFU.filter(l => l.status === 'Converted').length / woFU.length * 100) : 0;
-      return { rWith, rWithout, wFUCount: wFU.length, woFUCount: woFU.length };
+
+      // 'Retroactive' = lead was Converted on entry with almost no CRM history
+      // These were created from existing bookings, not from organic inquiries
+      const organicLeads = all.filter(l => {
+         if (l.status !== 'Converted') return true;
+         return (l.logs || []).length > 1; // Must have >1 log to show CRM engagement
+      });
+
+      const wFU = organicLeads.filter(l => fuLeadIds.has(l.id));
+      const woFU = organicLeads.filter(l => !fuLeadIds.has(l.id));
+
+      const MIN_SAMPLE = 3; // Need at least 3 leads per group for a meaningful rate
+      const rWith = wFU.length >= MIN_SAMPLE
+         ? Math.round(wFU.filter(l => l.status === 'Converted').length / wFU.length * 100)
+         : null;
+      const rWithout = woFU.length >= MIN_SAMPLE
+         ? Math.round(woFU.filter(l => l.status === 'Converted').length / woFU.length * 100)
+         : null;
+
+      return {
+         rWith, rWithout,
+         wFUCount: wFU.length,
+         woFUCount: woFU.length,
+         retroactiveCount: all.length - organicLeads.length,
+      };
    }, [filteredLeads, filteredFollowUps]);
 
-   // --- NEW: Inquiry to Quote Ratio ---
+   // --- Inquiry → Quote Ratio ---
+   // Detects leads that received a formal quote via:
+   //   1. Current status = 'Offer Sent' (explicit pipeline stage)
+   //   2. Keyword in any log entry (quote/proposal/offer/price sent)
+   // NOTE: log.type === 'Quote' was removed — that type doesn't exist in this system
    const inquiryToQuote = useMemo(() => {
       const total = (filteredLeads || []).length;
-      const withQuote = (filteredLeads || []).filter(l => (l.logs || []).some(log => log.type === 'Quote')).length;
+      const withQuote = (filteredLeads || []).filter(l =>
+         l.status === 'Offer Sent' ||
+         (l.logs || []).some((log: any) =>
+            log.content?.toLowerCase().match(/quote|proposal|offer sent|price sent|itinerary sent/)
+         )
+      ).length;
       return { total, withQuote, ratio: total > 0 ? Math.round((withQuote / total) * 100) : 0 };
    }, [filteredLeads]);
 
@@ -561,13 +622,15 @@ export const Analytics: React.FC = () => {
          computedSpent: spentByEmail.get((c.email || '').toLowerCase()) ?? (c.totalSpent || 0)
       }));
 
-      const avgCLV = enriched.length > 0
-         ? Math.round(enriched.reduce((s, c) => s + c.computedSpent, 0) / enriched.length)
+      // Average only customers who have made at least one purchase — zero-value contacts deflate CLV
+      const buyingCustomers = enriched.filter(c => c.computedSpent > 0);
+      const avgCLV = buyingCustomers.length > 0
+         ? Math.round(buyingCustomers.reduce((s, c) => s + c.computedSpent, 0) / buyingCustomers.length)
          : 0;
       const top5 = [...enriched]
          .sort((a, b) => b.computedSpent - a.computedSpent)
          .slice(0, 5);
-      return { avgCLV, top5, total: cList.length };
+      return { avgCLV, top5, total: cList.length, buyersCount: buyingCustomers.length };
    }, [customers, bookings]);
 
    // --- NEW: Package Popularity vs Profitability ---
@@ -594,7 +657,7 @@ export const Analytics: React.FC = () => {
       const allBookings = bookings.filter(b => isWithinRange(b.date));
       const cancelled = allBookings.filter(b => b.status === 'Cancelled');
       const refundTotal = allBookings.reduce((s, b) =>
-         s + (b.transactions || []).filter(t => t.type === 'Refund' && (t.status === 'Verified' || !t.status)).reduce((rs, t) => rs + t.amount, 0), 0);
+         s + (b.transactions || []).filter(t => t.type === 'Refund' && t.status === 'Verified').reduce((rs, t) => rs + t.amount, 0), 0);
       const rate = allBookings.length > 0 ? Math.round((cancelled.length / allBookings.length) * 100) : 0;
       return { count: cancelled.length, total: allBookings.length, rate, refundTotal };
    }, [bookings, isWithinRange]);
@@ -641,15 +704,27 @@ export const Analytics: React.FC = () => {
          .sort((a, b) => b.amount - a.amount);
    }, [filteredBookings]);
 
-   // --- NEW: Geographic Origin ---
+   // --- Geographic Origin (time-filter-aware: derived from filteredBookings) ---
    const geoData = useMemo(() => {
+      // Build email → city lookup from all customer profiles
+      const emailToCity = new Map<string, string>();
+      (customers || []).forEach(c => {
+         if (c.email) emailToCity.set(c.email.toLowerCase(), c.location || 'Unknown');
+      });
+
+      // Count only cities from bookings within the selected time range
       const m: Record<string, number> = {};
-      (customers || []).forEach(c => { const city = c.location || 'Unknown'; m[city] = (m[city] || 0) + 1; });
-      const total = (customers || []).length;
+      filteredBookings.forEach(b => {
+         const email = (b.email || '').toLowerCase();
+         const city = emailToCity.get(email) || 'Unknown';
+         m[city] = (m[city] || 0) + 1;
+      });
+
+      const total = filteredBookings.length;
       return Object.entries(m)
          .map(([city, count]) => ({ city, count, pct: total > 0 ? Math.round((count / total) * 100) : 0 }))
          .sort((a, b) => b.count - a.count).slice(0, 7);
-   }, [customers]);
+   }, [filteredBookings, customers]);
 
    // --- NEW: Staff Response Time ---
    const staffResponseTime = useMemo(() => {
@@ -701,6 +776,44 @@ export const Analytics: React.FC = () => {
       return `${sign}₹${abs.toFixed(0)}`;
    };
 
+   // Export the current filtered view as a downloadable CSV file
+   const handleExport = () => {
+      const rows = filteredBookings.map(b => {
+         const verified = getNetPaid(b);
+         const cost = (b.supplierBookings || []).reduce((s: number, sb: any) => s + sb.cost, 0);
+         return {
+            'Booking ID': b.id,
+            'Customer': b.customer,
+            'Package': b.title,
+            'Date': b.date,
+            'Invoiced Amount (INR)': b.amount,
+            'Verified Revenue (INR)': verified,
+            'Supplier Cost (INR)': cost,
+            'Gross Profit (INR)': verified - cost,
+            'Margin %': verified > 0 ? ((verified - cost) / verified * 100).toFixed(1) : '0',
+            'Booking Status': b.status,
+            'Payment Status': b.payment,
+         };
+      });
+
+      if (rows.length === 0) { toast.info('No bookings to export for the selected period.'); return; }
+
+      const headers = Object.keys(rows[0]);
+      const csvContent = [
+         headers.join(','),
+         ...rows.map(row => headers.map(h => `"${(row as any)[h] ?? ''}"`).join(','))
+      ].join('\n');
+
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `shrawello-analytics-${new Date().toISOString().split('T')[0]}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success(`Exported ${rows.length} bookings to CSV`);
+   };
+
    return (
       <div className="flex flex-col h-full admin-page-bg">
          {/* Header */}
@@ -735,8 +848,8 @@ export const Analytics: React.FC = () => {
                   <option value="30days">Last 30 Days</option>
                   <option value="thisYear">This Year</option>
                </select>
-               <button className="flex items-center gap-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold rounded-lg text-sm px-4 py-2.5 shadow-lg active:scale-95 transition-all btn-glow">
-                  <Download size={18} /> Export Report
+               <button onClick={handleExport} className="flex items-center gap-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold rounded-lg text-sm px-4 py-2.5 shadow-lg active:scale-95 transition-all btn-glow">
+                  <Download size={18} /> Export CSV
                </button>
             </div>
          </div>
@@ -808,18 +921,17 @@ export const Analytics: React.FC = () => {
                   </div>
                </div>
 
-               {/* Cash Flow Card */}
+               {/* Net Cash Flow Card */}
                <div className="bg-white dark:bg-[#1A2633] p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 relative overflow-hidden group">
-                  <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity flex items-center gap-1">
-                     <Timer size={48} className="text-blue-500" />
+                  <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                     <CreditCard size={64} className="text-blue-500" />
                   </div>
-                  <p className="text-slate-500 dark:text-slate-400 text-sm font-bold uppercase tracking-wider">Avg Time to Close</p>
-                  <h3 className="text-4xl kpi-number text-slate-900 dark:text-white mt-2">
-                     {averageConversionTimeDays !== null ? averageConversionTimeDays : '—'}
-                     {averageConversionTimeDays !== null && <span className="text-lg text-slate-500"> days</span>}
+                  <p className="text-slate-500 dark:text-slate-400 text-sm font-bold uppercase tracking-wider">Net Cash Flow</p>
+                  <h3 className={`text-4xl kpi-number mt-2 ${metrics.cashFlow >= 0 ? 'text-slate-900 dark:text-white' : 'text-red-500'}`}>
+                     {fmt(metrics.cashFlow)}
                   </h3>
-                  <p className="text-slate-400 text-xs font-bold mt-2">
-                     {averageConversionTimeDays !== null ? 'From lead to conversion' : 'Add logs to leads to track'}
+                  <p className={`text-xs font-bold mt-2 ${metrics.cashFlow >= 0 ? 'text-blue-500' : 'text-red-400'}`}>
+                     {metrics.cashFlow >= 0 ? 'Cash received exceeds payouts' : 'More paid out than collected'}
                   </p>
                </div>
             </div>
@@ -918,10 +1030,11 @@ export const Analytics: React.FC = () => {
                      </thead>
                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                         {filteredBookings.map(booking => {
-                           const revenue = booking.amount;
-                           const cost = (booking.supplierBookings || []).reduce((sum, sb) => sum + sb.cost, 0);
+                           // Use verified received payments — consistent with KPI card totals above
+                           const revenue = getNetPaid(booking);
+                           const cost = (booking.supplierBookings || []).reduce((sum: number, sb: any) => sum + sb.cost, 0);
                            const profit = revenue - cost;
-                           const margin = revenue ? (profit / revenue) * 100 : 0;
+                           const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
 
                            return (
                               <tr key={booking.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
@@ -960,7 +1073,7 @@ export const Analytics: React.FC = () => {
                         <thead className="bg-slate-50 dark:bg-slate-900/50">
                            <tr>
                               <th className="px-6 py-4 font-bold text-slate-500 uppercase text-xs">Agent</th>
-                              <th className="px-6 py-4 font-bold text-slate-500 uppercase text-xs text-right">Revenue</th>
+                              <th className="px-6 py-4 font-bold text-slate-500 uppercase text-xs text-right">Verified Revenue</th>
                               <th className="px-6 py-4 font-bold text-slate-500 uppercase text-xs text-right">Net Profit</th>
                            </tr>
                         </thead>
@@ -1087,7 +1200,7 @@ export const Analytics: React.FC = () => {
                      { label: 'New', val: lostLeadAnalysis.byStatus['New'] || 0, color: 'bg-blue-500', light: 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' },
                      { label: 'Warm', val: lostLeadAnalysis.byStatus['Warm'] || 0, color: 'bg-amber-400', light: 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' },
                      { label: 'Hot', val: lostLeadAnalysis.byStatus['Hot'] || 0, color: 'bg-orange-500', light: 'bg-orange-50 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300' },
-                     { label: 'Cold / Lost', val: lostLeadAnalysis.byStatus['Cold'] || 0, color: 'bg-slate-400', light: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300' },
+                     { label: 'Cold / Lost', val: (lostLeadAnalysis.byStatus['Cold'] || 0) + (lostLeadAnalysis.byStatus['Lost'] || 0), color: 'bg-slate-400', light: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300' },
                      { label: 'Offer Sent', val: lostLeadAnalysis.byStatus['Offer Sent'] || 0, color: 'bg-violet-500', light: 'bg-violet-50 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300' },
                      { label: 'Converted', val: lostLeadAnalysis.byStatus['Converted'] || 0, color: 'bg-emerald-500', light: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' },
                   ].map(s => (
@@ -1113,25 +1226,33 @@ export const Analytics: React.FC = () => {
                         <div>
                            <div className="flex justify-between text-sm mb-1">
                               <span className="font-bold text-slate-700 dark:text-slate-300">With Follow-Up <span className="text-slate-400 font-normal">({followUpEffect.wFUCount} leads)</span></span>
-                              <span className="kpi-number text-emerald-600">{followUpEffect.rWith}%</span>
+                              <span className={`kpi-number ${followUpEffect.rWith !== null ? 'text-emerald-600' : 'text-slate-400'}`}>
+                                 {followUpEffect.rWith !== null ? `${followUpEffect.rWith}%` : '—'}
+                              </span>
                            </div>
                            <div className="h-3 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                              <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${followUpEffect.rWith}%` }} />
+                              <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${followUpEffect.rWith ?? 0}%` }} />
                            </div>
                         </div>
                         <div>
                            <div className="flex justify-between text-sm mb-1">
                               <span className="font-bold text-slate-700 dark:text-slate-300">Without Follow-Up <span className="text-slate-400 font-normal">({followUpEffect.woFUCount} leads)</span></span>
-                              <span className="kpi-number text-red-500">{followUpEffect.rWithout}%</span>
+                              <span className={`kpi-number ${followUpEffect.rWithout !== null ? 'text-red-500' : 'text-slate-400'}`}>
+                                 {followUpEffect.rWithout !== null ? `${followUpEffect.rWithout}%` : '—'}
+                              </span>
                            </div>
                            <div className="h-3 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                              <div className="h-full bg-red-400 rounded-full" style={{ width: `${followUpEffect.rWithout}%` }} />
+                              <div className="h-full bg-red-400 rounded-full" style={{ width: `${followUpEffect.rWithout ?? 0}%` }} />
                            </div>
                         </div>
                         <p className="text-xs text-slate-400 italic pt-2 border-t border-slate-100 dark:border-slate-800">
-                           {followUpEffect.rWith > followUpEffect.rWithout
-                              ? `Follow-ups improve conversion by ${followUpEffect.rWith - followUpEffect.rWithout}pp`
-                              : 'No significant difference detected yet'}
+                           {followUpEffect.rWith !== null && followUpEffect.rWithout !== null
+                              ? followUpEffect.rWith > followUpEffect.rWithout
+                                 ? `Follow-ups improve conversion by ${followUpEffect.rWith - followUpEffect.rWithout}pp`
+                                 : 'No significant difference detected yet'
+                              : followUpEffect.retroactiveCount > 0
+                                 ? `${followUpEffect.retroactiveCount} direct-entry leads excluded for accuracy`
+                                 : 'Needs ≥3 leads per group to compute'}
                         </p>
                      </div>
                   </div>
@@ -1333,7 +1454,7 @@ export const Analytics: React.FC = () => {
                      <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20"><Star size={64} className="text-amber-500" /></div>
                      <p className="text-slate-500 text-xs font-bold uppercase tracking-wider">Avg Customer LTV</p>
                      <h3 className="text-4xl kpi-number text-slate-900 dark:text-white mt-2">{fmt(clvData.avgCLV)}</h3>
-                     <p className="text-amber-500 text-xs font-bold mt-2">Across {clvData.total} customers</p>
+                      <p className="text-amber-500 text-xs font-bold mt-2">{(clvData as any).buyersCount ?? clvData.total} of {clvData.total} customers made purchases</p>
                   </div>
                   <div className="bg-white dark:bg-[#1A2633] p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 relative overflow-hidden group">
                      <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20"><XCircle size={64} className="text-red-500" /></div>
