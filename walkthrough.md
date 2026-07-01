@@ -48,3 +48,17 @@ We restyled the detailed booking invoice/voucher view at `/my-account/booking/:i
 ### TypeScript Compilation Check
 - Run command: `npx tsc --noEmit`
 - **Result**: Completed successfully with **0 compilation errors**.
+
+---
+
+## 4. Tasks Filtering in Productivity Hub
+
+We filtered out the automated playbook/checklist tasks from the general Productivity page to prevent cluttering the interface with system-generated task workflows (e.g. checklists for leads/bookings).
+
+### Key Changes:
+- **Tasks List Filter**: Updated `filteredTasks` in `Productivity.tsx` to only retrieve and display tasks where `source === 'manual'`.
+- **Quick Stats Filter**: Updated the pending and overdue task counts in the quick stats cards to only count manual tasks.
+- **Task Submission**: Updated `handleTaskSubmit` to tag newly created and edited tasks as `source: 'manual'`.
+
+### Verification:
+- Build verified using `npm run build` which succeeded with 0 errors.

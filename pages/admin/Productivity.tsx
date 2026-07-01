@@ -179,7 +179,7 @@ export const Productivity: React.FC = () => {
 
     // Filtered & Sorted Tasks
     const filteredTasks = useMemo(() => {
-        let result = [...tasks];
+        let result = tasks.filter(t => t.source === 'manual');
         if (taskFilter !== 'all') {
             result = result.filter(t => t.status === taskFilter);
         }
@@ -237,8 +237,9 @@ export const Productivity: React.FC = () => {
 
     // Quick Stats
     const quickStats = useMemo(() => {
-        const pendingTasks = tasks.filter(t => t.status === 'Pending').length;
-        const overdueTasks = tasks.filter(t => t.status === 'Overdue' || (t.status !== 'Completed' && new Date(t.dueDate) < new Date())).length;
+        const manualTasks = tasks.filter(t => t.source === 'manual');
+        const pendingTasks = manualTasks.filter(t => t.status === 'Pending').length;
+        const overdueTasks = manualTasks.filter(t => t.status === 'Overdue' || (t.status !== 'Completed' && new Date(t.dueDate) < new Date())).length;
         const todayTargets = dailyTargets.filter(t => t.date === new Date().toISOString().split('T')[0]).length;
         const recentLeads = leads.filter(l => new Date(l.createdAt || '').getTime() > Date.now() - 86400000).length;
         return { pendingTasks, overdueTasks, todayTargets, recentLeads };
@@ -303,7 +304,8 @@ export const Productivity: React.FC = () => {
             dueDate: taskForm.dueDate,
             createdAt: editingTask?.createdAt || new Date().toISOString(),
             relatedLeadId: taskForm.relatedLeadId || undefined,
-            relatedBookingId: taskForm.relatedBookingId || undefined
+            relatedBookingId: taskForm.relatedBookingId || undefined,
+            source: editingTask?.source || 'manual'
         };
 
         if (editingTask) {
