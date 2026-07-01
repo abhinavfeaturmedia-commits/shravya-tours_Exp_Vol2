@@ -3736,6 +3736,7 @@ app.post('/api/transfer-requests', authMiddleware, async (req, res) => {
         return res.status(400).json({ error: 'Missing required parameters' });
     }
     
+    let transactionStarted = false;
     try {
         // Find requester staff ID
         let requested_by = req.user?.staffId;
@@ -3779,17 +3780,76 @@ app.post('/api/transfer-requests', authMiddleware, async (req, res) => {
             return res.status(400).json({ error: 'A transfer request is already pending for this item.' });
         }
         
+        const { isAdmin } = await getStaffPermissionsAndScope(req.user?.email);
+        const userIsAdmin = req.user?.role?.toLowerCase() === 'admin' || isAdmin;
         const id = crypto.randomUUID();
-        await pool.query(
-            `INSERT INTO transfer_requests (id, item_type, item_id, from_staff_id, to_staff_id, requested_by, reason, status) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, 'Pending')`,
-            [id, item_type, item_id, from_staff_id, to_staff_id, requested_by, reason || '']
-        );
-        
-        auditLog('Request Transfer', item_type, `Requested transfer of ${itemName} to staff ID ${to_staff_id}`, req.user?.email);
-        
-        res.status(201).json({ status: 'success', id });
+
+        if (userIsAdmin) {
+            const [[fromStaff]] = await pool.query('SELECT name FROM staff_members WHERE id = ?', [from_staff_id]);
+            const [[toStaff]] = await pool.query('SELECT name FROM staff_members WHERE id = ?', [to_staff_id]);
+            const fromName = fromStaff ? fromStaff.name : 'Unknown';
+            const toName = toStaff ? toStaff.name : 'Unknown';
+
+            await pool.query('START TRANSACTION');
+            transactionStarted = true;
+
+            await pool.query(
+                `INSERT INTO transfer_requests (id, item_type, item_id, from_staff_id, to_staff_id, requested_by, reason, status, actioned_by, actioned_at) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?, 'Approved', ?, NOW())`,
+                [id, item_type, item_id, from_staff_id, to_staff_id, requested_by, reason || '', requested_by]
+            );
+
+            if (item_type === 'Lead') {
+                await pool.query('UPDATE leads SET assigned_to = ? WHERE id = ?', [to_staff_id, item_id]);
+                
+                // Cascade to pending checklist tasks
+                await pool.query(
+                    "UPDATE tasks SET assigned_to = ? WHERE related_lead_id = ? AND category = 'checklist' AND status = 'Pending'",
+                    [to_staff_id, item_id]
+                );
+                
+                // Add system log entry to lead logs
+                const logId = `lg-tr-${Date.now()}`;
+                const logContent = `Ownership transferred from ${fromName} to ${toName} (Transferred Directly by Admin).`;
+                await pool.query(
+                    "INSERT INTO lead_logs (id, type, content, timestamp, sender, lead_id) VALUES (?, 'System', ?, NOW(), 'System', ?)",
+                    [logId, logContent, item_id]
+                );
+            } else if (item_type === 'Booking') {
+                await pool.query('UPDATE bookings SET assigned_to = ? WHERE id = ?', [to_staff_id, item_id]);
+                
+                // Cascade to pending checklist tasks
+                await pool.query(
+                    "UPDATE tasks SET assigned_to = ? WHERE related_booking_id = ? AND category = 'checklist' AND status = 'Pending'",
+                    [to_staff_id, item_id]
+                );
+            }
+
+            await pool.query('COMMIT');
+            transactionStarted = false;
+
+            auditLog('Direct Transfer', item_type, `Directly transferred ${itemName} to staff ID ${to_staff_id}`, req.user?.email);
+
+            res.status(201).json({ status: 'success', id, direct: true });
+        } else {
+            await pool.query(
+                `INSERT INTO transfer_requests (id, item_type, item_id, from_staff_id, to_staff_id, requested_by, reason, status) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?, 'Pending')`,
+                [id, item_type, item_id, from_staff_id, to_staff_id, requested_by, reason || '']
+            );
+            
+            auditLog('Request Transfer', item_type, `Requested transfer of ${itemName} to staff ID ${to_staff_id}`, req.user?.email);
+            
+            res.status(201).json({ status: 'success', id, direct: false });
+        }
     } catch (error) {
+        if (transactionStarted) {
+            try {
+                await pool.query('ROLLBACK');
+            } catch (rollbackError) {
+                console.error('Rollback error:', rollbackError);
+            }
+        }
         console.error('Create transfer request error:', error);
         res.status(500).json({ error: 'Failed to submit transfer request' });
     }

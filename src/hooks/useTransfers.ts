@@ -37,8 +37,12 @@ export const useTransfers = () => {
     const requestTransferMutation = useMutation({
         mutationFn: ({ itemType, itemId, toStaffId, reason }: { itemType: 'Lead' | 'Booking'; itemId: string; toStaffId: number; reason: string }) =>
             api.requestTransfer(itemType, itemId, toStaffId, reason),
-        onSuccess: () => {
-            toast.success('Transfer request submitted successfully');
+        onSuccess: (data) => {
+            if (data && data.direct) {
+                toast.success('Ownership transferred successfully');
+            } else {
+                toast.success('Transfer request submitted successfully');
+            }
             queryClient.invalidateQueries({ queryKey: ['transfer-requests'] });
             queryClient.invalidateQueries({ queryKey: ['leads'] });
             queryClient.invalidateQueries({ queryKey: ['bookings'] });

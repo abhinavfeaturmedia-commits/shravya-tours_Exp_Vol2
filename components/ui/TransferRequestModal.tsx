@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { api } from '../../src/lib/api';
 import { toast } from 'sonner';
 import { StaffMember } from '../../types';
+import { useAuth } from '../../context/AuthContext';
 
 interface TransferRequestModalProps {
     isOpen: boolean;
@@ -25,6 +26,9 @@ export const TransferRequestModal: React.FC<TransferRequestModalProps> = ({
     currentAssigneeId,
     onSuccess
 }) => {
+    const { currentUser } = useAuth();
+    const isAdmin = currentUser?.role?.toLowerCase() === 'admin' || currentUser?.userType === 'Admin';
+
     const [targetStaffId, setTargetStaffId] = useState<string>('');
     const [reason, setReason] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -43,15 +47,19 @@ export const TransferRequestModal: React.FC<TransferRequestModalProps> = ({
             toast.error("Please select a recipient staff member");
             return;
         }
-        if (!reason.trim()) {
+        if (!reason.trim() && !isAdmin) {
             toast.error("Please provide a reason for the transfer");
             return;
         }
 
         setIsSubmitting(true);
         try {
-            await api.requestTransfer(itemType, itemId, Number(targetStaffId), reason);
-            toast.success("Transfer request submitted to Admin");
+            const res = await api.requestTransfer(itemType, itemId, Number(targetStaffId), reason);
+            if (res && res.direct) {
+                toast.success("Ownership transferred successfully");
+            } else {
+                toast.success("Transfer request submitted to Admin");
+            }
             if (onSuccess) onSuccess();
             onClose();
         } catch (error: any) {
@@ -67,10 +75,14 @@ export const TransferRequestModal: React.FC<TransferRequestModalProps> = ({
                 <div className="p-6 border-b border-slate-200 dark:border-slate-700">
                     <h3 className="text-lg font-bold text-slate-800 dark:text-white flex items-center gap-2">
                         <span className="material-symbols-outlined text-primary">move_item</span>
-                        Request Ownership Transfer
+                        {isAdmin ? "Direct Ownership Transfer" : "Request Ownership Transfer"}
                     </h3>
                     <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
-                        Transfer ownership of <strong>{itemName}</strong>. This request requires admin verification before taking effect.
+                        {isAdmin ? (
+                            <>Transfer ownership of <strong>{itemName}</strong> directly and immediately.</>
+                        ) : (
+                            <>Transfer ownership of <strong>{itemName}</strong>. This request requires admin verification before taking effect.</>
+                        )}
                     </p>
                 </div>
                 
@@ -94,14 +106,14 @@ export const TransferRequestModal: React.FC<TransferRequestModalProps> = ({
 
                     <div>
                         <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                            Reason for Transfer <span className="text-red-500">*</span>
+                            Reason for Transfer {!isAdmin && <span className="text-red-500">*</span>}
                         </label>
                         <textarea
                             value={reason}
                             onChange={(e) => setReason(e.target.value)}
-                            placeholder="e.g. Bob is handling this region / I am on leave next week..."
+                            placeholder={isAdmin ? "e.g. Bob is handling this region (optional)..." : "e.g. Bob is handling this region / I am on leave next week..."}
                             className="w-full px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-xl bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent resize-none h-24 text-sm"
-                            required
+                            required={!isAdmin}
                         />
                     </div>
                     
@@ -124,7 +136,7 @@ export const TransferRequestModal: React.FC<TransferRequestModalProps> = ({
                             ) : (
                                 <span className="material-symbols-outlined text-[20px]">send</span>
                             )}
-                            Submit Request
+                            {isAdmin ? "Transfer Directly" : "Submit Request"}
                         </button>
                     </div>
                 </form>
