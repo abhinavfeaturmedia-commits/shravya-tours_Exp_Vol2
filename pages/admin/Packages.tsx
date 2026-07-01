@@ -201,6 +201,18 @@ export const AdminPackages: React.FC = () => {
         setIsEditModalOpen(true);
     }, []);
 
+    // Handle deep linking for specific package edit modal
+    useEffect(() => {
+        const searchParams = new URLSearchParams(location.search);
+        const idParam = searchParams.get('id');
+        if (idParam && packages.length > 0) {
+            const pkg = packages.find(p => String(p.id) === String(idParam));
+            if (pkg) {
+                handleEditClick(pkg);
+            }
+        }
+    }, [location.search, packages, handleEditClick]);
+
     const handleSaveEdit = (e: React.FormEvent) => {
         e.preventDefault();
         if (editingPackageId) {

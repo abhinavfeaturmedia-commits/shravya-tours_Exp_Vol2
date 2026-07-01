@@ -507,17 +507,30 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
     // ── FIX #18: Compact continuation header for page 2+ ──
     const drawCompactHeader = () => {
         doc.setFillColor(255, 255, 255);
+        
+        // Line 1: Shrawello Travel Hub
         doc.setFont("helvetica", "bold");
-        doc.setFontSize(15);
-        doc.setTextColor(242, 98, 34);
-        doc.text("SHRAWELLO", 15, 12);
-        const shWidth = doc.getTextWidth("SHRAWELLO");
-        doc.setTextColor(9, 28, 59);
-        doc.text(" TRAVEL HUB", 15 + shWidth, 12);
+        doc.setFontSize(11);
+        doc.setTextColor(242, 98, 34); // Orange
+        doc.text("Shrawello", 15, 9);
+        const shWidth = doc.getTextWidth("Shrawello");
+        
+        doc.setTextColor(9, 28, 59); // Navy
+        doc.text(" Travel Hub", 15 + shWidth, 9);
+
+        // Line 2: and Events LLP
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(7.5);
+        doc.setTextColor(100, 116, 139); // Slate Gray
+        doc.text("and Events LLP", 15, 13);
+
+        // Right-aligned: Document ID and Continued indicator (centered vertically relative to the two lines on the left)
         doc.setFont("helvetica", "normal");
         doc.setFontSize(6.5);
         doc.setTextColor(148, 163, 184);
-        doc.text(`${prefix}-${docId}  ·  Continued`, pageWidth - 15, 12, { align: 'right' });
+        doc.text(`${prefix}-${docId}  ·  Continued`, pageWidth - 15, 11.5, { align: 'right' });
+
+        // Underline divider
         doc.setDrawColor(242, 98, 34);
         doc.setLineWidth(0.6);
         doc.line(15, 15, pageWidth - 15, 15);

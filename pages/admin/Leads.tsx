@@ -60,6 +60,10 @@ export const Leads: React.FC = () => {
         if (filterParam === 'overdue') {
             setIsAgendaExpanded(true);
         }
+        const searchParam = searchParams.get('search');
+        if (searchParam) {
+            setSearch(searchParam);
+        }
 
         // Handle navigation from Customer Details Drawer -> New Inquiry
         if (location.state?.fromCustomer) {
@@ -80,6 +84,18 @@ export const Leads: React.FC = () => {
             window.history.replaceState({}, document.title);
         }
     }, [location.search, location.state]);
+
+    // Handle deep linking for specific lead detail drawer
+    useEffect(() => {
+        const searchParams = new URLSearchParams(location.search);
+        const idParam = searchParams.get('id');
+        if (idParam && leads.length > 0) {
+            const foundLead = leads.find(l => String(l.id) === String(idParam) || String(l.leadNumber) === String(idParam));
+            if (foundLead) {
+                setSelectedLeadId(foundLead.id);
+            }
+        }
+    }, [location.search, leads]);
 
     // Forms
     const [noteContent, setNoteContent] = useState('');

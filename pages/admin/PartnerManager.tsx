@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useLocation } from 'react-router-dom';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -117,6 +118,7 @@ const PartnerTable: React.FC<{
 };
 
 export const PartnerManager: React.FC = () => {
+  const location = useLocation();
   const [partners, setPartners] = useState<any[]>([]);
   const [commissions, setCommissions] = useState<any[]>([]);
   const [tab, setTab] = useState<'partners' | 'payouts'>('partners');
@@ -203,6 +205,18 @@ export const PartnerManager: React.FC = () => {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Handle deep linking for specific partner detail drawer
+  useEffect(() => {
+    const searchParams = new URLSearchParams(location.search);
+    const idParam = searchParams.get('id');
+    if (idParam && partners.length > 0) {
+      const foundPartner = partners.find(p => String(p.id) === String(idParam));
+      if (foundPartner) {
+        setDetailPartnerId(foundPartner.id);
+      }
+    }
+  }, [location.search, partners]);
 
   const showMsg = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 3500); };
 

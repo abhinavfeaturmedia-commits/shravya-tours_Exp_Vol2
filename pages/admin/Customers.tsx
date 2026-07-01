@@ -10,7 +10,7 @@ import * as z from 'zod';
 import { exportToExcel, ExportColumn } from '../../src/lib/exportUtils';
 import { DataImportModal, ColumnMapping } from '../../src/components/admin/DataImportModal';
 import { ActionMenu } from '../../components/ui/ActionMenu';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 
 // ─── Booking Match Helper ─────────────────────────────────────────────────────
 // Matches bookings to a customer using: DB foreign-key → email → phone (priority).
@@ -33,6 +33,7 @@ type SortOrder = 'asc' | 'desc';
 export const Customers: React.FC = () => {
     const { customers, bookings, leads, addCustomer, updateCustomer, deleteCustomer, importCustomers, getActiveMembershipForCustomer, membershipPlans } = useData();
     const { hasPermission } = useAuth();
+    const location = useLocation();
 
     // Server-computed booking stats are now embedded in the customer object
     // (bookingsCount, totalSpent, lastActive) from /api/customers-with-stats.
@@ -50,6 +51,18 @@ export const Customers: React.FC = () => {
         });
         return stats;
     }, [customers]);
+
+    // Handle deep linking for specific customer details drawer
+    useEffect(() => {
+        const searchParams = new URLSearchParams(location.search);
+        const idParam = searchParams.get('id');
+        if (idParam && customers.length > 0) {
+            const customer = customers.find(c => String(c.id) === String(idParam));
+            if (customer) {
+                setSelectedCustomer(customer);
+            }
+        }
+    }, [location.search, customers]);
 
 
     const [search, setSearch] = useState('');

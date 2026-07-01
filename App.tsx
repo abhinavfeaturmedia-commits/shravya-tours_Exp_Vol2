@@ -50,6 +50,7 @@ const AdminProposals = lazy(() => import('./pages/admin/Proposals').then(module 
 const ProposalBuilder = lazy(() => import('./pages/admin/ProposalBuilder').then(module => ({ default: module.ProposalBuilder })));
 const Masters = lazy(() => import('./pages/admin/Masters').then(module => ({ default: module.Masters })));
 const AuditLogs = lazy(() => import('./pages/admin/AuditLogs').then(module => ({ default: module.AuditLogs })));
+const ActivityLogs = lazy(() => import('./pages/admin/ActivityLogs').then(module => ({ default: module.ActivityLogs })));
 const Productivity = lazy(() => import('./pages/admin/Productivity').then(module => ({ default: module.Productivity })));
 const FinanceVerification = lazy(() => import('./pages/admin/FinanceVerification').then(module => ({ default: module.FinanceVerification })));
 const InvoicesDashboard = lazy(() => import('./pages/admin/InvoicesDashboard').then(module => ({ default: module.InvoicesDashboard })));
@@ -141,6 +142,7 @@ const App: React.FC = () => {
                   <Route path="customers" element={<AdminCustomers />} />
                   <Route path="leads" element={<AdminLeads />} />
                   <Route path="audit" element={<AuditLogs />} />
+                  <Route path="activity" element={<ActivityLogs />} />
                   <Route path="productivity" element={<Productivity />} />
                   <Route path="staff" element={<StaffManagement />} />
                   <Route path="team-performance" element={<TeamPerformance />} />

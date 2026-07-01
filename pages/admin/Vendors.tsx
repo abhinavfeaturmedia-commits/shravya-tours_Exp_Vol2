@@ -46,6 +46,18 @@ export const Vendors: React.FC = () => {
         }
     }, [location.search]);
 
+    // Handle deep linking for specific vendor detail drawer
+    useEffect(() => {
+        const searchParams = new URLSearchParams(location.search);
+        const idParam = searchParams.get('id');
+        if (idParam && vendors.length > 0) {
+            const vendor = vendors.find(v => String(v.id) === String(idParam));
+            if (vendor) {
+                setSelectedVendorId(vendor.id);
+            }
+        }
+    }, [location.search, vendors]);
+
     // UI State
     const [selectedVendorId, setSelectedVendorId] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<'Overview' | 'Services' | 'Financials' | 'Documents' | 'Settings'>('Overview');

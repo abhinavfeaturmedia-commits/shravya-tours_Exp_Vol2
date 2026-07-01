@@ -405,7 +405,23 @@ export const Bookings: React.FC = () => {
         if (filterParam === 'unpaid') {
             setSearch('unpaid');
         }
+        const searchParam = searchParams.get('search');
+        if (searchParam) {
+            setSearch(searchParam);
+        }
     }, [location.search]);
+
+    // Handle deep linking for specific booking detail modal
+    useEffect(() => {
+        const searchParams = new URLSearchParams(location.search);
+        const idParam = searchParams.get('id');
+        if (idParam && bookings.length > 0) {
+            const foundBooking = bookings.find(b => String(b.id) === String(idParam) || String(b.bookingNumber) === String(idParam));
+            if (foundBooking) {
+                setViewingBookingId(foundBooking.id);
+            }
+        }
+    }, [location.search, bookings]);
 
     // --- Handlers ---
 

@@ -59,6 +59,7 @@ const NAV_GROUPS = [
   {
     title: 'System',
     items: [
+      { name: 'Activity Feed', path: '/admin/activity', icon: 'pending_actions', module: 'audit' },
       { name: 'Audit Logs', path: '/admin/audit', icon: 'history', module: 'audit' },
       { name: 'Productivity', path: '/admin/productivity', icon: 'insights', module: 'staff' },
       { name: 'Settings', path: '/admin/settings', icon: 'settings', module: 'settings' },
