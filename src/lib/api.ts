@@ -2127,6 +2127,27 @@ export const api = {
         return fetchApi(`/api/deletion-requests/${id}/reject`, { method: 'POST' });
     },
 
+    // ─── TRANSFER REQUESTS ───
+    requestTransfer: async (itemType: 'Lead' | 'Booking', itemId: string, toStaffId: number, reason: string) => {
+        return fetchApi('/api/transfer-requests', {
+            method: 'POST',
+            body: JSON.stringify({ item_type: itemType, item_id: itemId, to_staff_id: toStaffId, reason })
+        });
+    },
+    getTransferRequests: async () => {
+        const { data } = await fetchApi('/api/transfer-requests');
+        return data;
+    },
+    approveTransferRequest: async (id: string) => {
+        return fetchApi(`/api/transfer-requests/${id}/approve`, { method: 'POST' });
+    },
+    rejectTransferRequest: async (id: string, rejectionReason?: string) => {
+        return fetchApi(`/api/transfer-requests/${id}/reject`, {
+            method: 'POST',
+            body: JSON.stringify({ rejection_reason: rejectionReason })
+        });
+    },
+
     // ─── SETTINGS ───
     getSettings: async () => {
         return crud.getAll('settings', { order: 'updated_at', asc: false });

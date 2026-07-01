@@ -13,6 +13,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useSettings } from '../../context/SettingsContext';
 import { toast } from 'sonner';
+import { useTransfers } from '../../src/hooks/useTransfers';
+import { TransferRequestModal } from '../../components/ui/TransferRequestModal';
 import { Pagination, usePagination } from '../../components/ui/Pagination';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -23,6 +25,8 @@ import { Plus, X, Edit2, Trash2 } from 'lucide-react';
 export const Bookings: React.FC = () => {
     const { packages, customers, leads, refreshData, coupons, applyCoupon, detachCoupon, tasks, updateTask, addTask, deleteTask } = useData();
     const { bookings, addBooking, updateBooking, deleteBooking, isLoading } = useBookings();
+    const { transfers, refetchTransfers } = useTransfers();
+    const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
     const { currentUser, hasPermission, staff } = useAuth();
     const { settings } = useSettings();
     const fi = settings.finance;
@@ -1516,6 +1520,41 @@ export const Bookings: React.FC = () => {
                                 </div>
                             ) : (
                                 <>
+                                    {/* Booking Ownership / Assignee */}
+                                    <div className="mb-4">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">Booking Ownership</p>
+                                        <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700 flex flex-col gap-2">
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="material-symbols-outlined text-primary text-[18px]">assignment_ind</span>
+                                                    <span className="text-xs font-bold text-slate-400">Assigned To:</span>
+                                                    <span className="text-sm font-bold text-slate-900 dark:text-white">
+                                                        {viewingBooking.assignedTo ? staff.find(s => s.id === viewingBooking.assignedTo)?.name || 'Unknown' : 'Unassigned'}
+                                                    </span>
+                                                </div>
+                                                {hasPermission('bookings', 'manage') && viewingBooking.assignedTo && (
+                                                    <button
+                                                        onClick={() => setIsTransferModalOpen(true)}
+                                                        className="px-2 py-1 text-[10px] font-black uppercase tracking-wider bg-primary/10 text-primary rounded-lg border border-primary/20 hover:bg-primary/20 transition-all flex items-center gap-1"
+                                                        title="Request Ownership Transfer"
+                                                    >
+                                                        <span className="material-symbols-outlined text-[12px]">move_item</span>
+                                                        Transfer
+                                                    </button>
+                                                )}
+                                            </div>
+                                            {(() => {
+                                                const pending = transfers.find(tr => tr.item_type === 'Booking' && tr.item_id === viewingBooking.id && tr.status === 'Pending');
+                                                return pending ? (
+                                                    <div className="p-2 rounded bg-amber-50 dark:bg-amber-955/20 border border-amber-250 dark:border-amber-900/50 text-[10px] text-amber-700 dark:text-amber-400 font-bold flex items-center gap-1.5 mt-1 animate-pulse">
+                                                        <span className="material-symbols-outlined text-[13px] animate-spin">sync</span>
+                                                        Pending Admin approval for transfer to {pending.to_staff_name}
+                                                    </div>
+                                                ) : null;
+                                            })()}
+                                        </div>
+                                    </div>
+
                                     {/* Customer Info */}
                                     <div>
                                         <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">Customer Information</p>
@@ -2581,6 +2620,22 @@ export const Bookings: React.FC = () => {
                     isOpen={!!bookingForLedger}
                     onClose={() => setBookingForLedgerId(null)}
                     booking={bookingForLedger}
+                />
+            )}
+
+            {viewingBooking && (
+                <TransferRequestModal
+                    isOpen={isTransferModalOpen}
+                    onClose={() => setIsTransferModalOpen(false)}
+                    itemType="Booking"
+                    itemId={viewingBooking.id}
+                    itemName={`BK-${String(viewingBooking.bookingNumber || '').padStart(4, '0')} | ${viewingBooking.customer}`}
+                    staffList={staff}
+                    currentAssigneeId={viewingBooking.assignedTo}
+                    onSuccess={() => {
+                        refetchTransfers();
+                        refreshData();
+                    }}
                 />
             )}
         </div >

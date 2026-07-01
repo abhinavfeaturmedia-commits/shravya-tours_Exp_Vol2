@@ -513,6 +513,39 @@ async function ensureLiveOpsSchema() {
 }
 ensureLiveOpsSchema();
 
+// ─── Transfer Requests Schema Migration ───
+async function ensureTransferRequestsTable() {
+    try {
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS transfer_requests (
+                id VARCHAR(36) PRIMARY KEY,
+                item_type ENUM('Lead', 'Booking') NOT NULL,
+                item_id VARCHAR(36) NOT NULL,
+                from_staff_id INT NOT NULL,
+                to_staff_id INT NOT NULL,
+                requested_by INT NOT NULL,
+                reason TEXT DEFAULT NULL,
+                status ENUM('Pending', 'Approved', 'Rejected') NOT NULL DEFAULT 'Pending',
+                actioned_by INT DEFAULT NULL,
+                actioned_at TIMESTAMP NULL DEFAULT NULL,
+                rejection_reason TEXT DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                FOREIGN KEY (from_staff_id) REFERENCES staff_members(id) ON DELETE CASCADE,
+                FOREIGN KEY (to_staff_id) REFERENCES staff_members(id) ON DELETE CASCADE,
+                FOREIGN KEY (requested_by) REFERENCES staff_members(id) ON DELETE CASCADE,
+                FOREIGN KEY (actioned_by) REFERENCES staff_members(id) ON DELETE SET NULL,
+                INDEX idx_tr_item (item_type, item_id),
+                INDEX idx_tr_status (status)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+        console.log('[TransferRequests Migration] Table ensured.');
+    } catch (err) {
+        console.error('[TransferRequests Migration] Failed:', err.message);
+    }
+}
+ensureTransferRequestsTable();
+
 // ─── Ensure booking_transactions table and all its columns ───
 async function ensureBookingTransactionsSchema() {
     try {
@@ -3301,20 +3334,6 @@ app.put('/api/crud/:table/:id', authMiddleware, validateTable, writeGuard, permi
     const { table, id } = req.params;
     const body = sanitizeDbBody(req.body);
     try {
-        // Enforce that regular staff cannot assign their own records to others unless they have global scope
-        const assignedDataTables = ['leads', 'bookings', 'follow_ups', 'tasks'];
-        const { isAdmin, queryScope } = await getStaffPermissionsAndScope(req.user?.email);
-        if (assignedDataTables.includes(table) && req.user && req.user.role !== 'admin' && req.user.role !== 'Admin' && !isAdmin) {
-            if ('assigned_to' in body && queryScope !== 'Global') {
-                if (req.user.staffId) {
-                    body.assigned_to = req.user.staffId;
-                } else if (req.user.email) {
-                    const [staffRows] = await pool.query('SELECT id FROM staff_members WHERE email = ?', [req.user.email]);
-                    if (staffRows.length > 0) body.assigned_to = staffRows[0].id;
-                }
-            }
-        }
-
         // Lead & Booking Playbook Triggers on Update (fetch old record before update)
         let oldLead = null;
         let oldBooking = null;
@@ -3324,6 +3343,28 @@ app.put('/api/crud/:table/:id', authMiddleware, validateTable, writeGuard, permi
         } else if (table === 'bookings') {
             const [[row]] = await pool.query('SELECT type, assigned_to FROM bookings WHERE id = ?', [id]);
             oldBooking = row;
+        }
+
+        // Enforce that regular staff cannot assign their own records to others unless they have global scope
+        const assignedDataTables = ['leads', 'bookings', 'follow_ups', 'tasks'];
+        const { isAdmin, queryScope } = await getStaffPermissionsAndScope(req.user?.email);
+        if (assignedDataTables.includes(table) && req.user && req.user.role !== 'admin' && req.user.role !== 'Admin' && !isAdmin) {
+            if ('assigned_to' in body) {
+                if (table === 'leads' || table === 'bookings') {
+                    // Block direct assignment changes for staff
+                    const oldAssignee = table === 'leads' ? oldLead?.assigned_to : oldBooking?.assigned_to;
+                    if (oldAssignee !== undefined && String(body.assigned_to) !== String(oldAssignee)) {
+                        return res.status(403).json({ error: 'Direct assignment changes are not permitted for staff. Please request a transfer instead.' });
+                    }
+                } else if (queryScope !== 'Global') {
+                    if (req.user.staffId) {
+                        body.assigned_to = req.user.staffId;
+                    } else if (req.user.email) {
+                        const [staffRows] = await pool.query('SELECT id FROM staff_members WHERE email = ?', [req.user.email]);
+                        if (staffRows.length > 0) body.assigned_to = staffRows[0].id;
+                    }
+                }
+            }
         }
 
         const setClauses = Object.keys(body).map(col => `\`${col}\` = ?`).join(', ');
@@ -3609,6 +3650,259 @@ app.post('/api/deletion-requests/:id/reject', authMiddleware, async (req, res) =
     } catch (error) {
         console.error('Reject deletion error:', error);
         res.status(500).json({ error: 'Failed to reject deletion' });
+    }
+});
+
+// ═══════════════════════════════════════════
+// TRANSFER REQUESTS WORKFLOW
+// ═══════════════════════════════════════════
+
+// Get all transfer requests
+app.get('/api/transfer-requests', authMiddleware, async (req, res) => {
+    try {
+        const { isAdmin } = await getStaffPermissionsAndScope(req.user?.email);
+        const isUserAdmin = req.user?.role === 'admin' || req.user?.role === 'Admin' || isAdmin;
+        
+        let query = `
+            SELECT 
+                tr.*,
+                sm_from.name AS from_staff_name,
+                sm_to.name AS to_staff_name,
+                sm_req.name AS requested_by_name,
+                sm_act.name AS actioned_by_name
+            FROM transfer_requests tr
+            LEFT JOIN staff_members sm_from ON tr.from_staff_id = sm_from.id
+            LEFT JOIN staff_members sm_to ON tr.to_staff_id = sm_to.id
+            LEFT JOIN staff_members sm_req ON tr.requested_by = sm_req.id
+            LEFT JOIN staff_members sm_act ON tr.actioned_by = sm_act.id
+        `;
+        
+        let params = [];
+        if (!isUserAdmin) {
+            const staffId = req.user?.staffId;
+            if (!staffId) {
+                const [staffRows] = await pool.query('SELECT id FROM staff_members WHERE email = ?', [req.user?.email]);
+                if (staffRows.length > 0) {
+                    query += ` WHERE tr.from_staff_id = ? OR tr.to_staff_id = ? OR tr.requested_by = ?`;
+                    params.push(staffRows[0].id, staffRows[0].id, staffRows[0].id);
+                } else {
+                    return res.json({ data: [] });
+                }
+            } else {
+                query += ` WHERE tr.from_staff_id = ? OR tr.to_staff_id = ? OR tr.requested_by = ?`;
+                params.push(staffId, staffId, staffId);
+            }
+        }
+        
+        query += ` ORDER BY tr.created_at DESC`;
+        
+        const [rows] = await pool.query(query, params);
+        
+        // Enrich rows with item names (from leads or bookings table) and values
+        for (let row of rows) {
+            if (row.item_type === 'Lead') {
+                const [[lead]] = await pool.query('SELECT name, lead_number, potential_value FROM leads WHERE id = ?', [row.item_id]);
+                if (lead) {
+                    row.item_name = `LD-${String(lead.lead_number).padStart(4, '0')} | ${lead.name}`;
+                    row.item_value = lead.potential_value;
+                } else {
+                    row.item_name = 'Deleted Lead';
+                    row.item_value = 0;
+                }
+            } else if (row.item_type === 'Booking') {
+                const [[booking]] = await pool.query('SELECT customer, booking_number, amount FROM bookings WHERE id = ?', [row.item_id]);
+                if (booking) {
+                    row.item_name = `BK-${String(booking.booking_number).padStart(4, '0')} | ${booking.customer}`;
+                    row.item_value = booking.amount;
+                } else {
+                    row.item_name = 'Deleted Booking';
+                    row.item_value = 0;
+                }
+            }
+        }
+        
+        res.json({ data: rows });
+    } catch (error) {
+        console.error('Fetch transfer requests error:', error);
+        res.status(500).json({ error: 'Failed to fetch transfer requests' });
+    }
+});
+
+// Create a new transfer request (Staff/Manager/Admin)
+app.post('/api/transfer-requests', authMiddleware, async (req, res) => {
+    const { item_type, item_id, to_staff_id, reason } = req.body;
+    
+    if (!['Lead', 'Booking'].includes(item_type) || !item_id || !to_staff_id) {
+        return res.status(400).json({ error: 'Missing required parameters' });
+    }
+    
+    try {
+        // Find requester staff ID
+        let requested_by = req.user?.staffId;
+        if (!requested_by) {
+            const [staffRows] = await pool.query('SELECT id FROM staff_members WHERE email = ?', [req.user?.email]);
+            if (staffRows.length > 0) requested_by = staffRows[0].id;
+        }
+        if (!requested_by) {
+            return res.status(403).json({ error: 'Staff profile not found' });
+        }
+        
+        // Find current assignee (from_staff_id)
+        let from_staff_id = null;
+        let itemName = '';
+        if (item_type === 'Lead') {
+            const [leads] = await pool.query('SELECT assigned_to, name, lead_number FROM leads WHERE id = ?', [item_id]);
+            if (leads.length === 0) return res.status(404).json({ error: 'Lead not found' });
+            from_staff_id = leads[0].assigned_to;
+            itemName = `Lead LD-${String(leads[0].lead_number).padStart(4, '0')} (${leads[0].name})`;
+        } else {
+            const [bookings] = await pool.query('SELECT assigned_to, customer, booking_number FROM bookings WHERE id = ?', [item_id]);
+            if (bookings.length === 0) return res.status(404).json({ error: 'Booking not found' });
+            from_staff_id = bookings[0].assigned_to;
+            itemName = `Booking BK-${String(bookings[0].booking_number).padStart(4, '0')} (${bookings[0].customer})`;
+        }
+        
+        if (!from_staff_id) {
+            return res.status(400).json({ error: 'Cannot transfer an unassigned item.' });
+        }
+        
+        if (String(from_staff_id) === String(to_staff_id)) {
+            return res.status(400).json({ error: 'Item is already assigned to this staff member.' });
+        }
+        
+        // Check for existing pending request
+        const [pending] = await pool.query(
+            'SELECT id FROM transfer_requests WHERE item_type = ? AND item_id = ? AND status = "Pending"',
+            [item_type, item_id]
+        );
+        if (pending.length > 0) {
+            return res.status(400).json({ error: 'A transfer request is already pending for this item.' });
+        }
+        
+        const id = crypto.randomUUID();
+        await pool.query(
+            `INSERT INTO transfer_requests (id, item_type, item_id, from_staff_id, to_staff_id, requested_by, reason, status) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'Pending')`,
+            [id, item_type, item_id, from_staff_id, to_staff_id, requested_by, reason || '']
+        );
+        
+        auditLog('Request Transfer', item_type, `Requested transfer of ${itemName} to staff ID ${to_staff_id}`, req.user?.email);
+        
+        res.status(201).json({ status: 'success', id });
+    } catch (error) {
+        console.error('Create transfer request error:', error);
+        res.status(500).json({ error: 'Failed to submit transfer request' });
+    }
+});
+
+// Approve a transfer request (Admin only)
+app.post('/api/transfer-requests/:id/approve', authMiddleware, async (req, res) => {
+    const { id } = req.params;
+    try {
+        const { isAdmin } = await getStaffPermissionsAndScope(req.user?.email);
+        if (req.user?.role !== 'admin' && req.user?.role !== 'Admin' && !isAdmin) {
+            return res.status(403).json({ error: 'Unauthorized' });
+        }
+        
+        const [requests] = await pool.query('SELECT * FROM transfer_requests WHERE id = ?', [id]);
+        if (requests.length === 0) return res.status(404).json({ error: 'Transfer request not found' });
+        
+        const request = requests[0];
+        if (request.status !== 'Pending') {
+            return res.status(400).json({ error: `Request already processed: ${request.status}` });
+        }
+        
+        let actioned_by = req.user?.staffId;
+        if (!actioned_by) {
+            const [staffRows] = await pool.query('SELECT id FROM staff_members WHERE email = ?', [req.user?.email]);
+            if (staffRows.length > 0) actioned_by = staffRows[0].id;
+        }
+        
+        const [[fromStaff]] = await pool.query('SELECT name FROM staff_members WHERE id = ?', [request.from_staff_id]);
+        const [[toStaff]] = await pool.query('SELECT name FROM staff_members WHERE id = ?', [request.to_staff_id]);
+        const fromName = fromStaff ? fromStaff.name : 'Unknown';
+        const toName = toStaff ? toStaff.name : 'Unknown';
+        
+        await pool.query('START TRANSACTION');
+        
+        await pool.query(
+            'UPDATE transfer_requests SET status = "Approved", actioned_by = ?, actioned_at = NOW() WHERE id = ?',
+            [actioned_by, id]
+        );
+        
+        if (request.item_type === 'Lead') {
+            await pool.query('UPDATE leads SET assigned_to = ? WHERE id = ?', [request.to_staff_id, request.item_id]);
+            
+            // Cascade to pending checklist tasks
+            await pool.query(
+                "UPDATE tasks SET assigned_to = ? WHERE related_lead_id = ? AND category = 'checklist' AND status = 'Pending'",
+                [request.to_staff_id, request.item_id]
+            );
+            
+            // Add system log entry to lead logs
+            const logId = `lg-tr-${Date.now()}`;
+            const logContent = `Ownership transferred from ${fromName} to ${toName} (Approved by Admin).`;
+            await pool.query(
+                "INSERT INTO lead_logs (id, type, content, timestamp, sender, lead_id) VALUES (?, 'System', ?, NOW(), 'System', ?)",
+                [logId, logContent, request.item_id]
+            );
+        } else if (request.item_type === 'Booking') {
+            await pool.query('UPDATE bookings SET assigned_to = ? WHERE id = ?', [request.to_staff_id, request.item_id]);
+            
+            // Cascade to pending checklist tasks
+            await pool.query(
+                "UPDATE tasks SET assigned_to = ? WHERE related_booking_id = ? AND category = 'checklist' AND status = 'Pending'",
+                [request.to_staff_id, request.item_id]
+            );
+        }
+        
+        await pool.query('COMMIT');
+        
+        auditLog('Approve Transfer', request.item_type, `Approved transfer of ${request.item_type} ${request.item_id} from ${fromName} to ${toName}`, req.user?.email);
+        
+        res.json({ status: 'success' });
+    } catch (error) {
+        await pool.query('ROLLBACK');
+        console.error('Approve transfer error:', error);
+        res.status(500).json({ error: 'Failed to approve transfer request' });
+    }
+});
+
+// Reject a transfer request (Admin only)
+app.post('/api/transfer-requests/:id/reject', authMiddleware, async (req, res) => {
+    const { id } = req.params;
+    const { rejection_reason } = req.body;
+    try {
+        const { isAdmin } = await getStaffPermissionsAndScope(req.user?.email);
+        if (req.user?.role !== 'admin' && req.user?.role !== 'Admin' && !isAdmin) {
+            return res.status(403).json({ error: 'Unauthorized' });
+        }
+        
+        const [requests] = await pool.query('SELECT * FROM transfer_requests WHERE id = ?', [id]);
+        if (requests.length === 0) return res.status(404).json({ error: 'Transfer request not found' });
+        
+        const request = requests[0];
+        if (request.status !== 'Pending') {
+            return res.status(400).json({ error: `Request already processed: ${request.status}` });
+        }
+        
+        let actioned_by = req.user?.staffId;
+        if (!actioned_by) {
+            const [staffRows] = await pool.query('SELECT id FROM staff_members WHERE email = ?', [req.user?.email]);
+            if (staffRows.length > 0) actioned_by = staffRows[0].id;
+        }
+        
+        await pool.query(
+            'UPDATE transfer_requests SET status = "Rejected", actioned_by = ?, actioned_at = NOW(), rejection_reason = ? WHERE id = ?',
+            [actioned_by, rejection_reason || '', id]
+        );
+        
+        auditLog('Reject Transfer', request.item_type, `Rejected transfer of ${request.item_type} ${request.item_id}`, req.user?.email);
+        
+        res.json({ status: 'success' });
+    } catch (error) {
+        console.error('Reject transfer error:', error);
+        res.status(500).json({ error: 'Failed to reject transfer request' });
     }
 });
 

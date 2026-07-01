@@ -4,6 +4,8 @@ import { useData } from '../../context/DataContext';
 import { useLeads } from '../../src/hooks/useLeads';
 import { useBookings } from '../../src/hooks/useBookings';
 import { useAuth } from '../../context/AuthContext';
+import { useTransfers } from '../../src/hooks/useTransfers';
+import { TransferRequestModal } from '../../components/ui/TransferRequestModal';
 import { Lead, BookingStatus, FollowUpType, Customer, BookingType, Task } from '../../types'; // Removed unused imports
 import { api } from '../../src/lib/api';
 import { toast } from 'sonner'; // Use sonner for consistency if available, or keep existing toast
@@ -42,6 +44,8 @@ export const Leads: React.FC = () => {
     const { leads, addLead, updateLead, deleteLead, addLeadLog, updateLeadLog, deleteLeadLog, isLoading, refetchLeads } = useLeads();
     const { addBooking } = useBookings();
     const { currentUser, staff, hasPermission } = useAuth();
+    const { transfers, refetchTransfers } = useTransfers();
+    const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
     const navigate = useNavigate();
 
     // UI State
@@ -1012,6 +1016,14 @@ export const Leads: React.FC = () => {
                                             </div>
                                             <div className="col-span-2 text-xs font-medium text-slate-600 dark:text-slate-400 truncate">
                                                 {lead.assignedTo ? staff.find(s => s.id === lead.assignedTo)?.name || 'Unknown' : 'Unassigned'}
+                                                {(() => {
+                                                    const pending = transfers.find(tr => tr.item_type === 'Lead' && tr.item_id === lead.id && tr.status === 'Pending');
+                                                    return pending ? (
+                                                        <span className="block text-[9px] text-amber-500 font-bold animate-pulse flex items-center gap-0.5 mt-0.5" title={`Transfer pending to ${pending.to_staff_name}`}>
+                                                            🔄 Pending Transfer
+                                                        </span>
+                                                    ) : null;
+                                                })()}
                                             </div>
                                             <div className="col-span-2 text-right">
                                                 <StatusBadge status={lead.status} />
@@ -1729,9 +1741,30 @@ export const Leads: React.FC = () => {
                                 </div>
                                 <div>
                                     <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Assigned To</p>
-                                    <p className="text-sm font-bold text-slate-900 dark:text-white truncate">
-                                        {selectedLead.assignedTo ? staff.find(s => s.id === selectedLead.assignedTo)?.name || 'Unknown' : 'Unassigned'}
-                                    </p>
+                                    <div className="flex items-center gap-2">
+                                        <p className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                                            {selectedLead.assignedTo ? staff.find(s => s.id === selectedLead.assignedTo)?.name || 'Unknown' : 'Unassigned'}
+                                        </p>
+                                        {hasPermission('leads', 'manage') && selectedLead.assignedTo && (
+                                            <button
+                                                onClick={() => setIsTransferModalOpen(true)}
+                                                className="px-2 py-0.5 text-[9px] font-black uppercase tracking-wider bg-primary/10 text-primary rounded border border-primary/20 hover:bg-primary/20 transition-all flex items-center gap-0.5"
+                                                title="Transfer Ownership"
+                                            >
+                                                <span className="material-symbols-outlined text-[10px]">move_item</span>
+                                                Transfer
+                                            </button>
+                                        )}
+                                    </div>
+                                    {(() => {
+                                        const pending = transfers.find(tr => tr.item_type === 'Lead' && tr.item_id === selectedLead.id && tr.status === 'Pending');
+                                        return pending ? (
+                                            <div className="mt-1 p-1.5 rounded bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 text-[10px] text-amber-700 dark:text-amber-400 font-bold flex items-center gap-1">
+                                                <span className="material-symbols-outlined text-[12px] animate-spin">sync</span>
+                                                Pending Admin approval for transfer to {pending.to_staff_name}
+                                            </div>
+                                        ) : null;
+                                    })()}
                                 </div>
                             </div>
                         </div>
@@ -2094,6 +2127,22 @@ export const Leads: React.FC = () => {
                     toast.success(`${data.length} leads imported successfully!`);
                 }}
             />
+
+            {selectedLead && (
+                <TransferRequestModal
+                    isOpen={isTransferModalOpen}
+                    onClose={() => setIsTransferModalOpen(false)}
+                    itemType="Lead"
+                    itemId={selectedLead.id}
+                    itemName={selectedLead.name}
+                    staffList={staff}
+                    currentAssigneeId={selectedLead.assignedTo}
+                    onSuccess={() => {
+                        refetchTransfers();
+                        refetchLeads();
+                    }}
+                />
+            )}
         </div>
     );
 };
