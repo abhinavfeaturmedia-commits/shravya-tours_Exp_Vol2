@@ -55,7 +55,16 @@ export interface Package {
   terms_and_conditions?: string | null;
   partnerCommissionType?: CommissionType;
   partnerCommissionValue?: number;
+  videos?: PackageVideo[];
 }
+
+export interface PackageVideo {
+  id: string;
+  platform: 'youtube' | 'instagram' | 'facebook';
+  url: string;
+  caption?: string;
+}
+
 
 export interface Booking {
   id: string; // Internal UUID from DB

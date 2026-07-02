@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { Package } from '../../../types';
 import { Save, ArrowLeft, MapPin, Calendar, Users, Printer, Share2, Check, DollarSign, ArrowRight, Loader2, Hotel, Car, FileText, Receipt, Tag, Clock, Download } from 'lucide-react';
 import { toast } from 'sonner';
+import { copyToClipboard } from '../../../utils/clipboard';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -1471,8 +1472,13 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
                         <button
                             onClick={() => {
                                 const text = `🏝️ *Trip to ${destinationName}*\n📅 ${tripDetails.nights}N/${tripDetails.days}D | ${guestCount} Guests\n💰 ₹${finalPrice.toLocaleString()}\n\n*Itinerary:*\n${items.map(item => `Day ${item.day}: ${item.title}`).join('\n')}\n\nBook now with SHRAWELLO Travel Hub! 🚀`;
-                                navigator.clipboard.writeText(text);
-                                toast.success('Itinerary copied to clipboard!');
+                                copyToClipboard(text).then(success => {
+                                    if (success) {
+                                        toast.success('Itinerary copied to clipboard!');
+                                    } else {
+                                        toast.error('Failed to copy itinerary');
+                                    }
+                                });
                             }}
                             className="w-full py-2.5 bg-stone-900 text-white font-bold rounded-xl hover:opacity-90 transition-all flex items-center justify-center gap-2 text-xs"
                         >
@@ -1492,8 +1498,13 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
                                 return;
                             }
                             const url = `${window.location.origin}${window.location.pathname}#/itinerary/${editPackageId}`;
-                            navigator.clipboard.writeText(url);
-                            toast.success('Web Link copied to clipboard!');
+                            copyToClipboard(url).then(success => {
+                                if (success) {
+                                    toast.success('Web Link copied to clipboard!');
+                                } else {
+                                    toast.error('Failed to copy Web Link');
+                                }
+                            });
                         }}
                         className={`w-full py-2.5 font-bold rounded-xl transition-all flex items-center justify-center gap-2 text-xs shadow-lg ${
                             editPackageId ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-600/20' : 'bg-stone-100 text-stone-400 cursor-not-allowed shadow-none border border-stone-200'

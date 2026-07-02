@@ -174,7 +174,8 @@ const mapPackage = (row: any): Package => {
         validity_date: row.validity_date,
         terms_and_conditions: row.terms_and_conditions,
         partnerCommissionType: row.partner_commission_type || undefined,
-        partnerCommissionValue: row.partner_commission_value !== null && row.partner_commission_value !== undefined ? Number(row.partner_commission_value) : undefined
+        partnerCommissionValue: row.partner_commission_value !== null && row.partner_commission_value !== undefined ? Number(row.partner_commission_value) : undefined,
+        videos: parseJsonFieldSafe(row.videos, [])
     };
 };
 
@@ -187,7 +188,7 @@ export const api = {
             'pricing_mode','image','tag','tag_color','remaining_seats','highlights','features',
             'theme','overview','status','offer_end_time','included','not_included','gallery',
             'addons','itinerary','itinerary_status','client_name','client_id',
-            'validity_date','terms_and_conditions','created_at'
+            'validity_date','terms_and_conditions','created_at','videos'
         ].join(',');
         const { data } = await crud.getAll('packages', { order: 'created_at', asc: false, select: SELECT_COLS });
         return (data || []).map(mapPackage);
@@ -232,6 +233,7 @@ export const api = {
             gallery: pkg.gallery ? JSON.stringify(pkg.gallery) : '[]',
             addons: pkg.addons ? JSON.stringify(pkg.addons) : null,
             builder_data: pkg.builderData ? JSON.stringify(pkg.builderData) : null,
+            videos: pkg.videos ? JSON.stringify(pkg.videos) : null,
             itinerary_status: (pkg as any).itinerary_status || (pkg as any).itineraryStatus || 'Draft',
             client_name: (pkg as any).client_name || (pkg as any).clientName || null,
             client_id: (pkg as any).client_id || (pkg as any).clientId || null,
@@ -273,6 +275,7 @@ export const api = {
         if (pkg.gallery !== undefined) dbPkg.gallery = JSON.stringify(pkg.gallery);
         if (pkg.addons !== undefined) dbPkg.addons = JSON.stringify(pkg.addons);
         if (pkg.builderData !== undefined) dbPkg.builder_data = JSON.stringify(pkg.builderData);
+        if (pkg.videos !== undefined) dbPkg.videos = JSON.stringify(pkg.videos);
         if ((pkg as any).itinerary_status !== undefined) dbPkg.itinerary_status = (pkg as any).itinerary_status;
         if ((pkg as any).itineraryStatus !== undefined) dbPkg.itinerary_status = (pkg as any).itineraryStatus;
         if ((pkg as any).client_name !== undefined) dbPkg.client_name = (pkg as any).client_name;

@@ -271,7 +271,8 @@ async function migratePackagesColumns() {
         "ALTER TABLE packages ADD COLUMN IF NOT EXISTS itinerary LONGTEXT DEFAULT NULL",
         "ALTER TABLE packages ADD COLUMN IF NOT EXISTS partner_commission_type VARCHAR(50) DEFAULT NULL",
         "ALTER TABLE packages ADD COLUMN IF NOT EXISTS partner_commission_value DECIMAL(10,2) DEFAULT NULL",
-        "ALTER TABLE packages ADD COLUMN IF NOT EXISTS gallery LONGTEXT DEFAULT NULL"
+        "ALTER TABLE packages ADD COLUMN IF NOT EXISTS gallery LONGTEXT DEFAULT NULL",
+        "ALTER TABLE packages ADD COLUMN IF NOT EXISTS videos LONGTEXT DEFAULT NULL"
     ];
     for (const sql of alterations) {
         try {

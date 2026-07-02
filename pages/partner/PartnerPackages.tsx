@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePartnerAuth } from '../../context/PartnerAuthContext';
+import { copyToClipboard } from '../../utils/clipboard';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -100,9 +101,12 @@ export const PartnerPackages: React.FC = () => {
   const copyReferralLink = (pkg: any) => {
     if (!partner) return;
     const referralUrl = `${window.location.origin}${window.location.pathname}#/packages/${pkg.id}?ref=${partner.id}`;
-    navigator.clipboard.writeText(referralUrl);
-    setCopiedPkgId(pkg.id);
-    setTimeout(() => setCopiedPkgId(null), 2000);
+    copyToClipboard(referralUrl).then(success => {
+      if (success) {
+        setCopiedPkgId(pkg.id);
+        setTimeout(() => setCopiedPkgId(null), 2000);
+      }
+    });
   };
 
   // Navigate to Submit Lead page with pre-populated package values

@@ -381,10 +381,10 @@ export const Packages: React.FC = () => {
                 {sortedPackages.length > 0 ? (
                   sortedPackages.map((pkg, pkgIdx) => (
                     <div key={pkg.id}>
-                      <Link to={`/packages/${pkg.id}`} className="group relative flex flex-col bg-white dark:bg-[#151d29] rounded-[2.2rem] overflow-hidden hover:shadow-[0_25px_50px_-12px_rgba(0,0,0,0.15)] dark:hover:shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5)] transition-all duration-500 transform hover:-translate-y-2">
+                      <Link to={`/packages/${pkg.id}`} className="group relative flex flex-col h-full bg-white dark:bg-[#151d29] rounded-[2.2rem] overflow-hidden border border-slate-100 dark:border-slate-850 hover:border-primary/25 dark:hover:border-primary/35 hover:shadow-[0_20px_40px_-15px_rgba(99,102,241,0.08)] dark:hover:shadow-[0_20px_40px_-15px_rgba(99,102,241,0.25)] transition-all duration-500 transform hover:-translate-y-1.5">
                         
                         {/* Image Container */}
-                        <div className="relative h-80 w-full overflow-hidden">
+                        <div className="relative h-60 w-full overflow-hidden shrink-0">
                           {/* Top Badges */}
                           <div className="absolute top-4 left-4 z-20 flex flex-col gap-2">
                             {pkg.tag && (
@@ -404,15 +404,15 @@ export const Packages: React.FC = () => {
                           <div className="absolute top-4 right-4 z-30 flex items-center gap-2">
                             <button
                               onClick={(e) => handleToggleWishlist(e, pkg.id)}
-                              className="size-8 rounded-full bg-white/95 dark:bg-[#1A2633]/95 flex items-center justify-center shadow-md hover:scale-105 active:scale-90 transition-all text-red-500"
+                              className="size-8 rounded-full bg-white/90 backdrop-blur-md dark:bg-slate-900/90 flex items-center justify-center shadow-md hover:scale-110 hover:bg-white dark:hover:bg-slate-800 active:scale-95 transition-all text-red-500 border border-white/20"
                             >
                               <span className="material-symbols-outlined text-[18px]" style={{ fontVariationSettings: wishlistIds.includes(pkg.id) ? "'FILL' 1" : "'FILL' 0" }}>
                                 favorite
                               </span>
                             </button>
 
-                            <div className="bg-black/30 backdrop-blur-md text-white text-[10px] font-black px-3 py-1.5 rounded-full flex items-center gap-1.5 border border-white/10">
-                              <span className="material-symbols-outlined text-[14px]">schedule</span>
+                            <div className="bg-white/90 backdrop-blur-md dark:bg-slate-900/90 text-slate-800 dark:text-slate-100 text-[10px] font-bold px-3 py-1.5 rounded-full flex items-center gap-1 shadow-md border border-white/20">
+                              <span className="material-symbols-outlined text-[14px] text-slate-500 dark:text-slate-400">schedule</span>
                               {pkg.days}D / {pkg.days - 1}N
                             </div>
                           </div>
@@ -420,30 +420,32 @@ export const Packages: React.FC = () => {
                           <OptimizedImage
                             src={pkg.image}
                             alt={pkg.title}
-                            className="h-full w-full object-cover group-hover:scale-110 transition-transform duration-700 ease-out"
+                            className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-750 ease-out"
                           />
+                        </div>
 
-                          {/* Multi-layered gradient for text readability */}
-                          <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/80 via-black/40 to-transparent transition-opacity group-hover:from-black/90"></div>
-                          
-                          {/* Floating Info Overlay (Glassmorphism) */}
-                          <div className="absolute inset-x-4 bottom-4 p-5 bg-white/10 dark:bg-black/20 backdrop-blur-xl border border-white/20 rounded-[1.5rem] transform translate-y-1 group-hover:translate-y-0 transition-transform duration-500">
-                            <h3 className="font-black text-xl text-white leading-tight mb-1 group-hover:text-primary-light transition-colors">{pkg.title}</h3>
-                            <div className="flex items-center justify-between">
-                              <p className="text-white/80 text-xs font-bold flex items-center gap-1">
-                                <span className="material-symbols-outlined text-[16px] text-primary">location_on</span> 
-                                {getLocationName(pkg.location, masterLocations)}
-                              </p>
-                              <div className="flex items-center gap-1 text-white font-black text-sm">
-                                <span className="text-[10px] text-white/60 font-medium mr-1 italic">from</span>
-                                {formatPriceCompact(pkg.price)}
-                              </div>
+                        {/* Card Content */}
+                        <div className="flex-1 p-6 flex flex-col justify-between">
+                          <div>
+                            <h3 className="font-black text-lg md:text-xl text-slate-800 dark:text-white leading-tight mb-3.5 group-hover:text-primary transition-colors line-clamp-2">
+                              {pkg.title}
+                            </h3>
+                            <div className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 dark:bg-slate-800/80 text-slate-655 dark:text-slate-300 rounded-lg text-[11px] font-bold">
+                              <span className="material-symbols-outlined text-[14px] text-primary">location_on</span> 
+                              <span>{getLocationName(pkg.location, masterLocations)}</span>
                             </div>
+                          </div>
+                          
+                          <div className="flex items-center justify-between mt-5 pt-3">
+                            <span className="text-xs text-slate-450 dark:text-slate-500 font-medium">Starting from</span>
+                            <span className="text-xl font-black text-primary dark:text-primary-light">
+                              {formatPriceCompact(pkg.price)}
+                            </span>
                           </div>
                         </div>
 
                         {/* Card Content Footer (Clean stats/Action) */}
-                        <div className="px-6 py-5 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/30">
+                        <div className="px-6 py-5 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/30 border-t border-slate-100 dark:border-slate-850">
                           <div className="flex -space-x-2">
                              {[1, 2, 3].map(i => (
                                <div key={i} className="size-6 rounded-full border-2 border-white dark:border-[#151d29] bg-slate-200 dark:bg-slate-700 overflow-hidden">
@@ -454,9 +456,9 @@ export const Packages: React.FC = () => {
                                +12
                              </div>
                           </div>
-                          <div className="flex items-center gap-2 text-primary font-bold text-xs group/btn">
+                          <div className="flex items-center gap-1.5 text-primary font-bold text-xs">
                             View Details 
-                            <span className="material-symbols-outlined text-[16px] group-hover/btn:translate-x-1 transition-transform">arrow_forward</span>
+                            <span className="material-symbols-outlined text-[16px] group-hover:translate-x-1.5 transition-transform duration-300">arrow_forward</span>
                           </div>
                         </div>
                       </Link>

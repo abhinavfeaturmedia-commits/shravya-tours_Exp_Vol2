@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import { useAuth } from '../context/AuthContext';
-import { Lead, Package, CommissionType } from '../types';
+import { Lead, Package, CommissionType, PackageVideo } from '../types';
 import { SEO } from '../components/ui/SEO';
 import { OptimizedImage } from '../components/ui/OptimizedImage';
 import { toast } from '../components/ui/Toast';
@@ -11,6 +11,8 @@ import { PhoneInput } from '../components/ui/PhoneInput';
 import { api } from '../src/lib/api';
 import { ImageUpload } from '../components/ui/ImageUpload';
 import { formatPrice, formatPriceCompact, getLocationName } from '../utils/packageUtils';
+import { getEmbedUrl, getVideoThumbnail } from '../utils/videoUtils';
+import { copyToClipboard } from '../utils/clipboard';
 import { useCustomerAuth, CUSTOMER_JWT_KEY } from '../context/CustomerAuthContext';
 
 export const PackageDetail: React.FC = () => {
@@ -80,6 +82,22 @@ export const PackageDetail: React.FC = () => {
 
   const [isAdminEditOpen, setIsAdminEditOpen] = useState(false);
   const [activeEditTab, setActiveEditTab] = useState<'info' | 'settings' | 'media' | 'ageLimits' | 'cancellation' | 'payment' | 'inclusions' | 'faqs' | 'itinerary'>('info');
+  const [isAdminMenuOpen, setIsAdminMenuOpen] = useState(false);
+  const adminMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (adminMenuRef.current && !adminMenuRef.current.contains(event.target as Node)) {
+        setIsAdminMenuOpen(false);
+      }
+    };
+    if (isAdminMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isAdminMenuOpen]);
 
   const [editForm, setEditForm] = useState({
     title: '',
@@ -124,7 +142,8 @@ export const PackageDetail: React.FC = () => {
     partnerCommissionValue: '' as string | number,
     addons: [] as { id: string; label: string; price: number }[],
     gallery: [] as string[],
-    pricingMode: 'group' as 'group' | 'per_person'
+    pricingMode: 'group' as 'group' | 'per_person',
+    videos: [] as PackageVideo[]
   });
 
   const [guests, setGuests] = useState('2 Adults');
@@ -474,7 +493,8 @@ export const PackageDetail: React.FC = () => {
         partnerCommissionValue: tour.partnerCommissionValue !== undefined && tour.partnerCommissionValue !== null ? tour.partnerCommissionValue : '',
         addons: tour.addons || [],
         gallery: tour.gallery || [],
-        pricingMode: tour.pricingMode || 'group'
+        pricingMode: tour.pricingMode || 'group',
+        videos: tour.videos || []
       });
     }
   }, [tour, isAdminEditOpen, ageLimitsList, cancellationPolicy, paymentPolicy, faqs]);
@@ -508,6 +528,7 @@ export const PackageDetail: React.FC = () => {
         partnerCommissionValue: editForm.partnerCommissionValue === '' ? null : Number(editForm.partnerCommissionValue),
         addons: editForm.addons,
         gallery: editForm.gallery,
+        videos: editForm.videos,
         builderData: {
           ...(tour.builderData || {}),
           tripDetails: {
@@ -578,14 +599,20 @@ export const PackageDetail: React.FC = () => {
   }, [tour, masterLocations]);
 
   // Tab configurations
-  const TABS = useMemo(() => [
-    { id: 'overview', label: 'Overview' },
-    { id: 'itinerary', label: 'Itinerary' },
-    { id: 'inclusions', label: 'Inclusions & Exclusions' },
-    { id: 'cancellation', label: 'Cancellation Policy' },
-    { id: 'payment', label: 'Payment Policy' },
-    { id: 'faqs', label: 'FAQs' }
-  ], []);
+  const TABS = useMemo(() => {
+    const list = [
+      { id: 'overview', label: 'Overview' },
+      { id: 'itinerary', label: 'Itinerary' },
+      { id: 'inclusions', label: 'Inclusions & Exclusions' },
+      { id: 'cancellation', label: 'Cancellation Policy' },
+      { id: 'payment', label: 'Payment Policy' },
+      { id: 'faqs', label: 'FAQs' }
+    ];
+    if (tour?.videos && tour.videos.length > 0) {
+      list.push({ id: 'videos', label: 'Videos & Reels' });
+    }
+    return list;
+  }, [tour?.videos]);
 
   // Intersection Observer for scroll highlighting
   useEffect(() => {
@@ -1079,44 +1106,74 @@ export const PackageDetail: React.FC = () => {
 
       <div className="bg-slate-50 dark:bg-[#0B1116] min-h-screen pb-40 md:pb-20 relative pt-24 md:pt-28">
 
-        {/* Admin Control Bar */}
+        {/* Admin Floating Control Panel */}
         {canEdit && (
-          <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 border-b border-indigo-500/20 text-white px-4 md:px-8 py-3.5 flex flex-wrap items-center justify-between gap-4 sticky top-[80px] z-40 shadow-lg -mt-8 md:-mt-12 mb-8">
-            <div className="flex items-center gap-3">
-              <div className="size-8 rounded-lg bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center">
-                <span className="material-symbols-outlined text-indigo-400 text-lg">admin_panel_settings</span>
+          <div ref={adminMenuRef} className="fixed bottom-6 left-6 z-[100] flex flex-col items-start">
+            {/* Popover Menu */}
+            {isAdminMenuOpen && (
+              <div className="mb-3 bg-slate-900/95 dark:bg-[#151d29]/95 border border-indigo-500/30 text-white rounded-2xl p-4 shadow-2xl animate-in slide-in-from-bottom-2 fade-in duration-200 w-72 backdrop-blur-md">
+                <div className="flex items-center justify-between border-b border-slate-800 dark:border-slate-700/60 pb-2.5 mb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="material-symbols-outlined text-indigo-400 text-lg">admin_panel_settings</span>
+                    <span className="font-bold text-xs uppercase tracking-widest text-indigo-300">Package Admin</span>
+                  </div>
+                  <button 
+                    onClick={() => setIsAdminMenuOpen(false)}
+                    className="text-slate-400 hover:text-white transition-colors"
+                  >
+                    <span className="material-symbols-outlined text-sm">close</span>
+                  </button>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <button
+                    onClick={() => {
+                      setActiveEditTab('info');
+                      setIsAdminEditOpen(true);
+                      setIsAdminMenuOpen(false);
+                    }}
+                    className="w-full px-3.5 py-2.5 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-bold rounded-xl text-xs uppercase tracking-wider transition-all flex items-center gap-2.5 shadow-md shadow-indigo-600/20"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">edit</span>
+                    Quick Edit Package
+                  </button>
+                  <button
+                    onClick={() => {
+                      navigate(`/admin/itinerary-builder?edit=${tour.id}`);
+                      setIsAdminMenuOpen(false);
+                    }}
+                    className="w-full px-3.5 py-2.5 bg-slate-800 hover:bg-slate-750 active:scale-95 text-slate-200 font-bold rounded-xl text-xs uppercase tracking-wider transition-all flex items-center gap-2.5 border border-slate-700"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">edit_road</span>
+                    Itinerary Builder
+                  </button>
+                  <button
+                    onClick={() => {
+                      navigate('/admin/packages');
+                      setIsAdminMenuOpen(false);
+                    }}
+                    className="w-full px-3.5 py-2.5 bg-slate-800 hover:bg-slate-750 active:scale-95 text-slate-200 font-bold rounded-xl text-xs uppercase tracking-wider transition-all flex items-center gap-2.5 border border-slate-700"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">inventory</span>
+                    Package List
+                  </button>
+                </div>
               </div>
-              <div>
-                <p className="text-xs font-bold uppercase tracking-widest text-indigo-300">Package Admin Panel</p>
-                <p className="text-[11px] text-slate-350">Quick edit fields or load this package in the full itinerary builder.</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => {
-                  setActiveEditTab('info');
-                  setIsAdminEditOpen(true);
-                }}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-bold rounded-xl text-xs uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-md shadow-indigo-600/10"
-              >
-                <span className="material-symbols-outlined text-[16px]">edit</span>
-                Quick Edit Package
-              </button>
-              <button
-                onClick={() => navigate(`/admin/itinerary-builder?edit=${tour.id}`)}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 font-bold rounded-xl text-xs uppercase tracking-wider transition-all flex items-center gap-1.5 border border-slate-700"
-              >
-                <span className="material-symbols-outlined text-[16px]">edit_road</span>
-                Itinerary Builder
-              </button>
-              <button
-                onClick={() => navigate('/admin/packages')}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 font-bold rounded-xl text-xs uppercase tracking-wider transition-all flex items-center gap-1.5 border border-slate-700"
-              >
-                <span className="material-symbols-outlined text-[16px]">inventory</span>
-                Package List
-              </button>
-            </div>
+            )}
+            
+            {/* Toggle FAB */}
+            <button
+              onClick={() => setIsAdminMenuOpen(!isAdminMenuOpen)}
+              className={`size-12 rounded-full flex items-center justify-center transition-all duration-300 shadow-2xl active:scale-95 ${
+                isAdminMenuOpen 
+                  ? 'bg-slate-800 text-white border border-slate-700 hover:bg-slate-700' 
+                  : 'bg-indigo-600 text-white hover:bg-indigo-500 hover:scale-105 shadow-indigo-600/30 border border-indigo-500/30'
+              }`}
+              title="Package Admin Menu"
+            >
+              <span className="material-symbols-outlined text-xl">
+                {isAdminMenuOpen ? 'close' : 'admin_panel_settings'}
+              </span>
+            </button>
           </div>
         )}
 
@@ -1533,8 +1590,13 @@ export const PackageDetail: React.FC = () => {
 
                   <button
                     onClick={() => {
-                      navigator.clipboard.writeText(window.location.href);
-                      toast.success('Link copied to clipboard!');
+                      copyToClipboard(window.location.href).then(success => {
+                        if (success) {
+                          toast.success('Link copied to clipboard!');
+                        } else {
+                          toast.error('Failed to copy link to clipboard');
+                        }
+                      });
                     }}
                     className="px-4 py-2 bg-white dark:bg-[#151d29] hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center gap-2 w-fit transition-all sm:self-start shrink-0"
                   >
@@ -1577,7 +1639,7 @@ export const PackageDetail: React.FC = () => {
               </div>
 
               {/* Sticky Tabs Navigation */}
-              <div className={`sticky ${canEdit ? 'top-[144px]' : 'top-[80px]'} bg-slate-50/90 dark:bg-[#0B1116]/90 backdrop-blur-xl z-30 border-b border-slate-200 dark:border-slate-800/80 -mx-4 px-4 py-4 mb-4 flex gap-3 overflow-x-auto no-scrollbar`}>
+              <div className="sticky top-[80px] bg-slate-50/90 dark:bg-[#0B1116]/90 backdrop-blur-xl z-30 border-b border-slate-200 dark:border-slate-800/80 -mx-4 px-4 py-4 mb-4 flex gap-3 overflow-x-auto no-scrollbar">
                 {TABS.map(tab => (
                   <button
                     key={tab.id}
@@ -1933,6 +1995,40 @@ export const PackageDetail: React.FC = () => {
                   ))}
                 </div>
               </section>
+
+              {/* Tour Videos & Reels Section */}
+              {tour.videos && tour.videos.length > 0 && (
+                <section id="videos" className="scroll-mt-36">
+                  <h2 className="text-2xl font-black text-slate-900 dark:text-white mb-6 flex items-center gap-3">
+                    <span className="material-symbols-outlined text-primary text-3xl">play_circle</span>
+                    Videos & Reels
+                  </h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {tour.videos.map((video: PackageVideo) => {
+                      const isVertical = video.platform === 'instagram';
+                      return (
+                        <div 
+                          key={video.id} 
+                          className={`bg-white dark:bg-[#151d29] rounded-[2rem] overflow-hidden border border-slate-150 dark:border-slate-800/80 shadow-sm transition-all hover:shadow-md flex flex-col ${
+                            isVertical ? 'max-w-[340px] mx-auto w-full' : 'w-full'
+                          }`}
+                        >
+                          <div className={isVertical ? 'aspect-[9/16]' : 'aspect-video'}>
+                            <VideoCardPlayer video={video} fallbackImage={tour.image} />
+                          </div>
+                          {video.caption && (
+                            <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/55 dark:bg-slate-800/10">
+                              <p className="text-sm font-bold text-slate-700 dark:text-slate-300 text-center">
+                                {video.caption}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
 
             </div> {/* Close Detail Sections Container */}
           </div> {/* Close Left Column & Header */}
@@ -2723,6 +2819,105 @@ export const PackageDetail: React.FC = () => {
                             )}
                           </div>
                         </div>
+
+                        {/* Tour Videos Management section */}
+                        <div className="mt-8 pt-8 border-t border-slate-100 dark:border-slate-800">
+                          <div className="flex justify-between items-center mb-4">
+                            <div>
+                              <h3 className="text-sm font-bold text-slate-700 dark:text-slate-350">Package Tour Videos & Reels</h3>
+                              <p className="text-[11px] text-slate-400 mt-0.5">Add embeddable YouTube links, Instagram Reels, or Facebook videos.</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const tempId = `vid-${Date.now()}`;
+                                setEditForm(prev => ({
+                                  ...prev,
+                                  videos: [...(prev.videos || []), { id: tempId, platform: 'youtube', url: '', caption: '' }]
+                                }));
+                              }}
+                              className="px-3.5 py-2 bg-primary/10 hover:bg-primary/20 text-primary text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 active:scale-95 animate-in fade-in duration-300"
+                            >
+                              <span className="material-symbols-outlined text-[16px]">add_circle</span>
+                              Add Video Link
+                            </button>
+                          </div>
+
+                          <div className="space-y-4">
+                            {(editForm.videos || []).map((video, idx) => (
+                              <div key={video.id} className="flex flex-col sm:flex-row items-start sm:items-center gap-3 p-4 bg-slate-50 dark:bg-slate-850/40 rounded-2xl border border-slate-100 dark:border-slate-800 transition-all hover:border-primary/20">
+                                {/* Platform Select */}
+                                <div className="w-full sm:w-44 space-y-1">
+                                  <label className="text-[10px] font-bold text-slate-400 uppercase pl-1">Platform</label>
+                                  <select
+                                    value={video.platform}
+                                    onChange={e => {
+                                      const vList = [...editForm.videos];
+                                      vList[idx] = { ...video, platform: e.target.value as any };
+                                      setEditForm(prev => ({ ...prev, videos: vList }));
+                                    }}
+                                    className="w-full rounded-lg border-slate-200 dark:border-slate-750 bg-white dark:bg-slate-800 px-3 py-2 text-xs font-bold outline-none focus:ring-1 focus:ring-primary text-slate-900 dark:text-white"
+                                  >
+                                    <option value="youtube">YouTube</option>
+                                    <option value="instagram">Instagram</option>
+                                    <option value="facebook">Facebook</option>
+                                  </select>
+                                </div>
+                                {/* URL Input */}
+                                <div className="flex-1 w-full space-y-1">
+                                  <label className="text-[10px] font-bold text-slate-400 uppercase pl-1">Video / Reel URL</label>
+                                  <input
+                                    required
+                                    type="url"
+                                    placeholder="e.g. https://www.instagram.com/reel/..."
+                                    value={video.url}
+                                    onChange={e => {
+                                      const vList = [...editForm.videos];
+                                      vList[idx] = { ...video, url: e.target.value };
+                                      setEditForm(prev => ({ ...prev, videos: vList }));
+                                    }}
+                                    className="w-full rounded-lg border-slate-200 dark:border-slate-750 bg-white dark:bg-slate-800 px-3 py-2 text-xs font-semibold outline-none focus:ring-1 focus:ring-primary text-slate-900 dark:text-white"
+                                  />
+                                </div>
+                                {/* Caption Input */}
+                                <div className="w-full sm:w-64 space-y-1">
+                                  <label className="text-[10px] font-bold text-slate-400 uppercase pl-1">Caption / Description</label>
+                                  <input
+                                    type="text"
+                                    placeholder="e.g. Day 2 Highlights"
+                                    value={video.caption || ''}
+                                    onChange={e => {
+                                      const vList = [...editForm.videos];
+                                      vList[idx] = { ...video, caption: e.target.value };
+                                      setEditForm(prev => ({ ...prev, videos: vList }));
+                                    }}
+                                    className="w-full rounded-lg border-slate-200 dark:border-slate-750 bg-white dark:bg-slate-800 px-3 py-2 text-xs font-semibold outline-none focus:ring-1 focus:ring-primary text-slate-900 dark:text-white"
+                                  />
+                                </div>
+                                {/* Delete Button */}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditForm(prev => ({
+                                      ...prev,
+                                      videos: prev.videos.filter((_, i) => i !== idx)
+                                    }));
+                                  }}
+                                  className="mt-5 sm:mt-4 p-2 text-slate-450 hover:text-red-500 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors"
+                                  title="Remove Video Link"
+                                >
+                                  <span className="material-symbols-outlined text-[20px]">delete</span>
+                                </button>
+                              </div>
+                            ))}
+                            {(editForm.videos || []).length === 0 && (
+                              <div className="text-center py-10 text-slate-400 text-xs border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl flex flex-col items-center justify-center gap-2">
+                                <span className="material-symbols-outlined text-3xl">videocam</span>
+                                No tour videos added. Click 'Add Video Link' above.
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     )}
 
@@ -3173,5 +3368,61 @@ export const PackageDetail: React.FC = () => {
         )}
       </div >
     </>
+  );
+};
+
+const VideoCardPlayer: React.FC<{ video: PackageVideo; fallbackImage?: string }> = ({ video, fallbackImage }) => {
+  const [play, setPlay] = useState(false);
+  const embedUrl = getEmbedUrl(video.platform, video.url);
+  const thumbnailUrl = getVideoThumbnail(video.platform, video.url, fallbackImage);
+
+  if (!play) {
+    let iconName = 'play_arrow';
+    let iconBg = 'bg-red-600';
+    let label = 'Watch Video';
+    
+    if (video.platform === 'instagram') {
+      iconName = 'movie';
+      iconBg = 'bg-gradient-to-tr from-amber-500 via-pink-500 to-purple-600';
+      label = 'Watch Reel';
+    } else if (video.platform === 'facebook') {
+      iconName = 'videocam';
+      iconBg = 'bg-blue-600';
+      label = 'Watch Video';
+    }
+
+    return (
+      <div 
+        onClick={() => setPlay(true)}
+        className="relative w-full h-full bg-slate-950 cursor-pointer flex items-center justify-center group overflow-hidden"
+      >
+        {/* Background Thumbnail Image */}
+        <div 
+          className="absolute inset-0 bg-cover bg-center transition-transform duration-500 group-hover:scale-105"
+          style={{ backgroundImage: `url(${thumbnailUrl})` }}
+        />
+        {/* Dark Overlay */}
+        <div className="absolute inset-0 bg-slate-950/40 group-hover:bg-slate-950/30 transition-colors" />
+
+        <div className="relative z-10 flex flex-col items-center gap-3">
+          <div className={`size-14 rounded-full ${iconBg} flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform`}>
+            <span className="material-symbols-outlined text-white text-3xl font-bold">{iconName}</span>
+          </div>
+          <span className="text-white text-[10px] uppercase tracking-widest font-black bg-black/60 px-3 py-1.5 rounded-full border border-white/10 backdrop-blur-sm shadow-md">
+            {label}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <iframe
+      src={embedUrl}
+      title={video.caption || "Package Video"}
+      className="w-full h-full border-0"
+      allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
+      allowFullScreen
+    />
   );
 };

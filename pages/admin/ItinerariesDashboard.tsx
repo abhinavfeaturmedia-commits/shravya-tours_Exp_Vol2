@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { Package, MasterLocation } from '../../types';
 import { ActionMenu } from '../../components/ui/ActionMenu';
 import { formatPrice, getLocationName } from '../../utils/packageUtils';
+import { copyToClipboard } from '../../utils/clipboard';
 import { Calendar, Users, MapPin, Search, Edit3, Link as LinkIcon, Trash2, Clock, CheckCircle2, XCircle, Send } from 'lucide-react';
 
 const StatusBadge = ({ status }: { status: string }) => {
@@ -177,8 +178,13 @@ export const ItinerariesDashboard: React.FC = () => {
 
     const handleCopyLink = (id: string) => {
         const url = `${window.location.origin}${window.location.pathname}#/itinerary/${id}`;
-        navigator.clipboard.writeText(url);
-        import('sonner').then(({ toast }) => toast.success('Interactive Web Link copied!'));
+        copyToClipboard(url).then(success => {
+            if (success) {
+                import('sonner').then(({ toast }) => toast.success('Interactive Web Link copied!'));
+            } else {
+                import('sonner').then(({ toast }) => toast.error('Failed to copy link'));
+            }
+        });
     };
 
     return (

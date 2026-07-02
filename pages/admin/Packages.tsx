@@ -7,6 +7,7 @@ import { SuggestPopup, isDismissed, isSnoozed } from '../../components/ui/Sugges
 import { useBookings } from '../../src/hooks/useBookings';
 import { ActionMenu } from '../../components/ui/ActionMenu';
 import { getLocationName } from '../../utils/packageUtils';
+import { copyToClipboard } from '../../utils/clipboard';
 
 // Extracted Component with React.memo to prevent unnecessary re-renders of the entire list when Edit Modal opens
 const PackageCard = React.memo(({
@@ -39,9 +40,15 @@ const PackageCard = React.memo(({
 
             {/* Info */}
             <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
                     <h3 className="font-bold text-slate-900 dark:text-white text-lg truncate">{pkg.title}</h3>
                     {pkg.status === 'Inactive' && <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider">Hidden</span>}
+                    {pkg.videos && pkg.videos.length > 0 && (
+                        <span className="bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400 text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider flex items-center gap-1 select-none">
+                            <span className="material-symbols-outlined text-[14px]">videocam</span>
+                            {pkg.videos.length} Video{pkg.videos.length > 1 ? 's' : ''}
+                        </span>
+                    )}
                 </div>
                 <div className="flex flex-wrap items-center gap-4 text-sm text-slate-500 dark:text-slate-400">
                     <span className="flex items-center gap-1"><span className="material-symbols-outlined text-[16px]">location_on</span> {getLocationName(pkg.location, masterLocations)}</span>
@@ -247,9 +254,16 @@ export const AdminPackages: React.FC = () => {
     const handleCopyLink = useCallback((id: string) => {
         // Fix: use /packages/:id not /itinerary/:id
         const url = `${window.location.origin}/#/packages/${id}`;
-        navigator.clipboard.writeText(url);
-        import('sonner').then(({ toast }) => {
-            toast.success('Web Link copied to clipboard!');
+        copyToClipboard(url).then(success => {
+            if (success) {
+                import('sonner').then(({ toast }) => {
+                    toast.success('Web Link copied to clipboard!');
+                });
+            } else {
+                import('sonner').then(({ toast }) => {
+                    toast.error('Failed to copy link to clipboard');
+                });
+            }
         });
     }, []);
 
