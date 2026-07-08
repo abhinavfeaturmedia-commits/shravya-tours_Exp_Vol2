@@ -1,5 +1,6 @@
 
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { api } from "./api";
 
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
@@ -10,13 +11,135 @@ if (API_KEY) {
     console.error("Gemini API Key is missing in .env.local");
 }
 
-export const generateItinerary = async (destination: string, days: number, travelers: string, startDate: string) => {
-    if (!genAI) {
-        throw new Error("Gemini API Key is missing. Please add VITE_GEMINI_API_KEY to your .env file.");
+// Helper to fetch OpenRouter settings from DB
+const getOpenRouterConfig = async () => {
+    try {
+        const res = await api.getSettings();
+        const data = res?.data || [];
+        const config = {
+            enabled: false,
+            apiKey: '',
+            defaultModel: 'google/gemini-2.5-flash'
+        };
+        if (data && Array.isArray(data)) {
+            data.forEach((item: any) => {
+                if (item.key === 'integrations.openrouter.enabled') {
+                    try { config.enabled = JSON.parse(item.value); } catch {}
+                } else if (item.key === 'integrations.openrouter.apiKey') {
+                    try { config.apiKey = JSON.parse(item.value); } catch {}
+                } else if (item.key === 'integrations.openrouter.defaultModel') {
+                    try { config.defaultModel = JSON.parse(item.value); } catch {}
+                }
+            });
+        }
+        return config;
+    } catch (e) {
+        console.warn("[OpenRouter Config] Failed to load settings from DB, using fallback:", e);
+        return {
+            enabled: false,
+            apiKey: '',
+            defaultModel: 'google/gemini-2.5-flash'
+        };
     }
+};
 
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" }); // Using latest 2.5 flash model
+// Generic helper to get completion from OpenRouter or direct Gemini fallback
+const getAIResponse = async (prompt: string, imageBase64?: string) => {
+    const config = await getOpenRouterConfig();
 
+    if (config.enabled && config.apiKey) {
+        console.log(`[AI] Using OpenRouter with model: ${config.defaultModel}`);
+        if (imageBase64) {
+            const base64Data = imageBase64.split(',')[1] || imageBase64;
+            const mimeType = imageBase64.match(/data:([^;]+);/)?.[1] || "image/jpeg";
+            const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${config.apiKey}`,
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": window.location.origin,
+                    "X-Title": "Shrawello Travel Hub"
+                },
+                body: JSON.stringify({
+                    model: config.defaultModel || 'google/gemini-2.5-flash',
+                    messages: [
+                        {
+                            role: "user",
+                            content: [
+                                { type: "text", text: prompt },
+                                {
+                                    type: "image_url",
+                                    image_url: {
+                                        url: `data:${mimeType};base64,${base64Data}`
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+                })
+            });
+            if (!res.ok) {
+                const errText = await res.text();
+                throw new Error(`OpenRouter Error (${res.status}): ${errText}`);
+            }
+            const data = await res.json();
+            if (!data.choices || data.choices.length === 0) {
+                throw new Error("OpenRouter returned an empty response.");
+            }
+            return data.choices[0].message.content;
+        } else {
+            const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${config.apiKey}`,
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": window.location.origin,
+                    "X-Title": "Shrawello Travel Hub"
+                },
+                body: JSON.stringify({
+                    model: config.defaultModel || 'google/gemini-2.5-flash',
+                    messages: [
+                        { role: "user", content: prompt }
+                    ]
+                })
+            });
+            if (!res.ok) {
+                const errText = await res.text();
+                throw new Error(`OpenRouter Error (${res.status}): ${errText}`);
+            }
+            const data = await res.json();
+            if (!data.choices || data.choices.length === 0) {
+                throw new Error("OpenRouter returned an empty response.");
+            }
+            return data.choices[0].message.content;
+        }
+    } else {
+        console.log("[AI] Using direct Gemini API fallback");
+        if (!genAI) {
+            throw new Error("Gemini API Key is missing. Please add VITE_GEMINI_API_KEY to your .env file or enable OpenRouter AI in Settings.");
+        }
+        // Normalize model name for direct Gemini
+        const modelName = config.defaultModel?.includes('pro') ? 'gemini-2.5-pro' : 'gemini-2.5-flash';
+        const model = genAI.getGenerativeModel({ model: modelName });
+        if (imageBase64) {
+            const base64Data = imageBase64.split(',')[1] || imageBase64;
+            const mimeType = imageBase64.match(/data:([^;]+);/)?.[1] || "image/jpeg";
+            const imagePart = {
+                inlineData: {
+                    data: base64Data,
+                    mimeType: mimeType
+                }
+            };
+            const result = await model.generateContent([prompt, imagePart]);
+            return result.response.text();
+        } else {
+            const result = await model.generateContent(prompt);
+            return result.response.text();
+        }
+    }
+};
+
+export const generateItinerary = async (destination: string, days: number, travelers: string, startDate: string) => {
     const prompt = `
     You are an expert travel planner for SHRAWELLO Travel Hub.
     Create a detailed ${days}-day itinerary for a trip to ${destination} for ${travelers}.
@@ -43,25 +166,17 @@ export const generateItinerary = async (destination: string, days: number, trave
   `;
 
     try {
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        const text = response.text();
-
+        const text = await getAIResponse(prompt);
         // Clean up potential markdown code blocks if the model puts them
         const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
-
         return JSON.parse(cleanJson);
     } catch (error) {
-        console.error("Gemini Generation Error:", error);
+        console.error("Itinerary Generation Error:", error);
         throw error;
     }
 };
 
 export const analyzeLead = async (lead: any) => {
-    if (!genAI) throw new Error("API Key Missing");
-
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-
     const prompt = `
     Analyze this travel lead for SHRAWELLO Travel Hub and provide a "Conversion Score" (0-100) and a "Strategic Summary".
     
@@ -82,8 +197,7 @@ export const analyzeLead = async (lead: any) => {
   `;
 
     try {
-        const result = await model.generateContent(prompt);
-        const text = result.response.text();
+        const text = await getAIResponse(prompt);
         const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
         return JSON.parse(cleanJson);
     } catch (e) {
@@ -93,10 +207,6 @@ export const analyzeLead = async (lead: any) => {
 };
 
 export const generateMarketingContent = async (topic: string, platform: 'Email' | 'WhatsApp' | 'Instagram', tone: string) => {
-    if (!genAI) throw new Error("API Key Missing");
-
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-
     const prompt = `
     You are a professional digital marketer for a travel agency.
     Write creative content for a ${platform} campaign.
@@ -113,8 +223,7 @@ export const generateMarketingContent = async (topic: string, platform: 'Email' 
     `;
 
     try {
-        const result = await model.generateContent(prompt);
-        const text = result.response.text();
+        const text = await getAIResponse(prompt);
         const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
         return JSON.parse(cleanJson);
     } catch (e) {
@@ -122,11 +231,8 @@ export const generateMarketingContent = async (topic: string, platform: 'Email' 
         throw e;
     }
 };
+
 export const parseInvoice = async (imageBase64: string) => {
-    if (!genAI) throw new Error("API Key Missing");
-
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-
     const prompt = `
     Analyze this invoice/receipt image and extract the following details:
     1. Total Amount (numeric only)
@@ -144,31 +250,16 @@ export const parseInvoice = async (imageBase64: string) => {
     `;
 
     try {
-        // Handle base64 string (strip header if present)
-        const base64Data = imageBase64.split(',')[1] || imageBase64;
-
-        const imagePart = {
-            inlineData: {
-                data: base64Data,
-                mimeType: "image/jpeg"
-            }
-        };
-
-        const result = await model.generateContent([prompt, imagePart]);
-        const text = result.response.text();
+        const text = await getAIResponse(prompt, imageBase64);
         const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
         return JSON.parse(cleanJson);
     } catch (e) {
         console.error("Invoice Parsing Failed", e);
         throw e;
     }
- };
+};
  
 export const generateWeeklyStandupSummary = async (logs: any[], staffNamesMap: Record<number, string>) => {
-    if (!genAI) throw new Error("API Key Missing");
-
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-
     // Map staffIds to names for better readability in summary
     const mappedLogs = logs.map(l => ({
         ...l,
@@ -193,11 +284,11 @@ export const generateWeeklyStandupSummary = async (logs: any[], staffNamesMap: R
     `;
 
     try {
-        const result = await model.generateContent(prompt);
-        return result.response.text();
+        return await getAIResponse(prompt);
     } catch (e) {
-        console.error("Weekly Standup Summary Generation Failed", e);
+        console.error("Weekly Standup Summary Failed", e);
         throw e;
     }
 };
+
 
