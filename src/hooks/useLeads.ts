@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import { api } from '../lib/api';
 import { Lead } from '../../types';
 import { toast } from 'sonner';
@@ -12,6 +13,16 @@ export const useLeads = () => {
     });
 
     const leads = (data as Lead[]) || [];
+
+    // Listen for any lead CRUD from DataContext (add/update/delete) and invalidate cache
+    // This ensures pages reading from useLeads() immediately see changes made via DataContext
+    useEffect(() => {
+        const handler = () => {
+            queryClient.invalidateQueries({ queryKey: ['leads'] });
+        };
+        window.addEventListener('leads-changed', handler);
+        return () => window.removeEventListener('leads-changed', handler);
+    }, [queryClient]);
 
     const addLeadMutation = useMutation({
         mutationFn: (newLead: Lead) => api.createLead(newLead),

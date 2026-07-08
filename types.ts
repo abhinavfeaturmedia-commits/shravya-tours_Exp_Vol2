@@ -422,6 +422,11 @@ export interface Vendor {
   documents: VendorDocument[];
   transactions: VendorTransaction[];
   notes: VendorNote[];
+  createdAt?: string;
+  timeliness?: number | null;
+  value?: number | null;
+  expiringSoon?: boolean;
+  linkedBookingIds?: string[];
 }
 
 // --- New Features Types ---

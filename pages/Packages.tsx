@@ -380,85 +380,137 @@ export const Packages: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 lg:gap-8">
                 {sortedPackages.length > 0 ? (
                   sortedPackages.map((pkg, pkgIdx) => (
-                    <div key={pkg.id}>
-                      <Link to={`/packages/${pkg.id}`} className="group relative flex flex-col h-full bg-white dark:bg-[#151d29] rounded-[2.2rem] overflow-hidden border border-slate-100 dark:border-slate-850 hover:border-primary/25 dark:hover:border-primary/35 hover:shadow-[0_20px_40px_-15px_rgba(99,102,241,0.08)] dark:hover:shadow-[0_20px_40px_-15px_rgba(99,102,241,0.25)] transition-all duration-500 transform hover:-translate-y-1.5">
-                        
-                        {/* Image Container */}
-                        <div className="relative h-60 w-full overflow-hidden shrink-0">
-                          {/* Top Badges */}
-                          <div className="absolute top-4 left-4 z-20 flex flex-col gap-2">
-                            {pkg.tag && (
-                              <div className={`${pkg.tagColor || 'bg-white/95 text-slate-900'} backdrop-blur-md text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg shadow-lg`}>
-                                {pkg.tag}
-                              </div>
-                            )}
-                            {pkg.remainingSeats && pkg.remainingSeats < 10 && (
-                              <div className="bg-red-600/90 backdrop-blur text-white text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg shadow-lg flex items-center gap-1">
-                                <span className="material-symbols-outlined text-[14px]">local_fire_department</span>
-                                {pkg.remainingSeats} Left
-                              </div>
-                            )}
-                          </div>
+                    <div key={pkg.id} className="animate-in fade-in slide-in-from-bottom-3 duration-500" style={{ animationDelay: `${pkgIdx * 60}ms`, animationFillMode: 'both' }}>
+                      <Link
+                        to={`/packages/${pkg.id}`}
+                        className="group relative flex flex-col rounded-[2rem] overflow-hidden shadow-md hover:shadow-2xl transition-all duration-500 transform hover:-translate-y-2 hover:scale-[1.015] cursor-pointer"
+                      >
+                        {/* ── FULL-BLEED IMAGE HERO ── */}
+                        <div className="relative h-[340px] w-full overflow-hidden">
 
-                          {/* Top Right Badges */}
-                          <div className="absolute top-4 right-4 z-30 flex items-center gap-2">
-                            <button
-                              onClick={(e) => handleToggleWishlist(e, pkg.id)}
-                              className="size-8 rounded-full bg-white/90 backdrop-blur-md dark:bg-slate-900/90 flex items-center justify-center shadow-md hover:scale-110 hover:bg-white dark:hover:bg-slate-800 active:scale-95 transition-all text-red-500 border border-white/20"
-                            >
-                              <span className="material-symbols-outlined text-[18px]" style={{ fontVariationSettings: wishlistIds.includes(pkg.id) ? "'FILL' 1" : "'FILL' 0" }}>
-                                favorite
-                              </span>
-                            </button>
-
-                            <div className="bg-white/90 backdrop-blur-md dark:bg-slate-900/90 text-slate-800 dark:text-slate-100 text-[10px] font-bold px-3 py-1.5 rounded-full flex items-center gap-1 shadow-md border border-white/20">
-                              <span className="material-symbols-outlined text-[14px] text-slate-500 dark:text-slate-400">schedule</span>
-                              {pkg.days}D / {pkg.days - 1}N
-                            </div>
-                          </div>
-
+                          {/* Background image */}
                           <OptimizedImage
                             src={pkg.image}
                             alt={pkg.title}
-                            className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-750 ease-out"
+                            className="absolute inset-0 h-full w-full object-cover group-hover:scale-110 transition-transform duration-700 ease-out"
                           />
-                        </div>
 
-                        {/* Card Content */}
-                        <div className="flex-1 p-6 flex flex-col justify-between">
-                          <div>
-                            <h3 className="font-black text-lg md:text-xl text-slate-800 dark:text-white leading-tight mb-3.5 group-hover:text-primary transition-colors line-clamp-2">
-                              {pkg.title}
-                            </h3>
-                            <div className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 dark:bg-slate-800/80 text-slate-655 dark:text-slate-300 rounded-lg text-[11px] font-bold">
-                              <span className="material-symbols-outlined text-[14px] text-primary">location_on</span> 
-                              <span>{getLocationName(pkg.location, masterLocations)}</span>
+                          {/* Dark gradient overlay — covers bottom 60% */}
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent pointer-events-none" />
+
+                          {/* ── TOP ROW: Single unified flex bar — left badge + right controls ── */}
+                          {/* Both sides share one absolute row so they can NEVER overlap.        */}
+                          {/* Left side (min-w-0 flex-1) yields space; right side (shrink-0) never compresses. */}
+                          <div className="absolute top-0 left-0 right-0 z-30 px-3 pt-3 flex items-start justify-between gap-2">
+
+                            {/* LEFT: tag/theme badge + optional scarcity stacked below */}
+                            <div className="flex flex-col gap-1.5 min-w-0 flex-1">
+                              {pkg.tag ? (
+                                <div className={`${pkg.tagColor || 'bg-white/95 text-slate-900'} backdrop-blur-xl text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-xl shadow-xl flex items-center gap-1.5 w-fit max-w-full`}>
+                                  <span className="text-amber-500 shrink-0">★</span>
+                                  <span className="truncate">{pkg.tag}</span>
+                                </div>
+                              ) : (
+                                pkg.theme && (
+                                  <div className="bg-white/90 backdrop-blur-xl text-slate-900 text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-xl shadow-xl flex items-center gap-1.5 w-fit max-w-full">
+                                    <span className="text-primary shrink-0">★</span>
+                                    <span className="truncate">{pkg.theme}</span>
+                                  </div>
+                                )
+                              )}
+                              {pkg.remainingSeats && pkg.remainingSeats < 10 && (
+                                <div className="bg-red-600/90 backdrop-blur-xl text-white text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-xl shadow-xl flex items-center gap-1.5 w-fit">
+                                  <span className="material-symbols-outlined text-[12px] shrink-0">local_fire_department</span>
+                                  <span>Only {pkg.remainingSeats} Left</span>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* RIGHT: Wishlist heart + Duration pill — shrink-0 so they're always fully visible */}
+                            <div className="flex items-center gap-2 shrink-0">
+                              <button
+                                onClick={(e) => handleToggleWishlist(e, pkg.id)}
+                                className="size-8 rounded-full bg-white/85 backdrop-blur-xl flex items-center justify-center shadow-lg hover:scale-110 hover:bg-white active:scale-95 transition-all text-red-500"
+                              >
+                                <span
+                                  className="material-symbols-outlined text-[18px]"
+                                  style={{ fontVariationSettings: wishlistIds.includes(pkg.id) ? "'FILL' 1" : "'FILL' 0" }}
+                                >
+                                  favorite
+                                </span>
+                              </button>
+                              <div className="bg-white/85 backdrop-blur-xl text-slate-900 text-[10px] font-bold px-2.5 py-1.5 rounded-full shadow-lg flex items-center gap-1 shrink-0">
+                                <span className="material-symbols-outlined text-[13px] text-slate-600">schedule</span>
+                                {pkg.days}D / {pkg.days - 1}N
+                              </div>
                             </div>
                           </div>
-                          
-                          <div className="flex items-center justify-between mt-5 pt-3">
-                            <span className="text-xs text-slate-450 dark:text-slate-500 font-medium">Starting from</span>
-                            <span className="text-xl font-black text-primary dark:text-primary-light">
-                              {formatPriceCompact(pkg.price)}
-                            </span>
+
+                          {/* ── BOTTOM OVERLAY: Price + Title + Meta ── */}
+                          <div className="absolute bottom-0 left-0 right-0 z-10 px-5 pt-8 pb-4">
+
+                            {/* Large price — mirrors "List: $250,000" */}
+                            <div className="flex items-baseline gap-2 mb-1">
+                              <span className="text-2xl font-black text-white tracking-tight drop-shadow-lg">
+                                {formatPriceCompact(pkg.price)}
+                              </span>
+                              {pkg.originalPrice && pkg.originalPrice > pkg.price && (
+                                <span className="text-sm text-white/50 line-through font-medium">
+                                  {formatPriceCompact(pkg.originalPrice)}
+                                </span>
+                              )}
+                              <span className="text-xs text-white/60 font-medium ml-auto">per person</span>
+                            </div>
+
+                            {/* Package title */}
+                            <h3 className="text-sm font-semibold text-white/90 leading-snug line-clamp-1 mb-3 drop-shadow">
+                              {pkg.title}
+                            </h3>
+
+                            {/* Meta chips row — mirrors "29m² Living | 2 Rooms" */}
+                            <div className="flex items-center gap-0 text-white/70 text-[11px] font-medium">
+                              <span className="material-symbols-outlined text-[13px] text-white/60 mr-1">location_on</span>
+                              <span className="truncate max-w-[110px]">{getLocationName(pkg.location, masterLocations)}</span>
+                              <span className="mx-2.5 text-white/30">|</span>
+                              <span className="material-symbols-outlined text-[13px] text-white/60 mr-1">group</span>
+                              <span>{pkg.groupSize || 'Private'}</span>
+                              {pkg.days > 0 && (
+                                <>
+                                  <span className="mx-2.5 text-white/30">|</span>
+                                  <span className="material-symbols-outlined text-[13px] text-white/60 mr-1">calendar_month</span>
+                                  <span>{pkg.days} Days</span>
+                                </>
+                              )}
+                            </div>
                           </div>
                         </div>
 
-                        {/* Card Content Footer (Clean stats/Action) */}
-                        <div className="px-6 py-5 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/30 border-t border-slate-100 dark:border-slate-850">
-                          <div className="flex -space-x-2">
-                             {[1, 2, 3].map(i => (
-                               <div key={i} className="size-6 rounded-full border-2 border-white dark:border-[#151d29] bg-slate-200 dark:bg-slate-700 overflow-hidden">
-                                 <img src={`https://i.pravatar.cc/100?u=${pkg.id+i}`} alt="user" className="w-full h-full object-cover grayscale" />
-                               </div>
-                             ))}
-                             <div className="size-6 rounded-full border-2 border-white dark:border-[#151d29] bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-[8px] font-black text-slate-500">
-                               +12
-                             </div>
+                        {/* ── CARD FOOTER: Divider + Avatars + CTA ── */}
+                        <div className="bg-white dark:bg-[#151d29] px-5 py-4 flex items-center justify-between border-t border-slate-100 dark:border-slate-800/60">
+                          {/* Left: Avatar stack + traveler count */}
+                          <div className="flex items-center gap-2.5">
+                            <div className="flex -space-x-2">
+                              {[1, 2, 3].map(i => (
+                                <div key={i} className="size-7 rounded-full border-2 border-white dark:border-[#151d29] bg-slate-200 dark:bg-slate-700 overflow-hidden shadow-sm">
+                                  <img
+                                    src={`https://i.pravatar.cc/100?u=${pkg.id}${i}`}
+                                    alt="traveler"
+                                    className="w-full h-full object-cover"
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                            <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-500">
+                              • <span className="text-slate-600 dark:text-slate-300 font-bold">12+</span> travelers
+                            </span>
                           </div>
-                          <div className="flex items-center gap-1.5 text-primary font-bold text-xs">
-                            View Details 
-                            <span className="material-symbols-outlined text-[16px] group-hover:translate-x-1.5 transition-transform duration-300">arrow_forward</span>
+
+                          {/* Right: View Details CTA */}
+                          <div className="flex items-center gap-1 text-primary font-black text-[12px] tracking-wide group-hover:gap-2 transition-all duration-300">
+                            View Details
+                            <span className="material-symbols-outlined text-[16px] group-hover:translate-x-1 transition-transform duration-300">
+                              arrow_forward
+                            </span>
                           </div>
                         </div>
                       </Link>

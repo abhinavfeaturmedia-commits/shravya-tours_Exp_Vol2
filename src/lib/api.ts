@@ -961,13 +961,24 @@ export const api = {
             contactName: v.contact_name,
             contactPhone: v.contact_phone,
             contactEmail: v.contact_email,
-            rating: v.rating,
+            rating: Number(v.rating) || 0,
             balanceDue: Number(v.balance_due) || 0,
             status: 'Active',
             contractStatus: v.contract_status || 'Active',
+            contractExpiryDate: v.contract_expiry_date
+                ? (typeof v.contract_expiry_date === 'string'
+                    ? v.contract_expiry_date.split('T')[0]  // ISO → date only
+                    : new Date(v.contract_expiry_date).toISOString().split('T')[0])
+                : undefined,
+            createdAt: v.created_at,
             logo: v.logo,
             totalSales: v.total_sales ? Number(v.total_sales) : 0,
             totalCommission: v.total_commission ? Number(v.total_commission) : 0,
+            // Backend-computed performance metrics (null = no data yet)
+            timeliness: v.timeliness_score !== null && v.timeliness_score !== undefined ? Number(v.timeliness_score) : null,
+            value: v.value_score !== null && v.value_score !== undefined ? Number(v.value_score) : null,
+            expiringSoon: Boolean(v.expiring_soon),
+            linkedBookingIds: Array.isArray(v.linked_booking_ids) ? v.linked_booking_ids : [],
             bankDetails: parseJsonField(v.bank_details, {}),
             notes: parseJsonField(v.notes, []),
             // Use ledger_entries built from real supplier_bookings data (backend join)
@@ -979,7 +990,8 @@ export const api = {
                     description: le.description,
                     amount: Number(le.amount) || 0,
                     type: le.type,
-                    reference: le.reference
+                    reference: le.reference,
+                    bookingTitle: le.bookingTitle
                 }))
                 : parseJsonField(v.transactions, []),
             services: parseJsonField(v.services, []),
@@ -999,9 +1011,11 @@ export const api = {
             contact_email: vendor.contactEmail,
             rating: vendor.rating,
             contract_status: vendor.contractStatus,
+            contract_expiry_date: vendor.contractExpiryDate || null,  // ← BUG FIX: was missing
             logo: vendor.logo,
-            total_sales: vendor.totalSales,
-            total_commission: vendor.totalCommission,
+            total_sales: vendor.totalSales || 0,
+            total_commission: vendor.totalCommission || 0,
+            balance_due: vendor.balanceDue || 0,
             bank_details: vendor.bankDetails ? JSON.stringify(vendor.bankDetails) : null,
             notes: vendor.notes ? JSON.stringify(vendor.notes) : '[]',
             transactions: vendor.transactions ? JSON.stringify(vendor.transactions) : '[]',
@@ -1024,6 +1038,7 @@ export const api = {
         if (updates.rating !== undefined) dbUpdates.rating = updates.rating;
         if (updates.balanceDue !== undefined) dbUpdates.balance_due = updates.balanceDue;
         if (updates.contractStatus !== undefined) dbUpdates.contract_status = updates.contractStatus;
+        if (updates.contractExpiryDate !== undefined) dbUpdates.contract_expiry_date = updates.contractExpiryDate || null;
         if (updates.logo !== undefined) dbUpdates.logo = updates.logo;
         if (updates.totalSales !== undefined) dbUpdates.total_sales = updates.totalSales;
         if (updates.totalCommission !== undefined) dbUpdates.total_commission = updates.totalCommission;

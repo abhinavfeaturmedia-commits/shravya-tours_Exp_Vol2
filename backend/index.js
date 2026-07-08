@@ -328,11 +328,17 @@ async function migrateCustomersColumns() {
 }
 migrateCustomersColumns();
 
-// Ensure vendors table has services and documents columns
+// Ensure vendors table has all required columns (safe, idempotent)
 async function migrateVendorsColumns() {
     const alterations = [
         { col: 'services', sql: "ALTER TABLE vendors ADD COLUMN services LONGTEXT DEFAULT NULL" },
-        { col: 'documents', sql: "ALTER TABLE vendors ADD COLUMN documents LONGTEXT DEFAULT NULL" }
+        { col: 'documents', sql: "ALTER TABLE vendors ADD COLUMN documents LONGTEXT DEFAULT NULL" },
+        { col: 'notes', sql: "ALTER TABLE vendors ADD COLUMN notes LONGTEXT DEFAULT NULL" },
+        { col: 'transactions', sql: "ALTER TABLE vendors ADD COLUMN transactions LONGTEXT DEFAULT NULL" },
+        { col: 'balance_due', sql: "ALTER TABLE vendors ADD COLUMN balance_due DECIMAL(10,2) DEFAULT 0" },
+        { col: 'contract_expiry_date', sql: "ALTER TABLE vendors ADD COLUMN contract_expiry_date DATE DEFAULT NULL" },
+        { col: 'rating', sql: "ALTER TABLE vendors ADD COLUMN rating DECIMAL(3,1) DEFAULT 0" },
+        { col: 'created_at', sql: "ALTER TABLE vendors ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP" }
     ];
     for (const alt of alterations) {
         try {
@@ -4412,45 +4418,62 @@ app.get('/api/vendors-with-stats', authMiddleware, async (req, res) => {
     try {
         const [vendors] = await pool.query('SELECT * FROM vendors ORDER BY created_at DESC');
         const [supplierBookings] = await pool.query(`
-            SELECT sb.*, b.customer_name, b.booking_date
+            SELECT sb.*, b.customer_name, b.booking_date, b.title as booking_title
             FROM supplier_bookings sb
             LEFT JOIN bookings b ON sb.booking_id = b.id
             ORDER BY sb.created_at DESC
         `);
         
-        const statsByVendor = {};
-        const ledgerByVendor = {};
+        // Build per-vendor stats maps
+        const statsByVendor = {};       // totalCost, totalPaid, totalCompleted, totalCount
+        const ledgerByVendor = {};      // ledger entries for Financials tab
+        const bookingIdsByVendor = {};  // for linked_booking_ids
 
         supplierBookings.forEach(sb => {
-            if (!statsByVendor[sb.vendor_id]) {
-                statsByVendor[sb.vendor_id] = { totalCost: 0, totalPaid: 0 };
-            }
-            statsByVendor[sb.vendor_id].totalCost += Number(sb.cost) || 0;
-            statsByVendor[sb.vendor_id].totalPaid += Number(sb.paid_amount) || 0;
+            const vid = sb.vendor_id;
+            if (!vid) return;
 
-            if (!ledgerByVendor[sb.vendor_id]) {
-                ledgerByVendor[sb.vendor_id] = [];
+            // Initialize
+            if (!statsByVendor[vid]) {
+                statsByVendor[vid] = { totalCost: 0, totalPaid: 0, totalCompleted: 0, totalCount: 0 };
             }
+            if (!ledgerByVendor[vid]) ledgerByVendor[vid] = [];
+            if (!bookingIdsByVendor[vid]) bookingIdsByVendor[vid] = new Set();
 
             const cost = Number(sb.cost) || 0;
             const paidAmount = Number(sb.paid_amount) || 0;
             const customerLabel = sb.customer_name || sb.booking_id || 'Booking';
             const serviceLabel = sb.service_type || 'Service';
+            const status = (sb.booking_status || '').toLowerCase();
 
-            // Credit: we owe them this cost
+            // Skip cancelled bookings from stats computations (cancelled bookings don't count against vendor performance)
+            if (status === 'cancelled') return;
+
+            statsByVendor[vid].totalCost += cost;
+            statsByVendor[vid].totalPaid += paidAmount;
+            statsByVendor[vid].totalCount += 1;
+            // "Paid" or "Confirmed" = successfully delivered service
+            if (status === 'paid' || status === 'confirmed' || status === 'partially paid') {
+                statsByVendor[vid].totalCompleted += 1;
+            }
+
+            // Track unique booking IDs for cross-page linkage
+            if (sb.booking_id) bookingIdsByVendor[vid].add(sb.booking_id);
+
+            // Build ledger entries
             if (cost > 0) {
-                ledgerByVendor[sb.vendor_id].push({
+                ledgerByVendor[vid].push({
                     id: `${sb.id}-cost`,
                     date: sb.booking_date || sb.created_at,
                     description: `${serviceLabel} for ${customerLabel}`,
                     amount: cost,
                     type: 'Credit',
-                    reference: sb.booking_id
+                    reference: sb.booking_id,
+                    bookingTitle: sb.booking_title
                 });
             }
-            // Debit: we paid them this amount
             if (paidAmount > 0) {
-                ledgerByVendor[sb.vendor_id].push({
+                ledgerByVendor[vid].push({
                     id: `${sb.id}-paid`,
                     date: sb.created_at,
                     description: `Payment for ${serviceLabel} (${customerLabel})`,
@@ -4461,9 +4484,14 @@ app.get('/api/vendors-with-stats', authMiddleware, async (req, res) => {
             }
         });
 
+        // Today + 30 days for expiry check
+        const now = new Date();
+        const in30Days = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
         const result = vendors.map(v => {
-            const stats = statsByVendor[v.id] || { totalCost: 0, totalPaid: 0 };
+            const stats = statsByVendor[v.id] || { totalCost: 0, totalPaid: 0, totalCompleted: 0, totalCount: 0 };
             
+            // ── Manual payout transactions (stored as JSON blob) ──
             let manualTransactions = [];
             try {
                 if (v.transactions && typeof v.transactions === 'string') {
@@ -4474,7 +4502,10 @@ app.get('/api/vendors-with-stats', authMiddleware, async (req, res) => {
             } catch(e) {}
             if (!Array.isArray(manualTransactions)) manualTransactions = [];
 
-            const pureManualTransactions = manualTransactions.filter(tx => !tx.id || (!tx.id.includes('-cost') && !tx.id.includes('-paid')));
+            // Strip out auto-generated supplier_bookings ledger entries (avoid double-counting)
+            const pureManualTransactions = manualTransactions.filter(tx =>
+                !tx.id || (!tx.id.includes('-cost') && !tx.id.includes('-paid'))
+            );
 
             let manualPaid = 0;
             pureManualTransactions.forEach(tx => {
@@ -4483,15 +4514,67 @@ app.get('/api/vendors-with-stats', authMiddleware, async (req, res) => {
                 else if (tx.type === 'Credit') manualPaid -= amount;
             });
             
+            // ── Timeliness Score: % of supplier bookings completed/paid ──
+            const timeliness_score = stats.totalCount > 0
+                ? Math.round((stats.totalCompleted / stats.totalCount) * 100)
+                : null; // null = no data yet
+
+            // ── Value & Markup Calculations ──
+            // Compute average markup ratio of the vendor from active catalog services
+            let avgMarkupRatio = 0.15; // default 15% fallback
+            let value_score = null;
+            try {
+                let services = v.services;
+                if (typeof services === 'string') services = JSON.parse(services);
+                if (Array.isArray(services) && services.length > 0) {
+                    const activeServices = services.filter(s => s.status !== 'Inactive' && s.baseCost > 0);
+                    if (activeServices.length > 0) {
+                        avgMarkupRatio = activeServices.reduce((sum, s) => {
+                            const markup = s.markupType === 'Percentage'
+                                ? s.markupValue / 100      // e.g. 15% markup → 0.15
+                                : s.markupValue / s.baseCost; // fixed markup as ratio
+                            return sum + markup;
+                        }, 0) / activeServices.length;
+                        // Normalize: 0% markup = 0, 30%+ markup = 100
+                        value_score = Math.min(100, Math.round((avgMarkupRatio / 0.30) * 100));
+                    }
+                }
+            } catch(e) { /* keep default */ }
+
+            // ── Total Sales (Charged to customer) & Commission (Markup earned) ──
+            // Since supplier bookings only store our cost (what we pay), we estimate:
+            // - total_sales = cost * (1 + markup)
+            // - total_commission = cost * markup
+            const total_sales = stats.totalCost * (1 + avgMarkupRatio);
+            const total_commission = stats.totalCost * avgMarkupRatio;
+
+            // ── Expiring Soon: contract_expiry_date within next 30 days ──
+            let expiring_soon = false;
+            if (v.contract_expiry_date) {
+                const expiryDate = new Date(v.contract_expiry_date);
+                expiring_soon = !isNaN(expiryDate.getTime()) && expiryDate <= in30Days && expiryDate >= now;
+            }
+
+            // ── Combined ledger (manual + auto from supplier_bookings) ──
             const combinedLedger = [
                 ...pureManualTransactions,
                 ...(ledgerByVendor[v.id] || [])
-            ].sort((a,b) => new Date(b.date) - new Date(a.date));
+            ].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+            // ── Persist computed balance_due back to DB (async, non-blocking) ──
+            const computedBalance = Math.max(0, stats.totalCost - (stats.totalPaid + manualPaid));
+            pool.query('UPDATE vendors SET balance_due = ? WHERE id = ?', [computedBalance, v.id])
+                .catch(() => {}); // non-blocking, safe to ignore failures
 
             return {
                 ...v,
-                total_sales: stats.totalCost,
-                balance_due: stats.totalCost - (stats.totalPaid + manualPaid),
+                total_sales: total_sales,
+                total_commission: total_commission,
+                balance_due: computedBalance,
+                timeliness_score,
+                value_score,
+                expiring_soon,
+                linked_booking_ids: Array.from(bookingIdsByVendor[v.id] || []),
                 ledger_entries: combinedLedger
             };
         });
@@ -4504,6 +4587,7 @@ app.get('/api/vendors-with-stats', authMiddleware, async (req, res) => {
 });
 
 // Accounts with transactions
+
 app.get('/api/accounts-with-transactions', authMiddleware, async (req, res) => {
     try {
         const [accounts] = await pool.query('SELECT * FROM accounts ORDER BY created_at DESC');

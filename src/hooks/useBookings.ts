@@ -33,6 +33,16 @@ export const useBookings = () => {
         return () => window.removeEventListener('booking-transactions-changed', handler);
     }, [queryClient]);
 
+    // Listen for any booking CRUD from DataContext (add/update/delete) and invalidate cache
+    // This ensures pages reading from useBookings() immediately see changes made via DataContext
+    useEffect(() => {
+        const handler = () => {
+            queryClient.invalidateQueries({ queryKey: ['bookings'] });
+        };
+        window.addEventListener('bookings-changed', handler);
+        return () => window.removeEventListener('bookings-changed', handler);
+    }, [queryClient]);
+
     const addBookingMutation = useMutation({
         mutationFn: (newBooking: Booking) => api.createBooking(newBooking),
         onMutate: async (newBooking) => {

@@ -8,6 +8,9 @@ import { VendorBulkEmailModal } from '../../components/admin/VendorBulkEmailModa
 import { SuggestPopup, isDismissed, isSnoozed } from '../../components/ui/SuggestPopup';
 import { ActionMenu } from '../../components/ui/ActionMenu';
 import { formatPrice, formatPriceCompact } from '../../utils/packageUtils';
+import { api } from '../../src/lib/api';
+import { useAuth } from '../../context/AuthContext';
+
 
 // Internal Toast Component
 const Toast = ({ message, type, onClose }: { message: string, type: 'success' | 'error', onClose: () => void }) => (
@@ -28,6 +31,7 @@ import { useBookings } from '../../src/hooks/useBookings';
 export const Vendors: React.FC = () => {
     const { vendors, addVendor, updateVendor, deleteVendor, processVendorPayment, addVendorDocument, deleteVendorDocument, addVendorNote, packages } = useData();
     const { bookings } = useBookings();
+    const { currentUser } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
 
@@ -37,6 +41,11 @@ export const Vendors: React.FC = () => {
     // Filter & Search State
     const [search, setSearch] = useState('');
     const [categoryFilter, setCategoryFilter] = useState('All');
+    const [complianceFilter, setComplianceFilter] = useState(false);
+
+    // Document File Upload States
+    const [selectedFile, setSelectedFile] = useState<File | null>(null);
+    const [isUploading, setIsUploading] = useState(false);
 
     useEffect(() => {
         const searchParams = new URLSearchParams(location.search);
@@ -121,6 +130,9 @@ export const Vendors: React.FC = () => {
     // Filter and Sort
     const filteredVendors = useMemo(() => {
         return vendors.filter(v => {
+            // Apply compliance filter if active
+            if (complianceFilter && !v.expiringSoon) return false;
+
             if (search === 'unused') {
                 const usedVendorIds = new Set(
                     bookings.flatMap(b => ((b as any).supplierBookings || []).map((sb: any) => sb.vendorId))
@@ -148,7 +160,7 @@ export const Vendors: React.FC = () => {
             if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
             return 0;
         });
-    }, [vendors, search, categoryFilter, sortConfig, bookings]);
+    }, [vendors, search, categoryFilter, complianceFilter, sortConfig, bookings]);
 
     // Dashboard Stats
     const stats = useMemo(() => {
@@ -169,8 +181,21 @@ export const Vendors: React.FC = () => {
 
     const linkedBookings = useMemo(() => {
         if (!selectedVendor) return [];
-        return bookings.filter(b => b.title.includes(selectedVendor.location) || b.details?.includes(selectedVendor.name)).slice(0, 5);
+        if (!selectedVendor.linkedBookingIds || selectedVendor.linkedBookingIds.length === 0) return [];
+        const bookingIdsSet = new Set(selectedVendor.linkedBookingIds);
+        return bookings.filter(b => bookingIdsSet.has(b.id)).slice(0, 5);
     }, [selectedVendor, bookings]);
+
+    // Count expiring contracts within next 30 days
+    const expiringCount = useMemo(() => {
+        const now = new Date();
+        const in30Days = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+        return vendors.filter(v => {
+            if (!v.contractExpiryDate) return false;
+            const exp = new Date(v.contractExpiryDate);
+            return !isNaN(exp.getTime()) && exp <= in30Days && exp >= now;
+        }).length;
+    }, [vendors]);
 
     // --- Actions ---
 
@@ -293,6 +318,7 @@ export const Vendors: React.FC = () => {
             subject,
             message
         });
+        showToast(`Bulk email queue triggered for ${selectedIds.size} vendors.`);
         setSelectedIds(new Set());
     };
 
@@ -436,40 +462,46 @@ export const Vendors: React.FC = () => {
         showToast('Payment recorded successfully.');
     };
 
-    const handleAddDocument = (e: React.FormEvent) => {
+    const handleAddDocument = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!selectedVendor) return;
-        if (!docForm.url) {
+        if (!selectedFile) {
             showToast('Please select a file to upload.', 'error');
             return;
         }
-        addVendorDocument(selectedVendor.id, {
-            id: `DOC-${Date.now()}`,
-            name: docForm.name || `${docForm.type} - ${new Date().getFullYear()}`,
-            type: docForm.type as any,
-            status: 'Valid',
-            uploadDate: new Date().toISOString().split('T')[0],
-            url: docForm.url,
-            expiryDate: docForm.expiry || undefined
-        });
-        setIsDocModalOpen(false);
-        setDocForm({ type: 'Contract', expiry: '', name: '', url: '' });
-        showToast('Document uploaded successfully.');
+        setIsUploading(true);
+        try {
+            const uploadedUrl = await api.uploadFile(selectedFile);
+            addVendorDocument(selectedVendor.id, {
+                id: `DOC-${Date.now()}`,
+                name: docForm.name || `${docForm.type} - ${new Date().getFullYear()}`,
+                type: docForm.type as any,
+                status: 'Valid',
+                uploadDate: new Date().toISOString().split('T')[0],
+                url: uploadedUrl,
+                expiryDate: docForm.expiry || undefined
+            });
+            setIsDocModalOpen(false);
+            setDocForm({ type: 'Contract', expiry: '', name: '', url: '' });
+            setSelectedFile(null);
+            showToast('Document uploaded successfully.');
+        } catch (err: any) {
+            showToast(err.message || 'File upload failed.', 'error');
+        } finally {
+            setIsUploading(false);
+        }
     };
 
     const handleDocFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
+        setSelectedFile(file);
         // Auto-fill name from filename if empty
         if (!docForm.name) {
             setDocForm(prev => ({ ...prev, name: file.name.replace(/\.[^.]+$/, '') }));
         }
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-            const dataUrl = ev.target?.result as string;
-            setDocForm(prev => ({ ...prev, url: dataUrl }));
-        };
-        reader.readAsDataURL(file);
+        // Set placeholder url to satisfy button disabled condition
+        setDocForm(prev => ({ ...prev, url: 'file-selected' }));
     };
 
     const handleAddNote = (e: React.FormEvent) => {
@@ -480,7 +512,7 @@ export const Vendors: React.FC = () => {
             id: `N-${Date.now()}`,
             text: noteText,
             date: new Date().toISOString().split('T')[0],
-            author: 'You'
+            author: currentUser?.name || 'You'
         };
         
         const updatedNotes = [newNote, ...(selectedVendor.notes || [])];
@@ -679,7 +711,7 @@ export const Vendors: React.FC = () => {
                                 </div>
                                 <p className="text-4xl kpi-number">{formatPriceCompact(stats.totalCommission)}</p>
                                 <div className="mt-2 flex items-center gap-1 text-xs font-medium bg-white/20 w-fit px-2 py-0.5 rounded-full border border-white/10">
-                                    <span className="material-symbols-outlined text-[14px]">trending_up</span> +12.5% Profit
+                                    <span className="material-symbols-outlined text-[14px]">{stats.avgMargin > 0 ? 'trending_up' : 'trending_flat'}</span> {stats.avgMargin > 0 ? `${stats.avgMargin.toFixed(1)}% Avg Margin` : 'No commission'}
                                 </div>
                             </div>
                             <span className="material-symbols-outlined absolute -right-4 -bottom-4 text-9xl opacity-10 rotate-12">payments</span>
@@ -710,7 +742,11 @@ export const Vendors: React.FC = () => {
                         </div>
 
                         {/* Compliance */}
-                        <div className="bg-white dark:bg-[#1A2633] p-5 rounded-2xl border border-slate-200 dark:border-slate-800 cursor-pointer hover:border-primary/50 transition-colors shadow-sm" onClick={() => setSearch('Expiring')}>
+                        <div className={`p-5 rounded-2xl border cursor-pointer transition-all shadow-sm ${
+                            complianceFilter 
+                                ? 'bg-purple-500/10 border-purple-500/50 dark:bg-purple-900/20' 
+                                : 'bg-white dark:bg-[#1A2633] border-slate-200 dark:border-slate-800 hover:border-primary/50'
+                        }`} onClick={() => { setComplianceFilter(prev => !prev); setSearch(''); setCategoryFilter('All'); }}>
                             <div className="flex justify-between items-start mb-2">
                                 <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Compliance</span>
                                 <div className="p-1.5 bg-purple-100 dark:bg-purple-900/30 text-purple-600 rounded-lg"><span className="material-symbols-outlined text-lg">handshake</span></div>
@@ -720,7 +756,13 @@ export const Vendors: React.FC = () => {
                                 <p className="text-sm font-medium text-slate-500 mb-1">Partners</p>
                             </div>
                             <div className="flex gap-2 mt-3">
-                                <span className="text-[10px] bg-red-100 dark:bg-red-900/30 text-red-600 px-2 py-0.5 rounded font-bold uppercase">2 Expiring</span>
+                                <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${
+                                    expiringCount > 0 
+                                        ? 'bg-red-100 dark:bg-red-900/30 text-red-600' 
+                                        : 'bg-green-100 dark:bg-green-900/30 text-green-600'
+                                }`}>
+                                    {expiringCount > 0 ? `${expiringCount} Expiring` : 'All Active'}
+                                </span>
                             </div>
                         </div>
                     </div>
@@ -731,11 +773,11 @@ export const Vendors: React.FC = () => {
                         <div className="flex items-center gap-4 mb-6">
                             <div className="relative flex-1 max-w-md">
                                 <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-slate-400">search</span>
-                                <input className="w-full pl-12 pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#1A2633] outline-none focus:ring-2 focus:ring-primary shadow-sm transition-shadow text-sm" placeholder="Search vendors..." value={search} onChange={e => setSearch(e.target.value)} />
+                                <input className="w-full pl-12 pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#1A2633] outline-none focus:ring-2 focus:ring-primary shadow-sm transition-shadow text-sm" placeholder="Search vendors..." value={search} onChange={e => { setSearch(e.target.value); setComplianceFilter(false); }} />
                             </div>
                             <div className="flex bg-white dark:bg-[#1A2633] rounded-xl p-1 shadow-sm border border-slate-200 dark:border-slate-700 overflow-x-auto no-scrollbar">
                                 {['All', 'Hotel', 'Transport', 'DMC', 'Guide', 'Activity'].map(cat => (
-                                    <button key={cat} onClick={() => setCategoryFilter(cat)} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all whitespace-nowrap ${categoryFilter === cat ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>{cat}</button>
+                                    <button key={cat} onClick={() => { setCategoryFilter(cat); setComplianceFilter(false); }} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all whitespace-nowrap ${categoryFilter === cat && !complianceFilter ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>{cat}</button>
                                 ))}
                             </div>
                         </div>
@@ -958,17 +1000,17 @@ export const Vendors: React.FC = () => {
                                             </div>
                                             <div className="space-y-4 relative z-10">
                                                 {[
-                                                    { label: 'Quality', val: selectedVendor.rating * 20, color: 'bg-blue-500' },
-                                                    { label: 'Timeliness', val: 92, color: 'bg-purple-500' },
-                                                    { label: 'Value', val: 85, color: 'bg-orange-500' }
+                                                    { label: 'Quality', val: selectedVendor.rating * 20, color: 'bg-blue-500', isAvailable: true },
+                                                    { label: 'Timeliness', val: selectedVendor.timeliness ?? 0, color: 'bg-purple-500', isAvailable: selectedVendor.timeliness !== null },
+                                                    { label: 'Value', val: selectedVendor.value ?? 0, color: 'bg-orange-500', isAvailable: selectedVendor.value !== null }
                                                 ].map((metric, i) => (
                                                     <div key={i}>
                                                         <div className="flex justify-between text-xs font-bold mb-1.5 opacity-90 uppercase tracking-wider">
                                                             <span>{metric.label}</span>
-                                                            <span>{metric.val}%</span>
+                                                            <span>{metric.isAvailable ? `${metric.val}%` : 'N/A (No Data)'}</span>
                                                         </div>
                                                         <div className="h-2 bg-white/10 rounded-full overflow-hidden">
-                                                            <div className={`h-full rounded-full ${metric.color} transition-all duration-1000`} style={{ width: `${metric.val}%` }}></div>
+                                                            <div className={`h-full rounded-full ${metric.color} transition-all duration-1000`} style={{ width: `${metric.isAvailable ? metric.val : 0}%` }}></div>
                                                         </div>
                                                     </div>
                                                 ))}
@@ -988,6 +1030,36 @@ export const Vendors: React.FC = () => {
                                                 <p className="font-bold text-slate-900 dark:text-white text-sm truncate">{selectedVendor.contactEmail}</p>
                                                 <a href={`mailto:${selectedVendor.contactEmail}`} className="text-[10px] text-primary font-black hover:underline mt-1 block uppercase tracking-wider">Direct Message</a>
                                             </div>
+                                        </div>
+
+                                        {/* Linked Bookings & Packages Section */}
+                                        <div className="p-5 bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm space-y-4">
+                                            <h4 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-2 flex items-center gap-2"><span className="material-symbols-outlined text-sm">airplane_ticket</span> Linked Bookings ({linkedBookings.length})</h4>
+                                            {linkedBookings.length > 0 ? (
+                                                <div className="space-y-2">
+                                                    {linkedBookings.map(b => (
+                                                        <div key={b.id} onClick={() => { setSelectedVendorId(null); navigate(`/admin/bookings?id=${b.id}`); }} className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-700/50 rounded-xl hover:shadow-md cursor-pointer transition-all">
+                                                            <div className="flex items-center gap-3">
+                                                                <span className="material-symbols-outlined text-slate-400 text-lg">event_note</span>
+                                                                <div>
+                                                                    <p className="text-xs font-bold text-slate-900 dark:text-white">{b.title}</p>
+                                                                    <p className="text-[10px] text-slate-500">{b.customer} • {b.date}</p>
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex items-center gap-1">
+                                                                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                                                                    b.status === 'Confirmed' ? 'bg-green-100 text-green-700 dark:bg-green-900/20 dark:text-green-400' :
+                                                                    b.status === 'Cancelled' ? 'bg-red-100 text-red-700 dark:bg-red-900/20 dark:text-red-400' :
+                                                                    'bg-amber-100 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400'
+                                                                }`}>{b.status}</span>
+                                                                <span className="material-symbols-outlined text-slate-400 text-sm">chevron_right</span>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <p className="text-xs text-slate-400 italic text-center py-4 bg-slate-50/50 dark:bg-slate-800/20 rounded-xl border border-dashed border-slate-200 dark:border-slate-800">No bookings linked to this vendor yet.</p>
+                                            )}
                                         </div>
 
                                         {/* Internal Notes System */}
@@ -1508,6 +1580,16 @@ export const Vendors: React.FC = () => {
                                         <input required placeholder="HDFC0001234" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-primary font-mono uppercase" value={vendorForm.bankDetails?.ifsc} onChange={e => updateBankDetails('ifsc', e.target.value)} />
                                     </div>
                                 </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">UPI ID (Optional)</label>
+                                        <input placeholder="e.g. acme@okhdfcbank" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-primary" value={vendorForm.bankDetails?.upiId || ''} onChange={e => updateBankDetails('upiId', e.target.value)} />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">UPI Registered Phone (Optional)</label>
+                                        <input placeholder="e.g. 9876543210" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-primary font-mono" value={vendorForm.bankDetails?.upiNumber || ''} onChange={e => updateBankDetails('upiNumber', e.target.value)} />
+                                    </div>
+                                </div>
                             </div>
 
                             <button type="submit" className="w-full py-4 bg-primary text-white font-bold rounded-xl shadow-lg hover:bg-primary-dark transition-all active:scale-[0.98]">
@@ -1603,8 +1685,15 @@ export const Vendors: React.FC = () => {
                                     </div>
                                 </div>
                                 <div className="pt-2 flex justify-end gap-2">
-                                    <button type="button" onClick={() => { setIsDocModalOpen(false); setDocForm({ type: 'Contract', expiry: '', name: '', url: '' }); }} className="px-4 py-2 text-slate-500 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg">Cancel</button>
-                                    <button type="submit" disabled={!docForm.url} className="px-5 py-2 bg-primary text-white font-bold rounded-lg hover:bg-primary-dark disabled:opacity-40 disabled:cursor-not-allowed transition-all">Upload</button>
+                                    <button type="button" disabled={isUploading} onClick={() => { setIsDocModalOpen(false); setDocForm({ type: 'Contract', expiry: '', name: '', url: '' }); setSelectedFile(null); }} className="px-4 py-2 text-slate-500 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg">Cancel</button>
+                                    <button type="submit" disabled={!docForm.url || isUploading} className="px-5 py-2 bg-primary text-white font-bold rounded-lg hover:bg-primary-dark disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center gap-2">
+                                        {isUploading ? (
+                                            <>
+                                                <span className="animate-spin border-2 border-white border-t-transparent rounded-full h-3 w-3"></span>
+                                                Uploading...
+                                            </>
+                                        ) : 'Upload'}
+                                    </button>
                                 </div>
                             </form>
                         </div>

@@ -771,6 +771,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       logAction('Create', 'Bookings', `Created Booking for ${booking.customer}`);
       toast.success("Booking created successfully");
+      window.dispatchEvent(new CustomEvent('bookings-changed'));
 
       // 5. Auto-create or update Customer record (non-blocking)
       try {
@@ -843,6 +844,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await api.updateBooking(id, booking);
       logAction('Update', 'Bookings', `Updated Booking: ${id}`);
       toast.success("Booking updated successfully");
+      window.dispatchEvent(new CustomEvent('bookings-changed'));
     } catch (e: any) {
       setBookings(previousState);
       toast.error(e.message || "Failed to update booking");
@@ -856,6 +858,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await api.updateBookingStatus(id, status);
       logAction('Update', 'Bookings', `Updated Booking Status to ${status}`);
       toast.success(`Booking status updated to ${status}`);
+      window.dispatchEvent(new CustomEvent('bookings-changed'));
     } catch (e: any) {
       setBookings(previousState);
       toast.error(e.message || "Failed to update status");
@@ -874,6 +877,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await api.deleteBooking(id);
       logAction('Delete', 'Bookings', `Deleted Booking: ${id}`);
       toast.success("Booking deleted");
+      window.dispatchEvent(new CustomEvent('bookings-changed'));
     } catch (e: any) {
       setBookings(previousState);
       toast.error(e.message || "Failed to delete booking");
@@ -1113,6 +1117,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await api.createLead(finalLead);
       logAction('Create', 'Leads', `Created Lead: ${finalLead.name}`);
       toast.success("Lead created");
+      window.dispatchEvent(new CustomEvent('leads-changed'));
     } catch (e: any) {
       setLeads(l => l.filter(x => x.id !== lead.id));
       toast.error(e.message || "Failed to create lead");
@@ -1126,6 +1131,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await api.updateLead(id, lead);
       logAction('Update', 'Leads', `Updated Lead: ${lead.name || id}`);
       toast.success("Lead updated");
+      window.dispatchEvent(new CustomEvent('leads-changed'));
     } catch (e: any) {
       setLeads(previousState);
       toast.error(e.message || "Failed to update lead");
@@ -1144,6 +1150,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await api.deleteLead(id);
       logAction('Delete', 'Leads', `Deleted Lead: ${id}`);
       toast.success("Lead deleted");
+      window.dispatchEvent(new CustomEvent('leads-changed'));
     } catch (e: any) {
       setLeads(previousState);
       toast.error(e.message || "Failed to delete lead");
@@ -1154,6 +1161,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setLeads(l => l.map(x => x.id === id ? { ...x, logs: [log, ...x.logs] } : x));
     try {
       await api.createLeadLog(id, log);
+      window.dispatchEvent(new CustomEvent('leads-changed'));
     } catch (e: any) {
       toast.error(e.message || "Failed to save lead log");
     }
