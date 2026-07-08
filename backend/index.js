@@ -1010,7 +1010,6 @@ async function ensureMembershipTables() {
             try {
                 await pool.query(sql);
             } catch (err) {
-                // Column duplicate or duplicate column name is safe to ignore
                 if (!err.message?.includes('Duplicate column') && err.code !== 'ER_DUP_FIELDNAME') {
                     console.warn('[Membership Migration] Plan alter warning:', err.message?.split('\n')[0]);
                 }
@@ -1032,6 +1031,22 @@ async function ensureMembershipTables() {
                 if (!err.message?.includes('Duplicate column') && err.code !== 'ER_DUP_FIELDNAME') {
                     console.warn('[Membership Migration] Membership alter warning:', err.message?.split('\n')[0]);
                 }
+            }
+        }
+
+        // ── Critical: Expand status ENUM to include Pending and Cancelled ──
+        // Customer-portal self-enrollment creates records with status='Pending'.
+        // The original ENUM only had Active/Suspended/Expired which caused silent failures.
+        try {
+            await pool.query(`
+                ALTER TABLE customer_memberships
+                MODIFY COLUMN status ENUM('Active','Suspended','Expired','Pending','Cancelled') DEFAULT 'Active'
+            `);
+            console.log('[Membership Migration] Status ENUM expanded to include Pending/Cancelled.');
+        } catch (err) {
+            // Safe to ignore if values already exist or table is in use
+            if (!err.message?.includes('Duplicate') && !err.message?.includes('already exists')) {
+                console.warn('[Membership Migration] ENUM expand warning:', err.message?.split('\n')[0]);
             }
         }
 
@@ -3084,6 +3099,116 @@ app.delete('/api/customer/membership', customerAuthMiddleware, async (req, res) 
     } catch (err) {
         console.error('[Customer Membership] DELETE error:', err.message);
         return res.status(500).json({ error: 'Failed to cancel membership.' });
+    }
+});
+
+// ═══════════════════════════════════════════
+// ADMIN MEMBERSHIP MANAGEMENT ROUTES
+// ═══════════════════════════════════════════
+
+// POST /api/admin/memberships/:id/approve
+// Admin approves a Pending membership request → sets status to Active
+app.post('/api/admin/memberships/:id/approve', authMiddleware, async (req, res) => {
+    const { id } = req.params;
+    const { notes } = req.body || {};
+    try {
+        // 1. Fetch the membership record
+        const [rows] = await pool.query(
+            'SELECT * FROM customer_memberships WHERE id = ?', [id]
+        );
+        if (rows.length === 0) return res.status(404).json({ error: 'Membership not found.' });
+        const m = rows[0];
+
+        if (m.status !== 'Pending') {
+            return res.status(409).json({ error: `Cannot approve a membership with status '${m.status}'. Only Pending requests can be approved.` });
+        }
+
+        // 2. Update status to Active
+        await pool.query(
+            "UPDATE customer_memberships SET status = 'Active', notes = ?, enrolled_by = ? WHERE id = ?",
+            [notes || m.notes || 'Approved by admin', req.user?.email || 'Admin', id]
+        );
+
+        // 3. Notify the customer
+        try {
+            // Fetch customer_user id via customer_email
+            const [cuRows] = await pool.query(
+                'SELECT id FROM customer_users WHERE email = ?', [m.customer_email]
+            );
+            if (cuRows.length > 0) {
+                const notifId = require('crypto').randomBytes(16).toString('hex');
+                await pool.query(`
+                    INSERT INTO customer_notifications (id, customer_id, type, title, message, is_read, created_at)
+                    VALUES (?, ?, 'membership_approved', ?, ?, 0, NOW())
+                `, [
+                    notifId,
+                    cuRows[0].id,
+                    '🎉 Membership Activated!',
+                    `Your ${m.plan_name} (${m.tier}) membership has been approved and is now active! Enjoy your exclusive benefits.`
+                ]);
+            }
+        } catch (notifErr) {
+            // Non-critical — customer_notifications table may not have this type column
+            console.warn('[Admin Membership Approve] Customer notification skipped:', notifErr.message?.split('\n')[0]);
+        }
+
+        console.log(`[Admin Membership] Approved: ${id} (${m.customer_email} → ${m.plan_name})`);
+        return res.json({ success: true, message: `Membership for ${m.customer_name} approved and activated.` });
+    } catch (err) {
+        console.error('[Admin Membership Approve] Error:', err.message);
+        return res.status(500).json({ error: 'Failed to approve membership.' });
+    }
+});
+
+// POST /api/admin/memberships/:id/reject
+// Admin rejects a Pending membership request → sets status to Cancelled
+app.post('/api/admin/memberships/:id/reject', authMiddleware, async (req, res) => {
+    const { id } = req.params;
+    const { reason } = req.body || {};
+    try {
+        const [rows] = await pool.query(
+            'SELECT * FROM customer_memberships WHERE id = ?', [id]
+        );
+        if (rows.length === 0) return res.status(404).json({ error: 'Membership not found.' });
+        const m = rows[0];
+
+        if (m.status !== 'Pending') {
+            return res.status(409).json({ error: `Cannot reject a membership with status '${m.status}'. Only Pending requests can be rejected.` });
+        }
+
+        // Update status to Cancelled
+        const rejectNote = reason ? `Rejected by admin: ${reason}` : 'Rejected by admin';
+        await pool.query(
+            "UPDATE customer_memberships SET status = 'Cancelled', notes = ? WHERE id = ?",
+            [rejectNote, id]
+        );
+
+        // Notify the customer
+        try {
+            const [cuRows] = await pool.query(
+                'SELECT id FROM customer_users WHERE email = ?', [m.customer_email]
+            );
+            if (cuRows.length > 0) {
+                const notifId = require('crypto').randomBytes(16).toString('hex');
+                await pool.query(`
+                    INSERT INTO customer_notifications (id, customer_id, type, title, message, is_read, created_at)
+                    VALUES (?, ?, 'membership_rejected', ?, ?, 0, NOW())
+                `, [
+                    notifId,
+                    cuRows[0].id,
+                    'Membership Request Update',
+                    `Your request for ${m.plan_name} membership could not be processed at this time. ${reason ? `Reason: ${reason}` : 'Please contact our support team for more information.'}`
+                ]);
+            }
+        } catch (notifErr) {
+            console.warn('[Admin Membership Reject] Customer notification skipped:', notifErr.message?.split('\n')[0]);
+        }
+
+        console.log(`[Admin Membership] Rejected: ${id} (${m.customer_email} → ${m.plan_name})`);
+        return res.json({ success: true, message: `Membership request for ${m.customer_name} has been rejected.` });
+    } catch (err) {
+        console.error('[Admin Membership Reject] Error:', err.message);
+        return res.status(500).json({ error: 'Failed to reject membership.' });
     }
 });
 

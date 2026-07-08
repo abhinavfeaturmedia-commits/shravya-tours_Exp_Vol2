@@ -2317,6 +2317,20 @@ export const api = {
 
     deleteMembership: (id: string) => crud.remove('customer_memberships', id),
 
+    // Admin: Approve a Pending membership request → status becomes Active
+    approveMembership: (id: string, notes?: string) =>
+        fetchApi(`/api/admin/memberships/${encodeURIComponent(id)}/approve`, {
+            method: 'POST',
+            body: JSON.stringify({ notes: notes || 'Approved by admin' }),
+        }),
+
+    // Admin: Reject a Pending membership request → status becomes Cancelled
+    rejectMembership: (id: string, reason?: string) =>
+        fetchApi(`/api/admin/memberships/${encodeURIComponent(id)}/reject`, {
+            method: 'POST',
+            body: JSON.stringify({ reason: reason || '' }),
+        }),
+
     fetchPartnerAnalytics: async (): Promise<{ earnings: any[]; funnel: any[]; destinations: any[] }> => {
         return fetchApi('/api/partner/analytics');
     },

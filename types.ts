@@ -904,7 +904,7 @@ export interface CustomerMembership {
   planId: string;
   planName: string;
   tier: 'Bronze' | 'Silver' | 'Gold';
-  status: 'Active' | 'Suspended' | 'Expired';
+  status: 'Active' | 'Suspended' | 'Expired' | 'Pending' | 'Cancelled';
   billingCycle: 'Monthly' | 'Quarterly' | '6 Months' | 'Yearly';
   pricePaid: number;
   enrolledOn: string;        // YYYY-MM-DD

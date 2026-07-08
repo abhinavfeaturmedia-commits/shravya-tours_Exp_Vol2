@@ -398,6 +398,8 @@ interface DataContextType {
   enrollCustomer: (m: CustomerMembership) => Promise<void>;
   updateMembership: (id: string, updates: Partial<CustomerMembership>) => Promise<void>;
   deleteMembership: (id: string) => Promise<void>;
+  approveMembership: (id: string, notes?: string) => Promise<void>;
+  rejectMembership: (id: string, reason?: string) => Promise<void>;
   getActiveMembershipForCustomer: (customerId: string) => CustomerMembership | undefined;
 
   // Coupons
@@ -1914,6 +1916,34 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return customerMemberships.find(m => m.customerId === customerId && m.status === 'Active');
   }, [customerMemberships]);
 
+  // ─── Admin: Approve a Pending membership request ───
+  const approveMembership = useCallback(async (id: string, notes?: string) => {
+    const prev = customerMemberships;
+    setCustomerMemberships(p => p.map(x => x.id === id ? { ...x, status: 'Active' as const } : x));
+    try {
+      await api.approveMembership(id, notes);
+      logAction('Update', 'Memberships', `Approved membership: ${id}`);
+      toast.success('Membership approved and activated!');
+    } catch (e: any) {
+      setCustomerMemberships(prev);
+      toast.error(e.message || 'Failed to approve membership');
+    }
+  }, [customerMemberships, logAction]);
+
+  // ─── Admin: Reject a Pending membership request ───
+  const rejectMembership = useCallback(async (id: string, reason?: string) => {
+    const prev = customerMemberships;
+    setCustomerMemberships(p => p.map(x => x.id === id ? { ...x, status: 'Cancelled' as const } : x));
+    try {
+      await api.rejectMembership(id, reason);
+      logAction('Update', 'Memberships', `Rejected membership: ${id}`);
+      toast.success('Membership request rejected.');
+    } catch (e: any) {
+      setCustomerMemberships(prev);
+      toast.error(e.message || 'Failed to reject membership');
+    }
+  }, [customerMemberships, logAction]);
+
   // ─── Coupons Handlers ───
   const addCoupon = useCallback(async (coupon: Coupon) => {
     try {
@@ -2048,6 +2078,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     membershipPlans, customerMemberships,
     addMembershipPlan, updateMembershipPlan, deleteMembershipPlan,
     enrollCustomer, updateMembership, deleteMembership, getActiveMembershipForCustomer,
+    approveMembership, rejectMembership,
     // Coupons
     coupons, addCoupon, updateCoupon, deleteCoupon, applyCoupon, detachCoupon,
     // Trending Destinations
@@ -2077,7 +2108,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }), [
     packages, bookings, leads, inventory, vendors, accounts, campaigns, customers,
     masterLocations, masterHotels, masterActivities, masterTransports, masterPlans,
-    masterRoomTypes, masterMealPlans, masterLeadSources, masterTermsTemplates,
     masterRoomTypes, masterMealPlans, masterLeadSources, masterTermsTemplates,
     proposals,
     followUps, addFollowUp, updateFollowUp, deleteFollowUp, getFollowUpsByLeadId,
@@ -2116,6 +2146,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     membershipPlans, customerMemberships,
     addMembershipPlan, updateMembershipPlan, deleteMembershipPlan,
     enrollCustomer, updateMembership, deleteMembership, getActiveMembershipForCustomer,
+    approveMembership, rejectMembership,
     // Coupons deps
     coupons, addCoupon, updateCoupon, deleteCoupon, applyCoupon, detachCoupon,
     // Trending Destinations deps

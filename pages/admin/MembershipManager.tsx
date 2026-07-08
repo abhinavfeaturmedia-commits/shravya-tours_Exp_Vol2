@@ -35,12 +35,12 @@ const calcMRR = (memberships: CustomerMembership[]) =>
     }, 0);
 
 // ─── Component ───────────────────────────────────────────────────────────────
-
 export const MembershipManager: React.FC = () => {
   const {
     membershipPlans, customerMemberships, customers,
     addMembershipPlan, updateMembershipPlan, deleteMembershipPlan,
-    enrollCustomer, updateMembership, deleteMembership
+    enrollCustomer, updateMembership, deleteMembership,
+    approveMembership, rejectMembership
   } = useData();
 
   const [activeTab, setActiveTab] = useState<'members' | 'plans' | 'analytics'>('members');
@@ -68,6 +68,7 @@ export const MembershipManager: React.FC = () => {
 
   // ── Computed Stats ──
   const activeMemberCount = customerMemberships.filter(m => m.status === 'Active').length;
+  const pendingRequestsCount = customerMemberships.filter(m => m.status === 'Pending').length;
   const expiringSoonCount = customerMemberships.filter(m => {
     if (m.status !== 'Active') return false;
     const d = getDaysLeft(m.expiresOn);
@@ -270,6 +271,30 @@ export const MembershipManager: React.FC = () => {
       {/* ══════════════════════════════════════════════════════ */}
       {activeTab === 'members' && (
         <div className="space-y-5 animate-in slide-in-from-right-4">
+          {/* Pending Requests Alert Banner */}
+          {pendingRequestsCount > 0 && (
+            <div className="bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/20 rounded-2xl p-4 flex items-center justify-between gap-4 animate-in slide-in-from-top-4 duration-300">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center text-amber-600 dark:text-amber-400 shrink-0">
+                  <span className="material-symbols-outlined text-[20px] animate-bounce">notifications_active</span>
+                </div>
+                <div>
+                  <h4 className="text-sm font-black text-amber-800 dark:text-amber-300">Pending Membership Requests</h4>
+                  <p className="text-xs text-amber-600/80 dark:text-amber-400/70 mt-0.5">
+                    There are <span className="font-extrabold">{pendingRequestsCount}</span> pending request{pendingRequestsCount !== 1 ? 's' : ''} from customer portal waiting for your review.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setStatusFilter('Pending')}
+                className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold text-xs shadow-sm transition-all flex items-center gap-1.5 shrink-0"
+              >
+                <span className="material-symbols-outlined text-[14px]">visibility</span>
+                View Pending
+              </button>
+            </div>
+          )}
+
           {/* Search + Filters */}
           <div className="bg-white dark:bg-slate-900 rounded-2xl p-3.5 shadow-sm border border-slate-200 dark:border-slate-800 flex flex-wrap gap-3">
             <div className="flex-1 min-w-[200px] relative">
@@ -298,8 +323,10 @@ export const MembershipManager: React.FC = () => {
               >
                 <option value="All">All Statuses</option>
                 <option value="Active">Active</option>
+                <option value="Pending">Pending</option>
                 <option value="Suspended">Suspended</option>
                 <option value="Expired">Expired</option>
+                <option value="Cancelled">Cancelled</option>
               </select>
             </div>
           </div>
@@ -324,7 +351,9 @@ export const MembershipManager: React.FC = () => {
                     const tierColor = planDef?.color || '#CD7F32';
                     const expiryPill = getExpiryPill(m.expiresOn, m.status);
                     return (
-                      <tr key={m.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
+                      <tr key={m.id} className={`hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors ${
+                        m.status === 'Pending' ? 'bg-amber-500/5 dark:bg-amber-500/5 border-l-4 border-l-amber-500' : ''
+                      }`}>
                         {/* Customer */}
                         <td className="p-4 pl-6">
                           <div className="flex items-center gap-3">
@@ -336,7 +365,12 @@ export const MembershipManager: React.FC = () => {
                               {m.customerName.charAt(0).toUpperCase()}
                             </div>
                             <div>
-                              <div className="font-bold text-slate-900 dark:text-white leading-tight">{m.customerName}</div>
+                              <div className="font-bold text-slate-900 dark:text-white leading-tight flex items-center gap-1.5">
+                                {m.customerName}
+                                {m.status === 'Pending' && (
+                                  <span className="inline-block w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+                                )}
+                              </div>
                               <div className="text-slate-400 dark:text-slate-500 text-xs mt-0.5">{m.customerEmail}</div>
                             </div>
                           </div>
@@ -383,6 +417,8 @@ export const MembershipManager: React.FC = () => {
                           <span className={`px-2.5 py-1 rounded-full text-[11px] font-black uppercase tracking-wide inline-flex items-center gap-1 ${
                             m.status === 'Active' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' :
                             m.status === 'Suspended' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
+                            m.status === 'Pending' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' :
+                            m.status === 'Cancelled' ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400' :
                             'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
                           }`}>
                             <span className="w-1.5 h-1.5 rounded-full bg-current" />
@@ -392,42 +428,71 @@ export const MembershipManager: React.FC = () => {
                         {/* Actions — always visible */}
                         <td className="p-4 pr-6">
                           <div className="flex justify-end gap-1.5">
-                            {/* Renew */}
-                            <button
-                              onClick={() => {
-                                const plan = membershipPlans.find(p => p.id === m.planId);
-                                if (!plan) return;
-                                const newExp = new Date(m.expiresOn > new Date().toISOString().split('T')[0] ? m.expiresOn : new Date().toISOString().split('T')[0]);
-                                const cycle = m.billingCycle || 'Yearly';
-                                if (cycle === 'Monthly') newExp.setMonth(newExp.getMonth() + 1);
-                                else if (cycle === 'Quarterly') newExp.setMonth(newExp.getMonth() + 3);
-                                else if (cycle === '6 Months') newExp.setMonth(newExp.getMonth() + 6);
-                                else newExp.setFullYear(newExp.getFullYear() + 1);
-                                updateMembership(m.id, { expiresOn: newExp.toISOString().split('T')[0], status: 'Active' });
-                              }}
-                              className="p-2 text-slate-400 hover:text-emerald-600 bg-slate-50 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-xl transition-colors border border-slate-200 dark:border-slate-700 hover:border-emerald-200"
-                              title="Renew Membership"
-                            >
-                              <span className="material-symbols-outlined text-[16px]">autorenew</span>
-                            </button>
-                            {/* Suspend / Activate */}
-                            <button
-                              onClick={() => updateMembership(m.id, { status: m.status === 'Active' ? 'Suspended' : 'Active' })}
-                              className="p-2 text-slate-400 hover:text-amber-600 bg-slate-50 dark:bg-slate-800 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-xl transition-colors border border-slate-200 dark:border-slate-700 hover:border-amber-200"
-                              title={m.status === 'Active' ? 'Suspend' : 'Activate'}
-                            >
-                              <span className="material-symbols-outlined text-[16px]">
-                                {m.status === 'Active' ? 'pause_circle' : 'play_circle'}
-                              </span>
-                            </button>
-                            {/* Delete */}
-                            <button
-                              onClick={() => { if (window.confirm('Delete this membership record permanently?')) deleteMembership(m.id); }}
-                              className="p-2 text-slate-400 hover:text-rose-600 bg-slate-50 dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-xl transition-colors border border-slate-200 dark:border-slate-700 hover:border-rose-200"
-                              title="Delete"
-                            >
-                              <span className="material-symbols-outlined text-[16px]">delete</span>
-                            </button>
+                            {m.status === 'Pending' ? (
+                              <>
+                                {/* Approve Request */}
+                                <button
+                                  onClick={() => {
+                                    const notes = window.prompt('Enter approval notes (optional):', 'Approved by admin');
+                                    if (notes !== null) approveMembership(m.id, notes);
+                                  }}
+                                  className="p-2 text-slate-400 hover:text-emerald-600 bg-slate-50 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-xl transition-colors border border-slate-200 dark:border-slate-700 hover:border-emerald-200"
+                                  title="Approve Request"
+                                >
+                                  <span className="material-symbols-outlined text-[16px] font-black">check</span>
+                                </button>
+                                {/* Reject Request */}
+                                <button
+                                  onClick={() => {
+                                    const reason = window.prompt('Enter rejection reason:');
+                                    if (reason !== null) rejectMembership(m.id, reason);
+                                  }}
+                                  className="p-2 text-slate-400 hover:text-rose-600 bg-slate-50 dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-xl transition-colors border border-slate-200 dark:border-slate-700 hover:border-rose-200"
+                                  title="Reject Request"
+                                >
+                                  <span className="material-symbols-outlined text-[16px] font-black">close</span>
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                {/* Renew */}
+                                <button
+                                  onClick={() => {
+                                    const plan = membershipPlans.find(p => p.id === m.planId);
+                                    if (!plan) return;
+                                    const newExp = new Date(m.expiresOn > new Date().toISOString().split('T')[0] ? m.expiresOn : new Date().toISOString().split('T')[0]);
+                                    const cycle = m.billingCycle || 'Yearly';
+                                    if (cycle === 'Monthly') newExp.setMonth(newExp.getMonth() + 1);
+                                    else if (cycle === 'Quarterly') newExp.setMonth(newExp.getMonth() + 3);
+                                    else if (cycle === '6 Months') newExp.setMonth(newExp.getMonth() + 6);
+                                    else newExp.setFullYear(newExp.getFullYear() + 1);
+                                    updateMembership(m.id, { expiresOn: newExp.toISOString().split('T')[0], status: 'Active' });
+                                  }}
+                                  className="p-2 text-slate-400 hover:text-emerald-600 bg-slate-50 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-xl transition-colors border border-slate-200 dark:border-slate-700 hover:border-emerald-200"
+                                  title="Renew Membership"
+                                >
+                                  <span className="material-symbols-outlined text-[16px]">autorenew</span>
+                                </button>
+                                {/* Suspend / Activate */}
+                                <button
+                                  onClick={() => updateMembership(m.id, { status: m.status === 'Active' ? 'Suspended' : 'Active' })}
+                                  className="p-2 text-slate-400 hover:text-amber-600 bg-slate-50 dark:bg-slate-800 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-xl transition-colors border border-slate-200 dark:border-slate-700 hover:border-amber-200"
+                                  title={m.status === 'Active' ? 'Suspend' : 'Activate'}
+                                >
+                                  <span className="material-symbols-outlined text-[16px]">
+                                    {m.status === 'Active' ? 'pause_circle' : 'play_circle'}
+                                  </span>
+                                </button>
+                                {/* Delete */}
+                                <button
+                                  onClick={() => { if (window.confirm('Delete this membership record permanently?')) deleteMembership(m.id); }}
+                                  className="p-2 text-slate-400 hover:text-rose-600 bg-slate-50 dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-xl transition-colors border border-slate-200 dark:border-slate-700 hover:border-rose-200"
+                                  title="Delete"
+                                >
+                                  <span className="material-symbols-outlined text-[16px]">delete</span>
+                                </button>
+                              </>
+                            )}
                           </div>
                         </td>
                       </tr>
