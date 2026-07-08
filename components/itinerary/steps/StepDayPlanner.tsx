@@ -83,9 +83,16 @@ export const StepDayPlanner: React.FC<Props> = ({ onOpenPricing, onOpenTripDetai
         } catch (error: any) {
             toast.dismiss(toastId);
             let msg = error.message || error.toString();
-            if (msg.includes('400')) msg = 'Bad Request (400). Invalid Prompt or Params.';
-            if (msg.includes('403')) msg = 'Access Denied (403). API Key invalid or restricted.';
-            if (msg.includes('Failed to fetch')) msg = 'Network Error. Check internet or ad-blockers.';
+            const lowerMsg = msg.toLowerCase();
+            if (lowerMsg.includes('api key not valid') || lowerMsg.includes('api_key_invalid') || lowerMsg.includes('invalid api key')) {
+                msg = 'Invalid API Key. Please configure a valid API key in Settings (or VITE_GEMINI_API_KEY in .env.local).';
+            } else if (msg.includes('400')) {
+                msg = 'Bad Request (400). Invalid Prompt or Params.';
+            } else if (msg.includes('403') || msg.includes('401') || lowerMsg.includes('unauthorized') || lowerMsg.includes('forbidden')) {
+                msg = 'Access Denied (403/401). API Key is invalid or restricted.';
+            } else if (msg.includes('Failed to fetch')) {
+                msg = 'Network Error. Check internet or ad-blockers.';
+            }
             toast.error(msg, { duration: 10000 });
         } finally {
             setIsGenerating(false);
