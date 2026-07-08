@@ -893,6 +893,7 @@ export interface MembershipPlan {
   perks: string[];           // Editable list of perk strings
   color: string;             // Hex color for tier badge display
   isActive: boolean;
+  showOnHomepage?: boolean;  // Whether this plan is shown in the public homepage membership section
 }
 
 export interface CustomerMembership {

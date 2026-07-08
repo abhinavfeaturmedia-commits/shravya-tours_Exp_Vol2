@@ -162,7 +162,7 @@ export const CustomerDashboard: React.FC = () => {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
   // MindMate redesign states
-  const [activeSubTab, setActiveSubTab] = useState<'bookings' | 'wishlist' | 'travelers' | 'documents'>('bookings');
+  const [activeSubTab, setActiveSubTab] = useState<'bookings' | 'wishlist' | 'travelers' | 'documents' | 'membership'>('bookings');
   const [selectedItineraryDay, setSelectedItineraryDay] = useState<number>(1);
   const [ratingFeedback, setRatingFeedback] = useState<number>(5);
   const [commentFeedback, setCommentFeedback] = useState<string>('');
@@ -198,6 +198,18 @@ export const CustomerDashboard: React.FC = () => {
   const [coTravelerLoading, setCoTravelerLoading] = useState(false);
   const [referralLoading, setReferralLoading] = useState(false);
   const [docUploading, setDocUploading] = useState(false);
+
+  // ── Membership State ──
+  const [myMembership, setMyMembership] = useState<any>(null);
+  const [loadingMembership, setLoadingMembership] = useState(false);
+  const [publicPlans, setPublicPlans] = useState<any[]>([]);
+  const [loadingPlans, setLoadingPlans] = useState(false);
+  const [membershipRequestLoading, setMembershipRequestLoading] = useState(false);
+  const [membershipMsg, setMembershipMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [selectedPlanId, setSelectedPlanId] = useState('');
+  const [selectedBillingCycle, setSelectedBillingCycle] = useState<'Monthly' | 'Quarterly' | '6 Months' | 'Yearly'>('Yearly');
+  const [showMembershipJoinModal, setShowMembershipJoinModal] = useState(false);
+  const [joiningPlan, setJoiningPlan] = useState<any>(null);
   
   // Data States
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -710,12 +722,84 @@ export const CustomerDashboard: React.FC = () => {
     return () => document.removeEventListener('mousedown', handler);
   }, [showNotificationDropdown]);
 
-  // Sub-tab load triggers (fixed: was using stale activeTab names)
+  // Sub-tab load triggers
   useEffect(() => {
     if (activeSubTab === 'wishlist') fetchWishlist();
     if (activeSubTab === 'travelers') { fetchCoTravelers(); }
     if (activeSubTab === 'documents') fetchDocuments();
+    if (activeSubTab === 'membership') { fetchMyMembership(); fetchPublicPlans(); }
   }, [activeSubTab]);
+
+  // ── Membership API calls ──
+  const fetchMyMembership = async () => {
+    setLoadingMembership(true);
+    try {
+      const token = localStorage.getItem(CUSTOMER_JWT_KEY);
+      const res = await fetch(`${API_BASE}/api/customer/membership`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setMyMembership(data);
+      }
+    } catch { setMyMembership(null); }
+    finally { setLoadingMembership(false); }
+  };
+
+  const fetchPublicPlans = async () => {
+    if (publicPlans.length > 0) return; // cached
+    setLoadingPlans(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/public/membership-plans`);
+      if (res.ok) setPublicPlans(await res.json());
+    } catch { setPublicPlans([]); }
+    finally { setLoadingPlans(false); }
+  };
+
+  const handleRequestMembership = async (plan: any, cycle: string) => {
+    setMembershipRequestLoading(true);
+    setMembershipMsg(null);
+    try {
+      const token = localStorage.getItem(CUSTOMER_JWT_KEY);
+      const res = await fetch(`${API_BASE}/api/customer/membership/request`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ planId: plan.id, billingCycle: cycle })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Request failed');
+      setMembershipMsg({ type: 'success', text: data.message });
+      setShowMembershipJoinModal(false);
+      await fetchMyMembership();
+      showToast('success', 'Membership request submitted!');
+    } catch (err: any) {
+      setMembershipMsg({ type: 'error', text: err.message });
+    } finally { setMembershipRequestLoading(false); }
+  };
+
+  const handleCancelMembership = async () => {
+    showConfirm(
+      'Cancel Membership',
+      'Are you sure you want to cancel your membership? This action cannot be undone.',
+      async () => {
+        try {
+          const token = localStorage.getItem(CUSTOMER_JWT_KEY);
+          const res = await fetch(`${API_BASE}/api/customer/membership`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Failed');
+          showToast('success', data.message);
+          setMyMembership(null);
+          setMembershipMsg(null);
+        } catch (err: any) {
+          showToast('error', err.message);
+        }
+        closeConfirm();
+      }
+    );
+  };
 
   // Always load loyalty on mount
   useEffect(() => {
@@ -1042,6 +1126,7 @@ export const CustomerDashboard: React.FC = () => {
             { key: 'wishlist', label: 'Wishlist', icon: 'favorite' },
             { key: 'travelers', label: 'Co-Travelers', icon: 'group' },
             { key: 'documents', label: 'Secure Vault', icon: 'folder_shared' },
+            { key: 'membership', label: 'Membership', icon: 'workspace_premium' },
           ] as const).map(item => {
             const active = activeSubTab === item.key;
             return (
@@ -1143,6 +1228,7 @@ export const CustomerDashboard: React.FC = () => {
                 { key: 'wishlist', label: 'Wishlist & Discovery', icon: 'favorite' },
                 { key: 'travelers', label: 'Co-Travelers', icon: 'group' },
                 { key: 'documents', label: 'Secure Vault', icon: 'folder_shared' },
+                { key: 'membership', label: 'Membership', icon: 'workspace_premium' },
               ] as const).map(item => {
                 const active = activeSubTab === item.key;
                 return (
@@ -1197,12 +1283,13 @@ export const CustomerDashboard: React.FC = () => {
                 { key: 'bookings', label: 'Trips', icon: 'explore' },
                 { key: 'wishlist', label: 'Wishlist', icon: 'favorite' },
                 { key: 'travelers', label: 'Travelers', icon: 'group' },
-                { key: 'documents', label: 'Vault', icon: 'folder_shared' }
+                { key: 'documents', label: 'Vault', icon: 'folder_shared' },
+                { key: 'membership', label: 'VIP', icon: 'workspace_premium' }
               ] as const).map(tab => (
                 <button
                   key={tab.key}
                   onClick={() => setActiveSubTab(tab.key)}
-                  className={`flex-1 flex flex-col items-center py-2 px-1 rounded-xl text-[10px] font-bold transition-all min-w-[55px] ${
+                  className={`flex-1 flex flex-col items-center py-2 px-1 rounded-xl text-[10px] font-bold transition-all min-w-[50px] ${
                     activeSubTab === tab.key ? 'bg-white text-slate-900 shadow-sm border border-[#EDE8DF]' : 'text-slate-400 hover:text-slate-700'
                   }`}
                 >
@@ -1555,7 +1642,304 @@ export const CustomerDashboard: React.FC = () => {
             </div>
           )}
 
+          {/* ─── MEMBERSHIP TAB PANEL ─── */}
+          {activeSubTab === 'membership' && (
+            <div className="space-y-5 animate-in fade-in duration-300">
+
+              {/* Error/success message */}
+              {membershipMsg && (
+                <div className={`flex items-start gap-3 p-4 rounded-2xl text-xs font-bold border ${
+                  membershipMsg.type === 'success'
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                    : 'bg-red-50 border-red-200 text-red-800'
+                }`}>
+                  <span className="material-symbols-outlined text-[16px] shrink-0">{membershipMsg.type === 'success' ? 'check_circle' : 'error'}</span>
+                  <span>{membershipMsg.text}</span>
+                  <button onClick={() => setMembershipMsg(null)} className="ml-auto shrink-0 opacity-60 hover:opacity-100">
+                    <span className="material-symbols-outlined text-[14px]">close</span>
+                  </button>
+                </div>
+              )}
+
+              {loadingMembership ? (
+                <div className="bg-white rounded-3xl p-8 border border-[#EDE8DF] text-center">
+                  <div className="animate-spin w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full mx-auto mb-3" />
+                  <p className="text-xs text-slate-400 font-semibold">Loading your membership...</p>
+                </div>
+              ) : myMembership && (myMembership.status === 'Active' || myMembership.status === 'Pending' || myMembership.status === 'Suspended') ? (
+                /* ── STATE B: Has a membership ── */
+                <div className="space-y-4">
+                  {/* Membership Status Card */}
+                  <div className="relative bg-white rounded-3xl border-2 overflow-hidden shadow-lg"
+                    style={{ borderColor: myMembership.color || '#CD7F32' }}>
+                    {/* Colored header band */}
+                    <div className="px-6 pt-6 pb-5 relative" style={{ background: `linear-gradient(135deg, ${myMembership.color}12, ${myMembership.color}06)` }}>
+                      <div className="absolute top-0 right-0 w-24 h-24 rounded-full -translate-y-1/2 translate-x-1/2 opacity-10" style={{ backgroundColor: myMembership.color }} />
+                      <div className="relative">
+                        <div className="flex items-center justify-between mb-3">
+                          <span className="text-[10px] font-black px-3 py-1 rounded-full text-white uppercase tracking-wider" style={{ backgroundColor: myMembership.color }}>
+                            {myMembership.tier} TIER
+                          </span>
+                          <span className={`text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-wider flex items-center gap-1 ${
+                            myMembership.status === 'Active' ? 'bg-emerald-100 text-emerald-700' :
+                            myMembership.status === 'Pending' ? 'bg-amber-100 text-amber-700' :
+                            'bg-slate-100 text-slate-600'
+                          }`}>
+                            <span className="w-1.5 h-1.5 rounded-full bg-current" />
+                            {myMembership.status}
+                          </span>
+                        </div>
+                        <h3 className="text-xl font-black text-slate-900 leading-tight">{myMembership.planName}</h3>
+                        {myMembership.status === 'Pending' ? (
+                          <p className="text-xs text-amber-600 font-bold mt-2 flex items-center gap-1.5">
+                            <span className="material-symbols-outlined text-[14px]">hourglass_empty</span>
+                            Your request is under review by our team. We'll activate it shortly!
+                          </p>
+                        ) : (
+                          <div className="flex items-center gap-4 mt-3 text-xs">
+                            <div>
+                              <p className="text-[9px] text-slate-400 font-bold uppercase">Enrolled</p>
+                              <p className="font-bold text-slate-800">{myMembership.enrolledOn ? new Date(myMembership.enrolledOn).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}</p>
+                            </div>
+                            <div>
+                              <p className="text-[9px] text-slate-400 font-bold uppercase">Valid Until</p>
+                              <p className="font-bold text-slate-800">{myMembership.expiresOn ? new Date(myMembership.expiresOn).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}</p>
+                            </div>
+                            <div>
+                              <p className="text-[9px] text-slate-400 font-bold uppercase">Plan</p>
+                              <p className="font-bold text-slate-800">{myMembership.billingCycle}</p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Discount Summary */}
+                    {myMembership.status === 'Active' && (
+                      <div className="px-6 py-4 border-t border-slate-100 space-y-3">
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Your Exclusive Discounts</p>
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-slate-700">Global Discount</span>
+                          <span className="text-base font-black" style={{ color: myMembership.color }}>
+                            {myMembership.discountType === 'Flat_Amount' ? `₹${(myMembership.discountFlat || 0).toLocaleString()} Flat Off` : `${myMembership.discountPercent || 0}% Off`}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-4 gap-2">
+                          {[
+                            { icon: 'hotel', label: 'Hotel', val: myMembership.hotelDiscount },
+                            { icon: 'flight', label: 'Flight', val: myMembership.flightDiscount },
+                            { icon: 'tour', label: 'Tour', val: myMembership.tourDiscount },
+                            { icon: 'local_taxi', label: 'Cab', val: myMembership.cabDiscount },
+                          ].map(b => (
+                            <div key={b.label} className="p-2 rounded-xl bg-slate-50 text-center">
+                              <span className="material-symbols-outlined text-slate-400 text-[14px] block">{b.icon}</span>
+                              <span className="text-[8px] font-bold text-slate-500 block">{b.label}</span>
+                              <span className="text-xs font-black" style={{ color: myMembership.color }}>+{b.val || 0}%</span>
+                            </div>
+                          ))}
+                        </div>
+                        {/* Perks */}
+                        {myMembership.perks?.length > 0 && (
+                          <div className="mt-2 space-y-1.5">
+                            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Included Perks</p>
+                            {myMembership.perks.map((perk: string, i: number) => (
+                              <div key={i} className="flex items-start gap-2">
+                                <div className="w-4 h-4 rounded-full flex items-center justify-center shrink-0 mt-0.5" style={{ backgroundColor: `${myMembership.color}20`, color: myMembership.color }}>
+                                  <span className="material-symbols-outlined text-[10px]">check</span>
+                                </div>
+                                <span className="text-[11px] text-slate-600 leading-snug">{perk}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Footer */}
+                    <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50">
+                      <button
+                        onClick={handleCancelMembership}
+                        className="text-[11px] font-bold text-slate-400 hover:text-red-500 flex items-center gap-1.5 transition-colors"
+                      >
+                        <span className="material-symbols-outlined text-[14px]">cancel</span>
+                        {myMembership.status === 'Pending' ? 'Withdraw Request' : 'Cancel Membership'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* ── STATE A: No membership — Plan Browser ── */
+                <div className="space-y-4">
+                  <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] shadow-sm">
+                    <div className="flex items-center gap-3 mb-1">
+                      <div className="w-9 h-9 rounded-xl bg-amber-50 flex items-center justify-center">
+                        <span className="material-symbols-outlined text-amber-500 text-[20px]">workspace_premium</span>
+                      </div>
+                      <div>
+                        <h3 className="font-black text-slate-900 text-sm">Join a VIP Membership</h3>
+                        <p className="text-[10px] text-slate-400 font-medium">Unlock exclusive discounts on every booking</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {loadingPlans ? (
+                    <div className="text-center py-8">
+                      <div className="animate-spin w-7 h-7 border-4 border-primary/20 border-t-primary rounded-full mx-auto" />
+                    </div>
+                  ) : publicPlans.length === 0 ? (
+                    <div className="bg-white rounded-3xl p-8 border border-[#EDE8DF] text-center shadow-sm">
+                      <span className="material-symbols-outlined text-4xl text-slate-300 block mb-2">card_membership</span>
+                      <p className="text-xs text-slate-400 font-semibold">No membership plans are available yet.<br />Please check back soon!</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {publicPlans.map(plan => (
+                        <div
+                          key={plan.id}
+                          className="bg-white rounded-3xl border-2 overflow-hidden shadow-sm hover:shadow-md transition-all hover:-translate-y-0.5"
+                          style={{ borderColor: plan.color }}
+                        >
+                          <div className="p-5" style={{ background: `linear-gradient(135deg, ${plan.color}10, transparent)` }}>
+                            <div className="flex items-start justify-between mb-3">
+                              <span className="text-[10px] font-black px-2.5 py-1 rounded-full text-white uppercase tracking-wider" style={{ backgroundColor: plan.color }}>
+                                {plan.tier}
+                              </span>
+                              <div className="text-right">
+                                <span className="text-xl font-black text-slate-900">₹{(plan.pricePerYear || plan.price_per_year || 0).toLocaleString()}</span>
+                                <span className="text-[10px] text-slate-400 font-bold block">/year</span>
+                              </div>
+                            </div>
+                            <h4 className="font-black text-slate-900 text-sm mb-1" style={{ color: plan.color }}>{plan.name}</h4>
+                            <div className="flex items-center gap-2 mb-3">
+                              <span className="text-xs font-black" style={{ color: plan.color }}>
+                                {plan.discountType === 'Flat_Amount' ? `₹${plan.discountFlat} Flat Off` : `${plan.discountPercent}% Global Discount`}
+                              </span>
+                              <span className="text-[9px] text-slate-400">on all bookings</span>
+                            </div>
+                            {plan.perks?.slice(0, 3).map((perk: string, i: number) => (
+                              <div key={i} className="flex items-center gap-2 text-[11px] text-slate-600 mb-1">
+                                <span className="w-3 h-3 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: `${plan.color}25`, color: plan.color }}>
+                                  <span className="material-symbols-outlined text-[8px]">check</span>
+                                </span>
+                                {perk}
+                              </div>
+                            ))}
+                            {plan.perks?.length > 3 && (
+                              <p className="text-[10px] text-slate-400 mt-1 ml-5">+{plan.perks.length - 3} more perks</p>
+                            )}
+                          </div>
+                          <div className="px-5 pb-5">
+                            <button
+                              onClick={() => { setJoiningPlan(plan); setSelectedBillingCycle('Yearly'); setShowMembershipJoinModal(true); }}
+                              className="w-full py-2.5 rounded-2xl font-bold text-xs text-white transition-all hover:opacity-90 shadow-md flex items-center justify-center gap-2"
+                              style={{ background: `linear-gradient(135deg, ${plan.color}cc, ${plan.color})`, boxShadow: `0 4px 15px ${plan.color}30` }}
+                            >
+                              <span className="material-symbols-outlined text-[16px]">workspace_premium</span>
+                              Request to Join
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Join Plan Modal ── */}
+              {showMembershipJoinModal && joiningPlan && (
+                <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/55 backdrop-blur-sm animate-in fade-in duration-200">
+                  <div className="bg-white rounded-3xl border border-[#EDE8DF] w-full max-w-sm shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+                    {/* Modal header */}
+                    <div className="p-6 pb-4 border-b border-[#EDE8DF]" style={{ background: `linear-gradient(135deg, ${joiningPlan.color}12, ${joiningPlan.color}06)` }}>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[10px] font-black px-2.5 py-1 rounded-full text-white uppercase tracking-wider" style={{ backgroundColor: joiningPlan.color }}>
+                          {joiningPlan.tier}
+                        </span>
+                        <button onClick={() => { setShowMembershipJoinModal(false); setMembershipMsg(null); }} className="text-slate-400 hover:text-slate-600">
+                          <span className="material-symbols-outlined text-[18px]">close</span>
+                        </button>
+                      </div>
+                      <h3 className="font-black text-slate-900 text-lg">{joiningPlan.name}</h3>
+                      <p className="text-[11px] text-slate-500 mt-0.5">Choose a billing cycle to submit your request</p>
+                    </div>
+
+                    <div className="p-6 space-y-5">
+                      {/* Billing Cycle Picker */}
+                      <div>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Billing Cycle</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          {[
+                            { label: 'Monthly', value: 'Monthly', price: joiningPlan.pricePerMonth || joiningPlan.price_per_month || 0, sub: '/mo' },
+                            { label: 'Quarterly', value: 'Quarterly', price: joiningPlan.pricePerQuarter || joiningPlan.price_per_quarter || 0, sub: '/3mo' },
+                            { label: '6 Months', value: '6 Months', price: joiningPlan.pricePerHalfYear || joiningPlan.price_per_half_year || 0, sub: '/6mo' },
+                            { label: 'Yearly', value: 'Yearly', price: joiningPlan.pricePerYear || joiningPlan.price_per_year || 0, sub: '/yr' },
+                          ].map(opt => {
+                            const isSelected = selectedBillingCycle === opt.value;
+                            return (
+                              <button
+                                key={opt.value}
+                                onClick={() => setSelectedBillingCycle(opt.value as any)}
+                                className={`p-3 rounded-2xl border-2 text-left transition-all ${isSelected ? 'shadow-md scale-[1.02]' : 'border-slate-100 hover:border-slate-200'}`}
+                                style={{ borderColor: isSelected ? joiningPlan.color : undefined, backgroundColor: isSelected ? `${joiningPlan.color}08` : undefined }}
+                              >
+                                <span className="text-[9px] font-bold text-slate-400 block">{opt.label}</span>
+                                <span className="text-sm font-black text-slate-900">₹{opt.price.toLocaleString()}</span>
+                                <span className="text-[9px] text-slate-400">{opt.sub}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Summary */}
+                      <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-2 text-xs">
+                        <div className="flex justify-between font-semibold text-slate-500">
+                          <span>Plan</span><span className="text-slate-900 font-bold">{joiningPlan.name}</span>
+                        </div>
+                        <div className="flex justify-between font-semibold text-slate-500">
+                          <span>Billing</span><span className="text-slate-900 font-bold">{selectedBillingCycle}</span>
+                        </div>
+                        <div className="flex justify-between font-semibold text-slate-500">
+                          <span>Global Discount</span>
+                          <span className="font-black" style={{ color: joiningPlan.color }}>
+                            {joiningPlan.discountType === 'Flat_Amount' ? `₹${joiningPlan.discountFlat} Flat Off` : `${joiningPlan.discountPercent}% Off`}
+                          </span>
+                        </div>
+                        <div className="border-t border-slate-200 pt-2 flex justify-between">
+                          <span className="text-slate-400 text-[10px]">Status after submit</span>
+                          <span className="text-amber-600 font-black text-[10px]">Pending Admin Review</span>
+                        </div>
+                      </div>
+
+                      {membershipMsg && (
+                        <div className={`text-xs font-bold p-3 rounded-xl ${membershipMsg.type === 'error' ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                          {membershipMsg.text}
+                        </div>
+                      )}
+
+                      <button
+                        onClick={() => handleRequestMembership(joiningPlan, selectedBillingCycle)}
+                        disabled={membershipRequestLoading}
+                        className="w-full py-3 rounded-2xl font-bold text-sm text-white transition-all hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg"
+                        style={{ background: `linear-gradient(135deg, ${joiningPlan.color}cc, ${joiningPlan.color})`, boxShadow: `0 4px 20px ${joiningPlan.color}35` }}
+                      >
+                        {membershipRequestLoading ? (
+                          <><span className="animate-spin rounded-full h-4 w-4 border-t-2 border-white border-opacity-80" />Submitting...</>
+                        ) : (
+                          <><span className="material-symbols-outlined text-[18px]">workspace_premium</span>Submit Request</>
+                        )}
+                      </button>
+                      <p className="text-center text-[10px] text-slate-400">Our team will contact you to confirm payment and activate your plan.</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+            </div>
+          )}
+
         </section>
+
 
         {/* ── MIDDLE COLUMN: Stats, Payment Ring, Travel Preferences, Recommendations ── */}
         <section className="lg:col-span-4 space-y-6">

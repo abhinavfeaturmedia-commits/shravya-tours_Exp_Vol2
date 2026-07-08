@@ -2195,6 +2195,7 @@ export const api = {
                 perks: parseJsonFieldSafe(r.perks, []),
                 color: r.color || '#CD7F32',
                 isActive: Boolean(r.is_active),
+                showOnHomepage: Boolean(r.show_on_homepage),
             }))
         ),
 
@@ -2217,6 +2218,7 @@ export const api = {
             perks: JSON.stringify(plan.perks || []),
             color: plan.color,
             is_active: plan.isActive,
+            show_on_homepage: plan.showOnHomepage ? 1 : 0,
         }),
 
     updateMembershipPlan: (id: string, plan: any) =>
@@ -2236,6 +2238,7 @@ export const api = {
             ...(plan.perks !== undefined && { perks: JSON.stringify(plan.perks) }),
             ...(plan.color !== undefined && { color: plan.color }),
             ...(plan.isActive !== undefined && { is_active: plan.isActive }),
+            ...(plan.showOnHomepage !== undefined && { show_on_homepage: plan.showOnHomepage ? 1 : 0 }),
         }),
 
     deleteMembershipPlan: (id: string) => crud.remove('membership_plans', id),

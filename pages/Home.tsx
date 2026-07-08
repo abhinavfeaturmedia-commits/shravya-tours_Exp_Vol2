@@ -20,7 +20,7 @@ import {
 } from '../components/booking';
 
 export const Home: React.FC = () => {
-  const { packages, cmsBanners, cmsTestimonials, cmsGallery, trendingDestinations } = useData();
+  const { packages, cmsBanners, cmsTestimonials, cmsGallery, trendingDestinations, membershipPlans } = useData();
   const [activeTab, setActiveTab] = useState('tour-packages');
   const navigate = useNavigate();
 
@@ -681,6 +681,210 @@ export const Home: React.FC = () => {
           </div>
         </div>
       </section>
+
+      {/* ═══════════════════════════════════════════════════════════════ */}
+      {/* MEMBERSHIP PRICING SECTION                                      */}
+      {/* Only renders when at least one active plan has showOnHomepage   */}
+      {/* ═══════════════════════════════════════════════════════════════ */}
+      {(() => {
+        const visiblePlans = membershipPlans.filter(p => p.isActive && p.showOnHomepage);
+        if (visiblePlans.length === 0) return null;
+
+        // Mark the most expensive plan as "Popular"
+        const popularPlanId = visiblePlans.reduce((best, p) =>
+          p.pricePerYear > best.pricePerYear ? p : best, visiblePlans[0]
+        ).id;
+
+        const tierGradients: Record<string, string> = {
+          Bronze: 'from-amber-50 to-orange-50 dark:from-amber-950/20 dark:to-orange-950/20',
+          Silver: 'from-slate-50 to-gray-100 dark:from-slate-900/40 dark:to-gray-900/40',
+          Gold: 'from-yellow-50 to-amber-50 dark:from-yellow-950/20 dark:to-amber-950/20',
+        };
+
+        return (
+          <section className="py-20 bg-background-light dark:bg-background-dark border-t border-border-light dark:border-border-dark relative overflow-hidden">
+            {/* Subtle decorative blobs */}
+            <div className="pointer-events-none absolute -top-32 -left-32 w-96 h-96 rounded-full bg-primary/5 blur-3xl" />
+            <div className="pointer-events-none absolute -bottom-32 -right-32 w-96 h-96 rounded-full bg-indigo-400/5 blur-3xl" />
+
+            <div className="container mx-auto px-4 md:px-10 relative z-10">
+              {/* Section Header */}
+              <div className="text-center mb-14 reveal">
+                <span className="inline-flex items-center gap-2 px-4 py-1.5 mb-5 rounded-full bg-primary/10 dark:bg-primary/15 text-primary text-xs font-bold uppercase tracking-widest border border-primary/20">
+                  <span className="material-symbols-outlined text-[14px]">workspace_premium</span>
+                  Membership
+                </span>
+                <h2 className="font-display text-slate-900 dark:text-white text-4xl md:text-5xl font-bold tracking-tight leading-tight">
+                  Travel <em className="not-italic" style={{ fontFamily: 'Georgia, serif', fontStyle: 'italic' }}>Membership</em> Plans
+                </h2>
+                <p className="mt-4 text-slate-500 dark:text-slate-400 text-base md:text-lg font-light max-w-xl mx-auto">
+                  Unlock exclusive discounts, priority service, and handpicked perks on every journey you take with us.
+                </p>
+              </div>
+
+              {/* Plan Cards */}
+              <div className={`grid gap-8 ${
+                visiblePlans.length === 1 ? 'grid-cols-1 max-w-sm mx-auto' :
+                visiblePlans.length === 2 ? 'grid-cols-1 md:grid-cols-2 max-w-3xl mx-auto' :
+                'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'
+              }`}>
+                {visiblePlans.map((plan, idx) => {
+                  const isPopular = plan.id === popularPlanId && visiblePlans.length > 1;
+                  const tierBg = tierGradients[plan.tier] || tierGradients.Bronze;
+                  const topPerks = plan.perks.slice(0, 6);
+                  const hasMorePerks = plan.perks.length > 6;
+
+                  return (
+                    <div
+                      key={plan.id}
+                      className={`reveal reveal-delay-${idx + 1} relative flex flex-col rounded-3xl overflow-hidden transition-all duration-500 hover:-translate-y-2 hover:shadow-2xl ${
+                        isPopular
+                          ? 'shadow-2xl ring-2 ring-offset-2 ring-offset-background-light dark:ring-offset-background-dark'
+                          : 'shadow-lg border border-slate-200 dark:border-white/10'
+                      }`}
+                      style={isPopular ? { ringColor: plan.color } : {}}
+                    >
+                      {/* Popular ring via inline style */}
+                      {isPopular && (
+                        <div className="absolute inset-0 rounded-3xl pointer-events-none" style={{ boxShadow: `0 0 0 2px ${plan.color}` }} />
+                      )}
+
+                      {/* Popular Badge */}
+                      {isPopular && (
+                        <div className="absolute top-5 right-5 z-20">
+                          <span className="inline-flex items-center gap-1 text-[11px] font-black uppercase tracking-wider px-3 py-1 rounded-full text-white shadow-lg" style={{ backgroundColor: plan.color }}>
+                            <span className="material-symbols-outlined text-[12px]">star</span>
+                            Popular
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Card Header */}
+                      <div className={`bg-gradient-to-br ${tierBg} px-8 pt-8 pb-7 relative overflow-hidden`}>
+                        {/* Decorative circle */}
+                        <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full opacity-10" style={{ backgroundColor: plan.color }} />
+
+                        <div className="relative z-10">
+                          {/* Tier badge */}
+                          <span className="inline-flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider px-3 py-1 rounded-full mb-4 border"
+                            style={{ backgroundColor: `${plan.color}18`, color: plan.color, borderColor: `${plan.color}30` }}
+                          >
+                            <span className="material-symbols-outlined text-[13px]">workspace_premium</span>
+                            {plan.tier} Tier
+                          </span>
+
+                          <h3 className="text-2xl font-black text-slate-900 dark:text-white mb-1">{plan.name}</h3>
+                          <p className="text-slate-500 dark:text-slate-400 text-sm font-light mb-5">
+                            {plan.discountType === 'Flat_Amount'
+                              ? `Save ₹${plan.discountFlat.toLocaleString()} on every booking`
+                              : `Save up to ${plan.discountPercent}% on every booking`
+                            }
+                          </p>
+
+                          {/* Price */}
+                          <div className="flex items-baseline gap-2 mb-1">
+                            <span className="text-4xl font-black text-slate-900 dark:text-white">
+                              ₹{plan.pricePerYear.toLocaleString()}
+                            </span>
+                            <span className="text-slate-500 dark:text-slate-400 text-sm font-medium">/year</span>
+                          </div>
+                          {plan.pricePerMonth > 0 && (
+                            <p className="text-[12px] text-slate-400 dark:text-slate-500 font-light">
+                              or ₹{plan.pricePerMonth.toLocaleString()}/month · cancel anytime
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* CTA Buttons */}
+                      <div className="px-8 py-5 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-white/5 flex flex-col gap-3">
+                        <Link
+                          to={`/contact?plan=${encodeURIComponent(plan.name)}`}
+                          className="flex items-center justify-center gap-2 w-full py-3.5 rounded-xl font-bold text-sm text-white transition-all duration-300 hover:opacity-90 hover:scale-[1.02] active:scale-100 shadow-lg"
+                          style={{ backgroundColor: plan.color, boxShadow: `0 8px 24px ${plan.color}35` }}
+                        >
+                          <span className="material-symbols-outlined text-[18px]">workspace_premium</span>
+                          Join Now
+                        </Link>
+                        <Link
+                          to="/contact"
+                          className="flex items-center justify-center gap-1.5 w-full py-2.5 rounded-xl font-semibold text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
+                        >
+                          Talk to us
+                          <span className="material-symbols-outlined text-[14px]">arrow_forward</span>
+                        </Link>
+                      </div>
+
+                      {/* Perks List */}
+                      <div className="px-8 py-7 bg-white dark:bg-slate-900 flex-1 flex flex-col">
+                        {/* Discount highlights */}
+                        <div className="grid grid-cols-2 gap-3 mb-6">
+                          {plan.hotelDiscount > 0 && (
+                            <div className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/5">
+                              <span className="material-symbols-outlined text-slate-400 text-[16px]">hotel</span>
+                              <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Hotel +{plan.hotelDiscount}%</span>
+                            </div>
+                          )}
+                          {plan.tourDiscount > 0 && (
+                            <div className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/5">
+                              <span className="material-symbols-outlined text-slate-400 text-[16px]">tour</span>
+                              <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Tour +{plan.tourDiscount}%</span>
+                            </div>
+                          )}
+                          {plan.flightDiscount > 0 && (
+                            <div className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/5">
+                              <span className="material-symbols-outlined text-slate-400 text-[16px]">flight</span>
+                              <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Flight +{plan.flightDiscount}%</span>
+                            </div>
+                          )}
+                          {plan.cabDiscount > 0 && (
+                            <div className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/5">
+                              <span className="material-symbols-outlined text-slate-400 text-[16px]">local_taxi</span>
+                              <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Cab +{plan.cabDiscount}%</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Included Perks label */}
+                        {topPerks.length > 0 && (
+                          <>
+                            <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-4">Included perks</p>
+                            <ul className="space-y-3 flex-1">
+                              {topPerks.map((perk, i) => (
+                                <li key={i} className="flex items-start gap-3">
+                                  <div
+                                    className="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center mt-0.5"
+                                    style={{ backgroundColor: `${plan.color}20`, color: plan.color }}
+                                  >
+                                    <span className="material-symbols-outlined text-[12px] font-bold">check</span>
+                                  </div>
+                                  <span className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">{perk}</span>
+                                </li>
+                              ))}
+                              {hasMorePerks && (
+                                <li className="flex items-center gap-2 text-slate-400 dark:text-slate-500">
+                                  <span className="material-symbols-outlined text-[14px]">more_horiz</span>
+                                  <span className="text-xs font-semibold">{plan.perks.length - 6} more perks included</span>
+                                </li>
+                              )}
+                            </ul>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Bottom note */}
+              <p className="text-center text-sm text-slate-400 dark:text-slate-500 mt-10 font-light">
+                All plans include priority customer support. &nbsp;
+                <Link to="/contact" className="text-primary font-semibold hover:underline">Contact us</Link> to learn more.
+              </p>
+            </div>
+          </section>
+        );
+      })()}
 
 
     </>

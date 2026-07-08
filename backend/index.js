@@ -72,6 +72,10 @@ async function runMigration() {
         // Back-fill existing manual-style tasks (those with a description of 'Manually added checklist task')
         await pool.query(`UPDATE tasks SET source = 'manual' WHERE description = 'Manually added checklist task' AND source = 'playbook'`);
         console.log('[Migration] tasks table columns verified/added: source, completed_by, completion_note');
+
+        // ─── Membership Plans: homepage visibility ───
+        await pool.query(`ALTER TABLE membership_plans ADD COLUMN IF NOT EXISTS show_on_homepage TINYINT(1) NOT NULL DEFAULT 0`);
+        console.log('[Migration] membership_plans.show_on_homepage column verified/added');
     } catch (err) {
         console.error('[Migration Error]', err.message);
     }
@@ -2851,6 +2855,237 @@ app.post('/api/customer/reviews', customerAuthMiddleware, async (req, res) => {
     }
 });
 
+
+// ═══════════════════════════════════════════
+// CUSTOMER MEMBERSHIP PORTAL ROUTES
+// ═══════════════════════════════════════════
+
+// PUBLIC: Get all active membership plans (for customer portal plan browser)
+app.get('/api/public/membership-plans', async (req, res) => {
+    try {
+        const [rows] = await pool.query(`
+            SELECT
+                id, name, tier, color,
+                price_per_year, price_per_month, price_per_quarter, price_per_half_year,
+                discount_type, discount_percent, discount_flat,
+                hotel_discount, tour_discount, flight_discount, cab_discount,
+                perks, is_active, show_on_homepage
+            FROM membership_plans
+            WHERE is_active = 1
+            ORDER BY FIELD(tier, 'Bronze', 'Silver', 'Gold'), price_per_year ASC
+        `);
+        const plans = rows.map(p => ({
+            ...p,
+            perks: (() => { try { return JSON.parse(p.perks || '[]'); } catch { return []; } })(),
+            isActive: !!p.is_active,
+            showOnHomepage: !!p.show_on_homepage,
+            pricePerYear: p.price_per_year || 0,
+            pricePerMonth: p.price_per_month || 0,
+            pricePerQuarter: p.price_per_quarter || 0,
+            pricePerHalfYear: p.price_per_half_year || 0,
+            discountType: p.discount_type || 'Percentage',
+            discountPercent: p.discount_percent || 0,
+            discountFlat: p.discount_flat || 0,
+            hotelDiscount: p.hotel_discount || 0,
+            tourDiscount: p.tour_discount || 0,
+            flightDiscount: p.flight_discount || 0,
+            cabDiscount: p.cab_discount || 0,
+        }));
+        return res.json(plans);
+    } catch (err) {
+        console.error('[Public Membership Plans] Error:', err.message);
+        return res.status(500).json({ error: 'Failed to fetch plans.' });
+    }
+});
+
+// GET current customer's membership
+app.get('/api/customer/membership', customerAuthMiddleware, async (req, res) => {
+    try {
+        const [rows] = await pool.query(`
+            SELECT
+                cm.id, cm.plan_id, cm.plan_name, cm.tier,
+                cm.status, cm.billing_cycle, cm.price_paid,
+                cm.enrolled_on, cm.expires_on,
+                cm.discount_type, cm.discount_percent, cm.discount_flat,
+                cm.hotel_discount, cm.tour_discount, cm.flight_discount, cm.cab_discount,
+                cm.notes, cm.created_at,
+                mp.color, mp.perks, mp.price_per_year, mp.price_per_month,
+                mp.price_per_quarter, mp.price_per_half_year
+            FROM customer_memberships cm
+            LEFT JOIN membership_plans mp ON mp.id = cm.plan_id
+            WHERE cm.customer_id = ?
+            ORDER BY cm.created_at DESC
+            LIMIT 1
+        `, [req.customer.id]);
+
+        if (rows.length === 0) return res.json(null);
+
+        const m = rows[0];
+        return res.json({
+            id: m.id,
+            planId: m.plan_id,
+            planName: m.plan_name,
+            tier: m.tier,
+            status: m.status,
+            billingCycle: m.billing_cycle,
+            pricePaid: m.price_paid,
+            enrolledOn: m.enrolled_on,
+            expiresOn: m.expires_on,
+            discountType: m.discount_type || 'Percentage',
+            discountPercent: m.discount_percent || 0,
+            discountFlat: m.discount_flat || 0,
+            hotelDiscount: m.hotel_discount || 0,
+            tourDiscount: m.tour_discount || 0,
+            flightDiscount: m.flight_discount || 0,
+            cabDiscount: m.cab_discount || 0,
+            color: m.color || '#CD7F32',
+            perks: (() => { try { return JSON.parse(m.perks || '[]'); } catch { return []; } })(),
+            pricePerYear: m.price_per_year || 0,
+            pricePerMonth: m.price_per_month || 0,
+            pricePerQuarter: m.price_per_quarter || 0,
+            pricePerHalfYear: m.price_per_half_year || 0,
+            notes: m.notes,
+            createdAt: m.created_at,
+        });
+    } catch (err) {
+        console.error('[Customer Membership] GET error:', err.message);
+        return res.status(500).json({ error: 'Failed to fetch membership.' });
+    }
+});
+
+// POST: Customer requests to join a membership plan
+app.post('/api/customer/membership/request', customerAuthMiddleware, async (req, res) => {
+    const { planId, billingCycle } = req.body || {};
+    if (!planId) return res.status(400).json({ error: 'Plan ID is required.' });
+
+    try {
+        // 1. Check if already has an active or pending membership
+        const [existing] = await pool.query(
+            "SELECT id, status FROM customer_memberships WHERE customer_id = ? AND status IN ('Active', 'Pending')",
+            [req.customer.id]
+        );
+        if (existing.length > 0) {
+            const s = existing[0].status;
+            return res.status(409).json({
+                error: s === 'Active'
+                    ? 'You already have an active membership. Cancel it first to switch plans.'
+                    : 'You already have a pending membership request. Our team will review it shortly.'
+            });
+        }
+
+        // 2. Fetch plan
+        const [planRows] = await pool.query(
+            'SELECT * FROM membership_plans WHERE id = ? AND is_active = 1',
+            [planId]
+        );
+        if (planRows.length === 0) return res.status(404).json({ error: 'Membership plan not found or inactive.' });
+        const plan = planRows[0];
+
+        // 3. Fetch customer name/email
+        const [cuRows] = await pool.query(
+            'SELECT name, email FROM customer_users WHERE id = ?',
+            [req.customer.id]
+        );
+        if (cuRows.length === 0) return res.status(404).json({ error: 'Customer not found.' });
+        const customer = cuRows[0];
+
+        // 4. Calculate price & expiry based on billing cycle
+        const cycle = billingCycle || 'Yearly';
+        const startDate = new Date().toISOString().split('T')[0];
+        const expDate = new Date();
+        let pricePaid = plan.price_per_year || 0;
+
+        if (cycle === 'Monthly')       { expDate.setMonth(expDate.getMonth() + 1);       pricePaid = plan.price_per_month || 0; }
+        else if (cycle === 'Quarterly') { expDate.setMonth(expDate.getMonth() + 3);       pricePaid = plan.price_per_quarter || 0; }
+        else if (cycle === '6 Months')  { expDate.setMonth(expDate.getMonth() + 6);       pricePaid = plan.price_per_half_year || 0; }
+        else                            { expDate.setFullYear(expDate.getFullYear() + 1); pricePaid = plan.price_per_year || 0; }
+
+        const expiresOn = expDate.toISOString().split('T')[0];
+        const membershipId = crypto.randomBytes(16).toString('hex');
+
+        // 5. Create membership record with Pending status
+        await pool.query(`
+            INSERT INTO customer_memberships (
+                id, customer_id, customer_name, customer_email,
+                plan_id, plan_name, tier, status, billing_cycle, price_paid,
+                enrolled_on, expires_on,
+                discount_type, discount_percent, discount_flat,
+                hotel_discount, tour_discount, flight_discount, cab_discount,
+                notes, enrolled_by
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'Pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'customer-portal')
+        `, [
+            membershipId,
+            req.customer.id,
+            customer.name,
+            customer.email,
+            plan.id,
+            plan.name,
+            plan.tier,
+            cycle,
+            pricePaid,
+            startDate,
+            expiresOn,
+            plan.discount_type || 'Percentage',
+            plan.discount_percent || 0,
+            plan.discount_flat || 0,
+            plan.hotel_discount || 0,
+            plan.tour_discount || 0,
+            plan.flight_discount || 0,
+            plan.cab_discount || 0,
+            `Self-enrollment request via customer portal`,
+        ]);
+
+        // 6. Create in-app notification for admin (if table exists)
+        try {
+            const notifId = crypto.randomBytes(16).toString('hex');
+            await pool.query(`
+                INSERT INTO in_app_notifications (id, type, title, message, link, is_read)
+                VALUES (?, 'membership_request', ?, ?, '/admin/memberships', 0)
+            `, [
+                notifId,
+                `New Membership Request`,
+                `${customer.name} (${customer.email}) has requested the ${plan.name} (${plan.tier}) plan.`
+            ]);
+        } catch (notifErr) {
+            // Non-critical — notification table may not have these columns
+            console.warn('[Customer Membership] Notification insert skipped:', notifErr.message?.split('\n')[0]);
+        }
+
+        console.log(`[Customer Membership] Pending request created: ${customer.email} → ${plan.name} (${cycle})`);
+        return res.json({
+            success: true,
+            message: `Your request to join "${plan.name}" has been submitted! Our team will review and activate it shortly.`,
+            membershipId,
+            status: 'Pending',
+        });
+    } catch (err) {
+        console.error('[Customer Membership] POST request error:', err.message);
+        return res.status(500).json({ error: 'Failed to submit membership request.' });
+    }
+});
+
+// DELETE: Customer cancels/leaves their current membership
+app.delete('/api/customer/membership', customerAuthMiddleware, async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            "SELECT id, status, plan_name FROM customer_memberships WHERE customer_id = ? AND status IN ('Active', 'Pending') ORDER BY created_at DESC LIMIT 1",
+            [req.customer.id]
+        );
+        if (rows.length === 0) return res.status(404).json({ error: 'No active membership found.' });
+        const m = rows[0];
+
+        await pool.query(
+            "UPDATE customer_memberships SET status = 'Cancelled' WHERE id = ?",
+            [m.id]
+        );
+
+        console.log(`[Customer Membership] Cancelled membership ${m.id} for customer ${req.customer.id}`);
+        return res.json({ success: true, message: `Your ${m.plan_name} membership has been cancelled.` });
+    } catch (err) {
+        console.error('[Customer Membership] DELETE error:', err.message);
+        return res.status(500).json({ error: 'Failed to cancel membership.' });
+    }
+});
 
 // ═══════════════════════════════════════════
 // UNIVERSAL CRUD ROUTES
