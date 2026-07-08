@@ -2168,10 +2168,20 @@ export const api = {
 
     // ─── SETTINGS ───
     getSettings: async () => {
-        return crud.getAll('settings', { order: 'updated_at', asc: false });
+        const res = await crud.getAll('settings', { order: 'updated_at', asc: false });
+        if (res && res.data) {
+            res.data = res.data.map((r: any) => ({
+                id: r.id,
+                key: r.setting_key,
+                value: r.setting_value,
+                createdAt: r.created_at,
+                updatedAt: r.updated_at
+            }));
+        }
+        return res;
     },
     upsertSetting: async (key: string, value: string) => {
-        return crud.upsert('settings', { id: key, key, value, updated_at: new Date().toISOString() });
+        return crud.upsert('settings', { setting_key: key, setting_value: value });
     },
 
     // ─── MEMBERSHIP PLANS ───
