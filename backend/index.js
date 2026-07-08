@@ -2133,12 +2133,100 @@ app.post('/api/auth/create-user', authMiddleware, async (req, res) => {
         } catch (e) { /* ignore duplicate column */ }
 
         try {
+            await pool.query("ALTER TABLE customer_chat_messages ADD COLUMN is_internal BOOLEAN DEFAULT false");
+        } catch (e) { /* ignore duplicate column */ }
+
+        try {
             await pool.query("ALTER TABLE customer_chat_conversations ADD COLUMN priority VARCHAR(50) DEFAULT 'Medium'");
         } catch (e) { /* ignore duplicate column */ }
 
         try {
             await pool.query("ALTER TABLE customer_chat_conversations ADD COLUMN assigned_staff_id VARCHAR(255) DEFAULT NULL");
         } catch (e) { /* ignore duplicate column */ }
+
+        try {
+            await pool.query("ALTER TABLE customer_chat_conversations ADD COLUMN booking_id VARCHAR(64) DEFAULT NULL");
+        } catch (e) { /* ignore duplicate column */ }
+
+        try {
+            await pool.query("ALTER TABLE customer_chat_conversations ADD COLUMN tags VARCHAR(500) DEFAULT NULL");
+        } catch (e) { /* ignore duplicate column */ }
+
+        try {
+            await pool.query("ALTER TABLE customer_chat_conversations ADD COLUMN sentiment VARCHAR(50) DEFAULT 'Neutral'");
+        } catch (e) { /* ignore duplicate column */ }
+
+        try {
+            await pool.query("ALTER TABLE customer_chat_conversations ADD COLUMN is_customer_typing BOOLEAN DEFAULT false");
+        } catch (e) { /* ignore duplicate column */ }
+
+        try {
+            await pool.query("ALTER TABLE customer_chat_conversations ADD COLUMN last_customer_typing_at TIMESTAMP NULL DEFAULT NULL");
+        } catch (e) { /* ignore duplicate column */ }
+
+        try {
+            await pool.query("ALTER TABLE customer_chat_conversations ADD COLUMN is_agent_typing BOOLEAN DEFAULT false");
+        } catch (e) { /* ignore duplicate column */ }
+
+        try {
+            await pool.query("ALTER TABLE customer_chat_conversations ADD COLUMN last_agent_typing_at TIMESTAMP NULL DEFAULT NULL");
+        } catch (e) { /* ignore duplicate column */ }
+
+        // Extra tables for Support Inbox
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS support_canned_replies (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                title VARCHAR(255) NOT NULL,
+                category VARCHAR(100) NOT NULL,
+                text TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS support_conversation_audit_logs (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                conversation_id INT NOT NULL,
+                action VARCHAR(100) NOT NULL,
+                performed_by VARCHAR(255) NOT NULL,
+                performed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                details TEXT
+            )
+        `);
+
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS support_settings (
+                setting_key VARCHAR(100) PRIMARY KEY,
+                setting_value TEXT
+            )
+        `);
+
+        // Seed default canned replies if table is empty
+        const [cannedCount] = await pool.query("SELECT COUNT(*) as count FROM support_canned_replies");
+        if (cannedCount[0].count === 0) {
+            await pool.query(`
+                INSERT INTO support_canned_replies (title, category, text) VALUES
+                ('Welcome Greeting', 'Greetings', 'Hello! Welcome to Shrawello Travel Hub Support. How can I assist you with your travel plans today?'),
+                ('Response Acknowledgment', 'Greetings', 'Thank you for reaching out to us. I am looking into your request right now and will get back to you shortly.'),
+                ('Share Package Details', 'Bookings & Packages', 'I would be happy to share our premium itineraries for that destination! You can also view all available packages in the Holidays section.'),
+                ('Confirm Customization', 'Bookings & Packages', 'We can absolutely customize this itinerary for you. Could you please share your preferred travel dates and budget?'),
+                ('Payment Reminder', 'Payments & Refunds', 'This is a friendly reminder that the balance payment for your upcoming trip is due. You can upload the payment receipt directly in your portal under My Bookings.'),
+                ('Refund Policy', 'Payments & Refunds', 'As per our policy, cancellations made 15 days before departure are eligible for a 50% refund. Please submit a cancellation request in your dashboard to initiate the process.'),
+                ('Query Resolved', 'Closing', 'I am glad I could assist you! I am marking this query as resolved. Feel free to reach out if you need anything else. Have a wonderful day!')
+            `);
+        }
+
+        // Seed default OOO settings if empty
+        const [settingsCount] = await pool.query("SELECT COUNT(*) as count FROM support_settings");
+        if (settingsCount[0].count === 0) {
+            await pool.query(`
+                INSERT INTO support_settings (setting_key, setting_value) VALUES
+                ('ooo_enabled', 'true'),
+                ('ooo_start', '18:00'),
+                ('ooo_end', '09:00'),
+                ('ooo_message', 'Thank you for contacting Shrawello Travel Hub. Our offices are currently closed (9 AM - 6 PM Business Hours). We will get back to you first thing in the morning!')
+            `);
+        }
 
         console.log('[Customer Portal] Tables and schemas ensured.');
     } catch (err) {
@@ -2722,7 +2810,7 @@ app.post('/api/customer/referral', customerAuthMiddleware, async (req, res) => {
 app.get('/api/customer/chat', customerAuthMiddleware, async (req, res) => {
     const { bookingId } = req.query || {};
     try {
-        let query = 'SELECT * FROM customer_chat_messages WHERE customer_id = ?';
+        let query = 'SELECT * FROM customer_chat_messages WHERE customer_id = ? AND (is_internal IS NULL OR is_internal = 0)';
         const params = [req.customer.id];
         if (bookingId) {
             query += ' AND booking_id = ?';
@@ -2760,6 +2848,116 @@ app.post('/api/customer/chat', customerAuthMiddleware, async (req, res) => {
                 unread_count = unread_count + 1
         `, [req.customer.id, msgTrim]);
 
+        // 3. Auto-Assignment (Round-Robin) if currently unassigned
+        try {
+            const [convRows] = await pool.query(
+                "SELECT assigned_staff_id FROM customer_chat_conversations WHERE customer_id = ?",
+                [req.customer.id]
+            );
+            const currentAssignee = convRows[0]?.assigned_staff_id;
+            
+            if (!currentAssignee) {
+                // Fetch active staff
+                const [staffMembers] = await pool.query(
+                    "SELECT id, name, email FROM staff_members WHERE status = 'Active'"
+                );
+                
+                if (staffMembers.length > 0) {
+                    // Fetch workload counts
+                    const [workloadRows] = await pool.query(`
+                        SELECT assigned_staff_id, COUNT(*) as active_count 
+                        FROM customer_chat_conversations 
+                        WHERE status = 'Open' AND assigned_staff_id IS NOT NULL 
+                        GROUP BY assigned_staff_id
+                    `);
+                    
+                    const workloadMap = {};
+                    workloadRows.forEach(row => {
+                        workloadMap[String(row.assigned_staff_id)] = row.active_count;
+                    });
+                    
+                    // Find staff with lowest workload
+                    let chosenStaff = staffMembers[0];
+                    let minCount = workloadMap[String(chosenStaff.id)] || 0;
+                    
+                    for (const staff of staffMembers) {
+                        const count = workloadMap[String(staff.id)] || 0;
+                        if (count < minCount) {
+                            minCount = count;
+                            chosenStaff = staff;
+                        }
+                    }
+                    
+                    // Assign
+                    await pool.query(
+                        "UPDATE customer_chat_conversations SET assigned_staff_id = ? WHERE customer_id = ?",
+                        [String(chosenStaff.id), req.customer.id]
+                    );
+                    
+                    // Log audit trail
+                    await pool.query(`
+                        INSERT INTO support_conversation_audit_logs (conversation_id, action, performed_by, details)
+                        VALUES (?, 'Auto Assign', 'System', ?)
+                    `, [req.customer.id, `Ticket automatically assigned to ${chosenStaff.name} (Round Robin)`]);
+                }
+            }
+        } catch (assignErr) {
+            console.warn('[Customer Chat] Round-robin auto-assignment failed:', assignErr.message);
+        }
+
+        // 4. Out-of-Office (OOO) Auto-Responder
+        try {
+            const [settings] = await pool.query("SELECT * FROM support_settings");
+            const settingsMap = {};
+            settings.forEach(s => { settingsMap[s.setting_key] = s.setting_value; });
+
+            if (settingsMap['ooo_enabled'] === 'true') {
+                const now = new Date();
+                const currentHour = now.getHours();
+                const currentMinute = now.getMinutes();
+                const currentHHMM = `${String(currentHour).padStart(2, '0')}:${String(currentMinute).padStart(2, '0')}`;
+                const day = now.getDay(); // 0 is Sunday, 6 is Saturday
+                
+                const oooStart = settingsMap['ooo_start'] || '18:00';
+                const oooEnd = settingsMap['ooo_end'] || '09:00';
+                const oooMessage = settingsMap['ooo_message'] || 'We are currently out of office.';
+
+                let isOOO = false;
+                if (day === 0 || day === 6) {
+                    isOOO = true;
+                } else {
+                    if (oooStart > oooEnd) {
+                        // Overnight OOO (e.g. 18:00 to 09:00)
+                        if (currentHHMM >= oooStart || currentHHMM <= oooEnd) {
+                            isOOO = true;
+                        }
+                    } else {
+                        // Same day OOO
+                        if (currentHHMM >= oooStart && currentHHMM <= oooEnd) {
+                            isOOO = true;
+                        }
+                    }
+                }
+
+                if (isOOO) {
+                    // Send system auto-reply message
+                    await pool.query(`
+                        INSERT INTO customer_chat_messages (customer_id, booking_id, sender_type, message, is_read)
+                        VALUES (?, ?, 'admin', ?, 1)
+                    `, [req.customer.id, bookingId || null, `[Auto-Reply] ${oooMessage}`]);
+
+                    // Update last message in conversation summary
+                    await pool.query(`
+                        UPDATE customer_chat_conversations 
+                        SET last_message = ?, last_message_at = NOW() 
+                        WHERE customer_id = ?
+                    `, [`[Auto-Reply] ${oooMessage}`, req.customer.id]);
+                }
+            }
+        } catch (oooErr) {
+            console.warn('[Customer Chat] Out-of-office auto-responder check failed:', oooErr.message);
+        }
+
         return res.json({ success: true });
     } catch (err) {
         console.error('[Customer Chat] Post error:', err.message);
@@ -2779,6 +2977,13 @@ app.get('/api/admin/chat/conversations', authMiddleware, async (req, res) => {
                 c.status,
                 c.priority,
                 c.assigned_staff_id,
+                c.booking_id,
+                c.tags,
+                c.sentiment,
+                c.is_customer_typing,
+                c.last_customer_typing_at,
+                c.is_agent_typing,
+                c.last_agent_typing_at,
                 c.last_message,
                 c.last_message_at,
                 c.unread_count,
@@ -2800,7 +3005,7 @@ app.get('/api/admin/chat/conversations', authMiddleware, async (req, res) => {
 });
 
 // GET /api/admin/chat/conversations/:customerId
-// Fetch chat history for a customer and mark messages as read
+// Fetch chat history for a customer (including internal notes)
 app.get('/api/admin/chat/conversations/:customerId', authMiddleware, async (req, res) => {
     const { customerId } = req.params;
     try {
@@ -2809,7 +3014,7 @@ app.get('/api/admin/chat/conversations/:customerId', authMiddleware, async (req,
             SELECT * FROM customer_chat_messages 
             WHERE customer_id = ? 
             ORDER BY created_at ASC 
-            LIMIT 150
+            LIMIT 250
         `, [customerId]);
 
         // 2. Mark customer messages as read
@@ -2834,22 +3039,24 @@ app.get('/api/admin/chat/conversations/:customerId', authMiddleware, async (req,
 });
 
 // POST /api/admin/chat/conversations/:customerId
-// Send a message from admin to customer and trigger alert notification
+// Send a message or internal note from admin/staff to customer
 app.post('/api/admin/chat/conversations/:customerId', authMiddleware, async (req, res) => {
     const { customerId } = req.params;
-    const { message, bookingId } = req.body || {};
+    const { message, bookingId, isInternal } = req.body || {};
     if (!message) return res.status(400).json({ error: 'Message is required.' });
     const msgTrim = message.trim();
+    const isInternalBool = !!isInternal;
     try {
         const senderName = req.user?.email || 'Support Desk';
 
         // 1. Insert chat message
         await pool.query(`
-            INSERT INTO customer_chat_messages (customer_id, booking_id, sender_type, message, is_read)
-            VALUES (?, ?, 'admin', ?, 1)
-        `, [customerId, bookingId || null, msgTrim]);
+            INSERT INTO customer_chat_messages (customer_id, booking_id, sender_type, message, is_read, is_internal)
+            VALUES (?, ?, 'admin', ?, 1, ?)
+        `, [customerId, bookingId || null, msgTrim, isInternalBool ? 1 : 0]);
 
         // 2. Update conversation summary
+        const summaryText = isInternalBool ? `[Note] ${msgTrim}` : msgTrim;
         await pool.query(`
             INSERT INTO customer_chat_conversations (customer_id, status, last_message, last_message_at, unread_count)
             VALUES (?, 'Open', ?, NOW(), 0)
@@ -2858,17 +3065,30 @@ app.post('/api/admin/chat/conversations/:customerId', authMiddleware, async (req
                 last_message = VALUES(last_message),
                 last_message_at = VALUES(last_message_at),
                 unread_count = 0
-        `, [customerId, msgTrim]);
+        `, [customerId, summaryText]);
 
-        // 3. Add customer notification alert
-        try {
-            await pool.query(`
-                INSERT INTO customer_notifications (customer_id, type, title, message, is_read, created_at)
-                VALUES (?, 'support_message', 'Message from Support Concierge', ?, 0, NOW())
-            `, [customerId, msgTrim.length > 60 ? msgTrim.substring(0, 57) + '...' : msgTrim]);
-        } catch (notifErr) {
-            console.warn('[Admin Chat] Notification trigger failed:', notifErr.message);
+        // 3. Add customer notification alert (ONLY if NOT internal)
+        if (!isInternalBool) {
+            try {
+                await pool.query(`
+                    INSERT INTO customer_notifications (customer_id, type, title, message, is_read, created_at)
+                    VALUES (?, 'support_message', 'Message from Support Concierge', ?, 0, NOW())
+                `, [customerId, msgTrim.length > 60 ? msgTrim.substring(0, 57) + '...' : msgTrim]);
+            } catch (notifErr) {
+                console.warn('[Admin Chat] Notification trigger failed:', notifErr.message);
+            }
         }
+
+        // 4. Log Audit Trail
+        await pool.query(`
+            INSERT INTO support_conversation_audit_logs (conversation_id, action, performed_by, details)
+            VALUES (?, ?, ?, ?)
+        `, [
+            customerId, 
+            isInternalBool ? 'Add Note' : 'Send Message', 
+            senderName, 
+            isInternalBool ? `Added internal note: "${msgTrim.substring(0, 40)}..."` : `Sent customer reply: "${msgTrim.substring(0, 40)}..."`
+        ]);
 
         return res.json({ success: true });
     } catch (err) {
@@ -2878,25 +3098,45 @@ app.post('/api/admin/chat/conversations/:customerId', authMiddleware, async (req
 });
 
 // POST /api/admin/chat/conversations/:customerId/status
-// Update status/priority/assignment details for a query ticket
+// Update status/priority/assignment/booking/tags/sentiment details for a query ticket
 app.post('/api/admin/chat/conversations/:customerId/status', authMiddleware, async (req, res) => {
     const { customerId } = req.params;
-    const { status, priority, assignedStaffId } = req.body || {};
+    const { status, priority, assignedStaffId, bookingId, tags, sentiment } = req.body || {};
     try {
         const updates = [];
         const params = [];
+        const auditDetails = [];
+        const senderName = req.user?.email || 'Support Desk';
 
         if (status) {
             updates.push('status = ?');
             params.push(status);
+            auditDetails.push(`status changed to ${status}`);
         }
         if (priority) {
             updates.push('priority = ?');
             params.push(priority);
+            auditDetails.push(`priority changed to ${priority}`);
         }
         if (assignedStaffId !== undefined) {
             updates.push('assigned_staff_id = ?');
             params.push(assignedStaffId);
+            auditDetails.push(assignedStaffId ? `assigned to staff ID ${assignedStaffId}` : 'unassigned');
+        }
+        if (bookingId !== undefined) {
+            updates.push('booking_id = ?');
+            params.push(bookingId);
+            auditDetails.push(bookingId ? `linked to booking ${bookingId}` : 'unlinked from booking');
+        }
+        if (tags !== undefined) {
+            updates.push('tags = ?');
+            params.push(tags);
+            auditDetails.push(`tags updated to "${tags}"`);
+        }
+        if (sentiment !== undefined) {
+            updates.push('sentiment = ?');
+            params.push(sentiment);
+            auditDetails.push(`sentiment set to ${sentiment}`);
         }
 
         if (updates.length === 0) return res.status(400).json({ error: 'No fields to update.' });
@@ -2908,10 +3148,172 @@ app.post('/api/admin/chat/conversations/:customerId/status', authMiddleware, asy
             WHERE customer_id = ?
         `, params);
 
+        // Insert into audit logs
+        await pool.query(`
+            INSERT INTO support_conversation_audit_logs (conversation_id, action, performed_by, details)
+            VALUES (?, 'Update Ticket', ?, ?)
+        `, [customerId, senderName, auditDetails.join(', ')]);
+
         return res.json({ success: true, message: 'Ticket settings updated successfully.' });
     } catch (err) {
         console.error('[Admin Chat] Update settings error:', err.message);
         return res.status(500).json({ error: 'Failed to update ticket settings.' });
+    }
+});
+
+// GET /api/admin/chat/conversations/:customerId/timeline
+// Construct a Customer Journey Timeline dynamically
+app.get('/api/admin/chat/conversations/:customerId/timeline', authMiddleware, async (req, res) => {
+    const { customerId } = req.params;
+    try {
+        const timeline = [];
+
+        // 1. Account registration
+        const [userRows] = await pool.query(
+            "SELECT created_at FROM customer_users WHERE id = ?",
+            [customerId]
+        );
+        if (userRows.length > 0) {
+            timeline.push({
+                type: 'registration',
+                date: userRows[0].created_at,
+                title: 'Account Created',
+                description: 'Customer registered their profile on the platform.'
+            });
+        }
+
+        // 2. Linked bookings
+        const [bookingRows] = await pool.query(`
+            SELECT id, title, booking_date, created_at, status, total_price 
+            FROM bookings 
+            WHERE customer_id = ? OR customer_email = (SELECT email FROM customer_users WHERE id = ?)
+        `, [customerId, customerId]);
+        
+        bookingRows.forEach(b => {
+            timeline.push({
+                type: 'booking',
+                date: b.created_at || b.booking_date,
+                title: 'Package Booked',
+                description: `Created booking for "${b.title || 'Custom Trip'}" - Status: ${b.status.toUpperCase()} (Total: ₹${b.total_price.toLocaleString()})`
+            });
+        });
+
+        // 3. Support queries / Chat start
+        const [firstMsgRows] = await pool.query(`
+            SELECT created_at, message FROM customer_chat_messages 
+            WHERE customer_id = ? 
+            ORDER BY created_at ASC LIMIT 1
+        `, [customerId]);
+        if (firstMsgRows.length > 0) {
+            timeline.push({
+                type: 'chat_start',
+                date: firstMsgRows[0].created_at,
+                title: 'Support Session Opened',
+                description: `Initiated support session. First query: "${firstMsgRows[0].message.substring(0, 45)}..."`
+            });
+        }
+
+        // Sort chronologically
+        timeline.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+        return res.json(timeline);
+    } catch (err) {
+        console.error('[Admin Chat] Get timeline error:', err.message);
+        return res.status(500).json({ error: 'Failed to fetch customer timeline.' });
+    }
+});
+
+// GET /api/admin/chat/conversations/:customerId/audit-logs
+// Get history trail of ticket updates
+app.get('/api/admin/chat/conversations/:customerId/audit-logs', authMiddleware, async (req, res) => {
+    const { customerId } = req.params;
+    try {
+        const [rows] = await pool.query(`
+            SELECT * FROM support_conversation_audit_logs 
+            WHERE conversation_id = ? 
+            ORDER BY performed_at DESC LIMIT 50
+        `, [customerId]);
+        return res.json(rows);
+    } catch (err) {
+        console.error('[Admin Chat] Fetch audit logs error:', err.message);
+        return res.status(500).json({ error: 'Failed to fetch audit logs.' });
+    }
+});
+
+// POST /api/admin/chat/conversations/:customerId/typing
+// Sync typing status
+app.post('/api/admin/chat/conversations/:customerId/typing', authMiddleware, async (req, res) => {
+    const { customerId } = req.params;
+    const { isTyping } = req.body || {};
+    try {
+        await pool.query(`
+            UPDATE customer_chat_conversations 
+            SET is_agent_typing = ?, last_agent_typing_at = IF(?, NOW(), last_agent_typing_at) 
+            WHERE customer_id = ?
+        `, [isTyping ? 1 : 0, isTyping ? 1 : 0, customerId]);
+        return res.json({ success: true });
+    } catch (err) {
+        console.error('[Admin Chat] Update typing error:', err.message);
+        return res.status(500).json({ error: 'Failed to update typing status.' });
+    }
+});
+
+// POST /api/customer/chat/typing
+// Sync customer typing status
+app.post('/api/customer/chat/typing', customerAuthMiddleware, async (req, res) => {
+    const { isTyping } = req.body || {};
+    try {
+        await pool.query(`
+            UPDATE customer_chat_conversations 
+            SET is_customer_typing = ?, last_customer_typing_at = IF(?, NOW(), last_customer_typing_at) 
+            WHERE customer_id = ?
+        `, [isTyping ? 1 : 0, isTyping ? 1 : 0, req.customer.id]);
+        return res.json({ success: true });
+    } catch (err) {
+        console.error('[Customer Chat] Update typing error:', err.message);
+        return res.status(500).json({ error: 'Failed to update typing status.' });
+    }
+});
+
+// GET /api/admin/chat/canned-replies
+// Fetch canned replies
+app.get('/api/admin/chat/canned-replies', authMiddleware, async (req, res) => {
+    try {
+        const [rows] = await pool.query("SELECT * FROM support_canned_replies ORDER BY category, title");
+        return res.json(rows);
+    } catch (err) {
+        console.error('[Admin Canned] Get error:', err.message);
+        return res.status(500).json({ error: 'Failed to fetch canned replies.' });
+    }
+});
+
+// POST /api/admin/chat/canned-replies
+// Add a canned reply
+app.post('/api/admin/chat/canned-replies', authMiddleware, async (req, res) => {
+    const { title, category, text } = req.body || {};
+    if (!title || !category || !text) return res.status(400).json({ error: 'All fields are required.' });
+    try {
+        await pool.query(
+            "INSERT INTO support_canned_replies (title, category, text) VALUES (?, ?, ?)",
+            [title.trim(), category.trim(), text.trim()]
+        );
+        return res.json({ success: true });
+    } catch (err) {
+        console.error('[Admin Canned] Create error:', err.message);
+        return res.status(500).json({ error: 'Failed to create canned reply.' });
+    }
+});
+
+// DELETE /api/admin/chat/canned-replies/:id
+// Delete a canned reply
+app.delete('/api/admin/chat/canned-replies/:id', authMiddleware, async (req, res) => {
+    const { id } = req.params;
+    try {
+        await pool.query("DELETE FROM support_canned_replies WHERE id = ?", [id]);
+        return res.json({ success: true });
+    } catch (err) {
+        console.error('[Admin Canned] Delete error:', err.message);
+        return res.status(500).json({ error: 'Failed to delete canned reply.' });
     }
 });
 

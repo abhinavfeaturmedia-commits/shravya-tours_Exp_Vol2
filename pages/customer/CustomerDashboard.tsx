@@ -621,7 +621,7 @@ export const CustomerDashboard: React.FC = () => {
   };
 
   // 6. Fetch Chat Messages
-  const fetchChat = async () => {
+  const fetchChat = useCallback(async () => {
     try {
       const token = localStorage.getItem(CUSTOMER_JWT_KEY);
       const res = await fetch(`${API_BASE}/api/customer/chat`, {
@@ -634,7 +634,7 @@ export const CustomerDashboard: React.FC = () => {
     } catch {
       // silent
     }
-  };
+  }, []);
 
   const handleSendChatMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -708,7 +708,14 @@ export const CustomerDashboard: React.FC = () => {
       if (showSupportModal) fetchChat();
     }, 12000);
     return () => clearInterval(int);
-  }, [fetchBookings, showSupportModal]);
+  }, [fetchBookings, showSupportModal, fetchChat]);
+
+  // Fetch chat messages immediately when support modal is opened
+  useEffect(() => {
+    if (showSupportModal) {
+      fetchChat();
+    }
+  }, [showSupportModal, fetchChat]);
 
   // Close notification dropdown on outside click
   useEffect(() => {

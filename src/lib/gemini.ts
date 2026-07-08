@@ -48,20 +48,32 @@ const getAIResponse = async (prompt: string, imageBase64?: string) => {
     const config = await getOpenRouterConfig();
 
     if (config.enabled && config.apiKey) {
-        console.log(`[AI] Using OpenRouter with model: ${config.defaultModel}`);
-        if (imageBase64) {
-            const base64Data = imageBase64.split(',')[1] || imageBase64;
-            const mimeType = imageBase64.match(/data:([^;]+);/)?.[1] || "image/jpeg";
-            const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-                method: "POST",
-                headers: {
-                    "Authorization": `Bearer ${config.apiKey}`,
-                    "Content-Type": "application/json",
-                    "HTTP-Referer": window.location.origin,
-                    "X-Title": "Shrawello Travel Hub"
-                },
-                body: JSON.stringify({
-                    model: config.defaultModel || 'google/gemini-2.5-flash',
+        // Strip quotes around model name if present
+        let configModel = (config.defaultModel || 'meta-llama/llama-3.3-70b-instruct:free')
+            .replace(/^["']|["']$/g, '');
+
+        if (configModel === 'openrouter/free') {
+            configModel = 'meta-llama/llama-3.3-70b-instruct:free';
+        }
+
+        // prioritized list of free fallback models
+        const modelsToTry = [
+            configModel,
+            'meta-llama/llama-3.3-70b-instruct:free',
+            'meta-llama/llama-3.2-3b-instruct:free',
+            'nvidia/nemotron-nano-9b-v2:free'
+        ];
+
+        // Deduplicate while maintaining prioritization order
+        const uniqueModels = Array.from(new Set(modelsToTry));
+
+        const callOpenRouter = async (model: string): Promise<string> => {
+            let bodyPayload: any;
+            if (imageBase64) {
+                const base64Data = imageBase64.split(',')[1] || imageBase64;
+                const mimeType = imageBase64.match(/data:([^;]+);/)?.[1] || "image/jpeg";
+                bodyPayload = {
+                    model,
                     messages: [
                         {
                             role: "user",
@@ -76,18 +88,16 @@ const getAIResponse = async (prompt: string, imageBase64?: string) => {
                             ]
                         }
                     ]
-                })
-            });
-            if (!res.ok) {
-                const errText = await res.text();
-                throw new Error(`OpenRouter Error (${res.status}): ${errText}`);
+                };
+            } else {
+                bodyPayload = {
+                    model,
+                    messages: [
+                        { role: "user", content: prompt }
+                    ]
+                };
             }
-            const data = await res.json();
-            if (!data.choices || data.choices.length === 0) {
-                throw new Error("OpenRouter returned an empty response.");
-            }
-            return data.choices[0].message.content;
-        } else {
+
             const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
                 method: "POST",
                 headers: {
@@ -96,30 +106,45 @@ const getAIResponse = async (prompt: string, imageBase64?: string) => {
                     "HTTP-Referer": window.location.origin,
                     "X-Title": "Shrawello Travel Hub"
                 },
-                body: JSON.stringify({
-                    model: config.defaultModel || 'google/gemini-2.5-flash',
-                    messages: [
-                        { role: "user", content: prompt }
-                    ]
-                })
+                body: JSON.stringify(bodyPayload)
             });
+
             if (!res.ok) {
                 const errText = await res.text();
                 throw new Error(`OpenRouter Error (${res.status}): ${errText}`);
             }
+
             const data = await res.json();
             if (!data.choices || data.choices.length === 0) {
                 throw new Error("OpenRouter returned an empty response.");
             }
             return data.choices[0].message.content;
+        };
+
+        let lastError: any = null;
+        for (const model of uniqueModels) {
+            try {
+                console.log(`[AI] Attempting OpenRouter call with model: ${model}`);
+                return await callOpenRouter(model);
+            } catch (err) {
+                console.warn(`[AI] OpenRouter call failed with model ${model}:`, err);
+                lastError = err;
+            }
         }
+        throw lastError || new Error("All OpenRouter models in the fallback queue failed.");
     } else {
         console.log("[AI] Using direct Gemini API fallback");
         if (!genAI) {
             throw new Error("Gemini API Key is missing. Please add VITE_GEMINI_API_KEY to your .env file or enable OpenRouter AI in Settings.");
         }
         // Normalize model name for direct Gemini
-        const modelName = config.defaultModel?.includes('pro') ? 'gemini-2.5-pro' : 'gemini-2.5-flash';
+        let modelName = 'gemini-1.5-flash';
+        if (config.defaultModel) {
+            const cleanModel = config.defaultModel.replace(/^["']|["']$/g, '').toLowerCase();
+            if (cleanModel.includes('pro')) {
+                modelName = 'gemini-1.5-pro';
+            }
+        }
         const model = genAI.getGenerativeModel({ model: modelName });
         if (imageBase64) {
             const base64Data = imageBase64.split(',')[1] || imageBase64;
@@ -137,6 +162,40 @@ const getAIResponse = async (prompt: string, imageBase64?: string) => {
             return result.response.text();
         }
     }
+};
+
+const robustParseJson = (text: string): any => {
+    // Remove markdown code fences if present
+    let clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
+
+    // Find the first occurrence of '{' or '[' and the last occurrence of '}' or ']'
+    const firstBrace = clean.indexOf('{');
+    const firstBracket = clean.indexOf('[');
+
+    let start = -1;
+    let end = -1;
+
+    if (firstBrace !== -1 && firstBracket !== -1) {
+        if (firstBrace < firstBracket) {
+            start = firstBrace;
+            end = clean.lastIndexOf('}');
+        } else {
+            start = firstBracket;
+            end = clean.lastIndexOf(']');
+        }
+    } else if (firstBrace !== -1) {
+        start = firstBrace;
+        end = clean.lastIndexOf('}');
+    } else if (firstBracket !== -1) {
+        start = firstBracket;
+        end = clean.lastIndexOf(']');
+    }
+
+    if (start !== -1 && end !== -1 && end > start) {
+        clean = clean.substring(start, end + 1);
+    }
+
+    return JSON.parse(clean);
 };
 
 export const generateItinerary = async (destination: string, days: number, travelers: string, startDate: string) => {
@@ -167,9 +226,7 @@ export const generateItinerary = async (destination: string, days: number, trave
 
     try {
         const text = await getAIResponse(prompt);
-        // Clean up potential markdown code blocks if the model puts them
-        const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
-        return JSON.parse(cleanJson);
+        return robustParseJson(text);
     } catch (error) {
         console.error("Itinerary Generation Error:", error);
         throw error;
@@ -198,8 +255,7 @@ export const analyzeLead = async (lead: any) => {
 
     try {
         const text = await getAIResponse(prompt);
-        const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
-        return JSON.parse(cleanJson);
+        return robustParseJson(text);
     } catch (e) {
         console.error("Lead Analysis Failed", e);
         throw e;
@@ -224,8 +280,7 @@ export const generateMarketingContent = async (topic: string, platform: 'Email' 
 
     try {
         const text = await getAIResponse(prompt);
-        const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
-        return JSON.parse(cleanJson);
+        return robustParseJson(text);
     } catch (e) {
         console.error("Marketing Gen Failed", e);
         throw e;
@@ -251,8 +306,7 @@ export const parseInvoice = async (imageBase64: string) => {
 
     try {
         const text = await getAIResponse(prompt, imageBase64);
-        const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
-        return JSON.parse(cleanJson);
+        return robustParseJson(text);
     } catch (e) {
         console.error("Invoice Parsing Failed", e);
         throw e;

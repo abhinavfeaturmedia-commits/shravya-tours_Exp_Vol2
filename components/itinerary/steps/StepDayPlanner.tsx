@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useItinerary, ItineraryItem, ServiceType } from '../ItineraryContext';
 import { useData } from '../../../context/DataContext';
 import { ServiceSelector } from '../selectors/ServiceSelector';
@@ -36,6 +37,76 @@ const DAY_THEMES = [
     'Island Hop', 'Sunset Voyage', 'Festival Spirit', 'Wilderness Call',
 ];
 
+interface AiAutoPlanLoadingModalProps {
+    isOpen: boolean;
+}
+
+const LOADING_MESSAGES = [
+    'Initializing Shrawello intelligence...',
+    'Analyzing guest preferences & count...',
+    'Consulting regional activities catalog...',
+    'Structuring optimal route & daily order...',
+    'Assembling your personalized holiday experience...',
+];
+
+const AiAutoPlanLoadingModal: React.FC<AiAutoPlanLoadingModalProps> = ({ isOpen }) => {
+    const [messageIdx, setMessageIdx] = useState(0);
+
+    useEffect(() => {
+        if (!isOpen) return;
+        // Cycle messages to keep the loading state interactive
+        const interval = setInterval(() => {
+            setMessageIdx((prev) => (prev + 1) % LOADING_MESSAGES.length);
+        }, 2500);
+        return () => clearInterval(interval);
+    }, [isOpen]);
+
+    if (!isOpen) return null;
+
+    return createPortal(
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md flex flex-col items-center justify-center z-[99999] p-4">
+            <div className="bg-white/95 dark:bg-slate-900/95 border border-stone-200/50 dark:border-slate-800 rounded-3xl p-8 max-w-sm w-full shadow-2xl flex flex-col items-center justify-center relative text-center overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                {/* Background ambient glowing blobs for premium feel */}
+                <div className="absolute -top-12 -left-12 size-24 bg-violet-500/10 rounded-full blur-xl animate-pulse"></div>
+                <div className="absolute -bottom-12 -right-12 size-24 bg-indigo-500/10 rounded-full blur-xl animate-pulse"></div>
+
+                {/* Pulsing glow ring around logo */}
+                <div className="relative mb-6">
+                    <div className="absolute -inset-1 bg-gradient-to-r from-violet-600 to-indigo-600 rounded-full blur-md opacity-75 animate-pulse"></div>
+                    <div className="relative size-24 rounded-full bg-white flex items-center justify-center p-3 shadow-lg border border-slate-100/50">
+                        <img src="/logo.png" alt="Shrawello Logo" className="size-16 object-contain" />
+                    </div>
+                </div>
+
+                {/* Intelligence branding */}
+                <div className="flex flex-col items-center gap-1 mb-6">
+                    <span className="text-stone-900 dark:text-white font-extrabold text-2xl tracking-wide">
+                        SHRAWELLO
+                    </span>
+                    <span className="text-xs font-bold tracking-[0.25em] uppercase bg-gradient-to-r from-violet-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent animate-pulse">
+                        intelligence
+                    </span>
+                </div>
+
+                {/* Subtext message */}
+                <div className="h-12 flex items-center justify-center px-4">
+                    <p className="text-sm font-medium text-stone-600 dark:text-stone-300 animate-in fade-in duration-300" key={messageIdx}>
+                        {LOADING_MESSAGES[messageIdx]}
+                    </p>
+                </div>
+
+                {/* Modern loading indicator (3 dots) */}
+                <div className="mt-6 flex items-center justify-center gap-1.5">
+                    <span className="size-2 bg-violet-600 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+                    <span className="size-2 bg-indigo-600 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                    <span className="size-2 bg-purple-600 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+                </div>
+            </div>
+        </div>,
+        document.body
+    );
+};
+
 // ─── Main Board ───────────────────────────────────────────────────────────────
 export const StepDayPlanner: React.FC<Props> = ({ onOpenPricing, onOpenTripDetails }) => {
     const { tripDetails, getItemsForDay, removeItem, updateItem, replaceAllItems, getDayMeta, updateDayMeta, duplicateDay } = useItinerary();
@@ -55,7 +126,6 @@ export const StepDayPlanner: React.FC<Props> = ({ onOpenPricing, onOpenTripDetai
             || tripDetails.destination;
 
         setIsGenerating(true);
-        const toastId = toast.loading('Consulting our AI Travel Expert...');
         try {
             const guestStr = `${tripDetails.adults} Adults, ${tripDetails.children} Children`;
             const result = await generateItinerary(destinationName, tripDetails.days, guestStr, tripDetails.startDate);
@@ -78,10 +148,8 @@ export const StepDayPlanner: React.FC<Props> = ({ onOpenPricing, onOpenTripDetai
                 });
             });
             replaceAllItems(newItems);
-            toast.dismiss(toastId);
             toast.success('Itinerary generated successfully!');
         } catch (error: any) {
-            toast.dismiss(toastId);
             let msg = error.message || error.toString();
             const lowerMsg = msg.toLowerCase();
             if (lowerMsg.includes('api key not valid') || lowerMsg.includes('api_key_invalid') || lowerMsg.includes('invalid api key')) {
@@ -186,6 +254,9 @@ export const StepDayPlanner: React.FC<Props> = ({ onOpenPricing, onOpenTripDetai
             {addingToDay !== null && (
                 <ServiceSelector day={addingToDay} onClose={() => setAddingToDay(null)} />
             )}
+
+            {/* AI Auto-Plan Loading Modal */}
+            <AiAutoPlanLoadingModal isOpen={isGenerating} />
         </div>
     );
 };
