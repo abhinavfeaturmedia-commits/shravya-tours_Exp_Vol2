@@ -36,6 +36,7 @@ const NAV_GROUPS = [
       { name: 'Leads CRM', path: '/admin/leads', icon: 'groups', module: 'leads' },
       { name: 'Customers', path: '/admin/customers', icon: 'face', module: 'customers' },
       { name: 'Memberships', path: '/admin/memberships', icon: 'card_membership', module: 'memberships' },
+      { name: 'Support Inbox', path: '/admin/support-inbox', icon: 'forum', module: 'memberships' },
       { name: 'Partners', path: '/admin/partners', icon: 'handshake', module: 'partners' },
       { name: 'Coupons', path: '/admin/coupons', icon: 'local_offer', module: 'marketing' },
       { name: 'Marketing Logs', path: '/admin/marketing-logs', icon: 'edit_note', module: 'marketing' },

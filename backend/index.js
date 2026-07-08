@@ -2073,7 +2073,18 @@ app.post('/api/auth/create-user', authMiddleware, async (req, res) => {
                 booking_id VARCHAR(64) DEFAULT NULL,
                 sender_type VARCHAR(50),
                 message TEXT,
+                is_read BOOLEAN DEFAULT false,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )`,
+            `CREATE TABLE IF NOT EXISTS customer_chat_conversations (
+                customer_id INT PRIMARY KEY,
+                status VARCHAR(50) DEFAULT 'Open',
+                priority VARCHAR(50) DEFAULT 'Medium',
+                assigned_staff_id VARCHAR(255) DEFAULT NULL,
+                last_message TEXT DEFAULT NULL,
+                last_message_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                unread_count INT DEFAULT 0,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             )`,
             `CREATE TABLE IF NOT EXISTS customer_notifications (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -2115,6 +2126,20 @@ app.post('/api/auth/create-user', authMiddleware, async (req, res) => {
         for (const sql of tables) {
             await pool.query(sql);
         }
+
+        // Defensive migrations for chat tables
+        try {
+            await pool.query("ALTER TABLE customer_chat_messages ADD COLUMN is_read BOOLEAN DEFAULT false");
+        } catch (e) { /* ignore duplicate column */ }
+
+        try {
+            await pool.query("ALTER TABLE customer_chat_conversations ADD COLUMN priority VARCHAR(50) DEFAULT 'Medium'");
+        } catch (e) { /* ignore duplicate column */ }
+
+        try {
+            await pool.query("ALTER TABLE customer_chat_conversations ADD COLUMN assigned_staff_id VARCHAR(255) DEFAULT NULL");
+        } catch (e) { /* ignore duplicate column */ }
+
         console.log('[Customer Portal] Tables and schemas ensured.');
     } catch (err) {
         console.error('[Customer Portal] Failed to ensure database tables:', err.message);
@@ -2716,15 +2741,177 @@ app.get('/api/customer/chat', customerAuthMiddleware, async (req, res) => {
 app.post('/api/customer/chat', customerAuthMiddleware, async (req, res) => {
     const { bookingId, message } = req.body || {};
     if (!message) return res.status(400).json({ error: 'Message is required.' });
+    const msgTrim = message.trim();
     try {
+        // 1. Insert message
         await pool.query(`
-            INSERT INTO customer_chat_messages (customer_id, booking_id, sender_type, message)
-            VALUES (?, ?, 'customer', ?)
-        `, [req.customer.id, bookingId || null, message.trim()]);
+            INSERT INTO customer_chat_messages (customer_id, booking_id, sender_type, message, is_read)
+            VALUES (?, ?, 'customer', ?, 0)
+        `, [req.customer.id, bookingId || null, msgTrim]);
+
+        // 2. Upsert summary conversation
+        await pool.query(`
+            INSERT INTO customer_chat_conversations (customer_id, status, last_message, last_message_at, unread_count)
+            VALUES (?, 'Open', ?, NOW(), 1)
+            ON DUPLICATE KEY UPDATE 
+                status = 'Open',
+                last_message = VALUES(last_message),
+                last_message_at = VALUES(last_message_at),
+                unread_count = unread_count + 1
+        `, [req.customer.id, msgTrim]);
+
         return res.json({ success: true });
     } catch (err) {
         console.error('[Customer Chat] Post error:', err.message);
         return res.status(500).json({ error: 'Failed to send message.' });
+    }
+});
+
+// ─── Admin Support Inbox API Routes ───
+
+// GET /api/admin/chat/conversations
+// Fetch all customer conversations joined with profile details
+app.get('/api/admin/chat/conversations', authMiddleware, async (req, res) => {
+    try {
+        const [rows] = await pool.query(`
+            SELECT 
+                c.customer_id,
+                c.status,
+                c.priority,
+                c.assigned_staff_id,
+                c.last_message,
+                c.last_message_at,
+                c.unread_count,
+                u.name AS customer_name,
+                u.email AS customer_email,
+                u.phone AS customer_phone,
+                u.loyalty_points,
+                u.referral_code,
+                u.travel_preferences
+            FROM customer_chat_conversations c
+            INNER JOIN customer_users u ON c.customer_id = u.id
+            ORDER BY c.last_message_at DESC
+        `);
+        return res.json(rows);
+    } catch (err) {
+        console.error('[Admin Chat] Fetch conversations error:', err.message);
+        return res.status(500).json({ error: 'Failed to fetch conversations.' });
+    }
+});
+
+// GET /api/admin/chat/conversations/:customerId
+// Fetch chat history for a customer and mark messages as read
+app.get('/api/admin/chat/conversations/:customerId', authMiddleware, async (req, res) => {
+    const { customerId } = req.params;
+    try {
+        // 1. Fetch messages
+        const [messages] = await pool.query(`
+            SELECT * FROM customer_chat_messages 
+            WHERE customer_id = ? 
+            ORDER BY created_at ASC 
+            LIMIT 150
+        `, [customerId]);
+
+        // 2. Mark customer messages as read
+        await pool.query(`
+            UPDATE customer_chat_messages 
+            SET is_read = 1 
+            WHERE customer_id = ? AND sender_type = 'customer'
+        `, [customerId]);
+
+        // 3. Reset unread count
+        await pool.query(`
+            UPDATE customer_chat_conversations 
+            SET unread_count = 0 
+            WHERE customer_id = ?
+        `, [customerId]);
+
+        return res.json(messages);
+    } catch (err) {
+        console.error('[Admin Chat] Get history error:', err.message);
+        return res.status(500).json({ error: 'Failed to fetch conversation history.' });
+    }
+});
+
+// POST /api/admin/chat/conversations/:customerId
+// Send a message from admin to customer and trigger alert notification
+app.post('/api/admin/chat/conversations/:customerId', authMiddleware, async (req, res) => {
+    const { customerId } = req.params;
+    const { message, bookingId } = req.body || {};
+    if (!message) return res.status(400).json({ error: 'Message is required.' });
+    const msgTrim = message.trim();
+    try {
+        const senderName = req.user?.email || 'Support Desk';
+
+        // 1. Insert chat message
+        await pool.query(`
+            INSERT INTO customer_chat_messages (customer_id, booking_id, sender_type, message, is_read)
+            VALUES (?, ?, 'admin', ?, 1)
+        `, [customerId, bookingId || null, msgTrim]);
+
+        // 2. Update conversation summary
+        await pool.query(`
+            INSERT INTO customer_chat_conversations (customer_id, status, last_message, last_message_at, unread_count)
+            VALUES (?, 'Open', ?, NOW(), 0)
+            ON DUPLICATE KEY UPDATE 
+                status = 'Open',
+                last_message = VALUES(last_message),
+                last_message_at = VALUES(last_message_at),
+                unread_count = 0
+        `, [customerId, msgTrim]);
+
+        // 3. Add customer notification alert
+        try {
+            await pool.query(`
+                INSERT INTO customer_notifications (customer_id, type, title, message, is_read, created_at)
+                VALUES (?, 'support_message', 'Message from Support Concierge', ?, 0, NOW())
+            `, [customerId, msgTrim.length > 60 ? msgTrim.substring(0, 57) + '...' : msgTrim]);
+        } catch (notifErr) {
+            console.warn('[Admin Chat] Notification trigger failed:', notifErr.message);
+        }
+
+        return res.json({ success: true });
+    } catch (err) {
+        console.error('[Admin Chat] Send message error:', err.message);
+        return res.status(500).json({ error: 'Failed to send message.' });
+    }
+});
+
+// POST /api/admin/chat/conversations/:customerId/status
+// Update status/priority/assignment details for a query ticket
+app.post('/api/admin/chat/conversations/:customerId/status', authMiddleware, async (req, res) => {
+    const { customerId } = req.params;
+    const { status, priority, assignedStaffId } = req.body || {};
+    try {
+        const updates = [];
+        const params = [];
+
+        if (status) {
+            updates.push('status = ?');
+            params.push(status);
+        }
+        if (priority) {
+            updates.push('priority = ?');
+            params.push(priority);
+        }
+        if (assignedStaffId !== undefined) {
+            updates.push('assigned_staff_id = ?');
+            params.push(assignedStaffId);
+        }
+
+        if (updates.length === 0) return res.status(400).json({ error: 'No fields to update.' });
+
+        params.push(customerId);
+        await pool.query(`
+            UPDATE customer_chat_conversations 
+            SET ${updates.join(', ')} 
+            WHERE customer_id = ?
+        `, params);
+
+        return res.json({ success: true, message: 'Ticket settings updated successfully.' });
+    } catch (err) {
+        console.error('[Admin Chat] Update settings error:', err.message);
+        return res.status(500).json({ error: 'Failed to update ticket settings.' });
     }
 });
 

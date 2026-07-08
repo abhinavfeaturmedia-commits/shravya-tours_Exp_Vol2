@@ -801,9 +801,10 @@ export const CustomerDashboard: React.FC = () => {
     );
   };
 
-  // Always load loyalty on mount
+  // Always load loyalty and membership on mount
   useEffect(() => {
     fetchLoyalty();
+    fetchMyMembership();
   }, []);
 
   // Profile modal: sync form from customer
@@ -1111,12 +1112,22 @@ export const CustomerDashboard: React.FC = () => {
         <div className="flex items-center gap-4">
           <Link to="/" className="flex items-center gap-2">
             <span className="font-display font-black text-xl sm:text-2xl tracking-tight text-[#2D6A4F]">
-              Shravya Tours
+              Shrawello Travel Hub
             </span>
           </Link>
-          <span className="hidden sm:inline-block text-[10px] font-black uppercase text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-100">
-            {loyaltyPoints >= 1000 ? 'Gold Elite Member' : loyaltyPoints >= 500 ? 'Silver Elite Member' : 'Elite Member'}
-          </span>
+          {myMembership && myMembership.status === 'Active' && (
+            <span 
+              className="hidden sm:inline-flex items-center gap-1.5 text-[10px] font-black uppercase px-2.5 py-0.5 rounded border"
+              style={{ 
+                backgroundColor: `${myMembership.color || '#CD7F32'}15`, 
+                color: myMembership.color || '#CD7F32', 
+                borderColor: `${myMembership.color || '#CD7F32'}30` 
+              }}
+            >
+              <span className="material-symbols-outlined text-[12px]">workspace_premium</span>
+              {myMembership.tier} Member
+            </span>
+          )}
         </div>
 
         {/* Center navigation pills (desktop) */}
@@ -1218,7 +1229,7 @@ export const CustomerDashboard: React.FC = () => {
               <span className="material-symbols-outlined">close</span>
             </button>
             <div className="mb-6 pb-5 border-b border-[#EDE8DF]">
-              <span className="font-display font-black text-xl text-[#2D6A4F]">Shravya Tours</span>
+              <span className="font-display font-black text-xl text-[#2D6A4F]">Shrawello Travel Hub</span>
               <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-3">Welcome back</p>
               <h4 className="font-display font-bold text-slate-800 text-sm mt-0.5">{customer?.name}</h4>
             </div>
@@ -2225,10 +2236,10 @@ export const CustomerDashboard: React.FC = () => {
 
             <div className="flex items-center gap-3">
               <div className="size-9 bg-[#FFF8F2] border border-[#C9732A]/20 rounded-full flex items-center justify-center font-bold text-[#C9732A] text-xs">
-                ST
+                SH
               </div>
               <div>
-                <h4 className="font-bold text-slate-850 text-xs">Shravya Tours Support</h4>
+                <h4 className="font-bold text-slate-850 text-xs">Shrawello Travel Hub Support</h4>
                 <p className="text-[9px] text-slate-400 font-bold mt-0.5">Online &bull; Operations Desk</p>
               </div>
             </div>
@@ -2264,7 +2275,7 @@ export const CustomerDashboard: React.FC = () => {
                     <p className="text-slate-400">Your registration has been logged by the backend portal desk.</p>
                   </div>
                   <div className="text-[10px] text-slate-500 font-semibold space-y-0.5 py-1 pt-2">
-                    <p className="font-bold text-slate-800">Welcome To Shravya Tours</p>
+                    <p className="font-bold text-slate-800">Welcome To Shrawello Travel Hub</p>
                     <p className="text-slate-400">Refer friends or build visual itineraries in the Discovery tab.</p>
                   </div>
                 </>
@@ -2441,10 +2452,10 @@ export const CustomerDashboard: React.FC = () => {
             <div className="p-4 border-b border-[#EDE8DF] flex items-center justify-between bg-slate-50">
               <div className="flex items-center gap-3">
                 <div className="size-9 bg-[#FFF8F2] border rounded-full flex items-center justify-center font-bold text-primary text-xs">
-                  ST
+                  SH
                 </div>
                 <div>
-                  <h4 className="font-bold text-slate-800 text-xs">Shravya Tours</h4>
+                  <h4 className="font-bold text-slate-800 text-xs">Shrawello Travel Hub</h4>
                   <span className="text-[9px] text-slate-400 font-bold block">Support Concierge</span>
                 </div>
               </div>

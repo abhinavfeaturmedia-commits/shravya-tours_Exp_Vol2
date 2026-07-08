@@ -61,6 +61,7 @@ export const BookingDetail: React.FC = () => {
   const { customer, logout } = useCustomerAuth();
   
   const [booking, setBooking] = useState<Booking | null>(null);
+  const [myMembership, setMyMembership] = useState<any>(null);
   const [suppliers, setSuppliers] = useState<SupplierBooking[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -126,8 +127,23 @@ export const BookingDetail: React.FC = () => {
     }
   };
 
+  const fetchMyMembership = async () => {
+    try {
+      const token = localStorage.getItem(CUSTOMER_JWT_KEY);
+      if (!token) return;
+      const res = await fetch(`${API_BASE}/api/customer/membership`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setMyMembership(data);
+      }
+    } catch { setMyMembership(null); }
+  };
+
   useEffect(() => {
     fetchAllData();
+    fetchMyMembership();
   }, [id]);
 
   const handleApplyCoupon = async (e: React.FormEvent) => {
@@ -365,7 +381,7 @@ export const BookingDetail: React.FC = () => {
         <div className="px-6 h-20 border-b border-[#EDE8DF] flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2">
             <span className="font-display font-black text-2xl tracking-tight" style={{ color: '#2D6A4F' }}>
-              Shravya Tours
+              Shrawello Travel Hub
             </span>
           </Link>
         </div>
@@ -376,7 +392,18 @@ export const BookingDetail: React.FC = () => {
           </div>
           <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-3">Welcome back</p>
           <h4 className="font-display font-bold text-slate-800 text-base leading-tight mt-0.5">{customer?.name}</h4>
-          <span className="inline-block text-[10px] font-black uppercase text-amber-700 bg-amber-50 px-2 py-0.5 rounded mt-1">Elite Member</span>
+          {myMembership && myMembership.status === 'Active' && (
+            <span 
+              className="inline-flex items-center gap-1 text-[10px] font-black uppercase px-2 py-0.5 rounded mt-1 border"
+              style={{ 
+                backgroundColor: `${myMembership.color || '#CD7F32'}15`, 
+                color: myMembership.color || '#CD7F32', 
+                borderColor: `${myMembership.color || '#CD7F32'}30` 
+              }}
+            >
+              {myMembership.tier} Member
+            </span>
+          )}
 
           <Link to="/packages" className="block w-full py-2.5 mt-5 rounded-xl text-center text-xs font-bold text-white transition-all shadow-md" style={{ background: '#2D6A4F' }}>
             Book New Trip
@@ -421,7 +448,7 @@ export const BookingDetail: React.FC = () => {
               <span className="material-symbols-outlined">close</span>
             </button>
             <div className="mb-6 pb-5 border-b border-[#EDE8DF]">
-              <span className="font-display font-black text-xl text-primary" style={{ color: '#2D6A4F' }}>Shravya Tours</span>
+              <span className="font-display font-black text-xl text-primary" style={{ color: '#2D6A4F' }}>Shrawello Travel Hub</span>
             </div>
             <nav className="space-y-1">
               {([
