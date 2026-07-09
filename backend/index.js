@@ -2401,6 +2401,623 @@ app.get('/api/customer/bookings/:id/transactions', customerAuthMiddleware, async
     }
 });
 
+// ── CUSTOMER PORTAL DYNAMIC MAPS & ITINERARY ENDPOINT ──
+app.get('/api/customer/bookings/:id/itinerary', customerAuthMiddleware, async (req, res) => {
+    try {
+        const [bookingRows] = await pool.query(
+            'SELECT 1 FROM bookings WHERE id = ? AND LOWER(customer_email) = ?',
+            [req.params.id, req.customer.email]
+        );
+        if (bookingRows.length === 0) return res.status(404).json({ error: 'Booking not found.' });
+
+        const [itineraries] = await pool.query(
+            'SELECT * FROM booking_itineraries WHERE booking_id = ? ORDER BY day_number ASC',
+            [req.params.id]
+        );
+
+        for (const item of itineraries) {
+            const [markers] = await pool.query(
+                'SELECT * FROM booking_itinerary_markers WHERE itinerary_id = ?',
+                [item.id]
+            );
+            item.markers = markers;
+            if (item.route_polyline) {
+                try {
+                    item.route_polyline = JSON.parse(item.route_polyline);
+                } catch {
+                    // keep as raw string
+                }
+            }
+        }
+
+        return res.json(itineraries);
+    } catch (err) {
+        console.error('[Customer Itinerary Maps] Get error:', err.message);
+        return res.status(500).json({ error: 'Failed to fetch itinerary map data.' });
+    }
+});
+
+// Helper function to verify token from header or query param
+function verifyCustomerAuth(req) {
+    let token = req.query.token;
+    if (!token && req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+        token = req.headers.authorization.split(' ')[1];
+    }
+    if (!token) return null;
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        if (decoded.role === 'customer') return decoded;
+    } catch (err) {
+        return null;
+    }
+    return null;
+}
+
+// ── CUSTOMER PORTAL PRINTABLE invoice pdf GENERATION ──
+app.get('/api/customer/bookings/:id/invoice/print', async (req, res) => {
+    const cust = verifyCustomerAuth(req);
+    if (!cust) return res.status(401).send('<h1>Unauthorized</h1>');
+
+    try {
+        const [bookingRows] = await pool.query(
+            'SELECT * FROM bookings WHERE id = ? AND LOWER(customer_email) = ?',
+            [req.params.id, cust.email]
+        );
+        if (bookingRows.length === 0) return res.status(404).send('<h1>Booking not found.</h1>');
+        const booking = bookingRows[0];
+
+        const [invoiceRows] = await pool.query(
+            'SELECT * FROM invoices WHERE booking_id = ?',
+            [booking.id]
+        );
+        
+        let invoice = invoiceRows[0];
+        let items = [];
+        if (invoice) {
+            const [itemRows] = await pool.query(
+                'SELECT * FROM invoice_items WHERE invoice_id = ?',
+                [invoice.id]
+            );
+            items = itemRows;
+        } else {
+            // fallback mock invoice if none generated yet
+            invoice = {
+                id: `INV-${booking.booking_number}`,
+                issue_date: booking.created_at || new Date(),
+                due_date: new Date(new Date().setDate(new Date().getDate() + 7)),
+                client_name: booking.customer_name,
+                email: booking.customer_email,
+                address: booking.residential_address || 'Customer Residence',
+                subtotal: booking.total_price * 0.95,
+                discount: booking.coupon_discount_amount || 0.00,
+                tax_total: booking.total_price * 0.05,
+                total_amount: booking.total_price,
+                status: 'Issued',
+                payment_status: booking.payment_status === 'paid' ? 'Paid' : 'Partial'
+            };
+            items = [
+                {
+                    description: `Tour Package: ${booking.package_name || booking.title}`,
+                    quantity: 1,
+                    unit_price: booking.total_price,
+                    tax_rate: 5,
+                    tax_amount: booking.total_price * 0.05,
+                    total: booking.total_price
+                }
+            ];
+        }
+
+        return res.send(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Invoice - ${invoice.id}</title>
+                <style>
+                    body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; margin: 40px; }
+                    .invoice-box { max-width: 800px; margin: auto; border: 1px solid #eee; padding: 30px; border-radius: 12px; box-shadow: 0 4px 8px rgba(0,0,0,0.05); }
+                    .header-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+                    .header-logo { font-size: 24px; font-weight: bold; color: #2D6A4F; }
+                    .header-title { font-size: 22px; text-align: right; color: #C9732A; text-transform: uppercase; font-weight: 800; }
+                    .details-table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
+                    .details-table td { width: 50%; vertical-align: top; font-size: 13px; line-height: 1.6; }
+                    .item-table { width: 100%; border-collapse: collapse; text-align: left; margin-bottom: 30px; }
+                    .item-table th { background: #F4F7F6; padding: 12px; font-size: 12px; font-weight: bold; text-transform: uppercase; border-bottom: 2px solid #EDE8DF; }
+                    .item-table td { padding: 12px; font-size: 13px; border-bottom: 1px solid #eee; }
+                    .totals-table { width: 40%; margin-left: auto; border-collapse: collapse; font-size: 13px; }
+                    .totals-table td { padding: 6px 12px; }
+                    .totals-table tr.grand-total { font-weight: bold; font-size: 15px; color: #2D6A4F; border-top: 2px solid #2D6A4F; }
+                    .footer { text-align: center; margin-top: 40px; font-size: 11px; color: #999; border-top: 1px solid #eee; padding-top: 20px; }
+                    .no-print-btn { display: block; margin: 0 auto 20px auto; padding: 10px 20px; background: #2D6A4F; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; text-align: center; max-width: 150px; }
+                    @media print {
+                        .no-print-btn { display: none; }
+                        body { margin: 0; }
+                        .invoice-box { border: none; box-shadow: none; padding: 0; }
+                    }
+                </style>
+            </head>
+            <body>
+                <button class="no-print-btn" onclick="window.print()">Print / Save PDF</button>
+                <div class="invoice-box">
+                    <table class="header-table">
+                        <tr>
+                            <td class="header-logo">SHRAWELLO Travel Hub</td>
+                            <td class="header-title">Invoice</td>
+                        </tr>
+                    </table>
+                    <table class="details-table">
+                        <tr>
+                            <td>
+                                <strong>Billed By:</strong><br>
+                                Shrawello Travel Hub Pvt Ltd<br>
+                                GSTIN: 27AAAAA1111A1Z1<br>
+                                Mumbai, Maharashtra, India<br>
+                                support@shrawellotours.com
+                            </td>
+                            <td style="text-align: right;">
+                                <strong>Invoice No:</strong> #${invoice.id}<br>
+                                <strong>Date:</strong> ${new Date(invoice.issue_date).toLocaleDateString()}<br>
+                                <strong>Due Date:</strong> ${new Date(invoice.due_date).toLocaleDateString()}<br>
+                                <strong>Booking ID:</strong> #${booking.id}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding-top: 15px;">
+                                <strong>Billed To:</strong><br>
+                                ${invoice.client_name}<br>
+                                ${invoice.email}<br>
+                                ${invoice.address}
+                            </td>
+                            <td style="text-align: right; padding-top: 15px;">
+                                <strong>Travel Details:</strong><br>
+                                Destination: ${booking.destination || booking.title}<br>
+                                Date: ${new Date(booking.booking_date).toLocaleDateString()}<br>
+                                Persons: ${booking.pax_count || 1}
+                            </td>
+                        </tr>
+                    </table>
+                    <table class="item-table">
+                        <thead>
+                            <tr>
+                                <th>Description</th>
+                                <th style="text-align: center;">Qty</th>
+                                <th style="text-align: right;">Unit Price</th>
+                                <th style="text-align: right;">GST Rate</th>
+                                <th style="text-align: right;">Amount</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${items.map(item => `
+                                <tr>
+                                    <td>${item.description}</td>
+                                    <td style="text-align: center;">${item.quantity || 1}</td>
+                                    <td style="text-align: right;">₹${Number(item.unit_price || 0).toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
+                                    <td style="text-align: right;">${item.tax_rate || 5}%</td>
+                                    <td style="text-align: right;">₹${Number(item.total || 0).toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                    <table class="totals-table">
+                        <tr>
+                            <td>Subtotal:</td>
+                            <td style="text-align: right;">₹${Number(invoice.subtotal || 0).toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
+                        </tr>
+                        <tr>
+                            <td>Discount:</td>
+                            <td style="text-align: right; color: green;">-₹${Number(invoice.discount || 0).toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
+                        </tr>
+                        <tr>
+                            <td>GST Tax:</td>
+                            <td style="text-align: right;">₹${Number(invoice.tax_total || 0).toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
+                        </tr>
+                        <tr class="grand-total">
+                            <td>Total:</td>
+                            <td style="text-align: right;">₹${Number(invoice.total_amount || 0).toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
+                        </tr>
+                    </table>
+                    <div class="footer">
+                        Thank you for booking your adventure with Shrawello Travel Hub!<br>
+                        This is a computer-generated invoice and does not require a physical signature.
+                    </div>
+                </div>
+                <script>
+                    window.onload = function() {
+                        setTimeout(function() { window.print(); }, 500);
+                    }
+                </script>
+            </body>
+            </html>
+        `);
+    } catch (err) {
+        console.error('[Customer Invoice Print] Error:', err.message);
+        return res.status(500).send('<h1>Failed to load invoice layout.</h1>');
+    }
+});
+
+// ── CUSTOMER PORTAL PRINTABLE receipt pdf GENERATION ──
+app.get('/api/customer/bookings/:id/receipt/print', async (req, res) => {
+    const cust = verifyCustomerAuth(req);
+    if (!cust) return res.status(401).send('<h1>Unauthorized</h1>');
+
+    try {
+        const [bookingRows] = await pool.query(
+            'SELECT * FROM bookings WHERE id = ? AND LOWER(customer_email) = ?',
+            [req.params.id, cust.email]
+        );
+        if (bookingRows.length === 0) return res.status(404).send('<h1>Booking not found.</h1>');
+        const booking = bookingRows[0];
+
+        // Get transactions
+        const [txs] = await pool.query(
+            'SELECT * FROM booking_transactions WHERE booking_id = ? AND status = "Verified" ORDER BY date DESC LIMIT 1',
+            [booking.id]
+        );
+
+        if (txs.length === 0) return res.status(404).send('<h1>No verified payments found to generate a receipt.</h1>');
+        const tx = txs[0];
+
+        return res.send(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Payment Receipt - ${tx.id}</title>
+                <style>
+                    body { font-family: Arial, sans-serif; color: #333; margin: 40px; background-color: #fafdfb; }
+                    .receipt-card { max-width: 500px; margin: 40px auto; border: 1px solid #e1ebd5; padding: 40px; border-radius: 16px; background: white; box-shadow: 0 10px 25px rgba(45,106,79,0.08); text-align: center; }
+                    .logo { font-size: 20px; font-weight: bold; color: #2D6A4F; margin-bottom: 20px; }
+                    .stamp { font-size: 14px; color: #2D6A4F; border: 2px solid #2D6A4F; padding: 4px 10px; border-radius: 4px; display: inline-block; text-transform: uppercase; font-weight: bold; transform: rotate(-5deg); margin-bottom: 20px; }
+                    .amount { font-size: 32px; font-weight: 800; color: #1b4332; margin-bottom: 30px; }
+                    .details-grid { text-align: left; margin: 20px 0; border-top: 1px dashed #ddd; border-bottom: 1px dashed #ddd; padding: 20px 0; font-size: 14px; }
+                    .details-row { display: flex; justify-content: space-between; margin-bottom: 10px; }
+                    .label { color: #666; }
+                    .value { font-weight: bold; text-align: right; }
+                    .no-print-btn { display: block; margin: 0 auto 20px auto; padding: 10px 20px; background: #2D6A4F; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; text-align: center; max-width: 150px; }
+                    @media print {
+                        .no-print-btn { display: none; }
+                        body { background: white; margin: 0; }
+                        .receipt-card { box-shadow: none; border: 1px solid #eee; margin: 0 auto; }
+                    }
+                </style>
+            </head>
+            <body>
+                <button class="no-print-btn" onclick="window.print()">Print Receipt</button>
+                <div class="receipt-card">
+                    <div class="logo">SHRAWELLO Travel Hub</div>
+                    <div class="stamp">PAYMENT RECEIVED</div>
+                    <div class="amount">₹${Number(tx.amount || 0).toLocaleString('en-IN', {minimumFractionDigits: 2})}</div>
+                    
+                    <div class="details-grid">
+                        <div class="details-row">
+                            <span class="label">Transaction Reference:</span>
+                            <span class="value">${tx.reference}</span>
+                        </div>
+                        <div class="details-row">
+                            <span class="label">Receipt Number:</span>
+                            <span class="value">REC-${tx.id.toString().substring(0, 8).toUpperCase()}</span>
+                        </div>
+                        <div class="details-row">
+                            <span class="label">Received Date:</span>
+                            <span class="value">${new Date(tx.date).toLocaleDateString()}</span>
+                        </div>
+                        <div class="details-row">
+                            <span class="label">Payment Mode:</span>
+                            <span class="value">${tx.method}</span>
+                        </div>
+                        <div class="details-row">
+                            <span class="label">Received From:</span>
+                            <span class="value">${booking.customer_name}</span>
+                        </div>
+                        <div class="details-row">
+                            <span class="label">Booking Ref:</span>
+                            <span class="value">#${booking.id}</span>
+                        </div>
+                    </div>
+
+                    <p style="font-size: 11px; color: #777;">Thank you for your prompt payment. Enjoy your journey!</p>
+                </div>
+                <script>
+                    window.onload = function() {
+                        setTimeout(function() { window.print(); }, 500);
+                    }
+                </script>
+            </body>
+            </html>
+        `);
+    } catch (err) {
+        console.error('[Customer Receipt Print] Error:', err.message);
+        return res.status(500).send('<h1>Failed to load receipt.</h1>');
+    }
+});
+
+// ── CUSTOMER PORTAL PRINTABLE visa letter pdf GENERATION ──
+app.get('/api/customer/bookings/:id/visa-letter/print', async (req, res) => {
+    const cust = verifyCustomerAuth(req);
+    if (!cust) return res.status(401).send('<h1>Unauthorized</h1>');
+
+    try {
+        const [bookingRows] = await pool.query(
+            'SELECT * FROM bookings WHERE id = ? AND LOWER(customer_email) = ?',
+            [req.params.id, cust.email]
+        );
+        if (bookingRows.length === 0) return res.status(404).send('<h1>Booking not found.</h1>');
+        const booking = bookingRows[0];
+
+        return res.send(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Visa Support Letter - Booking #${booking.id}</title>
+                <style>
+                    body { font-family: 'Georgia', Times, serif; color: #333; line-height: 1.6; margin: 60px; font-size: 15px; }
+                    .letter-container { max-width: 700px; margin: auto; padding: 40px; border: 1px solid #eaeaea; background: white; box-shadow: 0 4px 15px rgba(0,0,0,0.03); }
+                    .letterhead { text-align: left; border-bottom: 2px solid #2D6A4F; padding-bottom: 20px; margin-bottom: 30px; }
+                    .letterhead-title { font-family: sans-serif; font-size: 26px; font-weight: 900; color: #2D6A4F; letter-spacing: -1px; }
+                    .letterhead-subtitle { font-family: sans-serif; font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: 2px; margin-top: 5px; }
+                    .date { margin-bottom: 20px; font-weight: bold; }
+                    .recipient { margin-bottom: 30px; font-weight: bold; }
+                    .subject { font-weight: bold; text-decoration: underline; margin-bottom: 25px; text-transform: uppercase; font-size: 14px; }
+                    .salutation { margin-bottom: 20px; }
+                    .content { margin-bottom: 30px; text-align: justify; }
+                    .details-box { background: #fdfdfd; border: 1px solid #eee; padding: 15px 25px; margin: 20px 0; border-radius: 6px; }
+                    .details-row { display: flex; margin-bottom: 6px; }
+                    .details-label { width: 180px; font-weight: bold; color: #555; }
+                    .signature-area { margin-top: 40px; }
+                    .sign-img { width: 120px; height: auto; margin-bottom: 5px; opacity: 0.85; }
+                    .no-print-btn { display: block; margin: 0 auto 20px auto; padding: 10px 20px; background: #2D6A4F; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; text-align: center; max-width: 180px; }
+                    @media print {
+                        .no-print-btn { display: none; }
+                        body { margin: 0; }
+                        .letter-container { border: none; box-shadow: none; padding: 0; }
+                    }
+                </style>
+            </head>
+            <body>
+                <button class="no-print-btn" onclick="window.print()">Print Support Letter</button>
+                <div class="letter-container">
+                    <div class="letterhead">
+                        <div class="letterhead-title">SHRAWELLO Travel Hub</div>
+                        <div class="letterhead-subtitle">Bespoke Journeys & Luxury Escapes</div>
+                        <div style="font-family: sans-serif; font-size: 10px; color: #888; text-align: right; margin-top: -30px;">
+                            support@shrawellotours.com | +91 22 4900 8800
+                        </div>
+                    </div>
+                    
+                    <div class="date">Date: ${new Date().toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
+                    
+                    <div class="recipient">
+                        To,<br>
+                        The Visa Officer / Consulate General<br>
+                        Embassy of Switzerland<br>
+                        New Delhi, India
+                    </div>
+
+                    <div class="subject">Subject: Travel Confirmation for Visa Application - ${booking.customer_name}</div>
+
+                    <div class="salutation">Dear Sir/Madam,</div>
+
+                    <div class="content">
+                        This is to confirm that <strong>${booking.customer_name}</strong> has booked a customized holiday package with Shrawello Travel Hub. The package details have been fully finalized, and all local accommodation, transfers, and sightseeing bookings have been confirmed.
+                        <br><br>
+                        The travel details are outlined below:
+                        
+                        <div class="details-box">
+                            <div class="details-row">
+                                <span class="details-label">Primary Traveler:</span>
+                                <span class="details-val">${booking.customer_name}</span>
+                            </div>
+                            <div class="details-row">
+                                <span class="details-label">Booking Confirmation Ref:</span>
+                                <span class="details-val">#${booking.id}</span>
+                            </div>
+                            <div class="details-row">
+                                <span class="details-label">Travel Destination:</span>
+                                <span class="details-val">${booking.destination || booking.title}</span>
+                            </div>
+                            <div class="details-row">
+                                <span class="details-label">Commencement Date:</span>
+                                <span class="details-val">${new Date(booking.booking_date).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                            </div>
+                            <div class="details-row">
+                                <span class="details-label">Passenger Count:</span>
+                                <span class="details-val">${booking.pax_count || 1} Person(s)</span>
+                            </div>
+                        </div>
+                        
+                        All arrangements for their itinerary are fully covered by Shrawello Travel Hub under the pre-paid booking transaction. We kindly request you to facilitate and grant the necessary tourist entry visa to support their upcoming holidays.
+                        <br><br>
+                        If you require any further validation or detailed voucher listings, please feel free to reach out to our Operations Desk at +91 22 4900 8800.
+                    </div>
+
+                    <div class="signature-area">
+                        Yours Sincerely,<br><br>
+                        <strong style="color: #2D6A4F;">Operations Supervisor</strong><br>
+                        Shrawello Travel Hub Pvt. Ltd.
+                    </div>
+                </div>
+                <script>
+                    window.onload = function() {
+                        setTimeout(function() { window.print(); }, 500);
+                    }
+                </script>
+            </body>
+            </html>
+        `);
+    } catch (err) {
+        console.error('[Customer Support Letter] Error:', err.message);
+        return res.status(500).send('<h1>Failed to load visa letter.</h1>');
+    }
+});
+
+// ── CUSTOMER PORTAL VISA CHECKLIST & TRACKER ──
+app.get('/api/customer/visa-status', customerAuthMiddleware, async (req, res) => {
+    const bookingId = req.query.bookingId;
+    if (!bookingId) return res.status(400).json({ error: 'bookingId is required.' });
+
+    try {
+        const [bookingRows] = await pool.query(
+            'SELECT destination, title FROM bookings WHERE id = ? AND LOWER(customer_email) = ?',
+            [bookingId, req.customer.email]
+        );
+        if (bookingRows.length === 0) return res.status(404).json({ error: 'Booking not found.' });
+        const booking = bookingRows[0];
+
+        const [appRows] = await pool.query(
+            'SELECT * FROM visa_applications WHERE booking_id = ?',
+            [bookingId]
+        );
+
+        if (appRows.length === 0) {
+            return res.json({ status: 'Not Required', country: booking.destination || booking.title, documents: [] });
+        }
+        const app = appRows[0];
+
+        const [documents] = await pool.query(
+            'SELECT * FROM visa_application_documents WHERE visa_application_id = ?',
+            [app.id]
+        );
+
+        const [reqRows] = await pool.query(
+            'SELECT required_documents, template_links, notes FROM destination_visa_requirements WHERE country = ?',
+            [app.country]
+        );
+
+        const requirements = reqRows[0] || { required_documents: '[]', template_links: '{}', notes: '' };
+
+        return res.json({
+            applicationId: app.id,
+            country: app.country,
+            status: app.status,
+            remarks: app.remarks,
+            submission_date: app.submission_date,
+            approval_date: app.approval_date,
+            requiredDocumentsList: JSON.parse(requirements.required_documents || '[]'),
+            templateLinks: JSON.parse(requirements.template_links || '{}'),
+            notes: requirements.notes || '',
+            documents: documents
+        });
+    } catch (err) {
+        console.error('[Customer Visa Tracker] Error:', err.message);
+        return res.status(500).json({ error: 'Failed to fetch visa tracking details.' });
+    }
+});
+
+// ── CUSTOMER PORTAL VISA DOCUMENT UPLOAD ──
+app.post('/api/customer/visa-documents', customerAuthMiddleware, upload.single('file'), async (req, res) => {
+    const { visaApplicationId, documentName } = req.body || {};
+    if (!visaApplicationId || !documentName) {
+        return res.status(400).json({ error: 'visaApplicationId and documentName are required.' });
+    }
+    if (!req.file) return res.status(400).json({ error: 'No document file uploaded.' });
+
+    try {
+        const [appRows] = await pool.query(
+            'SELECT va.id FROM visa_applications va JOIN bookings b ON va.booking_id = b.id WHERE va.id = ? AND LOWER(b.customer_email) = ?',
+            [visaApplicationId, req.customer.email]
+        );
+        if (appRows.length === 0) return res.status(403).json({ error: 'Access denied or invalid visa application.' });
+
+        const fileUrl = `/uploads/${req.file.filename}`;
+        await saveUploadedFileToDb(req.file);
+
+        await pool.query(`
+            INSERT INTO visa_application_documents (visa_application_id, document_name, status, file_url, uploaded_at)
+            VALUES (?, ?, 'Uploaded', ?, NOW())
+            ON DUPLICATE KEY UPDATE status = 'Uploaded', file_url = ?, uploaded_at = NOW(), rejection_reason = NULL
+        `, [visaApplicationId, documentName, fileUrl, fileUrl]);
+
+        await pool.query(
+            "UPDATE visa_applications SET status = 'In Progress', remarks = 'Documents uploaded, review pending by agency visa desk.' WHERE id = ? AND status = 'Not Started'",
+            [visaApplicationId]
+        );
+
+        return res.json({
+            message: 'Visa document uploaded successfully!',
+            file_url: fileUrl
+        });
+    } catch (err) {
+        console.error('[Customer Visa Document Upload] Error:', err.message);
+        return res.status(500).json({ error: 'Failed to save visa document.' });
+    }
+});
+
+// ── CUSTOMER PORTAL DYNAMIC DRIVER LOGISTICS ──
+app.get('/api/customer/driver-location', customerAuthMiddleware, async (req, res) => {
+    const bookingId = req.query.bookingId;
+    if (!bookingId) return res.status(400).json({ error: 'bookingId is required.' });
+
+    try {
+        const [bookingRows] = await pool.query(
+            'SELECT 1 FROM bookings WHERE id = ? AND LOWER(customer_email) = ?',
+            [bookingId, req.customer.email]
+        );
+        if (bookingRows.length === 0) return res.status(404).json({ error: 'Booking not found.' });
+
+        const [allocations] = await pool.query(
+            'SELECT * FROM booking_driver_allocations WHERE booking_id = ? ORDER BY day_number ASC',
+            [bookingId]
+        );
+
+        if (allocations.length === 0) {
+            return res.json({ activeAllocation: null });
+        }
+
+        const activeAlloc = allocations[0];
+        
+        const [coords] = await pool.query(
+            'SELECT latitude, longitude, updated_at FROM driver_live_locations WHERE allocation_id = ?',
+            [activeAlloc.id]
+        );
+
+        const location = coords[0] || null;
+
+        return res.json({
+            activeAllocation: {
+                id: activeAlloc.id,
+                day_number: activeAlloc.day_number,
+                driver_name: activeAlloc.driver_name,
+                driver_phone: activeAlloc.driver_phone,
+                vehicle_name: activeAlloc.vehicle_name,
+                vehicle_number: activeAlloc.vehicle_number,
+                guide_name: activeAlloc.guide_name,
+                guide_phone: activeAlloc.guide_phone,
+                live_tracking_enabled: activeAlloc.live_tracking_enabled,
+                location: location
+            }
+        });
+    } catch (err) {
+        console.error('[Customer Driver Location] Error:', err.message);
+        return res.status(500).json({ error: 'Failed to fetch driver logistics details.' });
+    }
+});
+
+// ── DRIVER COMPANION GPS COORDINATE PING ──
+app.post('/api/driver/ping', async (req, res) => {
+    const { token, latitude, longitude } = req.body || {};
+    if (!token || !latitude || !longitude) {
+        return res.status(400).json({ error: 'token, latitude, and longitude are required.' });
+    }
+
+    try {
+        const [allocRows] = await pool.query(
+            'SELECT id FROM booking_driver_allocations WHERE tracking_token = ? AND live_tracking_enabled = 1',
+            [token]
+        );
+        if (allocRows.length === 0) return res.status(403).json({ error: 'Invalid or deactivated tracking token.' });
+        const allocId = allocRows[0].id;
+
+        await pool.query(`
+            INSERT INTO driver_live_locations (allocation_id, latitude, longitude, updated_at)
+            VALUES (?, ?, ?, NOW())
+            ON DUPLICATE KEY UPDATE latitude = ?, longitude = ?, updated_at = NOW()
+        `, [allocId, latitude, longitude, latitude, longitude]);
+
+        return res.json({ message: 'GPS coordinates logged successfully!' });
+    } catch (err) {
+        console.error('[Driver GPS Ping] Error:', err.message);
+        return res.status(500).json({ error: 'Database error logging coordinates.' });
+    }
+});
+
 // Submit payment transaction receipt / UTR for admin verification
 app.post('/api/customer/bookings/:id/pay', customerAuthMiddleware, upload.single('receipt'), async (req, res) => {
     const { amount, method, reference, notes } = req.body || {};

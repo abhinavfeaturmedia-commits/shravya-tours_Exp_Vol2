@@ -5,6 +5,81 @@ import { formatPrice } from '../../utils/packageUtils';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
+// ── LEAFLET MAP WRAPPER COMPONENT ──
+const LeafletMap: React.FC<{
+  center: [number, number];
+  zoom: number;
+  markers: Array<{ latitude: number; longitude: number; label: string; marker_type?: string; description?: string }>;
+  route?: [number, number][];
+}> = ({ center, zoom, markers, route }) => {
+  const mapContainerRef = React.useRef<HTMLDivElement>(null);
+  const mapInstanceRef = React.useRef<any>(null);
+  const markersGroupRef = React.useRef<any>(null);
+  const polylineRef = React.useRef<any>(null);
+
+  React.useEffect(() => {
+    if (!mapContainerRef.current) return;
+    const L = (window as any).L;
+    if (!L) return;
+
+    // Initialize Leaflet Map
+    if (!mapInstanceRef.current) {
+      mapInstanceRef.current = L.map(mapContainerRef.current).setView(center, zoom);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(mapInstanceRef.current);
+      markersGroupRef.current = L.featureGroup().addTo(mapInstanceRef.current);
+    } else {
+      mapInstanceRef.current.setView(center, zoom);
+    }
+
+    const map = mapInstanceRef.current;
+    const markersGroup = markersGroupRef.current;
+
+    // Clear existing overlay features
+    markersGroup.clearLayers();
+    if (polylineRef.current) {
+      map.removeLayer(polylineRef.current);
+      polylineRef.current = null;
+    }
+
+    // Add locations markers
+    markers.forEach(m => {
+      const iconEmoji = m.marker_type === 'hotel' ? '🏨' : 
+                         m.marker_type === 'restaurant' ? '🍴' : 
+                         m.marker_type === 'transit' ? '🚗' : '📍';
+      
+      const customIcon = L.divIcon({
+        html: `<div style="font-size: 24px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.35));">${iconEmoji}</div>`,
+        className: 'custom-div-icon',
+        iconSize: [30, 30],
+        iconAnchor: [15, 30]
+      });
+
+      const marker = L.marker([Number(m.latitude), Number(m.longitude)], { icon: customIcon })
+        .bindPopup(`<strong>${m.label}</strong>${m.description ? `<br><span style="font-size:11px;color:#666;">${m.description}</span>` : ''}`);
+      markersGroup.addLayer(marker);
+    });
+
+    // Add route line overlay
+    if (route && route.length > 0) {
+      polylineRef.current = L.polyline(route, { color: '#C9732A', weight: 4, opacity: 0.85 }).addTo(map);
+    }
+
+    // Fit views to boundary
+    if (markers.length > 0) {
+      try {
+        const bounds = markersGroup.getBounds();
+        map.fitBounds(bounds, { padding: [40, 40] });
+      } catch (err) {
+        // ignore bounds errors if single marker
+      }
+    }
+  }, [center, zoom, markers, route]);
+
+  return <div ref={mapContainerRef} className="w-full h-full rounded-2xl border border-[#EDE8DF]" style={{ minHeight: '300px' }} />;
+};
+
 interface Booking {
   id: string;
   package_name?: string;
@@ -99,6 +174,15 @@ export const BookingDetail: React.FC = () => {
   const [reviewSubmitted, setReviewSubmitted] = useState(false);
   const [reviewLoading, setReviewLoading] = useState(false);
 
+  // New features states
+  const [itinerary, setItinerary] = useState<any[]>([]);
+  const [selectedItineraryDay, setSelectedItineraryDay] = useState<number>(1);
+  const [visaStatus, setVisaStatus] = useState<any>(null);
+  const [loadingVisa, setLoadingVisa] = useState(false);
+  const [driverAllocation, setDriverAllocation] = useState<any>(null);
+  const [showDriverTrackingModal, setShowDriverTrackingModal] = useState(false);
+  const [visaUploadLoading, setVisaUploadLoading] = useState<string | null>(null);
+
   const fetchAllData = async () => {
     try {
       const token = localStorage.getItem(CUSTOMER_JWT_KEY);
@@ -119,6 +203,36 @@ export const BookingDetail: React.FC = () => {
       if (txRes.ok) {
         const txData = await txRes.json();
         setTransactions(txData || []);
+      }
+
+      // Fetch dynamic itinerary maps
+      const itinRes = await fetch(`${API_BASE}/api/customer/bookings/${id}/itinerary`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (itinRes.ok) {
+        const itinData = await itinRes.ok ? await itinRes.json() : [];
+        setItinerary(itinData);
+        if (itinData.length > 0) {
+          setSelectedItineraryDay(itinData[0].day_number);
+        }
+      }
+
+      // Fetch visa status
+      const visaRes = await fetch(`${API_BASE}/api/customer/visa-status?bookingId=${id}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (visaRes.ok) {
+        const visaData = await visaRes.json();
+        setVisaStatus(visaData);
+      }
+
+      // Fetch driver details & coordinates
+      const driverRes = await fetch(`${API_BASE}/api/customer/driver-location?bookingId=${id}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (driverRes.ok) {
+        const driverData = await driverRes.json();
+        setDriverAllocation(driverData.activeAllocation);
       }
     } catch (err: any) {
       setError(err.message || 'An error occurred while loading booking details.');
@@ -145,6 +259,26 @@ export const BookingDetail: React.FC = () => {
     fetchAllData();
     fetchMyMembership();
   }, [id]);
+
+  // Polling for live driver location
+  useEffect(() => {
+    if (!driverAllocation || !driverAllocation.live_tracking_enabled) return;
+    const interval = setInterval(async () => {
+      try {
+        const token = localStorage.getItem(CUSTOMER_JWT_KEY);
+        const res = await fetch(`${API_BASE}/api/customer/driver-location?bookingId=${id}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setDriverAllocation(data.activeAllocation);
+        }
+      } catch (err) {
+        console.warn('Live tracking error:', err);
+      }
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [driverAllocation, id]);
 
   const handleApplyCoupon = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -628,34 +762,134 @@ export const BookingDetail: React.FC = () => {
                 )}
               </div>
 
-              {/* Detailed Itinerary */}
+              {/* Driver & Guide Logistics Tracker */}
+              {driverAllocation && (
+                <div className="bg-white rounded-3xl p-6 border border-[#EDE8DF] shadow-sm space-y-4">
+                  <div className="flex justify-between items-center border-b border-slate-50 pb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="material-symbols-outlined text-primary" style={{ color: '#C9732A' }}>local_taxi</span>
+                      <h3 className="font-display font-bold text-base text-slate-900">Today's Driver & Guide</h3>
+                    </div>
+                    {driverAllocation.live_tracking_enabled === 1 && (
+                      <span className="flex items-center gap-1 text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full uppercase tracking-wider animate-pulse">
+                        <span className="size-1.5 bg-emerald-500 rounded-full"></span>
+                        Live Tracking Active
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {/* Driver Card */}
+                    <div className="p-4 rounded-2xl border border-slate-100 bg-[#FDFCF7] flex gap-3 items-center text-xs">
+                      <div className="size-10 bg-[#C9732A]/10 rounded-xl flex items-center justify-center text-primary shrink-0" style={{ color: '#C9732A' }}>
+                        <span className="material-symbols-outlined text-[24px]">person</span>
+                      </div>
+                      <div>
+                        <span className="text-[8px] text-slate-400 font-bold uppercase block">Driver</span>
+                        <h4 className="font-bold text-slate-800 text-sm leading-snug">{driverAllocation.driver_name}</h4>
+                        <p className="text-[10px] text-slate-500 font-semibold mt-0.5">{driverAllocation.driver_phone}</p>
+                        <p className="text-[9px] text-slate-400 mt-1">{driverAllocation.vehicle_name} &bull; <strong className="text-slate-600">{driverAllocation.vehicle_number}</strong></p>
+                      </div>
+                    </div>
+
+                    {/* Guide Card (if allocated) */}
+                    {driverAllocation.guide_name && (
+                      <div className="p-4 rounded-2xl border border-slate-100 bg-[#FDFCF7] flex gap-3 items-center text-xs">
+                        <div className="size-10 bg-[#2D6A4F]/10 rounded-xl flex items-center justify-center text-accent shrink-0" style={{ color: '#2D6A4F' }}>
+                          <span className="material-symbols-outlined text-[24px]">support_agent</span>
+                        </div>
+                        <div>
+                          <span className="text-[8px] text-slate-400 font-bold uppercase block">Tour Guide</span>
+                          <h4 className="font-bold text-slate-800 text-sm leading-snug">{driverAllocation.guide_name}</h4>
+                          <p className="text-[10px] text-slate-500 font-semibold mt-0.5">{driverAllocation.guide_phone}</p>
+                          <p className="text-[9px] text-slate-400 mt-1">Language: English & French</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {driverAllocation.live_tracking_enabled === 1 && (
+                    <button 
+                      onClick={() => setShowDriverTrackingModal(true)}
+                      className="w-full py-3 bg-[#2D6A4F] hover:bg-[#204a37] text-white font-bold text-xs rounded-xl shadow-md flex items-center justify-center gap-1.5 transition-colors"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">location_on</span>
+                      Track Pickup Vehicle Live
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Detailed Itinerary & Route Maps */}
               <div className="bg-white rounded-3xl p-6 border border-[#EDE8DF] shadow-sm space-y-4">
                 <div className="flex items-center gap-2 border-b border-slate-50 pb-3">
                   <span className="material-symbols-outlined text-primary" style={{ color: '#C9732A' }}>format_list_bulleted</span>
-                  <h3 className="font-display font-bold text-base text-slate-900">Detailed Itinerary</h3>
+                  <h3 className="font-display font-bold text-base text-slate-900">Detailed Itinerary & Route Maps</h3>
                 </div>
 
-                <div className="space-y-4 text-xs font-semibold">
-                  <div className="border-l-2 border-primary-light/40 pl-4 py-1.5 space-y-4" style={{ borderColor: '#E8935B' }}>
-                    <div className="relative">
-                      <div className="absolute -left-[21px] top-1 size-2 bg-primary rounded-full" style={{ backgroundColor: '#C9732A' }} />
-                      <h4 className="font-bold text-slate-800 text-xs">Day 1: Arrival & Transfer</h4>
-                      <p className="text-[10px] text-slate-500 mt-0.5 font-medium leading-relaxed">
-                        Private transfer to Zermatt. Evening welcome dinner.
-                      </p>
+                {itinerary.length === 0 ? (
+                  <div className="text-center py-8 text-slate-400 text-xs">
+                    <span className="material-symbols-outlined text-[32px] block mb-1">map</span>
+                    Detailed maps and route allocations are being finalized by your coordinator.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    {/* Itinerary Timeline list */}
+                    <div className="lg:col-span-5 space-y-3 max-h-[380px] overflow-y-auto pr-2">
+                      {itinerary.map(item => {
+                        const isSelected = selectedItineraryDay === item.day_number;
+                        return (
+                          <div 
+                            key={item.id} 
+                            onClick={() => setSelectedItineraryDay(item.day_number)}
+                            className={`p-3 rounded-2xl cursor-pointer border transition-all text-xs text-left ${
+                              isSelected ? 'bg-primary/5 border-primary/20 shadow-sm' : 'bg-white border-transparent hover:bg-slate-50'
+                            }`}
+                          >
+                            <span className="text-[10px] text-primary font-black uppercase" style={{ color: '#C9732A' }}>Day {item.day_number}</span>
+                            <h4 className="font-bold text-slate-800 text-sm mt-0.5">{item.title}</h4>
+                            <p className="text-[10px] text-slate-500 mt-1 font-medium leading-relaxed line-clamp-2">
+                              {item.description}
+                            </p>
+                          </div>
+                        );
+                      })}
                     </div>
-                    <div className="relative">
-                      <div className="absolute -left-[21px] top-1 size-2 bg-primary rounded-full" style={{ backgroundColor: '#C9732A' }} />
-                      <h4 className="font-bold text-slate-800 text-xs">Day 2: Peak Exploration</h4>
-                      <p className="text-[10px] text-slate-500 mt-0.5 font-medium leading-relaxed">
-                        Cable car ride to the highest viewing platform in the Alps.
-                      </p>
+
+                    {/* Interactive Map Column */}
+                    <div className="lg:col-span-7 h-[350px]">
+                      {(() => {
+                        const currentDay = itinerary.find(it => it.day_number === selectedItineraryDay) || itinerary[0];
+                        if (!currentDay) return null;
+                        
+                        const center: [number, number] = [
+                          Number(currentDay.latitude || 46.0207), 
+                          Number(currentDay.longitude || 7.7491)
+                        ];
+                        const markers = currentDay.markers || [];
+                        let routeCoords: [number, number][] = [];
+                        if (currentDay.route_polyline) {
+                          try {
+                            routeCoords = typeof currentDay.route_polyline === 'string'
+                              ? JSON.parse(currentDay.route_polyline)
+                              : currentDay.route_polyline;
+                          } catch {
+                            // ignore
+                          }
+                        }
+
+                        return (
+                          <LeafletMap 
+                            center={center}
+                            zoom={currentDay.zoom_level || 12}
+                            markers={markers}
+                            route={routeCoords}
+                          />
+                        );
+                      })()}
                     </div>
                   </div>
-                  <button onClick={() => alert('Viewing full itinerary...')} className="text-primary font-black hover:text-primary-dark block text-xs mt-2 no-print" style={{ color: '#C9732A' }}>
-                    View full itinerary &rsaquo;
-                  </button>
-                </div>
+                )}
               </div>
 
             </div>
@@ -697,6 +931,120 @@ export const BookingDetail: React.FC = () => {
                 </div>
               </div>
 
+              {/* Visa Application Tracker */}
+              {visaStatus && visaStatus.status !== 'Not Required' && (
+                <div className="bg-white rounded-3xl p-6 border border-[#EDE8DF] shadow-sm space-y-4">
+                  <div className="flex justify-between items-center border-b border-slate-50 pb-3">
+                    <h3 className="font-display font-bold text-base text-slate-900">Visa Tracker ({visaStatus.country})</h3>
+                    <span className={`text-[9px] font-black px-2.5 py-1 rounded-full uppercase ${
+                      visaStatus.status === 'Approved' ? 'bg-emerald-50 text-emerald-600' :
+                      visaStatus.status === 'Rejected' ? 'bg-rose-50 text-rose-600' : 'bg-amber-50 text-amber-600'
+                    }`}>
+                      {visaStatus.status}
+                    </span>
+                  </div>
+
+                  {visaStatus.remarks && (
+                    <div className="p-3 bg-slate-50 rounded-xl text-[10px] text-slate-500 font-medium leading-relaxed">
+                      <strong>Remarks:</strong> {visaStatus.remarks}
+                    </div>
+                  )}
+
+                  {/* Checklist */}
+                  <div className="space-y-3">
+                    <h4 className="font-display font-bold text-[10px] uppercase tracking-wider text-slate-400">Document Checklist</h4>
+                    {visaStatus.requiredDocumentsList?.map((docName: string, idx: number) => {
+                      const uploadedDoc = visaStatus.documents?.find((d: any) => d.document_name === docName);
+                      const status = uploadedDoc ? uploadedDoc.status : 'Pending Upload';
+                      
+                      return (
+                        <div key={idx} className="p-3 bg-slate-50 rounded-2xl flex flex-col gap-2">
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-slate-800 text-[11px] leading-snug">{docName}</span>
+                            <span className={`text-[9px] font-black px-2 py-0.5 rounded-full ${
+                              status === 'Verified' ? 'bg-emerald-50 text-emerald-600' :
+                              status === 'Uploaded' ? 'bg-sky-50 text-sky-600' : 'bg-red-50 text-red-500'
+                            }`}>
+                              {status}
+                            </span>
+                          </div>
+                          
+                          {uploadedDoc?.rejection_reason && (
+                            <p className="text-[10px] text-red-500 font-medium">Rejection Reason: {uploadedDoc.rejection_reason}</p>
+                          )}
+
+                          {status !== 'Verified' && (
+                            <div className="flex gap-2 items-center mt-1">
+                              <input 
+                                type="file" 
+                                id={`visa-doc-${idx}`}
+                                className="hidden" 
+                                onChange={async (e) => {
+                                  const file = e.target.files?.[0];
+                                  if (!file) return;
+                                  
+                                  const formData = new FormData();
+                                  formData.append('visaApplicationId', visaStatus.applicationId);
+                                  formData.append('documentName', docName);
+                                  formData.append('file', file);
+                                  
+                                  setVisaUploadLoading(docName);
+                                  try {
+                                    const token = localStorage.getItem(CUSTOMER_JWT_KEY);
+                                    const res = await fetch(`${API_BASE}/api/customer/visa-documents`, {
+                                      method: 'POST',
+                                      headers: { 'Authorization': `Bearer ${token}` },
+                                      body: formData
+                                    });
+                                    if (res.ok) {
+                                      alert('Document uploaded successfully!');
+                                      // Refresh visa status
+                                      const visaRes = await fetch(`${API_BASE}/api/customer/visa-status?bookingId=${id}`, {
+                                        headers: { 'Authorization': `Bearer ${token}` }
+                                      });
+                                      if (visaRes.ok) {
+                                        setVisaStatus(await visaRes.json());
+                                      }
+                                    } else {
+                                      const errData = await res.json();
+                                      alert(errData.error || 'Failed to upload document');
+                                    }
+                                  } catch (err) {
+                                    alert('Error uploading document.');
+                                  } finally {
+                                    setVisaUploadLoading(null);
+                                  }
+                                }}
+                              />
+                              <label 
+                                htmlFor={`visa-doc-${idx}`}
+                                className="px-3 py-1.5 bg-slate-900 text-white hover:bg-slate-800 text-[10px] font-bold rounded-lg cursor-pointer flex items-center gap-1.5"
+                              >
+                                <span className="material-symbols-outlined text-[14px]">upload</span>
+                                {visaUploadLoading === docName ? 'Uploading...' : 'Upload File'}
+                              </label>
+
+                              {/* Templates download links */}
+                              {visaStatus.templateLinks?.[docName] && (
+                                <a 
+                                  href={visaStatus.templateLinks[docName]} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  className="text-primary text-[10px] font-bold hover:underline"
+                                  style={{ color: '#C9732A' }}
+                                >
+                                  Template
+                                </a>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* What's included checklist */}
               <div className="bg-white rounded-3xl p-6 border border-[#EDE8DF] shadow-sm space-y-4">
                 <h3 className="font-display font-bold text-base text-slate-900">What's Included</h3>
@@ -731,7 +1079,7 @@ export const BookingDetail: React.FC = () => {
 
               {/* Actions panel */}
               {booking.status !== 'cancelled' && booking.status !== 'completed' && (
-                <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] shadow-sm space-y-3">
+                <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] shadow-sm space-y-3 font-semibold text-xs text-slate-650">
                   <h3 className="font-display font-bold text-xs uppercase tracking-wider text-slate-400">Operations Panel</h3>
                   <button onClick={() => setShowRescheduleModal(true)} className="w-full py-2.5 text-xs font-bold border rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-600">
                     Request Date Change
@@ -741,6 +1089,41 @@ export const BookingDetail: React.FC = () => {
                   </button>
                 </div>
               )}
+
+              {/* Downloads Panel */}
+              <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] shadow-sm space-y-3 font-semibold text-xs">
+                <h3 className="font-display font-bold text-xs uppercase tracking-wider text-slate-400">Official Downloads</h3>
+                
+                <a 
+                  href={`${API_BASE}/api/customer/bookings/${booking.id}/invoice/print?token=${localStorage.getItem(CUSTOMER_JWT_KEY)}`} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="w-full py-2.5 text-xs font-bold border rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-650 flex items-center justify-center gap-2 transition-colors"
+                >
+                  <span className="material-symbols-outlined text-[16px] text-primary" style={{ color: '#C9732A' }}>download</span>
+                  Download GST Invoice
+                </a>
+
+                <a 
+                  href={`${API_BASE}/api/customer/bookings/${booking.id}/receipt/print?token=${localStorage.getItem(CUSTOMER_JWT_KEY)}`} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="w-full py-2.5 text-xs font-bold border rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-655 flex items-center justify-center gap-2 transition-colors"
+                >
+                  <span className="material-symbols-outlined text-[16px] text-primary" style={{ color: '#C9732A' }}>receipt_long</span>
+                  Download Payment Receipt
+                </a>
+
+                <a 
+                  href={`${API_BASE}/api/customer/bookings/${booking.id}/visa-letter/print?token=${localStorage.getItem(CUSTOMER_JWT_KEY)}`} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="w-full py-2.5 text-xs font-bold border rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-655 flex items-center justify-center gap-2 transition-colors"
+                >
+                  <span className="material-symbols-outlined text-[16px] text-primary" style={{ color: '#C9732A' }}>description</span>
+                  Visa Support Letter
+                </a>
+              </div>
 
             </div>
 
@@ -814,6 +1197,65 @@ export const BookingDetail: React.FC = () => {
                 {rescheduleLoading ? 'Submitting Request...' : 'Submit Reschedule Request'}
               </button>
             </form>
+          </div>
+        </div>
+      )}
+      {/* ── MODAL: LIVE DRIVER TRACKING ── */}
+      {showDriverTrackingModal && driverAllocation && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/55 backdrop-blur-sm no-print">
+          <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 w-full max-w-2xl shadow-2xl relative">
+            <button onClick={() => setShowDriverTrackingModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600">
+              <span className="material-symbols-outlined">close</span>
+            </button>
+            <h3 className="font-display font-bold text-lg text-slate-900 mb-1 flex items-center gap-1.5">
+              <span className="material-symbols-outlined text-primary" style={{ color: '#C9732A' }}>local_taxi</span>
+              Live Driver Location Tracking
+            </h3>
+            <p className="text-xs text-slate-400 mb-4">
+              Tracking vehicle <strong className="text-slate-700">{driverAllocation.vehicle_number}</strong>. Coordinates update automatically.
+            </p>
+            
+            <div className="h-[380px] w-full rounded-2xl overflow-hidden relative">
+              {driverAllocation.location ? (
+                <LeafletMap 
+                  center={[Number(driverAllocation.location.latitude), Number(driverAllocation.location.longitude)]}
+                  zoom={14}
+                  markers={[
+                    {
+                      latitude: Number(driverAllocation.location.latitude),
+                      longitude: Number(driverAllocation.location.longitude),
+                      label: `${driverAllocation.driver_name} (Driver)`,
+                      marker_type: 'transit',
+                      description: `Vehicle: ${driverAllocation.vehicle_number}`
+                    }
+                  ]}
+                />
+              ) : (
+                <div className="w-full h-full bg-slate-50 flex flex-col items-center justify-center text-slate-400 text-xs">
+                  <span className="material-symbols-outlined text-[36px] animate-bounce mb-2">location_off</span>
+                  Awaiting live coordinates from driver...
+                </div>
+              )}
+            </div>
+            
+            <div className="mt-4 flex justify-between items-center text-xs">
+              <div className="flex gap-3 text-left">
+                <div>
+                  <span className="text-[8px] text-slate-400 font-bold uppercase block">Driver</span>
+                  <span className="font-bold text-slate-700">{driverAllocation.driver_name}</span>
+                </div>
+                <div>
+                  <span className="text-[8px] text-slate-400 font-bold uppercase block">Phone</span>
+                  <span className="font-bold text-slate-700">{driverAllocation.driver_phone}</span>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowDriverTrackingModal(false)}
+                className="px-4 py-2 border rounded-xl font-bold hover:bg-slate-50 text-slate-600"
+              >
+                Close Tracking
+              </button>
+            </div>
           </div>
         </div>
       )}
