@@ -76,6 +76,33 @@ async function runMigration() {
         // ─── Membership Plans: homepage visibility ───
         await pool.query(`ALTER TABLE membership_plans ADD COLUMN IF NOT EXISTS show_on_homepage TINYINT(1) NOT NULL DEFAULT 0`);
         console.log('[Migration] membership_plans.show_on_homepage column verified/added');
+
+        // Create table for customer packing checklists
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS customer_packing_checklists (
+                id VARCHAR(64) PRIMARY KEY,
+                booking_id VARCHAR(64) NOT NULL,
+                customer_email VARCHAR(255) NOT NULL,
+                items LONGTEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+        console.log('[Migration] customer_packing_checklists table verified/created');
+
+        // Create table for purchased booking add-ons
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS booking_purchased_addons (
+                id VARCHAR(64) PRIMARY KEY,
+                booking_id VARCHAR(64) NOT NULL,
+                addon_id VARCHAR(64) NOT NULL,
+                label VARCHAR(255) NOT NULL,
+                price DECIMAL(10, 2) NOT NULL,
+                status VARCHAR(50) NOT NULL DEFAULT 'Pending Payment',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        console.log('[Migration] booking_purchased_addons table verified/created');
     } catch (err) {
         console.error('[Migration Error]', err.message);
     }
@@ -377,6 +404,161 @@ async function ensureSettingsTable() {
     }
 }
 ensureSettingsTable();
+
+// Ensure chatbot tables and configurations
+async function ensureChatbotTables() {
+    try {
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS chatbot_sessions (
+                id VARCHAR(64) PRIMARY KEY,
+                visitor_id VARCHAR(100) NOT NULL,
+                status VARCHAR(50) DEFAULT 'Active',
+                lead_id VARCHAR(64) DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS chatbot_messages (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                session_id VARCHAR(64) NOT NULL,
+                sender VARCHAR(50) NOT NULL,
+                message TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (session_id) REFERENCES chatbot_sessions(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+
+        try {
+            await pool.query(`ALTER TABLE customer_chat_conversations ADD COLUMN is_ai_enabled TINYINT(1) NOT NULL DEFAULT 1`);
+            console.log('[Chatbot Migration] Added is_ai_enabled column to customer_chat_conversations.');
+        } catch (err) {
+            // Already exists
+        }
+
+        console.log('[Chatbot Migration] Tables and columns checked/created.');
+    } catch (err) {
+        console.error('[Chatbot Migration Error]', err.message);
+    }
+}
+ensureChatbotTables();
+
+// AI Chatbot Helpers for OpenRouter
+async function getOpenRouterConfig() {
+    try {
+        const [rows] = await pool.query("SELECT setting_key, setting_value FROM settings WHERE setting_key LIKE 'integrations.openrouter.%'");
+        const config = {
+            enabled: false,
+            apiKey: '',
+            defaultModel: 'meta-llama/llama-3.3-70b-instruct:free'
+        };
+        rows.forEach(row => {
+            if (row.setting_key === 'integrations.openrouter.enabled') {
+                try { config.enabled = JSON.parse(row.setting_value); } catch {}
+            } else if (row.setting_key === 'integrations.openrouter.apiKey') {
+                try { config.apiKey = JSON.parse(row.setting_value); } catch {}
+            } else if (row.setting_key === 'integrations.openrouter.defaultModel') {
+                try { config.defaultModel = JSON.parse(row.setting_value); } catch {}
+            }
+        });
+        return config;
+    } catch (e) {
+        console.warn("[OpenRouter Config] Failed to load from DB:", e.message);
+        return { enabled: false, apiKey: '', defaultModel: 'meta-llama/llama-3.3-70b-instruct:free' };
+    }
+}
+
+async function callOpenRouterAI(messages, systemPrompt) {
+    const config = await getOpenRouterConfig();
+    let apiKey = config.apiKey;
+    let model = config.defaultModel || 'meta-llama/llama-3.3-70b-instruct:free';
+    
+    // Clean quotes from model name if any
+    model = model.replace(/^["']|["']$/g, '');
+    if (model === 'openrouter/free') {
+        model = 'meta-llama/llama-3.3-70b-instruct:free';
+    }
+
+    // Try prioritized list of free fallback models
+    const modelsToTry = [
+        model,
+        'meta-llama/llama-3.3-70b-instruct:free',
+        'meta-llama/llama-3.2-3b-instruct:free',
+        'nvidia/nemotron-nano-9b-v2:free'
+    ];
+    const uniqueModels = Array.from(new Set(modelsToTry));
+
+    // Construct body
+    const formattedMessages = [
+        { role: 'system', content: systemPrompt },
+        ...messages
+    ];
+
+    let lastError = null;
+    for (const m of uniqueModels) {
+        try {
+            console.log(`[AI Chatbot] Querying OpenRouter model: ${m}`);
+            const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${apiKey}`,
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://shravyatours.com",
+                    "X-Title": "Shrawello Travel Hub AI"
+                },
+                body: JSON.stringify({
+                    model: m,
+                    messages: formattedMessages,
+                    temperature: 0.7
+                })
+            });
+
+            if (!response.ok) {
+                const text = await response.text();
+                throw new Error(`Status ${response.status}: ${text}`);
+            }
+
+            const data = await response.json();
+            if (data.choices && data.choices.length > 0) {
+                return data.choices[0].message.content;
+            }
+            throw new Error("Empty choices array from OpenRouter");
+        } catch (err) {
+            console.warn(`[AI Chatbot] Failed with model ${m}:`, err.message);
+            lastError = err;
+        }
+    }
+
+    // Fallback: If OpenRouter fails, check if we have a direct Gemini API key in env
+    if (process.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY) {
+        try {
+            console.log("[AI Chatbot] OpenRouter failed, falling back to direct Gemini API");
+            const geminiKey = process.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+            const fullPrompt = `${systemPrompt}\n\nConversation History:\n${messages.map(msg => `${msg.role}: ${msg.content}`).join('\n')}`;
+            
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: fullPrompt }] }]
+                })
+            });
+            if (response.ok) {
+                const data = await response.json();
+                if (data.candidates && data.candidates[0]?.content?.parts?.[0]?.text) {
+                    return data.candidates[0].content.parts[0].text;
+                }
+            }
+        } catch (geminiErr) {
+            console.error("[AI Chatbot] Gemini fallback failed:", geminiErr.message);
+        }
+    }
+
+    throw lastError || new Error("All AI models in the queue failed.");
+}
+
+
 
 // ─── Migrate Staff Permissions (adds new permission keys to existing records) ───
 // Runs on every startup. Non-destructive: only adds missing keys, never overwrites.
@@ -3113,6 +3295,186 @@ app.post('/api/customer/bookings/:id/apply-coupon', customerAuthMiddleware, asyn
     }
 });
 
+// ─── Customer Packing Checklist Endpoints ───
+
+// GET customer packing checklist for a specific booking
+app.get('/api/customer/bookings/:bookingId/packing-checklist', customerAuthMiddleware, async (req, res) => {
+    try {
+        const [bookingRows] = await pool.query(
+            'SELECT 1 FROM bookings WHERE id = ? AND LOWER(customer_email) = ?',
+            [req.params.bookingId, req.customer.email]
+        );
+        if (bookingRows.length === 0) return res.status(404).json({ error: 'Booking not found.' });
+
+        const [checklistRows] = await pool.query(
+            'SELECT items FROM customer_packing_checklists WHERE booking_id = ? AND LOWER(customer_email) = ?',
+            [req.params.bookingId, req.customer.email]
+        );
+
+        if (checklistRows.length === 0) {
+            return res.json({ items: null });
+        }
+        
+        let items = checklistRows[0].items;
+        if (typeof items === 'string') {
+            try {
+                items = JSON.parse(items);
+            } catch (e) {
+                console.warn('Failed to parse checklist JSON string:', e);
+            }
+        }
+        return res.json({ items });
+    } catch (err) {
+        console.error('[Customer Packing Checklist] GET error:', err.message);
+        return res.status(500).json({ error: 'Failed to fetch packing checklist.' });
+    }
+});
+
+// POST customer packing checklist for a specific booking
+app.post('/api/customer/bookings/:bookingId/packing-checklist', customerAuthMiddleware, async (req, res) => {
+    const { items } = req.body || {};
+    if (!items || !Array.isArray(items)) {
+        return res.status(400).json({ error: 'Items must be a JSON array.' });
+    }
+    try {
+        const [bookingRows] = await pool.query(
+            'SELECT 1 FROM bookings WHERE id = ? AND LOWER(customer_email) = ?',
+            [req.params.bookingId, req.customer.email]
+        );
+        if (bookingRows.length === 0) return res.status(404).json({ error: 'Booking not found.' });
+
+        const id = crypto.randomBytes(16).toString('hex');
+        const itemsStr = JSON.stringify(items);
+
+        const [existing] = await pool.query(
+            'SELECT id FROM customer_packing_checklists WHERE booking_id = ? AND LOWER(customer_email) = ?',
+            [req.params.bookingId, req.customer.email]
+        );
+
+        if (existing.length > 0) {
+            await pool.query(
+                'UPDATE customer_packing_checklists SET items = ?, updated_at = CURRENT_TIMESTAMP WHERE booking_id = ? AND LOWER(customer_email) = ?',
+                [itemsStr, req.params.bookingId, req.customer.email]
+            );
+        } else {
+            await pool.query(
+                'INSERT INTO customer_packing_checklists (id, booking_id, customer_email, items) VALUES (?, ?, ?, ?)',
+                [id, req.params.bookingId, req.customer.email, itemsStr]
+            );
+        }
+
+        return res.json({ message: 'Packing checklist saved successfully!' });
+    } catch (err) {
+        console.error('[Customer Packing Checklist] POST error:', err.message);
+        return res.status(500).json({ error: 'Failed to save packing checklist.' });
+    }
+});
+
+// ─── Customer Add-On Marketplace Endpoints ───
+
+// GET purchased add-ons for a specific booking
+app.get('/api/customer/bookings/:bookingId/purchased-addons', customerAuthMiddleware, async (req, res) => {
+    try {
+        const [bookingRows] = await pool.query(
+            'SELECT 1 FROM bookings WHERE id = ? AND LOWER(customer_email) = ?',
+            [req.params.bookingId, req.customer.email]
+        );
+        if (bookingRows.length === 0) return res.status(404).json({ error: 'Booking not found.' });
+
+        const [addonsRows] = await pool.query(
+            'SELECT addon_id, label, price, status, created_at FROM booking_purchased_addons WHERE booking_id = ?',
+            [req.params.bookingId]
+        );
+
+        return res.json(addonsRows);
+    } catch (err) {
+        console.error('[Customer Purchased Addons] GET error:', err.message);
+        return res.status(500).json({ error: 'Failed to fetch purchased add-ons.' });
+    }
+});
+
+// POST purchase an add-on for a specific booking
+app.post('/api/customer/bookings/:bookingId/addons', customerAuthMiddleware, async (req, res) => {
+    const { addonId, label, price } = req.body || {};
+    if (!addonId || !label || price === undefined) {
+        return res.status(400).json({ error: 'Add-on ID, label, and price are required.' });
+    }
+
+    try {
+        const [bookingRows] = await pool.query(
+            'SELECT title, total_price, customer_email FROM bookings WHERE id = ? AND LOWER(customer_email) = ?',
+            [req.params.bookingId, req.customer.email]
+        );
+        if (bookingRows.length === 0) return res.status(404).json({ error: 'Booking not found.' });
+        const booking = bookingRows[0];
+
+        const [existing] = await pool.query(
+            'SELECT 1 FROM booking_purchased_addons WHERE booking_id = ? AND addon_id = ?',
+            [req.params.bookingId, addonId]
+        );
+        if (existing.length > 0) {
+            return res.status(400).json({ error: 'This add-on has already been purchased for this booking.' });
+        }
+
+        const id = crypto.randomBytes(16).toString('hex');
+        const addonPrice = Number(price);
+
+        await pool.query(`
+            INSERT INTO booking_purchased_addons (id, booking_id, addon_id, label, price, status)
+            VALUES (?, ?, ?, ?, ?, 'Pending Payment')
+        `, [id, req.params.bookingId, addonId, label, addonPrice]);
+
+        const newTotalPrice = Number(booking.total_price || 0) + addonPrice;
+        await pool.query(
+            'UPDATE bookings SET total_price = ? WHERE id = ?',
+            [newTotalPrice, req.params.bookingId]
+        );
+
+        const [[bookingWithNotes]] = await pool.query('SELECT booking_notes FROM bookings WHERE id = ?', [req.params.bookingId]);
+        let notes = [];
+        if (bookingWithNotes && bookingWithNotes.booking_notes) {
+            try {
+                notes = typeof bookingWithNotes.booking_notes === 'string' 
+                    ? JSON.parse(bookingWithNotes.booking_notes) 
+                    : bookingWithNotes.booking_notes;
+            } catch (e) {
+                notes = [];
+            }
+        }
+        if (!Array.isArray(notes)) notes = [];
+
+        notes.push({
+            id: crypto.randomBytes(16).toString('hex'),
+            text: `Customer purchased add-on: ${label} (₹${addonPrice.toLocaleString('en-IN')}) via Customer Portal. Balance updated.`,
+            date: new Date().toISOString(),
+            author: 'System',
+            isPinned: false
+        });
+
+        await pool.query(
+            'UPDATE bookings SET booking_notes = ? WHERE id = ?',
+            [JSON.stringify(notes), req.params.bookingId]
+        );
+
+        await pool.query(`
+            INSERT INTO audit_logs (action, module, details, severity, performed_by, timestamp)
+            VALUES ('Purchase Addon', 'Bookings', ?, 'Info', ?, DATE_FORMAT(NOW(), '%Y-%m-%d %H:%i:%s'))
+        `, [
+            `Purchased add-on ${label} (₹${addonPrice}) for booking ${req.params.bookingId}`, 
+            req.customer.email
+        ]);
+
+        return res.json({
+            message: `Add-on "${label}" purchased successfully! Remaining balance updated.`,
+            addon: { id, addonId, label, price: addonPrice, status: 'Pending Payment' },
+            newTotalPrice
+        });
+    } catch (err) {
+        console.error('[Customer Purchase Addon] POST error:', err.message);
+        return res.status(500).json({ error: 'Failed to purchase add-on.' });
+    }
+});
+
 // Cancellation Request
 app.post('/api/customer/bookings/:id/cancel', customerAuthMiddleware, async (req, res) => {
     const { reason } = req.body || {};
@@ -3448,23 +3810,137 @@ app.post('/api/customer/chat', customerAuthMiddleware, async (req, res) => {
     if (!message) return res.status(400).json({ error: 'Message is required.' });
     const msgTrim = message.trim();
     try {
-        // 1. Insert message
+        // 1. Insert customer message
         await pool.query(`
             INSERT INTO customer_chat_messages (customer_id, booking_id, sender_type, message, is_read)
             VALUES (?, ?, 'customer', ?, 0)
         `, [req.customer.id, bookingId || null, msgTrim]);
 
-        // 2. Upsert summary conversation
+        // 2. Fetch or initialize conversation
+        const [convRows] = await pool.query(
+            "SELECT is_ai_enabled FROM customer_chat_conversations WHERE customer_id = ?",
+            [req.customer.id]
+        );
+        
+        let isAiActive = true;
+        if (convRows.length > 0) {
+            isAiActive = !!convRows[0].is_ai_enabled;
+        }
+
+        // 3. Upsert summary conversation
         await pool.query(`
-            INSERT INTO customer_chat_conversations (customer_id, status, last_message, last_message_at, unread_count)
-            VALUES (?, 'Open', ?, NOW(), 1)
+            INSERT INTO customer_chat_conversations (customer_id, status, last_message, last_message_at, unread_count, is_ai_enabled)
+            VALUES (?, 'Open', ?, NOW(), ?, ?)
             ON DUPLICATE KEY UPDATE 
                 status = 'Open',
                 last_message = VALUES(last_message),
                 last_message_at = VALUES(last_message_at),
-                unread_count = unread_count + 1
-        `, [req.customer.id, msgTrim]);
+                unread_count = VALUES(unread_count)
+        `, [req.customer.id, msgTrim, isAiActive ? 0 : 1, isAiActive ? 1 : 0]);
 
+        if (isAiActive) {
+            // ─── AI CHATBOT PROCESSOR ───
+            try {
+                // Check if user explicitly wants to talk to a human agent
+                const lowerMsg = msgTrim.toLowerCase();
+                const wantsHuman = lowerMsg.includes('human') || lowerMsg.includes('agent') || 
+                                   lowerMsg.includes('staff') || lowerMsg.includes('person') || 
+                                   lowerMsg.includes('representative') || lowerMsg.includes('support desk') ||
+                                   lowerMsg.includes('talk to a real') || lowerMsg.includes('connect me');
+
+                if (wantsHuman) {
+                    // Disable AI for this conversation
+                    await pool.query(
+                        'UPDATE customer_chat_conversations SET is_ai_enabled = 0, unread_count = 1 WHERE customer_id = ?',
+                        [req.customer.id]
+                    );
+
+                    // Insert handover message
+                    const handoverMsg = "I have disabled the AI responder and notified our team. A human support representative will join this chat shortly to assist you!";
+                    await pool.query(`
+                        INSERT INTO customer_chat_messages (customer_id, booking_id, sender_type, message, is_read)
+                        VALUES (?, ?, 'admin', ?, 1)
+                    `, [req.customer.id, bookingId || null, handoverMsg]);
+
+                    await pool.query(`
+                        UPDATE customer_chat_conversations 
+                        SET last_message = ?, last_message_at = NOW() 
+                        WHERE customer_id = ?
+                    `, [handoverMsg, req.customer.id]);
+
+                    await pool.query(`
+                        INSERT INTO support_conversation_audit_logs (conversation_id, action, performed_by, details)
+                        VALUES (?, 'Handover', 'System', 'Customer requested human handover. AI disabled.')
+                    `, [req.customer.id]);
+
+                    return res.json({ success: true, aiReplied: true, handover: true });
+                }
+
+                // Fetch chat history for context
+                const [msgRows] = await pool.query(
+                    'SELECT sender_type, message FROM customer_chat_messages WHERE customer_id = ? AND (is_internal IS NULL OR is_internal = 0) ORDER BY created_at ASC LIMIT 15',
+                    [req.customer.id]
+                );
+                
+                const chatHistory = msgRows.map(m => ({
+                    role: m.sender_type === 'customer' ? 'user' : 'assistant',
+                    content: m.message
+                }));
+
+                // Fetch packages and memberships
+                const [packages] = await pool.query("SELECT id, title, price, location, days, remaining_seats, tag FROM packages WHERE status = 'Active'");
+                const [plans] = await pool.query("SELECT name, tier, price_per_year, discount_percent, perks FROM membership_plans WHERE is_active = 1");
+
+                const packageContext = packages.map(p => 
+                    `- ${p.title}: Rs.${p.price} for ${p.days} days in ${p.location}. ID: ${p.id}`
+                ).join('\n');
+
+                const plansContext = plans.map(pl => 
+                    `- ${pl.name} (${pl.tier}): Rs.${pl.price_per_year}/yr. Discount: ${pl.discount_percent}%. Perks: ${pl.perks}`
+                ).join('\n');
+
+                // System Prompt for portal customer
+                const systemPrompt = `You are the Support Concierge AI for Shrawello Travel Hub. You are chatting with a logged-in customer: ${req.customer.name} (Email: ${req.customer.email}).
+Your goal is to answer their support inquiries, suggest tour packages, explain how to upgrade/join memberships, and help them with their booking questions.
+
+Available Packages:
+${packageContext}
+
+Available Membership Plans:
+${plansContext}
+
+OPERATIONAL GUIDELINES:
+1. Tone: Warm, helpful, professional, and personalized. Address them by name (${req.customer.name}).
+2. Linkage: Refer to packages using standard markdown links: [Package Title](#/packages/id) (using hash routing).
+3. Human Handover: If the customer asks for a human agent, or if you cannot answer their query, tell them you are connecting them to a human agent. Do NOT output any tags, just politely let them know they are being connected.
+
+Keep your response friendly, clear, and direct.`;
+
+                // Call OpenRouter
+                const aiReply = await callOpenRouterAI(chatHistory, systemPrompt);
+
+                // Save AI response to messages table
+                await pool.query(`
+                    INSERT INTO customer_chat_messages (customer_id, booking_id, sender_type, message, is_read)
+                    VALUES (?, ?, 'admin', ?, 1)
+                `, [req.customer.id, bookingId || null, aiReply]);
+
+                // Update summary conversation last message
+                await pool.query(`
+                    UPDATE customer_chat_conversations 
+                    SET last_message = ?, last_message_at = NOW(), unread_count = 0
+                    WHERE customer_id = ?
+                `, [aiReply, req.customer.id]);
+
+                return res.json({ success: true, aiReplied: true });
+            } catch (aiErr) {
+                console.warn('[Customer Chat AI responder failed]', aiErr.message);
+                // Fall through to human fallback handling
+            }
+        }
+
+        // ─── Human Fallback Flow (Original Assignment & OOO) ───
+        
         // 3. Auto-Assignment (Round-Robin) if currently unassigned
         try {
             const [convRows] = await pool.query(
@@ -3474,13 +3950,11 @@ app.post('/api/customer/chat', customerAuthMiddleware, async (req, res) => {
             const currentAssignee = convRows[0]?.assigned_staff_id;
             
             if (!currentAssignee) {
-                // Fetch active staff
                 const [staffMembers] = await pool.query(
                     "SELECT id, name, email FROM staff_members WHERE status = 'Active'"
                 );
                 
                 if (staffMembers.length > 0) {
-                    // Fetch workload counts
                     const [workloadRows] = await pool.query(`
                         SELECT assigned_staff_id, COUNT(*) as active_count 
                         FROM customer_chat_conversations 
@@ -3493,7 +3967,6 @@ app.post('/api/customer/chat', customerAuthMiddleware, async (req, res) => {
                         workloadMap[String(row.assigned_staff_id)] = row.active_count;
                     });
                     
-                    // Find staff with lowest workload
                     let chosenStaff = staffMembers[0];
                     let minCount = workloadMap[String(chosenStaff.id)] || 0;
                     
@@ -3505,13 +3978,11 @@ app.post('/api/customer/chat', customerAuthMiddleware, async (req, res) => {
                         }
                     }
                     
-                    // Assign
                     await pool.query(
                         "UPDATE customer_chat_conversations SET assigned_staff_id = ? WHERE customer_id = ?",
                         [String(chosenStaff.id), req.customer.id]
                     );
                     
-                    // Log audit trail
                     await pool.query(`
                         INSERT INTO support_conversation_audit_logs (conversation_id, action, performed_by, details)
                         VALUES (?, 'Auto Assign', 'System', ?)
@@ -3533,7 +4004,7 @@ app.post('/api/customer/chat', customerAuthMiddleware, async (req, res) => {
                 const currentHour = now.getHours();
                 const currentMinute = now.getMinutes();
                 const currentHHMM = `${String(currentHour).padStart(2, '0')}:${String(currentMinute).padStart(2, '0')}`;
-                const day = now.getDay(); // 0 is Sunday, 6 is Saturday
+                const day = now.getDay();
                 
                 const oooStart = settingsMap['ooo_start'] || '18:00';
                 const oooEnd = settingsMap['ooo_end'] || '09:00';
@@ -3544,12 +4015,10 @@ app.post('/api/customer/chat', customerAuthMiddleware, async (req, res) => {
                     isOOO = true;
                 } else {
                     if (oooStart > oooEnd) {
-                        // Overnight OOO (e.g. 18:00 to 09:00)
                         if (currentHHMM >= oooStart || currentHHMM <= oooEnd) {
                             isOOO = true;
                         }
                     } else {
-                        // Same day OOO
                         if (currentHHMM >= oooStart && currentHHMM <= oooEnd) {
                             isOOO = true;
                         }
@@ -3557,13 +4026,11 @@ app.post('/api/customer/chat', customerAuthMiddleware, async (req, res) => {
                 }
 
                 if (isOOO) {
-                    // Send system auto-reply message
                     await pool.query(`
                         INSERT INTO customer_chat_messages (customer_id, booking_id, sender_type, message, is_read)
                         VALUES (?, ?, 'admin', ?, 1)
                     `, [req.customer.id, bookingId || null, `[Auto-Reply] ${oooMessage}`]);
 
-                    // Update last message in conversation summary
                     await pool.query(`
                         UPDATE customer_chat_conversations 
                         SET last_message = ?, last_message_at = NOW() 
@@ -3582,7 +4049,207 @@ app.post('/api/customer/chat', customerAuthMiddleware, async (req, res) => {
     }
 });
 
+// ─── AI Chatbot Public APIs ───
+
+// Public Chatbot query (for strangers/visitors)
+app.post('/api/public/chatbot', async (req, res) => {
+    const { sessionId, message, visitorId } = req.body || {};
+    if (!sessionId || !message) {
+        return res.status(400).json({ error: 'sessionId and message are required.' });
+    }
+    
+    try {
+        // 1. Get or create chatbot session
+        let [sessionRows] = await pool.query('SELECT * FROM chatbot_sessions WHERE id = ?', [sessionId]);
+        if (sessionRows.length === 0) {
+            await pool.query(
+                'INSERT INTO chatbot_sessions (id, visitor_id, status) VALUES (?, ?, ?)',
+                [sessionId, visitorId || 'anonymous', 'Active']
+            );
+        }
+        
+        // 2. Save user message to database
+        await pool.query(
+            'INSERT INTO chatbot_messages (session_id, sender, message) VALUES (?, ?, ?)',
+            [sessionId, 'user', message.trim()]
+        );
+        
+        // 3. Fetch chat history for context
+        const [historyRows] = await pool.query(
+            'SELECT sender, message FROM chatbot_messages WHERE session_id = ? ORDER BY created_at ASC LIMIT 20',
+            [sessionId]
+        );
+        
+        const historyMessages = historyRows.map(h => ({
+            role: h.sender === 'user' ? 'user' : 'assistant',
+            content: h.message
+        }));
+
+        // 4. Fetch dynamic packages and membership plans
+        const [packages] = await pool.query("SELECT id, title, price, location, days, remaining_seats, tag FROM packages WHERE status = 'Active'");
+        const [plans] = await pool.query("SELECT name, tier, price_per_year, discount_percent, perks FROM membership_plans WHERE is_active = 1");
+
+        const packageContext = packages.map(p => 
+            `- ${p.title}: Rs.${p.price} for ${p.days} days in ${p.location}. Seats left: ${p.remaining_seats || 'unlimited'}${p.tag ? ` (${p.tag})` : ''} (ID: ${p.id})`
+        ).join('\n');
+
+        const plansContext = plans.map(pl => 
+            `- ${pl.name} (${pl.tier}): Rs.${pl.price_per_year}/yr. Discount: ${pl.discount_percent}%. Perks: ${pl.perks}`
+        ).join('\n');
+
+        // 5. System Prompt
+        const systemPrompt = `You are a highly intelligent, polite, and persuasive AI Travel Advisor for Shrawello Travel Hub. Your goal is to help visitors find packages, explain memberships, and convert strangers into leads/paying customers.
+
+Available Packages:
+${packageContext}
+
+Available Membership Plans:
+${plansContext}
+
+OPERATIONAL GUIDELINES:
+1. Tone: Friendly, responsive, professional, and sales-focused.
+2. Linkage: Use hash routing for package details. If suggesting a package, display its link as a markdown link in the format: [Package Title](#/packages/id) where 'id' is the package ID (do NOT use absolute URLs, use hash routing format like #/packages/12345).
+3. Closing & Lead Capture:
+   - When a visitor shows interest in customizing, booking, or getting a quote, collect their details: Name, Email, Phone Number, Destination, and Budget.
+   - Once you have these details, you MUST append a JSON tag in a single line at the very end of your response to register them as a lead. Format it exactly like this:
+     [CREATE_LEAD: {"name":"Full Name", "phone":"Phone/WhatsApp", "email":"Email", "destination":"Destination", "budget":"Budget", "preferences":"Travel preferences, dates, number of travelers, etc"}]
+     Do not output the JSON tag unless you have collected at least Name and Phone or Email.
+
+Be helpful and try to close them with special discounts or packages.`;
+
+        // 6. Generate AI reply
+        let aiReply = await callOpenRouterAI(historyMessages, systemPrompt);
+        
+        // 7. Parse [CREATE_LEAD: ...] tag
+        let leadCreated = false;
+        let leadId = null;
+        const leadRegex = /\[CREATE_LEAD:\s*({.*?})\]/i;
+        const match = aiReply.match(leadRegex);
+        if (match) {
+            try {
+                const leadData = JSON.parse(match[1]);
+                leadId = crypto.randomBytes(16).toString('hex');
+                
+                // Normalise and check customer linkage
+                const normPhone = normalisePhone(leadData.phone);
+                const matchedCustomer = await findMatchingCustomer(normPhone);
+                const leadSource = matchedCustomer ? 'Returning Customer' : 'AI Chatbot';
+                const leadPriority = matchedCustomer ? 'High' : 'Medium';
+                const linkedCustomerId = matchedCustomer ? matchedCustomer.id : null;
+                const isReturning = matchedCustomer ? 1 : 0;
+
+                await pool.query(`
+                    INSERT INTO leads (id, name, email, phone, destination, budget, preferences, source, status, priority, type, customer_id, is_returning_customer)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'New', ?, 'Tour', ?, ?)
+                `, [
+                    leadId, 
+                    leadData.name || 'AI Chatbot Lead', 
+                    leadData.email || null, 
+                    leadData.phone || null, 
+                    leadData.destination || null, 
+                    leadData.budget || null, 
+                    leadData.preferences || 'Generated by AI Chatbot',
+                    leadSource,
+                    leadPriority,
+                    linkedCustomerId,
+                    isReturning
+                ]);
+
+                // Update session state
+                await pool.query(
+                    'UPDATE chatbot_sessions SET status = ?, lead_id = ? WHERE id = ?',
+                    ['Converted', leadId, sessionId]
+                );
+                
+                leadCreated = true;
+                aiReply = aiReply.replace(leadRegex, '').trim();
+            } catch (jsonErr) {
+                console.error('[AI Chatbot] Failed to parse lead JSON:', jsonErr.message);
+            }
+        }
+        
+        // 8. Save AI reply to database
+        await pool.query(
+            'INSERT INTO chatbot_messages (session_id, sender, message) VALUES (?, ?, ?)',
+            [sessionId, 'ai', aiReply]
+        );
+        
+        return res.json({ 
+            reply: aiReply, 
+            leadCreated, 
+            leadId 
+        });
+    } catch (err) {
+        console.error('[Public Chatbot] Error:', err.message);
+        return res.status(500).json({ error: 'Chatbot service error.' });
+    }
+});
+
+// Public Lead submission API (for public forms & chatbot)
+app.post('/api/public/leads', async (req, res) => {
+    const { name, email, phone, destination, budget, preferences, source, travelers, whatsapp, isWhatsappSame } = req.body || {};
+    if (!name) return res.status(400).json({ error: 'Name is required.' });
+    
+    const leadId = crypto.randomBytes(16).toString('hex');
+    try {
+        const normPhone = normalisePhone(phone);
+        const matchedCustomer = await findMatchingCustomer(normPhone);
+        const leadSource = matchedCustomer ? 'Returning Customer' : (source || 'Website Contact');
+        const leadPriority = matchedCustomer ? 'High' : 'Medium';
+        const linkedCustomerId = matchedCustomer ? matchedCustomer.id : null;
+        const isReturning = matchedCustomer ? 1 : 0;
+
+        await pool.query(`
+            INSERT INTO leads (id, name, email, phone, destination, budget, preferences, source, status, priority, travelers, whatsapp, is_whatsapp_same, customer_id, is_returning_customer)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'New', ?, ?, ?, ?, ?, ?)
+        `, [
+            leadId, 
+            name, 
+            email || null, 
+            phone || null, 
+            destination || 'General Inquiry', 
+            budget || 'N/A', 
+            preferences || null, 
+            leadSource, 
+            leadPriority, 
+            travelers || 'N/A', 
+            whatsapp || phone || null, 
+            isWhatsappSame ? 1 : 0, 
+            linkedCustomerId, 
+            isReturning
+        ]);
+
+        return res.json({ success: true, leadId, isReturningCustomer: !!matchedCustomer });
+    } catch (err) {
+        console.error('[Public Leads] Create error:', err.message);
+        return res.status(500).json({ error: 'Failed to create lead.' });
+    }
+});
+
+// Toggle AI responders per customer conversation (Admin route)
+app.post('/api/admin/chat/conversations/:customerId/ai-toggle', authMiddleware, async (req, res) => {
+    const { customerId } = req.params;
+    const { enabled } = req.body || {};
+    try {
+        await pool.query(
+            'UPDATE customer_chat_conversations SET is_ai_enabled = ? WHERE customer_id = ?',
+            [enabled ? 1 : 0, customerId]
+        );
+        
+        await pool.query(`
+            INSERT INTO support_conversation_audit_logs (conversation_id, action, performed_by, details)
+            VALUES (?, 'AI Toggle', ?, ?)
+        `, [customerId, req.user?.email || 'System', `AI responder toggled to ${enabled ? 'ON' : 'OFF'}`]);
+
+        return res.json({ success: true, is_ai_enabled: !!enabled });
+    } catch (err) {
+        console.error('[AI Toggle] Error:', err.message);
+        return res.status(500).json({ error: 'Failed to toggle AI.' });
+    }
+});
+
 // ─── Admin Support Inbox API Routes ───
+
 
 // GET /api/admin/chat/conversations
 // Fetch all customer conversations joined with profile details
@@ -3604,6 +4271,7 @@ app.get('/api/admin/chat/conversations', authMiddleware, async (req, res) => {
                 c.last_message,
                 c.last_message_at,
                 c.unread_count,
+                c.is_ai_enabled,
                 u.name AS customer_name,
                 u.email AS customer_email,
                 u.phone AS customer_phone,
@@ -3672,7 +4340,15 @@ app.post('/api/admin/chat/conversations/:customerId', authMiddleware, async (req
             VALUES (?, ?, 'admin', ?, 1, ?)
         `, [customerId, bookingId || null, msgTrim, isInternalBool ? 1 : 0]);
 
-        // 2. Update conversation summary
+        // 2. Disable AI responder on manual reply (only if NOT internal note)
+        if (!isInternalBool) {
+            await pool.query(
+                'UPDATE customer_chat_conversations SET is_ai_enabled = 0 WHERE customer_id = ?',
+                [customerId]
+            );
+        }
+
+        // 3. Update conversation summary
         const summaryText = isInternalBool ? `[Note] ${msgTrim}` : msgTrim;
         await pool.query(`
             INSERT INTO customer_chat_conversations (customer_id, status, last_message, last_message_at, unread_count)

@@ -3,8 +3,26 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useCustomerAuth, CUSTOMER_JWT_KEY } from '../../context/CustomerAuthContext';
 import { useData } from '../../context/DataContext';
 import { getLocationName, formatPrice, formatPriceCompact } from '../../utils/packageUtils';
+import { generatePackingChecklist } from '../../src/lib/gemini';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
+
+// ── Destination Geographic Coordinates and Currency Rates Dictionary ──
+const DESTINATION_MAP: Record<string, { lat: number; lng: number; x: number; y: number; currency: string; rate: number; symbol: string }> = {
+  'Dubai': { lat: 25.2048, lng: 55.2708, x: 58, y: 48, currency: 'AED', rate: 22.7, symbol: 'د.إ' },
+  'Paris': { lat: 48.8566, lng: 2.3522, x: 44, y: 34, currency: 'EUR', rate: 91.0, symbol: '€' },
+  'Bali': { lat: -8.4095, lng: 115.1889, x: 74, y: 72, currency: 'IDR', rate: 0.0054, symbol: 'Rp' },
+  'Singapore': { lat: 1.3521, lng: 103.8198, x: 70, y: 64, currency: 'SGD', rate: 62.0, symbol: '$' },
+  'Goa': { lat: 15.2993, lng: 74.1240, x: 62, y: 58, currency: 'INR', rate: 1.0, symbol: '₹' },
+  'Kerala': { lat: 10.8505, lng: 76.2711, x: 63, y: 62, currency: 'INR', rate: 1.0, symbol: '₹' },
+  'Kashmir': { lat: 34.0837, lng: 74.7973, x: 62, y: 45, currency: 'INR', rate: 1.0, symbol: '₹' }
+};
+
+const resolveDestination = (name: string) => {
+  if (!name) return DESTINATION_MAP['Goa'];
+  const key = Object.keys(DESTINATION_MAP).find(k => name.toLowerCase().includes(k.toLowerCase()));
+  return key ? DESTINATION_MAP[key] : { lat: 20, lng: 77, x: 50, y: 50, currency: 'USD', rate: 83.5, symbol: '$' };
+};
 
 // ── Toast Notification System ──
 interface ToastMessage {
@@ -210,6 +228,27 @@ export const CustomerDashboard: React.FC = () => {
   const [selectedBillingCycle, setSelectedBillingCycle] = useState<'Monthly' | 'Quarterly' | '6 Months' | 'Yearly'>('Yearly');
   const [showMembershipJoinModal, setShowMembershipJoinModal] = useState(false);
   const [joiningPlan, setJoiningPlan] = useState<any>(null);
+
+  // ── AI Packing Checklist States ──
+  const [showChecklistModal, setShowChecklistModal] = useState(false);
+  const [packingChecklist, setPackingChecklist] = useState<any>(null);
+  const [isGeneratingChecklist, setIsGeneratingChecklist] = useState(false);
+  const [isSavingChecklist, setIsSavingChecklist] = useState(false);
+  const [packingWeather, setPackingWeather] = useState('Mild/Mixed');
+  const [packingActivity, setPackingActivity] = useState('Moderate');
+  const [packingCategory, setPackingCategory] = useState('Leisure');
+  const [customItemName, setCustomItemName] = useState('');
+  const [customItemCategory, setCustomItemCategory] = useState('Clothing');
+
+  // ── Add-On Marketplace States ──
+  const [purchasedAddons, setPurchasedAddons] = useState<any[]>([]);
+  const [loadingPurchasedAddons, setLoadingPurchasedAddons] = useState(false);
+  const [isPurchasingAddon, setIsPurchasingAddon] = useState<string | null>(null);
+  const [showConfirmAddonModal, setShowConfirmAddonModal] = useState<any>(null);
+
+  // ── Countdown & Currency States ──
+  const [countdown, setCountdown] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0, active: false });
+  const [inrAmount, setInrAmount] = useState('1000');
   
   // Data States
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -359,11 +398,171 @@ export const CustomerDashboard: React.FC = () => {
     }
   }, [activeBooking]);
 
+  // Fetch Packing Checklist from DB
+  const fetchPackingChecklist = useCallback(async () => {
+    if (!activeBooking) return;
+    try {
+      const token = localStorage.getItem(CUSTOMER_JWT_KEY);
+      const res = await fetch(`${API_BASE}/api/customer/bookings/${activeBooking.id}/packing-checklist`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPackingChecklist(data.items);
+      }
+    } catch (err) {
+      console.warn('Failed to fetch packing checklist:', err);
+    }
+  }, [activeBooking]);
+
+  // Save Packing Checklist to DB
+  const handleSavePackingChecklist = async (itemsList: any) => {
+    if (!activeBooking) return;
+    setIsSavingChecklist(true);
+    try {
+      const token = localStorage.getItem(CUSTOMER_JWT_KEY);
+      const res = await fetch(`${API_BASE}/api/customer/bookings/${activeBooking.id}/packing-checklist`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ items: itemsList })
+      });
+      if (res.ok) {
+        showToast('success', 'Packing checklist saved successfully!');
+        setPackingChecklist(itemsList);
+      } else {
+        showToast('error', 'Failed to save packing checklist.');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('error', 'Failed to save packing checklist.');
+    } finally {
+      setIsSavingChecklist(false);
+    }
+  };
+
+  // Generate Packing Checklist using AI
+  const handleGenerateChecklistAI = async () => {
+    if (!activeBooking) return;
+    setIsGeneratingChecklist(true);
+    try {
+      const dest = activeBooking.package_name || activeBooking.destination || 'Destination';
+      const days = activeBooking.durationDays || 5;
+
+      const generated = await generatePackingChecklist(
+        dest,
+        days,
+        packingWeather,
+        packingActivity,
+        packingCategory
+      );
+
+      if (generated && Array.isArray(generated)) {
+        await handleSavePackingChecklist(generated);
+      } else {
+        showToast('error', 'AI returned an invalid format. Please try again.');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('error', 'Failed to generate packing checklist with AI. Ensure API key is configured.');
+    } finally {
+      setIsGeneratingChecklist(false);
+    }
+  };
+
+  // Fetch purchased add-ons from DB
+  const fetchPurchasedAddons = useCallback(async () => {
+    if (!activeBooking) return;
+    setLoadingPurchasedAddons(true);
+    try {
+      const token = localStorage.getItem(CUSTOMER_JWT_KEY);
+      const res = await fetch(`${API_BASE}/api/customer/bookings/${activeBooking.id}/purchased-addons`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPurchasedAddons(data || []);
+      }
+    } catch (err) {
+      console.warn('Failed to fetch purchased add-ons:', err);
+    } finally {
+      setLoadingPurchasedAddons(false);
+    }
+  }, [activeBooking]);
+
+  // Purchase an add-on
+  const handlePurchaseAddon = async (addon: { id: string, label: string, price: number }) => {
+    if (!activeBooking) return;
+    setIsPurchasingAddon(addon.id);
+    try {
+      const token = localStorage.getItem(CUSTOMER_JWT_KEY);
+      const res = await fetch(`${API_BASE}/api/customer/bookings/${activeBooking.id}/addons`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          addonId: addon.id,
+          label: addon.label,
+          price: addon.price
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('success', data.message || `Purchased ${addon.label} successfully!`);
+        await fetchBookings();
+        await fetchTransactions();
+        await fetchPurchasedAddons();
+        setShowConfirmAddonModal(null);
+      } else {
+        showToast('error', data.error || 'Failed to purchase add-on.');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('error', 'Failed to purchase add-on.');
+    } finally {
+      setIsPurchasingAddon(null);
+    }
+  };
+ 
   useEffect(() => {
     if (activeBooking) {
       fetchTransactions();
+      fetchPackingChecklist();
+      fetchPurchasedAddons();
     }
-  }, [activeBooking, fetchTransactions]);
+  }, [activeBooking, fetchTransactions, fetchPackingChecklist, fetchPurchasedAddons]);
+
+  // Countdown Timer Update Hook
+  useEffect(() => {
+    if (!activeBooking || !activeBooking.travel_date) {
+      setCountdown(prev => ({ ...prev, active: false }));
+      return;
+    }
+
+    const updateTimer = () => {
+      const targetTime = new Date(activeBooking.travel_date).getTime();
+      const now = new Date().getTime();
+      const diff = targetTime - now;
+
+      if (diff <= 0) {
+        setCountdown({ days: 0, hours: 0, minutes: 0, seconds: 0, active: false });
+      } else {
+        const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+        const hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
+        const minutes = Math.floor((diff / (1000 * 60)) % 60);
+        const seconds = Math.floor((diff / 1000) % 60);
+        setCountdown({ days, hours, minutes, seconds, active: true });
+      }
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, [activeBooking]);
 
   // 2. Fetch Wishlist
   const fetchWishlist = async () => {
@@ -651,6 +850,25 @@ export const CustomerDashboard: React.FC = () => {
       });
       if (res.ok) {
         setChatInput('');
+        fetchChat();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const triggerHumanHandover = async () => {
+    try {
+      const token = localStorage.getItem(CUSTOMER_JWT_KEY);
+      const res = await fetch(`${API_BASE}/api/customer/chat`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ message: "I want to speak to a human agent" })
+      });
+      if (res.ok) {
         fetchChat();
       }
     } catch (err) {
@@ -1331,7 +1549,7 @@ export const CustomerDashboard: React.FC = () => {
                       alt="Upcoming Trip" 
                       className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-500"
                     />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-transparent to-transparent" />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-black/30" />
                     
                     <span className="absolute top-4 left-4 bg-black/45 backdrop-blur-md text-white text-[9px] font-black uppercase px-2.5 py-1 rounded">
                       {activeBooking.status || 'Active'}
@@ -1349,7 +1567,29 @@ export const CustomerDashboard: React.FC = () => {
                       })()}
                     </span>
 
-                    <div className="absolute bottom-4 left-4 right-4">
+                    {/* Live Countdown Overlay */}
+                    {countdown.active && (
+                      <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 flex gap-1.5 justify-center z-10 w-full px-4">
+                        <div className="bg-black/50 backdrop-blur-md px-2.5 py-1.5 rounded-xl text-center min-w-[50px] border border-white/10 shadow-lg">
+                          <span className="text-base font-black text-white block leading-none">{countdown.days}</span>
+                          <span className="text-[7px] uppercase font-bold text-slate-300 tracking-wider">Days</span>
+                        </div>
+                        <div className="bg-black/50 backdrop-blur-md px-2.5 py-1.5 rounded-xl text-center min-w-[50px] border border-white/10 shadow-lg">
+                          <span className="text-base font-black text-white block leading-none">{String(countdown.hours).padStart(2, '0')}</span>
+                          <span className="text-[7px] uppercase font-bold text-slate-300 tracking-wider">Hrs</span>
+                        </div>
+                        <div className="bg-black/50 backdrop-blur-md px-2.5 py-1.5 rounded-xl text-center min-w-[50px] border border-white/10 shadow-lg">
+                          <span className="text-base font-black text-white block leading-none">{String(countdown.minutes).padStart(2, '0')}</span>
+                          <span className="text-[7px] uppercase font-bold text-slate-300 tracking-wider">Mins</span>
+                        </div>
+                        <div className="bg-black/50 backdrop-blur-md px-2.5 py-1.5 rounded-xl text-center min-w-[50px] border border-white/10 shadow-lg">
+                          <span className="text-base font-black text-white block leading-none text-orange-400 animate-pulse">{String(countdown.seconds).padStart(2, '0')}</span>
+                          <span className="text-[7px] uppercase font-bold text-slate-300 tracking-wider">Secs</span>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="absolute bottom-4 left-4 right-4 z-10">
                       <span className="text-[9px] text-[#E8935B] uppercase font-black tracking-wide block">Next Departure</span>
                       <h3 className="font-display font-bold text-white text-lg leading-tight truncate">
                         {activeBooking.package_name || activeBooking.destination || 'Custom Adventure'}
@@ -1378,6 +1618,13 @@ export const CustomerDashboard: React.FC = () => {
                         View Voucher
                       </Link>
                       <button 
+                        onClick={() => setShowChecklistModal(true)}
+                        className="px-4 py-2.5 border border-[#EDE8DF] rounded-xl hover:bg-slate-50 flex items-center justify-center text-slate-650"
+                        title="AI Packing Checklist"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">backpack</span>
+                      </button>
+                      <button 
                         onClick={() => setShowPayModal(true)}
                         className="px-4 py-2.5 border border-[#EDE8DF] rounded-xl hover:bg-slate-50 flex items-center justify-center text-slate-600"
                         title="Upload receipt payment"
@@ -1385,6 +1632,87 @@ export const CustomerDashboard: React.FC = () => {
                         <span className="material-symbols-outlined text-[18px]">payments</span>
                       </button>
                     </div>
+                  </div>
+
+                  {/* Dynamic split travel utilities (Weather & Currency Converter) */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+                    {/* Weather widget */}
+                    {(() => {
+                      const dest = activeBooking.package_name || activeBooking.destination || 'Destination';
+                      const isBeach = dest.toLowerCase().includes('bali') || dest.toLowerCase().includes('goa') || dest.toLowerCase().includes('kerala');
+                      const isCold = dest.toLowerCase().includes('kashmir') || dest.toLowerCase().includes('himachal') || dest.toLowerCase().includes('swiss');
+                      
+                      const temp = isCold ? '14°C' : isBeach ? '29°C' : '24°C';
+                      const desc = isCold ? 'Chilly & Light Rain' : isBeach ? 'Sunny & Warm' : 'Mild & Sunny';
+                      const icon = isCold ? 'ac_unit' : isBeach ? 'sunny' : 'partly_cloudy_day';
+                      const bg = isCold ? 'from-sky-50 to-blue-50/50' : isBeach ? 'from-amber-50/60 to-orange-50/40' : 'from-slate-50 to-orange-50/20';
+                      const iconColor = isCold ? 'text-blue-500' : isBeach ? 'text-amber-500' : 'text-orange-500';
+
+                      return (
+                        <div className={`bg-gradient-to-br ${bg} border border-[#EDE8DF] rounded-3xl p-5 shadow-sm space-y-3.5 flex flex-col justify-between`}>
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <span className="text-[8px] text-slate-400 font-bold uppercase tracking-wider block">Destination Weather</span>
+                              <h4 className="font-display font-black text-slate-885 text-sm mt-0.5">{dest.split(' - ')[0]}</h4>
+                            </div>
+                            <span className={`material-symbols-outlined text-[24px] ${iconColor}`}>{icon}</span>
+                          </div>
+                          
+                          <div className="flex items-baseline gap-2">
+                            <span className="text-2xl font-black text-slate-800 tracking-tight">{temp}</span>
+                            <span className="text-[10px] font-bold text-slate-500">{desc}</span>
+                          </div>
+
+                          <div className="border-t border-slate-200/50 pt-2 flex justify-between text-[9px] font-semibold text-slate-400">
+                            <span className="flex items-center gap-1"><span className="material-symbols-outlined text-[10px]">waves</span> Hum: 65%</span>
+                            <span className="flex items-center gap-1"><span className="material-symbols-outlined text-[10px]">air</span> Wind: 12 km/h</span>
+                            <span className="flex items-center gap-1"><span className="material-symbols-outlined text-[10px]">umbrella</span> Rain: 15%</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Currency Converter */}
+                    {(() => {
+                      const dest = activeBooking.package_name || activeBooking.destination || 'Destination';
+                      const destInfo = resolveDestination(dest);
+
+                      const amt = Number(inrAmount) || 0;
+                      const converted = (amt / destInfo.rate).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+
+                      return (
+                        <div className="bg-white border border-[#EDE8DF] rounded-3xl p-5 shadow-sm space-y-3.5 flex flex-col justify-between">
+                          <div>
+                            <span className="text-[8px] text-slate-400 font-bold uppercase tracking-wider block">Currency Exchange</span>
+                            <h4 className="font-display font-black text-slate-800 text-sm mt-0.5">INR (₹) to {destInfo.currency} ({destInfo.symbol})</h4>
+                          </div>
+
+                          <div className="space-y-2">
+                            <div className="relative flex items-center">
+                              <span className="absolute left-3 text-slate-400 text-xs font-bold">₹</span>
+                              <input 
+                                type="number"
+                                value={inrAmount}
+                                onChange={e => setInrAmount(e.target.value)}
+                                className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 pl-7 pr-3 text-xs font-bold focus:outline-none"
+                                placeholder="Amount in INR"
+                              />
+                            </div>
+
+                            <div className="bg-[#FFF8F2]/60 border border-[#C9732A]/10 rounded-xl p-2 flex justify-between items-center text-xs">
+                              <span className="text-[10px] text-slate-500 font-bold">Estimated Total</span>
+                              <span className="font-black text-primary" style={{ color: '#C9732A' }}>
+                                {destInfo.symbol} {converted}
+                              </span>
+                            </div>
+                          </div>
+
+                          <span className="text-[8px] font-bold text-slate-400 block leading-tight">
+                            Rate: 1 {destInfo.currency} = ₹{destInfo.rate.toLocaleString('en-IN')}
+                          </span>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
               ) : (
@@ -1399,6 +1727,66 @@ export const CustomerDashboard: React.FC = () => {
                   </Link>
                 </div>
               )}
+
+              {/* Interactive Travel Footprint Map */}
+              <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] shadow-sm space-y-4">
+                <div className="flex justify-between items-center border-b border-[#EDE8DF]/30 pb-2">
+                  <h3 className="font-display font-bold text-xs uppercase tracking-wider text-slate-400">My Travel Map</h3>
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest bg-slate-100 px-2 py-0.5 rounded-md">
+                    {bookings.filter(b => b.status === 'completed' || (b.travel_date && new Date(b.travel_date) < new Date())).length} Visited
+                  </span>
+                </div>
+
+                {/* SVG Map Container */}
+                <div className="relative aspect-[16/9] w-full bg-[#FFF8F2]/10 border border-[#EDE8DF]/50 rounded-2xl overflow-hidden flex items-center justify-center p-2">
+                  <svg className="w-full h-full text-slate-200" viewBox="0 0 100 80" fill="none" stroke="currentColor" strokeWidth="0.5">
+                    {/* India Outline / South Asia */}
+                    <path d="M 50 35 L 52 38 L 54 38 L 56 36 L 57 37 L 57 39 L 55 42 L 58 46 L 58 49 L 61 54 L 62 57 L 63 60 L 61 62 L 60 59 L 59 55 L 56 50 L 53 47 L 51 44 L 49 42 L 48 39 L 49 37 Z" fill="currentColor" fillOpacity="0.15" strokeWidth="0.3" />
+                    {/* Middle East & Europe */}
+                    <path d="M 38 22 Q 41 25 43 29 Q 42 32 40 35 L 36 32 Z" fill="currentColor" fillOpacity="0.1" strokeWidth="0.2" />
+                    {/* Southeast Asia */}
+                    <path d="M 65 52 L 68 55 L 72 59 L 76 64 L 78 69 L 75 72 L 70 68 L 66 61 Z" fill="currentColor" fillOpacity="0.1" strokeWidth="0.2" />
+                    {/* Bali circle */}
+                    <circle cx="74" cy="72" r="0.8" fill="currentColor" fillOpacity="0.3" />
+                  </svg>
+
+                  {/* Render Pins dynamically */}
+                  {bookings.map(b => {
+                    const destInfo = resolveDestination(b.package_name || b.destination);
+                    const isPast = b.status === 'completed' || (b.travel_date && new Date(b.travel_date) < new Date());
+                    
+                    return (
+                      <div 
+                        key={b.id}
+                        className="absolute group/pin cursor-pointer transition-all duration-300 hover:scale-125"
+                        style={{ left: `${destInfo.x}%`, top: `${destInfo.y}%`, transform: 'translate(-50%, -100%)' }}
+                      >
+                        {/* Pin Dot */}
+                        {isPast ? (
+                          <div className="relative flex items-center justify-center">
+                            <span className="material-symbols-outlined text-emerald-500 text-[18px] drop-shadow-md">location_on</span>
+                            <span className="absolute top-1 size-1 bg-white rounded-full" />
+                          </div>
+                        ) : (
+                          <div className="relative flex items-center justify-center animate-bounce duration-1000">
+                            <span className="material-symbols-outlined text-[#C9732A] text-[18px] drop-shadow-md">location_on</span>
+                            <span className="absolute top-1 size-1 bg-white rounded-full" />
+                            <span className="absolute -bottom-1 size-3 bg-orange-400/30 rounded-full scale-y-50 animate-ping" />
+                          </div>
+                        )}
+
+                        {/* Tooltip on Hover */}
+                        <div className="pointer-events-none opacity-0 group-hover/pin:opacity-100 absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 bg-slate-900 text-white text-[9px] px-2.5 py-1.5 rounded-xl whitespace-nowrap z-50 shadow-xl transition-all duration-200">
+                          <p className="font-black leading-none">{b.package_name || b.destination}</p>
+                          <p className="text-[7px] text-slate-300 mt-1">
+                            {isPast ? 'Completed' : 'Upcoming'} &bull; {b.travel_date ? new Date(b.travel_date).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : 'Pending'}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
 
               {/* Other Bookings List */}
               <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] shadow-sm space-y-4">
@@ -2061,6 +2449,73 @@ export const CustomerDashboard: React.FC = () => {
             </div>
           )}
 
+          {/* Add-On Marketplace Card */}
+          {activeBooking && (
+            <div className="bg-white rounded-3xl p-6 border border-[#EDE8DF] shadow-sm space-y-4">
+              <div className="flex justify-between items-center border-b pb-2">
+                <h3 className="font-display font-bold text-xs uppercase tracking-wider text-slate-400">Marketplace & Upgrades</h3>
+                <span className="material-symbols-outlined text-[16px] text-slate-400">shopping_bag</span>
+              </div>
+              
+              <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1 no-scrollbar">
+                {(() => {
+                  const packageId = activeBooking.packageId || activeBooking.package_id;
+                  const matchingPkg = packages?.find(p => p.id === packageId);
+                  const DEFAULT_ADDONS = [
+                    { id: 'lounge', label: 'VIP Airport Lounge Pass', price: 2499, desc: 'Includes luxury seating, buffet, and high-speed Wi-Fi.' },
+                    { id: 'insurance', label: 'Comprehensive Travel Insurance', price: 1500, desc: 'Covers medical, luggage loss, and trip cancellation.' },
+                    { id: 'esim', label: 'Local High-Speed eSIM Card', price: 999, desc: '10GB 5G high-speed local data pre-activated.' },
+                    { id: 'room-upgrade', label: 'Suite Room Upgrade', price: 5000, desc: 'Upgrade standard hotel rooms to premium junior suites.' },
+                    { id: 'photoguide', label: 'Dedicated Pro Photographer (1-Day)', price: 6000, desc: 'A professional photographer guide to capture your memories.' }
+                  ];
+
+                  const availableAddons = (matchingPkg?.addons && matchingPkg.addons.length > 0) 
+                    ? matchingPkg.addons.map(a => ({ id: a.id, label: a.label, price: a.price, desc: 'Custom package upgrade option.' }))
+                    : DEFAULT_ADDONS;
+
+                  if (loadingPurchasedAddons) {
+                    return <p className="text-[10px] text-slate-400">Loading available upgrades...</p>;
+                  }
+
+                  return availableAddons.map(addon => {
+                    const isPurchased = purchasedAddons.some(p => p.addon_id === addon.id);
+                    return (
+                      <div key={addon.id} className="p-3 bg-slate-50/60 rounded-2xl border border-slate-100 flex flex-col justify-between gap-2.5">
+                        <div className="flex justify-between items-start gap-2">
+                          <div className="min-w-0 flex-grow">
+                            <h4 className="font-bold text-slate-800 text-xs truncate leading-tight">{addon.label}</h4>
+                            <p className="text-[9px] text-slate-400 leading-normal mt-0.5">{addon.desc}</p>
+                          </div>
+                          <span className="text-xs font-black text-slate-800 shrink-0">₹{addon.price.toLocaleString('en-IN')}</span>
+                        </div>
+                        <div className="flex justify-end">
+                          {isPurchased ? (
+                            <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-lg flex items-center gap-1">
+                              <span className="material-symbols-outlined text-[10px]">check_circle</span> Added to Trip
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => setShowConfirmAddonModal(addon)}
+                              disabled={isPurchasingAddon !== null}
+                              className="px-3 py-1 bg-slate-900 hover:bg-slate-800 text-white font-bold text-[10px] rounded-lg transition-colors flex items-center gap-1 active:scale-95"
+                            >
+                              {isPurchasingAddon === addon.id ? (
+                                <span className="animate-spin size-2.5 border-2 border-white border-t-transparent rounded-full" />
+                              ) : (
+                                <span className="material-symbols-outlined text-[10px]">add</span>
+                              )}
+                              Add to Trip
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            </div>
+          )}
+
           {/* Travel DNA Widget */}
           <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] shadow-sm space-y-4">
             <div className="flex justify-between items-center border-b pb-2">
@@ -2304,14 +2759,14 @@ export const CustomerDashboard: React.FC = () => {
       {/* ── MODAL: PROFILE SETTINGS (ACCOUNT HUB) ── */}
       {showProfileModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/55 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-[#FBF7F0] rounded-[2rem] border border-[#EDE8DF] p-6 w-full max-w-2xl shadow-2xl relative max-h-[90vh] overflow-y-auto">
-            <button onClick={() => setShowProfileModal(false)} className="absolute top-5 right-5 text-slate-400 hover:text-slate-600">
+          <div className="bg-[#FBF7F0] rounded-[2rem] border border-[#EDE8DF] p-5 w-full max-w-2xl shadow-2xl relative max-h-[90vh] overflow-y-auto no-scrollbar">
+            <button onClick={() => setShowProfileModal(false)} className="absolute top-5 right-5 text-slate-400 hover:text-slate-660">
               <span className="material-symbols-outlined">close</span>
             </button>
             <h2 className="font-display font-black text-2xl text-slate-900 mb-1">Account settings & Hub</h2>
-            <p className="text-xs text-slate-400 mb-6 border-b pb-4">Modify your details, edit travel DNA, or change passwords.</p>
+            <p className="text-xs text-slate-400 mb-4 border-b pb-3">Modify your details, edit travel DNA, or change passwords.</p>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Profile details editing form */}
               <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] space-y-4">
                 <h3 className="font-display font-bold text-xs uppercase tracking-wider text-slate-400 border-b pb-2">Personal Details</h3>
@@ -2332,11 +2787,17 @@ export const CustomerDashboard: React.FC = () => {
                   </div>
                   <div>
                     <label className="text-[9px] text-slate-400 uppercase block mb-1">Email (Read Only)</label>
-                    <input 
-                      type="email" disabled
-                      value={customer?.email || ''}
-                      className="w-full bg-slate-50/50 border border-slate-100 rounded-xl p-2.5 text-slate-400 focus:outline-none cursor-not-allowed"
-                    />
+                    <div className="relative flex items-center">
+                      <input 
+                        type="email" readOnly
+                        value={customer?.email || ''}
+                        className="w-full bg-slate-50/70 border border-slate-200 rounded-xl p-2.5 pr-20 text-slate-500 font-semibold focus:outline-none select-all cursor-text"
+                        title="Click to select and copy"
+                      />
+                      <span className="absolute right-3 text-[8px] font-black text-slate-400 uppercase tracking-wider bg-slate-100 px-2 py-0.5 rounded-md">
+                        Read Only
+                      </span>
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
@@ -2364,7 +2825,7 @@ export const CustomerDashboard: React.FC = () => {
                       type="date"
                       value={profileForm.dob}
                       onChange={e => setProfileForm({ ...profileForm, dob: e.target.value })}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 focus:outline-none"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 focus:outline-none hover:bg-slate-100/50 transition-colors text-slate-700 font-semibold cursor-pointer"
                     />
                   </div>
                   <button type="submit" className="w-full py-2.5 bg-[#C9732A] hover:bg-[#b05f20] text-white rounded-xl font-bold transition-colors shadow-sm">
@@ -2403,7 +2864,7 @@ export const CustomerDashboard: React.FC = () => {
                         className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 focus:outline-none"
                       />
                     </div>
-                    <button type="submit" className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold transition-colors">
+                    <button type="submit" className="w-full py-2.5 bg-[#C9732A] hover:bg-[#b05f20] text-white rounded-xl font-bold transition-colors shadow-sm active:scale-98">
                       Update Password
                     </button>
                   </form>
@@ -2440,7 +2901,7 @@ export const CustomerDashboard: React.FC = () => {
                         <option value="Halal Certified Only">Halal Certified Only</option>
                       </select>
                     </div>
-                    <button type="submit" className="w-full py-2 bg-[#2D6A4F] hover:bg-[#204a37] text-white rounded-xl font-bold transition-colors">
+                    <button type="submit" className="w-full py-2.5 bg-[#C9732A] hover:bg-[#b05f20] text-white rounded-xl font-bold transition-colors shadow-sm active:scale-98">
                       Save Preferences
                     </button>
                   </form>
@@ -2466,9 +2927,19 @@ export const CustomerDashboard: React.FC = () => {
                   <span className="text-[9px] text-slate-400 font-bold block">Support Concierge</span>
                 </div>
               </div>
-              <button onClick={() => setShowSupportModal(false)} className="text-slate-400 hover:text-slate-650">
-                <span className="material-symbols-outlined text-[18px]">close</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={triggerHumanHandover}
+                  className="px-2.5 py-1 text-[9px] bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-full font-bold transition-all shrink-0 hover:scale-105 active:scale-95 flex items-center gap-1"
+                  title="Connect directly to our support desk"
+                >
+                  <span className="material-symbols-outlined text-[10px]">person</span>
+                  Talk to Human
+                </button>
+                <button onClick={() => setShowSupportModal(false)} className="text-slate-400 hover:text-slate-650 flex items-center justify-center">
+                  <span className="material-symbols-outlined text-[18px]">close</span>
+                </button>
+              </div>
             </div>
 
             {/* Direct messages content */}
@@ -2632,6 +3103,245 @@ export const CustomerDashboard: React.FC = () => {
             <button onClick={() => setAnniversaryPromo(null)} className="text-slate-400 hover:text-slate-600 shrink-0">
               <span className="material-symbols-outlined text-[16px]">close</span>
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: AI PACKING CHECKLIST ── */}
+      {showChecklistModal && activeBooking && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/55 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 w-full max-w-2xl shadow-2xl relative animate-in zoom-in-95 duration-200 flex flex-col max-h-[85vh]">
+            <button onClick={() => setShowChecklistModal(false)} className="absolute top-5 right-5 text-slate-400 hover:text-slate-650">
+              <span className="material-symbols-outlined">close</span>
+            </button>
+            
+            <div className="border-b pb-3 mb-4">
+              <span className="text-[9px] text-[#C9732A] uppercase font-black tracking-widest block mb-0.5">Interactive Companion</span>
+              <h3 className="font-display font-bold text-base text-slate-900">AI Pack-My-Bag Assistant 🎒</h3>
+              <p className="text-xs text-slate-400 mt-0.5">Let AI create a customized packing checklist based on your destination and travel style.</p>
+            </div>
+
+            {/* Checklist Configuration Controls */}
+            <div className="grid grid-cols-3 gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-100 mb-4 text-xs font-semibold">
+              <div>
+                <label className="text-[9px] text-slate-400 block font-bold uppercase mb-1">Expected Weather</label>
+                <select 
+                  value={packingWeather} 
+                  onChange={e => setPackingWeather(e.target.value)} 
+                  className="w-full p-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none"
+                >
+                  <option>Sunny/Warm</option>
+                  <option>Cold/Snowy</option>
+                  <option>Rainy</option>
+                  <option>Mild/Mixed</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-[9px] text-slate-400 block font-bold uppercase mb-1">Activity Level</label>
+                <select 
+                  value={packingActivity} 
+                  onChange={e => setPackingActivity(e.target.value)} 
+                  className="w-full p-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none"
+                >
+                  <option>Relaxed</option>
+                  <option>Moderate</option>
+                  <option>Active/Heavy</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-[9px] text-slate-400 block font-bold uppercase mb-1">Trip Category</label>
+                <select 
+                  value={packingCategory} 
+                  onChange={e => setPackingCategory(e.target.value)} 
+                  className="w-full p-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none"
+                >
+                  <option>Leisure</option>
+                  <option>Adventure</option>
+                  <option>Beach</option>
+                  <option>Cultural</option>
+                  <option>Business</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Checklist Contents (Scrollable) */}
+            <div className="flex-grow overflow-y-auto pr-1 no-scrollbar space-y-4 mb-4">
+              {isGeneratingChecklist ? (
+                <div className="flex flex-col items-center justify-center py-12 space-y-3">
+                  <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-[#C9732A]" />
+                  <p className="text-xs font-bold text-[#C9732A]">AI is packing your bag... Please wait...</p>
+                </div>
+              ) : packingChecklist && packingChecklist.length > 0 ? (
+                <>
+                  {packingChecklist.map((cat: any, cIdx: number) => (
+                    <div key={cat.category} className="space-y-2">
+                      <h4 className="text-xs font-black uppercase text-slate-400 tracking-wider border-b pb-1">{cat.category}</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                        {cat.items?.map((item: any, iIdx: number) => (
+                          <div 
+                            key={iIdx} 
+                            onClick={() => {
+                              const updated = [...packingChecklist];
+                              updated[cIdx].items[iIdx].checked = !item.checked;
+                              handleSavePackingChecklist(updated);
+                            }}
+                            className={`flex items-center justify-between p-2.5 rounded-xl border border-slate-100 transition-colors cursor-pointer ${item.checked ? 'bg-[#FFF8F2]/60 text-slate-400 line-through' : 'bg-white text-slate-700 hover:bg-slate-50'}`}
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div className={`w-4.5 h-4.5 rounded border flex items-center justify-center shrink-0 transition-colors ${item.checked ? 'bg-[#C9732A] border-[#C9732A]' : 'border-slate-350'}`}>
+                                {item.checked && <span className="material-symbols-outlined text-white text-[10px] font-black">check</span>}
+                              </div>
+                              <span className="text-xs font-bold truncate">{item.name}</span>
+                            </div>
+                            <span className="text-[9px] font-bold text-slate-400 shrink-0 bg-slate-100 px-2 py-0.5 rounded-md">Qty: {item.qty}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+
+                  <div className="bg-slate-50/50 p-4 border rounded-2xl space-y-3 mt-2">
+                    <h5 className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Add Custom Item</h5>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <input 
+                        type="text" 
+                        placeholder="Item name (e.g. Swimsuit)" 
+                        value={customItemName} 
+                        onChange={e => setCustomItemName(e.target.value)}
+                        className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none"
+                      />
+                      <select 
+                        value={customItemCategory} 
+                        onChange={e => setCustomItemCategory(e.target.value)}
+                        className="bg-white border rounded-xl px-2.5 py-2 text-xs font-semibold focus:outline-none"
+                      >
+                        {packingChecklist.map((c: any) => (
+                          <option key={c.category}>{c.category}</option>
+                        ))}
+                      </select>
+                      <button 
+                        onClick={() => {
+                          if (!customItemName) return;
+                          const updated = [...packingChecklist];
+                          const cat = updated.find((c: any) => c.category === customItemCategory);
+                          if (cat) {
+                            if (!cat.items) cat.items = [];
+                            cat.items.push({ name: customItemName, qty: '1', checked: false });
+                            handleSavePackingChecklist(updated);
+                            setCustomItemName('');
+                          }
+                        }}
+                        className="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold hover:bg-slate-800"
+                      >
+                        Add Item
+                      </button>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-10 text-center space-y-3.5">
+                  <span className="material-symbols-outlined text-4xl text-slate-300">backpack</span>
+                  <div className="max-w-xs space-y-1">
+                    <h4 className="font-bold text-slate-700 text-xs">No checklist generated yet</h4>
+                    <p className="text-[10px] text-slate-400 leading-normal">Configure the weather and activity level above, then click the button below to build your checklist with AI.</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="border-t pt-3 flex justify-between gap-2.5">
+              {packingChecklist && packingChecklist.length > 0 && (
+                <button
+                  onClick={() => {
+                    showConfirm('Regenerate Checklist?', 'This will overwrite your current checklist items. Are you sure?', () => {
+                      handleGenerateChecklistAI();
+                    });
+                  }}
+                  disabled={isGeneratingChecklist || isSavingChecklist}
+                  className="px-4 py-2.5 border border-red-100 hover:bg-red-50 text-red-500 font-bold text-xs rounded-xl transition-all"
+                >
+                  Regenerate
+                </button>
+              )}
+              <div className="flex-grow flex justify-end gap-2.5">
+                <button 
+                  onClick={() => setShowChecklistModal(false)}
+                  className="px-4 py-2.5 border border-slate-200 hover:bg-slate-50 text-slate-600 font-bold text-xs rounded-xl"
+                >
+                  Close
+                </button>
+                <button 
+                  onClick={handleGenerateChecklistAI}
+                  disabled={isGeneratingChecklist || isSavingChecklist}
+                  className="px-5 py-2.5 bg-[#C9732A] hover:bg-[#b05f20] text-white font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-sm"
+                  style={{ backgroundColor: '#C9732A' }}
+                >
+                  {isGeneratingChecklist ? (
+                    <><span className="animate-spin rounded-full h-3.5 w-3.5 border-t-2 border-white" /> Generating...</>
+                  ) : packingChecklist && packingChecklist.length > 0 ? (
+                    'Refresh with AI'
+                  ) : (
+                    'Generate with AI'
+                  )}
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: CONFIRM ADD-ON PURCHASE ── */}
+      {showConfirmAddonModal && activeBooking && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/55 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 w-full max-w-sm shadow-2xl relative animate-in zoom-in-95 duration-200">
+            <button onClick={() => setShowConfirmAddonModal(null)} className="absolute top-5 right-5 text-slate-400 hover:text-slate-650">
+              <span className="material-symbols-outlined">close</span>
+            </button>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="size-10 bg-primary/10 rounded-xl flex items-center justify-center text-primary" style={{ color: '#C9732A', backgroundColor: '#FFF8F2' }}>
+                <span className="material-symbols-outlined text-[20px]">add_shopping_cart</span>
+              </div>
+              <h3 className="font-display font-bold text-base text-slate-900">Purchase Upgrade</h3>
+            </div>
+            
+            <p className="text-xs text-slate-500 leading-normal mb-4">
+              You are adding **{showConfirmAddonModal.label}** to your booking. This will increase the booking price by **₹{showConfirmAddonModal.price.toLocaleString('en-IN')}**.
+            </p>
+
+            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 mb-4 space-y-2 text-xs font-semibold text-slate-500">
+              <div className="flex justify-between">
+                <span>Add-on Option</span>
+                <span className="text-slate-800 font-bold">{showConfirmAddonModal.label}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Price</span>
+                <span className="text-slate-800 font-bold">₹{showConfirmAddonModal.price.toLocaleString('en-IN')}</span>
+              </div>
+              <div className="border-t border-slate-200/50 pt-2 flex justify-between text-slate-800 font-black text-sm">
+                <span>Total Upgrades Price</span>
+                <span className="text-primary" style={{ color: '#C9732A' }}>₹{showConfirmAddonModal.price.toLocaleString('en-IN')}</span>
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <button 
+                onClick={() => setShowConfirmAddonModal(null)} 
+                className="flex-1 py-2.5 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl font-bold text-xs"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={() => handlePurchaseAddon(showConfirmAddonModal)}
+                disabled={isPurchasingAddon !== null}
+                className="flex-1 py-2.5 text-white rounded-xl font-bold text-xs shadow-sm flex items-center justify-center gap-1.5"
+                style={{ backgroundColor: '#C9732A' }}
+              >
+                {isPurchasingAddon === showConfirmAddonModal.id ? (
+                  <><span className="animate-spin rounded-full h-3 w-3 border-t-2 border-white" /> Purchasing...</>
+                ) : 'Confirm Upgrade'}
+              </button>
+            </div>
           </div>
         </div>
       )}

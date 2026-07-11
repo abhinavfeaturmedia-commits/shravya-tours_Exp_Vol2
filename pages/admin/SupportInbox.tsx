@@ -288,7 +288,12 @@ export const SupportInbox: React.FC = () => {
         created_at: new Date().toISOString(),
       }]);
       setConversations(prev => prev.map(c => c.customer_id === selectedId
-        ? { ...c, last_message: internal ? `[Note] ${text}` : text, last_message_at: new Date().toISOString() }
+        ? { 
+            ...c, 
+            last_message: internal ? `[Note] ${text}` : text, 
+            last_message_at: new Date().toISOString(),
+            is_ai_enabled: internal ? c.is_ai_enabled : 0
+          }
         : c,
       ));
       fetchAuditLogs(selectedId);
@@ -296,6 +301,29 @@ export const SupportInbox: React.FC = () => {
       toast.error(err.message || 'Failed to send message');
     } finally {
       setIsSending(false);
+    }
+  };
+
+  const toggleAIResponder = async (customerId: number, currentVal: boolean | number) => {
+    const newVal = !currentVal;
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/chat/conversations/${customerId}/ai-toggle`, {
+        method: 'POST',
+        headers: {
+          ...authHeader(),
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ enabled: newVal })
+      });
+      if (res.ok) {
+        toast.success(`AI responder turned ${newVal ? 'ON' : 'OFF'}`);
+        setConversations(prev => prev.map(c => c.customer_id === customerId ? { ...c, is_ai_enabled: newVal ? 1 : 0 } : c));
+      } else {
+        toast.error("Failed to toggle AI responder.");
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error("Error toggling AI responder.");
     }
   };
 
@@ -377,7 +405,7 @@ export const SupportInbox: React.FC = () => {
 
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="h-[calc(100vh-120px)] flex bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm">
+    <div className="h-[calc(100vh-140px)] lg:h-[calc(100vh-80px)] -mb-10 lg:-mb-16 flex bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm">
 
       {/* ── LEFT: Conversation List ─────────────────────────────────────────── */}
       <aside className="w-80 flex flex-col border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shrink-0 h-full">
@@ -453,7 +481,12 @@ export const SupportInbox: React.FC = () => {
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex justify-between items-start">
-                    <h4 className="font-bold text-slate-900 dark:text-white text-xs truncate leading-tight">{conv.customer_name}</h4>
+                    <h4 className="font-bold text-slate-900 dark:text-white text-xs truncate leading-tight flex items-center gap-1.5">
+                      {conv.customer_name}
+                      {(conv.is_ai_enabled ?? 1) ? (
+                        <span className="material-symbols-outlined text-[12px] text-blue-500" title="AI Chatbot responder active">smart_toy</span>
+                      ) : null}
+                    </h4>
                     <span className="text-[9px] text-slate-400 font-bold whitespace-nowrap pl-2">
                       {format(new Date(conv.last_message_at), 'HH:mm')}
                     </span>
@@ -494,72 +527,107 @@ export const SupportInbox: React.FC = () => {
             </p>
           </div>
         ) : (
-          <>
+          <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
             {/* Chat header */}
-            <div className="h-16 px-6 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 flex items-center justify-between gap-4 shrink-0">
-              <div className="min-w-0 flex items-center gap-2">
-                <div>
-                  <h3 className="font-display font-black text-slate-800 dark:text-white text-sm truncate">{selectedConversation?.customer_name}</h3>
-                  <p className="text-[10px] text-slate-400 font-bold truncate leading-tight mt-0.5">{selectedConversation?.customer_email}</p>
+            <div className="border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 flex flex-col shrink-0 z-10 shadow-sm">
+              {/* Row 1: Identity & Primary State */}
+              <div className="min-h-[56px] py-2 px-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-100 dark:border-slate-900/40">
+                <div className="min-w-0 flex items-center gap-2">
+                  <div>
+                    <h3 className="font-display font-black text-slate-800 dark:text-white text-sm truncate">{selectedConversation?.customer_name}</h3>
+                    <p className="text-[10px] text-slate-400 font-bold truncate leading-tight mt-0.5">{selectedConversation?.customer_email}</p>
+                  </div>
+                  <button
+                    onClick={() => setShowAuditLog(true)}
+                    className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900 rounded-lg transition-colors ml-2"
+                    title="View Query Audit Log"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">history</span>
+                  </button>
                 </div>
-                <button
-                  onClick={() => setShowAuditLog(true)}
-                  className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900 rounded-lg transition-colors ml-2"
-                  title="View Query Audit Log"
-                >
-                  <span className="material-symbols-outlined text-[18px]">history</span>
-                </button>
+
+                <div className="flex gap-2 items-center flex-wrap sm:flex-nowrap">
+                  {/* AI Toggle Button */}
+                  {selectedConversation && (
+                    <button
+                      onClick={() => toggleAIResponder(selectedConversation.customer_id, selectedConversation.is_ai_enabled ?? 1)}
+                      className={`h-8 px-3 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 border border-slate-200/50 dark:border-slate-800/80 ${
+                        (selectedConversation.is_ai_enabled ?? 1)
+                          ? 'bg-blue-50 text-blue-600 hover:bg-blue-100 border-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-900/50'
+                          : 'bg-slate-50 text-slate-500 hover:bg-slate-100 dark:bg-slate-900 dark:text-slate-400'
+                      }`}
+                      title={selectedConversation.is_ai_enabled ? "AI responder is actively replying to new customer queries" : "AI responder is paused"}
+                    >
+                      <span className="material-symbols-outlined text-[15px]">smart_toy</span>
+                      AI Responder: {(selectedConversation.is_ai_enabled ?? 1) ? 'ON' : 'OFF'}
+                    </button>
+                  )}
+
+                  {/* Status toggle */}
+                  <div className="flex bg-slate-100 dark:bg-slate-900 p-0.5 rounded-lg border border-slate-200/50 dark:border-slate-800/80 shrink-0">
+                    {([{ id: 'Open', icon: 'mark_as_unread' }, { id: 'Snoozed', icon: 'snooze' }, { id: 'Resolved', icon: 'check_circle' }] as const).map(item => {
+                      const active = selectedConversation?.status === item.id;
+                      return (
+                        <button
+                          key={item.id}
+                          onClick={() => updateTicket({ status: item.id } as any)}
+                          title={`Mark as ${item.id}`}
+                          className={`px-2.5 py-1 rounded-md text-[9px] font-black uppercase tracking-wider flex items-center gap-1 transition-all ${active ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm' : 'text-slate-400 hover:text-slate-700'}`}
+                        >
+                          <span className="material-symbols-outlined text-[12px]">{item.icon}</span>
+                          {item.id}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
-              <div className="flex gap-2 items-center flex-wrap">
+
+              {/* Row 2: Metadata & Property Assignment Toolbar */}
+              <div className="min-h-[40px] py-1.5 px-6 bg-slate-50 dark:bg-slate-900/50 border-t border-slate-100 dark:border-slate-800/40 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs">
                 {/* Booking link */}
-                <select
-                  value={selectedConversation?.booking_id ?? ''}
-                  onChange={e => updateTicket({ booking_id: e.target.value || null } as any)}
-                  className="h-8 pl-2 pr-6 rounded-lg bg-slate-50 dark:bg-slate-900 border-none text-[10px] font-black uppercase tracking-wider text-slate-600 cursor-pointer focus:ring-1 focus:ring-primary/20 max-w-[120px]"
-                >
-                  <option value="">No Booking Linked</option>
-                  {customerBookings.map(b => (
-                    <option key={b.id} value={b.id}>Link: {(b as any).package_name || (b as any).title || b.id.substring(0, 8)}</option>
-                  ))}
-                </select>
+                <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 shrink-0">
+                  <span className="material-symbols-outlined text-[15px] text-slate-400">airplane_ticket</span>
+                  <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">Booking:</span>
+                  <select
+                    value={selectedConversation?.booking_id ?? ''}
+                    onChange={e => updateTicket({ booking_id: e.target.value || null } as any)}
+                    className="h-7 pl-2 pr-6 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[10px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 cursor-pointer focus:ring-1 focus:ring-primary/20 max-w-[130px]"
+                  >
+                    <option value="">No Booking Linked</option>
+                    {customerBookings.map(b => (
+                      <option key={b.id} value={b.id}>Link: {(b as any).package_name || (b as any).title || b.id.substring(0, 8)}</option>
+                    ))}
+                  </select>
+                </div>
 
                 {/* Assign staff */}
-                <select
-                  value={selectedConversation?.assigned_staff_id ?? ''}
-                  onChange={e => updateTicket({ assigned_staff_id: e.target.value || null } as any)}
-                  className="h-8 pl-2 pr-6 rounded-lg bg-slate-50 dark:bg-slate-900 border-none text-[10px] font-black uppercase tracking-wider text-slate-600 cursor-pointer focus:ring-1 focus:ring-primary/20"
-                >
-                  <option value="">Unassigned</option>
-                  {staff.map(s => <option key={s.id} value={String(s.id)}>{s.name}</option>)}
-                </select>
+                <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 shrink-0">
+                  <span className="material-symbols-outlined text-[15px] text-slate-400">support_agent</span>
+                  <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">Assignee:</span>
+                  <select
+                    value={selectedConversation?.assigned_staff_id ?? ''}
+                    onChange={e => updateTicket({ assigned_staff_id: e.target.value || null } as any)}
+                    className="h-7 pl-2 pr-6 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[10px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 cursor-pointer focus:ring-1 focus:ring-primary/20"
+                  >
+                    <option value="">Unassigned</option>
+                    {staff.map(s => <option key={s.id} value={String(s.id)}>{s.name}</option>)}
+                  </select>
+                </div>
 
                 {/* Priority */}
-                <select
-                  value={selectedConversation?.priority ?? 'Medium'}
-                  onChange={e => updateTicket({ priority: e.target.value as any })}
-                  className="h-8 pl-2 pr-6 rounded-lg bg-slate-50 dark:bg-slate-900 border-none text-[10px] font-black uppercase tracking-wider text-slate-600 cursor-pointer focus:ring-1 focus:ring-primary/20"
-                >
-                  <option value="Low">Low Priority</option>
-                  <option value="Medium">Medium Priority</option>
-                  <option value="High">High Priority</option>
-                </select>
-
-                {/* Status toggle */}
-                <div className="flex bg-slate-100 dark:bg-slate-900 p-0.5 rounded-lg border border-slate-200/50 dark:border-slate-800/80 shrink-0">
-                  {([{ id: 'Open', icon: 'mark_as_unread' }, { id: 'Snoozed', icon: 'snooze' }, { id: 'Resolved', icon: 'check_circle' }] as const).map(item => {
-                    const active = selectedConversation?.status === item.id;
-                    return (
-                      <button
-                        key={item.id}
-                        onClick={() => updateTicket({ status: item.id } as any)}
-                        title={`Mark as ${item.id}`}
-                        className={`px-2.5 py-1 rounded-md text-[9px] font-black uppercase tracking-wider flex items-center gap-1 transition-all ${active ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm' : 'text-slate-400 hover:text-slate-700'}`}
-                      >
-                        <span className="material-symbols-outlined text-[12px]">{item.icon}</span>
-                        {item.id}
-                      </button>
-                    );
-                  })}
+                <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 shrink-0">
+                  <span className="material-symbols-outlined text-[15px] text-slate-400">flag</span>
+                  <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">Priority:</span>
+                  <select
+                    value={selectedConversation?.priority ?? 'Medium'}
+                    onChange={e => updateTicket({ priority: e.target.value as any })}
+                    className="h-7 pl-2 pr-6 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[10px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 cursor-pointer focus:ring-1 focus:ring-primary/20"
+                  >
+                    <option value="Low">Low Priority</option>
+                    <option value="Medium">Medium Priority</option>
+                    <option value="High">High Priority</option>
+                  </select>
                 </div>
               </div>
             </div>
@@ -694,7 +762,7 @@ export const SupportInbox: React.FC = () => {
                 </div>
               </form>
             </div>
-          </>
+          </div>
         )}
       </section>
 

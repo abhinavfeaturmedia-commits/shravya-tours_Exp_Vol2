@@ -2363,7 +2363,7 @@ export const Bookings: React.FC = () => {
                                                                 const liveP = booking.amount > 0 && net >= booking.amount ? 'Paid' : net > 0 ? 'Deposit' : net < 0 ? 'Refunded' : 'Unpaid';
                                                                 return (
                                                                     <div className="flex items-center gap-1">
-                                                                        <span className={`text-[10px] px-1.5 py-0.5 rounded w-fit font-bold uppercase ${liveP === 'Paid' ? 'bg-green-100 text-green-700' : liveP === 'Deposit' ? 'bg-blue-100 text-blue-700' : liveP === 'Refunded' ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-600'}`}>
+                                                                        <span className={`text-[10px] px-1.5 py-0.5 rounded w-fit font-bold uppercase ${liveP === 'Paid' ? 'bg-green-100 text-green-700' : liveP === 'Deposit' ? 'bg-blue-100 text-blue-700' : liveP === 'Refunded' ? 'bg-purple-100 text-purple-700' : 'bg-orange-100 text-orange-700'}`}>
                                                                             {liveP}
                                                                         </span>
                                                                         {hasPending && <span className="text-[9px] px-1 py-0.5 rounded bg-amber-100 text-amber-600 font-bold uppercase" title="Has pending payment(s) awaiting approval">⏳</span>}
@@ -2484,7 +2484,7 @@ export const Bookings: React.FC = () => {
                                                     <div className="text-right flex flex-col items-end gap-1">
                                                         <span className="text-sm font-bold text-slate-900 dark:text-white">{formatPrice(booking.amount)}</span>
                                                         <div className="flex items-center gap-1">
-                                                            <span className={`text-[10px] px-1.5 py-0.5 rounded w-fit font-bold uppercase ${liveP === 'Paid' ? 'bg-green-100 text-green-700' : liveP === 'Deposit' ? 'bg-blue-100 text-blue-700' : liveP === 'Refunded' ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-600'}`}>
+                                                            <span className={`text-[10px] px-1.5 py-0.5 rounded w-fit font-bold uppercase ${liveP === 'Paid' ? 'bg-green-100 text-green-700' : liveP === 'Deposit' ? 'bg-blue-100 text-blue-700' : liveP === 'Refunded' ? 'bg-purple-100 text-purple-700' : 'bg-orange-100 text-orange-700'}`}>
                                                                 {liveP}
                                                             </span>
                                                             {hasPending && <span className="text-[9px] px-1 py-0.5 rounded bg-amber-100 text-amber-600 font-bold uppercase">⏳</span>}

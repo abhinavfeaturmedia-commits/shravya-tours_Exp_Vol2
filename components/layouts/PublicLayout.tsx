@@ -7,6 +7,7 @@ import { WhatsAppModal } from '../booking/WhatsAppModal';
 import { SuggestPopup, isDismissed, isSnoozed, dismissSuggestion, snoozeSuggestion } from '../ui/SuggestPopup';
 import { PaymentLogos } from '../ui/PaymentLogos';
 import { useCustomerAuth } from '../../context/CustomerAuthContext';
+import { PublicChatbot } from '../ui/PublicChatbot';
 
 export const PublicLayout: React.FC = () => {
   const location = useLocation();
@@ -112,18 +113,7 @@ export const PublicLayout: React.FC = () => {
         </div>
       </div>
 
-      {/* Floating WhatsApp Button */}
-      <button
-        onClick={() => setIsWhatsAppOpen(true)}
-        className="fixed bottom-6 right-6 z-[100] bg-[#25D366] text-white p-4 rounded-full shadow-2xl shadow-green-500/40 hover:scale-110 active:scale-95 transition-all duration-300 group flex items-center justify-center"
-        aria-label="Chat on WhatsApp"
-      >
-        {/* Using a font icon, assuming material symbols has something similar or sticking to 'chat' */}
-        <span className="material-symbols-outlined text-3xl">chat</span>
-        <span className="absolute right-full mr-4 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-xs font-bold px-3 py-2 rounded-xl shadow-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-          Chat with us
-        </span>
-      </button>
+
 
       {/* Main Content */}
       <main className="flex-grow">
@@ -261,6 +251,7 @@ export const PublicLayout: React.FC = () => {
           </div>
         </div>
       </footer>
+      <PublicChatbot />
     </div>
   );
 };

@@ -804,8 +804,8 @@ export const api = {
     },
 
     createLead: async (lead: Partial<Lead>) => {
-        // Note: Do NOT pass `id` — backend auto-generates UUID + lead_number
-        await crud.create('leads', {
+        const token = localStorage.getItem('shravya_jwt') || localStorage.getItem('shrawello_partner_jwt');
+        const payload = {
             name: lead.name,
             email: lead.email,
             phone: lead.phone,
@@ -833,7 +833,17 @@ export const api = {
             office_address: lead.officeAddress,
             package_id: lead.packageId || null,          // Link back to source package
             alt_phone: lead.altPhone || null
-        });
+        };
+        
+        if (!token) {
+            await fetchApi('/api/public/leads', {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            });
+        } else {
+            // Note: Do NOT pass `id` — backend auto-generates UUID + lead_number
+            await crud.create('leads', payload);
+        }
     },
 
     updateLead: async (id: string, updates: Partial<Lead>) => {

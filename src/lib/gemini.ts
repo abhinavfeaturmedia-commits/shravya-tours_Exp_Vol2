@@ -345,4 +345,41 @@ export const generateWeeklyStandupSummary = async (logs: any[], staffNamesMap: R
     }
 };
 
+export const generatePackingChecklist = async (
+    destination: string,
+    days: number,
+    weather: string,
+    activityLevel: string,
+    category: string
+) => {
+    const prompt = `
+    You are an expert travel assistant for SHRAWELLO Travel Hub.
+    Generate a detailed packing checklist for a trip to "${destination}" for ${days} days.
+    The weather will be: ${weather}.
+    The planned activity level is: ${activityLevel}.
+    The trip/itinerary category is: ${category}.
+
+    Return ONLY a JSON array of sections (no markdown code fences, no extra text, just raw JSON array).
+    Each section must follow this format:
+    {
+      "category": "Clothing",
+      "items": [
+        { "name": "Light t-shirts", "qty": "5", "checked": false },
+        { "name": "Comfortable jeans", "qty": "2", "checked": false }
+      ]
+    }
+
+    Include essential categories like: "Clothing", "Toiletries", "Documents & Money", "Electronics", "Essentials & Meds".
+    Provide specific quantities for items where relevant based on the trip duration (${days} days) and weather (${weather}).
+    `;
+
+    try {
+        const text = await getAIResponse(prompt);
+        return robustParseJson(text);
+    } catch (error) {
+        console.error("Packing Checklist Generation Error:", error);
+        throw error;
+    }
+};
+
 
