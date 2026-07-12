@@ -42,6 +42,7 @@ export const Bookings: React.FC = () => {
     const [bookingForLedgerId, setBookingForLedgerId] = useState<string | null>(null);
     const [viewingBookingId, setViewingBookingId] = useState<string | null>(null);
     const [printingTxId, setPrintingTxId] = useState<string | null>(null);
+    const [activePaymentPopoverId, setActivePaymentPopoverId] = useState<string | null>(null);
 
     const handlePrintReceiptInBookings = async (tx: any, booking: Booking) => {
         setPrintingTxId(tx.id);
@@ -84,6 +85,28 @@ export const Bookings: React.FC = () => {
     const [deliverables, setDeliverables] = useState<BookingDailyDeliverable[]>([]);
     const [loadingDeliverables, setLoadingDeliverables] = useState(false);
     const [selectedDay, setSelectedDay] = useState<number>(1);
+
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                setActivePaymentPopoverId(null);
+            }
+        };
+        const handleClickOutside = (e: MouseEvent) => {
+            const target = e.target as HTMLElement;
+            if (!target.closest('.payment-popover') && !target.closest('.payment-dot-trigger')) {
+                setActivePaymentPopoverId(null);
+            }
+        };
+        if (activePaymentPopoverId) {
+            window.addEventListener('keydown', handleKeyDown);
+            window.addEventListener('click', handleClickOutside);
+        }
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('click', handleClickOutside);
+        };
+    }, [activePaymentPopoverId]);
 
     useEffect(() => {
         const fetchDeliverables = async () => {
@@ -1140,7 +1163,7 @@ export const Bookings: React.FC = () => {
                                         <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-5 space-y-4">
                                             {/* Days Selector */}
                                             <div className="flex flex-wrap gap-1.5 pb-3 border-b border-slate-100 dark:border-slate-700 font-sans">
-                                                {Array.from(new Set(deliverables.map(d => d.dayNumber))).sort((a,b)=>a-b).map(dayNum => (
+                                                {Array.from(new Set(deliverables.map(d => d.dayNumber))).sort((a: number, b: number) => a - b).map(dayNum => (
                                                     <button
                                                         key={dayNum}
                                                         type="button"
@@ -2517,7 +2540,7 @@ export const Bookings: React.FC = () => {
                                                         </div>
                                                     </td>
                                                     <td className="px-6 py-4">
-                                                        <div className="flex flex-col gap-1">
+                                                        <div className="flex flex-col gap-1 relative">
                                                             <span className="text-sm kpi-number text-slate-900 dark:text-white">{formatPrice(booking.amount)}</span>
                                                             {(() => {
                                                                 // Compute live payment status from Verified transactions only
@@ -2527,12 +2550,111 @@ export const Bookings: React.FC = () => {
                                                                 const hasPending = bTxs.some(t => t.status === 'Pending');
                                                                 const net = vPaid - vRefunded;
                                                                 const liveP = booking.amount > 0 && net >= booking.amount ? 'Paid' : net > 0 ? 'Deposit' : net < 0 ? 'Refunded' : 'Unpaid';
+                                                                const isPendingPayment = liveP === 'Unpaid' || liveP === 'Deposit';
+                                                                const dotColor = liveP === 'Unpaid' ? 'bg-red-500' : 'bg-blue-500';
                                                                 return (
-                                                                    <div className="flex items-center gap-1">
+                                                                    <div className="flex items-center gap-1.5">
                                                                         <span className={`text-[10px] px-1.5 py-0.5 rounded w-fit font-bold uppercase ${liveP === 'Paid' ? 'bg-green-100 text-green-700' : liveP === 'Deposit' ? 'bg-blue-100 text-blue-700' : liveP === 'Refunded' ? 'bg-purple-100 text-purple-700' : 'bg-orange-100 text-orange-700'}`}>
                                                                             {liveP}
                                                                         </span>
+                                                                        {isPendingPayment && (
+                                                                            <span 
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    setActivePaymentPopoverId(activePaymentPopoverId === booking.id ? null : booking.id);
+                                                                                }}
+                                                                                className="payment-dot-trigger relative flex h-2.5 w-2.5 cursor-pointer items-center justify-center shrink-0 animate-pulse-slow"
+                                                                                title="Click to view pending balance details"
+                                                                            >
+                                                                                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${dotColor}`}></span>
+                                                                                <span className={`relative inline-flex rounded-full h-1.5 w-1.5 ${dotColor}`}></span>
+                                                                            </span>
+                                                                        )}
                                                                         {hasPending && <span className="text-[9px] px-1 py-0.5 rounded bg-amber-100 text-amber-600 font-bold uppercase" title="Has pending payment(s) awaiting approval">⏳</span>}
+
+                                                                        {/* Desktop Popover */}
+                                                                        {activePaymentPopoverId === booking.id && (
+                                                                            <div 
+                                                                                className="payment-popover absolute top-full left-0 mt-1 w-64 p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl z-50 text-left"
+                                                                                onClick={e => e.stopPropagation()}
+                                                                            >
+                                                                                <div className="flex justify-between items-center pb-2 mb-2 border-b border-slate-100 dark:border-slate-800">
+                                                                                    <span className="text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Payment Details</span>
+                                                                                    <button 
+                                                                                        onClick={() => setActivePaymentPopoverId(null)}
+                                                                                        className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm font-bold leading-none"
+                                                                                    >
+                                                                                        &times;
+                                                                                    </button>
+                                                                                </div>
+                                                                                <div className="flex flex-col gap-1.5 text-xs text-slate-600 dark:text-slate-400 mb-3">
+                                                                                    <div className="flex justify-between">
+                                                                                        <span>Total Booking:</span>
+                                                                                        <span className="font-bold text-slate-800 dark:text-white">{formatPrice(booking.amount)}</span>
+                                                                                    </div>
+                                                                                    <div className="flex justify-between">
+                                                                                       <span>Amount Paid:</span>
+                                                                                       <span className="font-bold text-slate-800 dark:text-white">{formatPrice(net)}</span>
+                                                                                    </div>
+                                                                                    <div className="flex justify-between border-t border-dashed border-slate-200 dark:border-slate-700 pt-1.5">
+                                                                                        <span className="font-bold">Pending Balance:</span>
+                                                                                        <span className={`font-extrabold text-xs ${liveP === 'Unpaid' ? 'text-red-600 dark:text-red-400' : 'text-blue-600 dark:text-blue-400'}`}>
+                                                                                            {formatPrice(booking.amount - net)}
+                                                                                        </span>
+                                                                                    </div>
+                                                                                </div>
+
+                                                                                <div className="flex flex-col gap-1.5">
+                                                                                    <button 
+                                                                                        onClick={() => {
+                                                                                            setActivePaymentPopoverId(null);
+                                                                                            setBookingForLedgerId(booking.id);
+                                                                                        }}
+                                                                                        className="w-full py-1.5 bg-primary/10 hover:bg-primary/20 text-primary font-bold text-[10px] rounded-lg transition-colors flex items-center justify-center gap-1.5 uppercase tracking-wider"
+                                                                                    >
+                                                                                        <span className="material-symbols-outlined text-[14px]">account_balance_wallet</span>
+                                                                                        Record Payment
+                                                                                    </button>
+
+                                                                                    <button 
+                                                                                        onClick={() => {
+                                                                                            const paymentUrl = `${window.location.origin}/#/my-account/booking/${booking.id}`;
+                                                                                            navigator.clipboard.writeText(paymentUrl);
+                                                                                            toast.success('Payment portal link copied to clipboard!');
+                                                                                        }}
+                                                                                        className="w-full py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-[10px] rounded-lg transition-colors flex items-center justify-center gap-1.5 uppercase tracking-wider"
+                                                                                    >
+                                                                                        <span className="material-symbols-outlined text-[14px]">content_copy</span>
+                                                                                        Copy Portal Link
+                                                                                    </button>
+
+                                                                                    <div className="flex gap-1.5">
+                                                                                        <a 
+                                                                                            href={`https://wa.me/${(booking.phone || '').replace(/\D/g, '')}?text=${encodeURIComponent(
+                                                                                                `Hi ${booking.customer},\n\nThis is a friendly reminder from Shrawello Travel Hub regarding your booking for "${booking.title}".\n\nA pending balance of ${formatPrice(booking.amount - net)} is due.\n\nYou can view details and make the payment online here: ${window.location.origin}/#/my-account/booking/${booking.id}\n\nThank you!`
+                                                                                            )}`}
+                                                                                            target="_blank"
+                                                                                            rel="noreferrer"
+                                                                                            className="flex-1 py-1.5 bg-green-500 hover:bg-green-600 text-white font-bold text-[10px] rounded-lg transition-colors flex items-center justify-center gap-1 uppercase tracking-wider"
+                                                                                        >
+                                                                                            <span className="material-symbols-outlined text-[14px]">chat</span>
+                                                                                            WhatsApp
+                                                                                        </a>
+                                                                                        <a 
+                                                                                            href={`mailto:${booking.email}?subject=${encodeURIComponent(
+                                                                                                `Payment Reminder: Booking for ${booking.title}`
+                                                                                            )}&body=${encodeURIComponent(
+                                                                                                `Hi ${booking.customer},\n\nThis is a friendly reminder from Shrawello Travel Hub regarding your booking for "${booking.title}".\n\nTotal Booking Amount: ${formatPrice(booking.amount)}\nPaid Amount: ${formatPrice(net)}\nRemaining Balance: ${formatPrice(booking.amount - net)}\n\nPlease make the remaining payment online by logging into your account or visiting the link below:\n${window.location.origin}/#/my-account/booking/${booking.id}\n\nThank you,\nShrawello Travel Hub`
+                                                                                            )}`}
+                                                                                            className="flex-1 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white font-bold text-[10px] rounded-lg transition-colors flex items-center justify-center gap-1 uppercase tracking-wider"
+                                                                                        >
+                                                                                            <span className="material-symbols-outlined text-[14px]">mail</span>
+                                                                                            Email
+                                                                                        </a>
+                                                                                    </div>
+                                                                                </div>
+                                                                            </div>
+                                                                        )}
                                                                     </div>
                                                                 );
                                                             })()}
@@ -2647,13 +2769,110 @@ export const Bookings: React.FC = () => {
                                                             <span className="text-[10px] font-bold uppercase tracking-wider">{booking.type}</span>
                                                         </div>
                                                     </div>
-                                                    <div className="text-right flex flex-col items-end gap-1">
+                                                    <div className="text-right flex flex-col items-end gap-1 relative">
                                                         <span className="text-sm font-bold text-slate-900 dark:text-white">{formatPrice(booking.amount)}</span>
-                                                        <div className="flex items-center gap-1">
+                                                        <div className="flex items-center gap-1.5">
                                                             <span className={`text-[10px] px-1.5 py-0.5 rounded w-fit font-bold uppercase ${liveP === 'Paid' ? 'bg-green-100 text-green-700' : liveP === 'Deposit' ? 'bg-blue-100 text-blue-700' : liveP === 'Refunded' ? 'bg-purple-100 text-purple-700' : 'bg-orange-100 text-orange-700'}`}>
                                                                 {liveP}
                                                             </span>
+                                                            {(liveP === 'Unpaid' || liveP === 'Deposit') && (
+                                                                <span 
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        setActivePaymentPopoverId(activePaymentPopoverId === booking.id ? null : booking.id);
+                                                                    }}
+                                                                    className="payment-dot-trigger relative flex h-2.5 w-2.5 cursor-pointer items-center justify-center shrink-0"
+                                                                    title="Click to view pending balance details"
+                                                                >
+                                                                    <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${liveP === 'Unpaid' ? 'bg-red-500' : 'bg-blue-500'}`}></span>
+                                                                    <span className={`relative inline-flex rounded-full h-1.5 w-1.5 ${liveP === 'Unpaid' ? 'bg-red-500' : 'bg-blue-500'}`}></span>
+                                                                </span>
+                                                            )}
                                                             {hasPending && <span className="text-[9px] px-1 py-0.5 rounded bg-amber-100 text-amber-600 font-bold uppercase">⏳</span>}
+
+                                                            {/* Mobile Popover */}
+                                                            {activePaymentPopoverId === booking.id && (
+                                                                <div 
+                                                                    className="payment-popover absolute top-full right-0 mt-1 w-64 p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl z-[60] text-left"
+                                                                    onClick={e => e.stopPropagation()}
+                                                                >
+                                                                    <div className="flex justify-between items-center pb-2 mb-2 border-b border-slate-100 dark:border-slate-800">
+                                                                        <span className="text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Payment Details</span>
+                                                                        <button 
+                                                                            onClick={() => setActivePaymentPopoverId(null)}
+                                                                            className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm font-bold leading-none"
+                                                                        >
+                                                                            &times;
+                                                                        </button>
+                                                                    </div>
+                                                                    <div className="flex flex-col gap-1.5 text-xs text-slate-600 dark:text-slate-400 mb-3">
+                                                                        <div className="flex justify-between">
+                                                                            <span>Total Booking:</span>
+                                                                            <span className="font-bold text-slate-800 dark:text-white">{formatPrice(booking.amount)}</span>
+                                                                        </div>
+                                                                        <div className="flex justify-between">
+                                                                            <span>Amount Paid:</span>
+                                                                            <span className="font-bold text-slate-800 dark:text-white">{formatPrice(net)}</span>
+                                                                        </div>
+                                                                        <div className="flex justify-between border-t border-dashed border-slate-200 dark:border-slate-700 pt-1.5">
+                                                                            <span className="font-bold">Pending Balance:</span>
+                                                                            <span className={`font-extrabold text-xs ${liveP === 'Unpaid' ? 'text-red-600 dark:text-red-400' : 'text-blue-600 dark:text-blue-400'}`}>
+                                                                                {formatPrice(booking.amount - net)}
+                                                                            </span>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    <div className="flex flex-col gap-1.5">
+                                                                        <button 
+                                                                            onClick={() => {
+                                                                                setActivePaymentPopoverId(null);
+                                                                                setBookingForLedgerId(booking.id);
+                                                                            }}
+                                                                            className="w-full py-1.5 bg-primary/10 hover:bg-primary/20 text-primary font-bold text-[10px] rounded-lg transition-colors flex items-center justify-center gap-1.5 uppercase tracking-wider"
+                                                                        >
+                                                                            <span className="material-symbols-outlined text-[14px]">account_balance_wallet</span>
+                                                                            Record Payment
+                                                                        </button>
+
+                                                                        <button 
+                                                                            onClick={() => {
+                                                                                const paymentUrl = `${window.location.origin}/#/my-account/booking/${booking.id}`;
+                                                                                navigator.clipboard.writeText(paymentUrl);
+                                                                                toast.success('Payment portal link copied to clipboard!');
+                                                                            }}
+                                                                            className="w-full py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-[10px] rounded-lg transition-colors flex items-center justify-center gap-1.5 uppercase tracking-wider"
+                                                                        >
+                                                                            <span className="material-symbols-outlined text-[14px]">content_copy</span>
+                                                                            Copy Portal Link
+                                                                        </button>
+
+                                                                        <div className="flex gap-1.5">
+                                                                            <a 
+                                                                                href={`https://wa.me/${(booking.phone || '').replace(/\D/g, '')}?text=${encodeURIComponent(
+                                                                                    `Hi ${booking.customer},\n\nThis is a friendly reminder from Shrawello Travel Hub regarding your booking for "${booking.title}".\n\nA pending balance of ${formatPrice(booking.amount - net)} is due.\n\nYou can view details and make the payment online here: ${window.location.origin}/#/my-account/booking/${booking.id}\n\nThank you!`
+                                                                                )}`}
+                                                                                target="_blank"
+                                                                                rel="noreferrer"
+                                                                                className="flex-1 py-1.5 bg-green-500 hover:bg-green-600 text-white font-bold text-[10px] rounded-lg transition-colors flex items-center justify-center gap-1 uppercase tracking-wider"
+                                                                            >
+                                                                                <span className="material-symbols-outlined text-[14px]">chat</span>
+                                                                                WhatsApp
+                                                                            </a>
+                                                                            <a 
+                                                                                href={`mailto:${booking.email}?subject=${encodeURIComponent(
+                                                                                    `Payment Reminder: Booking for ${booking.title}`
+                                                                                )}&body=${encodeURIComponent(
+                                                                                    `Hi ${booking.customer},\n\nThis is a friendly reminder from Shrawello Travel Hub regarding your booking for "${booking.title}".\n\nTotal Booking Amount: ${formatPrice(booking.amount)}\nPaid Amount: ${formatPrice(net)}\nRemaining Balance: ${formatPrice(booking.amount - net)}\n\nPlease make the remaining payment online by logging into your account or visiting the link below:\n${window.location.origin}/#/my-account/booking/${booking.id}\n\nThank you,\nShrawello Travel Hub`
+                                                                                )}`}
+                                                                                className="flex-1 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white font-bold text-[10px] rounded-lg transition-colors flex items-center justify-center gap-1 uppercase tracking-wider"
+                                                                            >
+                                                                                <span className="material-symbols-outlined text-[14px]">mail</span>
+                                                                                Email
+                                                                            </a>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     </div>
                                                 </div>
