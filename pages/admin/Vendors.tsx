@@ -53,6 +53,12 @@ export const Vendors: React.FC = () => {
         if (filterParam === 'unused') {
             setSearch('unused');
         }
+        const searchParam = searchParams.get('search');
+        if (searchParam) {
+            setSearch(searchParam);
+            setCategoryFilter('All');
+            setComplianceFilter(false);
+        }
     }, [location.search]);
 
     // Handle deep linking for specific vendor detail drawer

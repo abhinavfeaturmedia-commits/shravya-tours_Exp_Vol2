@@ -423,6 +423,27 @@ async function ensureSettingsTable() {
 }
 ensureSettingsTable();
 
+// ─── Dedicated Settings Upsert (bypasses generic CRUD to avoid UNIQUE key update issues) ───
+app.post('/api/settings/upsert', authMiddleware, async (req, res) => {
+    if (req.user?.role !== 'admin') {
+        return res.status(403).json({ error: 'Admin access required' });
+    }
+    const { setting_key, setting_value } = req.body;
+    if (!setting_key) return res.status(400).json({ error: 'setting_key is required' });
+    try {
+        await pool.query(
+            'INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)',
+            [setting_key, setting_value]
+        );
+        res.json({ status: 'success' });
+    } catch (error) {
+        console.error('[Settings Upsert] Error:', error.message, '| Key:', setting_key, '| Value:', setting_value);
+        res.status(500).json({ error: 'Failed to save setting: ' + error.message });
+    }
+});
+
+
+
 // Ensure chatbot tables and configurations
 async function ensureChatbotTables() {
     try {
@@ -6241,7 +6262,7 @@ app.post('/api/crud/:table/upsert', authMiddleware, validateTable, writeGuard, a
     const body = req.body;
     try {
         // Auto-generate UUID if missing for non-auto-increment tables
-        const autoIncrementTables = ['users', 'staff_members', 'audit_logs', 'bookings', 'tours', 'packages', 'booking_transactions', 'account_transactions'];
+        const autoIncrementTables = ['users', 'staff_members', 'audit_logs', 'bookings', 'tours', 'packages', 'booking_transactions', 'account_transactions', 'settings'];
         if (!body.id && !autoIncrementTables.includes(table)) {
             body.id = crypto.randomUUID();
         }

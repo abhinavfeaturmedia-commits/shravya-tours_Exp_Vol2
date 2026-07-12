@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+﻿import React, { useState, useMemo, useCallback } from 'react';
 import { useData } from '../../context/DataContext';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -36,13 +36,20 @@ const formatLocalDate = (dateStr: string): string => {
     return d ? d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : dateStr;
 };
 
+/** Format external WhatsApp URLs with protocol if missing */
+const formatExternalUrl = (url: string): string => {
+    if (!url) return '';
+    if (/^(https?:\/\/|wa\.me)/i.test(url)) return url;
+    return `https://${url}`;
+};
+
 /** Day-of-tour counter (1-based, clamped to duration) */
 const getDayOfTour = (dateStr: string, duration: number): number => {
     const start = parseLocalDate(dateStr);
     if (!start) return 1;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const diff = Math.floor((today.getTime() - start.getTime()) / 86_400_000) + 1;
+    const diff = Math.round((today.getTime() - start.getTime()) / 86_400_000) + 1;
     return Math.min(Math.max(diff, 1), duration);
 };
 
@@ -50,13 +57,10 @@ const getDayOfTour = (dateStr: string, duration: number): number => {
 const extractPaxCount = (guestsStr?: string): number => {
     if (!guestsStr) return 1;
     const str = guestsStr.toLowerCase();
-    const match = str.match(/(\d+)\s*(?:adult|pax|guest|person|member)/);
-    if (match) return parseInt(match[1]);
-    const clean = str.replace(/\d+\s*(?:yr|year|room|bed)/g, '');
+    const clean = str.replace(/\d+\s*(?:yr|year|room|bed|night)/g, '');
     const nums = clean.match(/\d+/g);
     if (nums && nums.length > 0) return nums.reduce((a, c) => a + parseInt(c), 0);
-    const fallback = str.match(/\d+/g);
-    return fallback ? parseInt(fallback[0]) : 1;
+    return 1;
 };
 
 export const Operations: React.FC = () => {
@@ -66,176 +70,133 @@ export const Operations: React.FC = () => {
     const [activeTab, setActiveTab] = useState<'Tours' | 'Attendance'>('Tours');
     const [isRefreshing, setIsRefreshing] = useState(false);
 
+    // ─── Fix B: Upcoming window toggle (7 / 14 / 30 days) ───────────────────
+    const [upcomingDays, setUpcomingDays] = useState<7 | 14 | 30>(7);
+
     // ─── Deliverables Checklist States ───
+    // Fix E: deliverables are fetched per-booking (lazy) — not globally on tab switch
     const [deliverables, setDeliverables] = useState<Record<string, BookingDailyDeliverable[]>>({});
-    const [loadingDeliverables, setLoadingDeliverables] = useState(false);
+    const [loadingDeliverables, setLoadingDeliverables] = useState<Record<string, boolean>>({});
     const [expandedChecklists, setExpandedChecklists] = useState<Record<string, boolean>>({});
-    const [selectedDays, setSelectedDays] = useState<Record<string, number>>({}); // bookingId -> active day number in checklist
-    const [newDeliverableName, setNewDeliverableName] = useState<Record<string, string>>({}); // bookingId -> input text
+    const [selectedDays, setSelectedDays] = useState<Record<string, number>>({}); 
+    const [newDeliverableName, setNewDeliverableName] = useState<Record<string, string>>({}); 
     const [newDeliverableType, setNewDeliverableType] = useState<Record<string, 'meal' | 'transport' | 'guide' | 'activity' | 'hotel' | 'other'>>({});
     const [newDeliverableTime, setNewDeliverableTime] = useState<Record<string, string>>({});
 
-    const fetchDeliverables = useCallback(async () => {
-        setLoadingDeliverables(true);
+    // Fix E: Fetch deliverables for a specific booking (triggered when checklist is expanded)
+    const fetchDeliverableForBooking = useCallback(async (bookingId: string) => {
+        setLoadingDeliverables(prev => ({ ...prev, [bookingId]: true }));
         try {
-            const data = await api.getDailyDeliverables();
-            const grouped: Record<string, BookingDailyDeliverable[]> = {};
-            data.forEach(d => {
-                if (!grouped[d.bookingId]) grouped[d.bookingId] = [];
-                grouped[d.bookingId].push(d);
-            });
-            setDeliverables(grouped);
+            const data = await api.getDailyDeliverables(bookingId);
+            setDeliverables(prev => ({ ...prev, [bookingId]: data }));
         } catch (err) {
-            console.error('Failed to fetch deliverables:', err);
+            console.error(`Failed to fetch deliverables for ${bookingId}:`, err);
         } finally {
-            setLoadingDeliverables(false);
+            setLoadingDeliverables(prev => ({ ...prev, [bookingId]: false }));
         }
     }, []);
 
-    React.useEffect(() => {
-        if (activeTab === 'Tours') {
-            fetchDeliverables();
-        }
-    }, [activeTab, fetchDeliverables, bookings]);
+    // Fix E: Refresh a single booking's deliverables (used after add/delete/update)
+    const refreshDeliverables = useCallback((bookingId: string) => {
+        fetchDeliverableForBooking(bookingId);
+    }, [fetchDeliverableForBooking]);
 
-    // ─── Refresh handler (#9) ────────────────────────────────────────────────
+    // Fix D: Listen for bookings-changed events fired by the Bookings page
+    // This ensures live/upcoming lists auto-update when another tab changes booking status
+    React.useEffect(() => {
+        const onBookingsChanged = () => {
+            refreshData?.();
+        };
+        window.addEventListener('bookings-changed', onBookingsChanged);
+        return () => window.removeEventListener('bookings-changed', onBookingsChanged);
+    }, [refreshData]);
+
+    // ─── Refresh handler ────────────────────────────────────────────────────
     const handleRefresh = useCallback(async () => {
         setIsRefreshing(true);
         try {
             await refreshData?.();
-            await fetchDeliverables();
+            // Clear cached deliverables so they re-fetch fresh on expand
+            setDeliverables({});
             toast.success('Data refreshed');
         } catch {
             toast.error('Refresh failed');
         } finally {
             setIsRefreshing(false);
         }
-    }, [refreshData, fetchDeliverables]);
+    }, [refreshData]);
 
     // ─── Deliverables Handlers ───
+    // Fix G: Guard against duplicate checklist generation — check existing items first
     const handleGenerateChecklist = async (booking: Booking, duration: number) => {
-        try {
-            // Find package
-            const pkg = packages.find((p: any) => p.id === booking.packageId) || packages.find((p: any) => p.title === booking.title);
-            if (!pkg) {
-                toast.error('Package details not found');
-                return;
-            }
+        const existing = deliverables[booking.id] || [];
+        if (existing.length > 0) {
+            const ok = window.confirm(
+                `This tour already has ${existing.length} checklist items.\nRegenerate and add new ones?`
+            );
+            if (!ok) return;
+        }
 
+        try {
+            const pkg = packages.find((p: any) => p.id === booking.packageId) || packages.find((p: any) => p.title === booking.title);
             const newItems: BookingDailyDeliverable[] = [];
-            
-            // Loop through each day from 1 to duration (days in package/booking)
+            // Use a single timestamp base per generation run to avoid Date.now() collisions in a tight loop
+            const runTs = Date.now();
+
             for (let day = 1; day <= duration; day++) {
-                // Find itinerary item for this day
-                const dayItin = pkg.itinerary?.find((item: any) => item.day === day);
+                const dayItin = pkg?.itinerary?.find((item: any) => item.day === day);
                 const desc = dayItin?.desc?.toLowerCase() || '';
                 const title = dayItin?.title?.toLowerCase() || '';
+                const uid = () => Math.random().toString(36).substr(2, 6);
 
-                // 1. Breakfast check (usually included in hotel packages)
-                newItems.push({
-                    id: `DD-${booking.id}-${day}-breakfast-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-                    bookingId: booking.id,
-                    dayNumber: day,
-                    itemName: 'Breakfast (Included in Hotel Plan)',
-                    itemType: 'meal',
-                    scheduledTime: '08:00 AM',
-                    status: 'Pending'
-                });
+                // 1. Breakfast
+                newItems.push({ id: `DD-${booking.id}-${day}-bf-${runTs}-${uid()}`, bookingId: booking.id, dayNumber: day, itemName: 'Breakfast (Included in Hotel Plan)', itemType: 'meal', scheduledTime: '08:00 AM', status: 'Pending' });
 
-                // 2. Hotel Check-in / Stay check (every day except the last day)
+                // 2. Hotel overnight stay (not on last day)
                 if (day < duration) {
-                    newItems.push({
-                        id: `DD-${booking.id}-${day}-hotel-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-                        bookingId: booking.id,
-                        dayNumber: day,
-                        itemName: 'Overnight Stay check',
-                        itemType: 'hotel',
-                        scheduledTime: '12:00 PM',
-                        status: 'Pending'
-                    });
+                    newItems.push({ id: `DD-${booking.id}-${day}-ht-${runTs}-${uid()}`, bookingId: booking.id, dayNumber: day, itemName: 'Overnight Stay check', itemType: 'hotel', scheduledTime: '12:00 PM', status: 'Pending' });
                 }
 
-                // 3. Transport check (lobby pickup / transfer)
-                let transportItemName = 'Lobby Pickup';
-                if (day === 1) {
-                    transportItemName = 'Airport / Station Pickup';
-                } else if (day === duration) {
-                    transportItemName = 'Airport / Station Drop';
-                }
-                
-                newItems.push({
-                    id: `DD-${booking.id}-${day}-trans-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-                    bookingId: booking.id,
-                    dayNumber: day,
-                    itemName: transportItemName,
-                    itemType: 'transport',
-                    scheduledTime: '09:00 AM',
-                    status: 'Pending'
-                });
+                // 3. Transport
+                const transportItemName = day === 1 ? 'Airport / Station Pickup' : day === duration ? 'Airport / Station Drop' : 'Lobby Pickup';
+                newItems.push({ id: `DD-${booking.id}-${day}-tr-${runTs}-${uid()}`, bookingId: booking.id, dayNumber: day, itemName: transportItemName, itemType: 'transport', scheduledTime: '09:00 AM', status: 'Pending' });
 
-                // 4. Guide check (if guided activities are mentioned)
-                if (desc.includes('guide') || desc.includes('sightseeing') || title.includes('sightseeing') || title.includes('guided')) {
-                    newItems.push({
-                        id: `DD-${booking.id}-${day}-guide-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-                        bookingId: booking.id,
-                        dayNumber: day,
-                        itemName: 'Guide check-in',
-                        itemType: 'guide',
-                        scheduledTime: '09:30 AM',
-                        status: 'Pending'
-                    });
+                // 4. Guide (if mentioned in itinerary)
+                if (pkg && (desc.includes('guide') || desc.includes('sightseeing') || title.includes('sightseeing') || title.includes('guided'))) {
+                    newItems.push({ id: `DD-${booking.id}-${day}-gd-${runTs}-${uid()}`, bookingId: booking.id, dayNumber: day, itemName: 'Guide check-in', itemType: 'guide', scheduledTime: '09:30 AM', status: 'Pending' });
                 }
 
-                // 5. Activities (parse key sentences or activities from itinerary description)
-                // Let's split description into sentences or bullets and look for 'visit', 'explore', 'sightseeing'
-                const lines = desc.split(/[.\n•]/);
+                // 5. Activities from itinerary
                 let activityCount = 0;
-                lines.forEach((line) => {
-                    const cleanLine = line.trim();
-                    if (cleanLine.length > 10 && (cleanLine.includes('visit') || cleanLine.includes('explore') || cleanLine.includes('sightseeing') || cleanLine.includes('safari') || cleanLine.includes('ride') || cleanLine.includes('boating'))) {
-                        // Capitalize first letter
-                        let name = cleanLine.charAt(0).toUpperCase() + cleanLine.slice(1);
-                        // Clean up common words at start
-                        name = name.replace(/^(visit|explore|enjoy|see)\s+/i, '');
-                        // Capitalize first letter again
-                        name = name.charAt(0).toUpperCase() + name.slice(1);
-                        
-                        if (name.length > 50) name = name.substring(0, 47) + '...';
-
-                        newItems.push({
-                            id: `DD-${booking.id}-${day}-act-${activityCount}-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-                            bookingId: booking.id,
-                            dayNumber: day,
-                            itemName: `${name} Entry`,
-                            itemType: 'activity',
-                            scheduledTime: '10:00 AM',
-                            status: 'Pending'
-                        });
-                        activityCount++;
-                    }
-                });
-
-                // If no activities were parsed, add a general sightseeing item
-                if (activityCount === 0 && (desc.includes('sightseeing') || desc.includes('explore') || desc.includes('visit'))) {
-                    newItems.push({
-                        id: `DD-${booking.id}-${day}-sight-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-                        bookingId: booking.id,
-                        dayNumber: day,
-                        itemName: 'Sightseeing tour entry',
-                        itemType: 'activity',
-                        scheduledTime: '10:00 AM',
-                        status: 'Pending'
+                let hasSightseeing = false;
+                if (pkg) {
+                    const lines = desc.split(/[.\n•]/);
+                    lines.forEach((line) => {
+                        const cleanLine = line.trim();
+                        if (cleanLine.length > 10 && (cleanLine.includes('visit') || cleanLine.includes('explore') || cleanLine.includes('sightseeing') || cleanLine.includes('safari') || cleanLine.includes('ride') || cleanLine.includes('boating'))) {
+                            let name = cleanLine.charAt(0).toUpperCase() + cleanLine.slice(1);
+                            name = name.replace(/^(visit|explore|enjoy|see)\s+/i, '');
+                            name = name.charAt(0).toUpperCase() + name.slice(1);
+                            if (name.length > 50) name = name.substring(0, 47) + '...';
+                            newItems.push({ id: `DD-${booking.id}-${day}-ac${activityCount}-${runTs}-${uid()}`, bookingId: booking.id, dayNumber: day, itemName: `${name} Entry`, itemType: 'activity', scheduledTime: '10:00 AM', status: 'Pending' });
+                            activityCount++;
+                        }
                     });
+                    if (activityCount === 0 && (desc.includes('sightseeing') || desc.includes('explore') || desc.includes('visit'))) hasSightseeing = true;
+                } else {
+                    if (day > 1 && day < duration) hasSightseeing = true;
+                }
+                if (hasSightseeing) {
+                    newItems.push({ id: `DD-${booking.id}-${day}-sg-${runTs}-${uid()}`, bookingId: booking.id, dayNumber: day, itemName: 'Sightseeing tour entry', itemType: 'activity', scheduledTime: '10:00 AM', status: 'Pending' });
                 }
             }
 
-            // Save all generated items to the database
             for (const item of newItems) {
                 await api.createDailyDeliverable(item);
             }
 
             toast.success(`Checklist generated with ${newItems.length} items!`);
-            fetchDeliverables();
+            refreshDeliverables(booking.id);
         } catch (e) {
             console.error('Failed to generate checklist:', e);
             toast.error('Failed to generate checklist');
@@ -244,17 +205,12 @@ export const Operations: React.FC = () => {
 
     const handleAddCustomDeliverable = async (bookingId: string, dayNum: number) => {
         const name = newDeliverableName[bookingId]?.trim();
-        if (!name) {
-            toast.error('Please enter a deliverable name');
-            return;
-        }
-
+        if (!name) { toast.error('Please enter a deliverable name'); return; }
         const type = newDeliverableType[bookingId] || 'other';
         const time = newDeliverableTime[bookingId] || '';
-
         try {
             const newItem: BookingDailyDeliverable = {
-                id: `DD-${bookingId}-${dayNum}-custom-${Date.now()}`,
+                id: `DD-${bookingId}-${dayNum}-custom-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
                 bookingId,
                 dayNumber: dayNum,
                 itemName: name,
@@ -262,87 +218,109 @@ export const Operations: React.FC = () => {
                 scheduledTime: time || undefined,
                 status: 'Pending'
             };
-
             await api.createDailyDeliverable(newItem);
             toast.success('Deliverable added!');
-            
-            // Clear inputs
             setNewDeliverableName(prev => ({ ...prev, [bookingId]: '' }));
             setNewDeliverableTime(prev => ({ ...prev, [bookingId]: '' }));
-            
-            fetchDeliverables();
+            refreshDeliverables(bookingId);
         } catch {
             toast.error('Failed to add deliverable');
         }
     };
 
-    const handleDeleteDeliverable = async (id: string) => {
+    const handleDeleteDeliverable = async (id: string, bookingId: string) => {
         try {
             await api.deleteDailyDeliverable(id);
             toast.success('Deliverable deleted');
-            fetchDeliverables();
+            refreshDeliverables(bookingId);
         } catch {
             toast.error('Failed to delete deliverable');
         }
     };
 
-    const handleUpdateStatus = async (id: string, status: 'Pending' | 'Verified Success' | 'Delayed' | 'Substituted', notes?: string) => {
+    // Fix E: optimistic status update for instant UI feedback, then re-fetch from DB
+    const handleUpdateStatus = async (id: string, bookingId: string, status: 'Pending' | 'Verified Success' | 'Delayed' | 'Substituted', notes?: string) => {
+        // Optimistic update
+        setDeliverables(prev => ({
+            ...prev,
+            [bookingId]: (prev[bookingId] || []).map(d => d.id === id ? { ...d, status, notes } : d)
+        }));
         try {
             await api.updateDailyDeliverable(id, { status, notes });
-            toast.success(`Status updated to ${status}`);
-            fetchDeliverables();
         } catch {
             toast.error('Failed to update status');
+            refreshDeliverables(bookingId); // rollback by re-fetching
         }
     };
 
-    // ─── Tour Operations — only Tour-type bookings (#6) ──────────────────────
+    // ─── Tour Classification Logic ─────────────────────────────────────────────
+    // Fix A: Track whether duration is estimated (no durationDays in DB + no package match)
+    // Fix B: Use upcomingDays state instead of hard-coded 7
     const tourStats = useMemo(() => {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
-        const in7Days = new Date(today.getTime() + 7 * 86_400_000);
 
-        const live: (Booking & { paxCount: number; duration: number; liveEndDate: Date })[] = [];
-        const upcoming: (Booking & { paxCount: number })[] = [];
+        // Fix B: upcoming window driven by upcomingDays state (7 / 14 / 30)
+        const upcomingCutoff = new Date(today);
+        upcomingCutoff.setDate(today.getDate() + upcomingDays);
+        upcomingCutoff.setHours(23, 59, 59, 999);
+
+        const live: (Booking & { paxCount: number; duration: number; liveEndDate: Date; durationEstimated: boolean })[] = [];
+        const upcoming: (Booking & { paxCount: number; paxUnknown: boolean })[] = [];
         const completed: Booking[] = [];
 
         bookings.forEach((b: Booking) => {
-            // #6 — only process Tour-type bookings
+            // Only process Tour-type bookings (null type is treated as Tour for legacy rows)
             if (b.type && b.type !== 'Tour') return;
 
             const start = parseLocalDate(b.date);
             if (!start) return;
 
-            // Use explicit DB field, fall back to package lookup
-            let duration = b.durationDays ?? null;
-            if (!duration) {
-                const pkg = packages.find((p: any) => p.id === b.packageId) || packages.find((p: any) => p.title === b.title);
-                duration = pkg?.days || 1;
+            // Fix A: Resolve duration with explicit flag when it's estimated
+            let duration: number;
+            let durationEstimated = false;
+            if (b.durationDays && b.durationDays > 0) {
+                duration = b.durationDays;
+            } else {
+                // Try exact packageId match first, then loose title match
+                const pkg = packages.find((p: any) => p.id === b.packageId)
+                    || packages.find((p: any) => b.packageId && p.title === b.title);
+                if (pkg?.days && pkg.days > 0) {
+                    duration = pkg.days;
+                } else {
+                    duration = 1; // true fallback — flag as estimated
+                    durationEstimated = true;
+                }
             }
 
             const end = new Date(start);
             end.setDate(start.getDate() + (duration - 1));
             end.setHours(23, 59, 59, 999);
 
-            const paxCount = b.paxCount || extractPaxCount(b.guests);
+            // Fix H: paxCount — distinguish genuine 1 from missing data
+            const rawPax = b.paxCount ?? (b.paxAdult !== undefined ? (b.paxAdult + (b.paxChild ?? 0) + (b.paxInfant ?? 0)) : null);
+            const paxCount = rawPax ?? extractPaxCount(b.guests);
+            const paxUnknown = rawPax === null && !b.guests;
 
-            if (start <= today && end >= today && b.status === 'Confirmed' && b.liveStatus !== 'Completed' && b.liveStatus !== 'Cancelled') {
-                live.push({ ...b, paxCount, duration, liveEndDate: end });
-            } else if (start > today && start <= in7Days && b.status === 'Confirmed') {
-                upcoming.push({ ...b, paxCount });
-            } else if ((end < today && b.status !== 'Cancelled' && b.liveStatus !== 'Cancelled') || b.status === 'Completed' || b.liveStatus === 'Completed') {
+            const statusLower = b.status?.toLowerCase() || 'pending';
+            const liveStatusLower = b.liveStatus?.toLowerCase() || 'live';
+
+            if (start <= today && end >= today && statusLower === 'confirmed' && liveStatusLower !== 'completed' && liveStatusLower !== 'cancelled') {
+                live.push({ ...b, paxCount, duration, liveEndDate: end, durationEstimated });
+            } else if (start > today && start <= upcomingCutoff && statusLower === 'confirmed') {
+                upcoming.push({ ...b, paxCount, paxUnknown });
+            } else if ((end < today && statusLower !== 'cancelled' && liveStatusLower !== 'cancelled') || statusLower === 'completed' || liveStatusLower === 'completed') {
                 completed.push(b);
             }
         });
 
-        // #3 — sort using parseLocalDate (timezone-safe), not new Date(dateStr)
         const byDate = (a: Booking, b: Booking) => (parseLocalDate(a.date)?.getTime() ?? 0) - (parseLocalDate(b.date)?.getTime() ?? 0);
         live.sort(byDate);
         upcoming.sort(byDate);
         completed.sort((a, b) => (parseLocalDate(b.date)?.getTime() ?? 0) - (parseLocalDate(a.date)?.getTime() ?? 0));
 
         return { live, upcoming, completed };
-    }, [bookings, packages]);
+    }, [bookings, packages, upcomingDays]);
 
     // ─── Fault Detection ──────────────────────────────────────────────────────
     const faults = useMemo(() => {
@@ -420,14 +398,24 @@ export const Operations: React.FC = () => {
         }
     };
 
-    // #14 — confirm before cancelling
+    // Fix C: liveStatus changes now also sync booking.status in MySQL
+    // Ensures Bookings page reflects operational reality (Completed / Cancelled)
     const handleLiveStatusChange = async (bookingId: string, liveStatus: string) => {
         if (liveStatus === 'Cancelled') {
-            const ok = window.confirm('Are you sure you want to cancel this live tour? This cannot be easily undone.');
+            const ok = window.confirm('Are you sure you want to cancel this live tour? This action will also mark the booking as Cancelled in the Bookings page.');
             if (!ok) return;
         }
         try {
-            await updateBooking(bookingId, { liveStatus } as any);
+            // Build the update payload — sync live_status AND status for Completed/Cancelled
+            const updatePayload: any = { liveStatus };
+            if (liveStatus === 'Completed') {
+                updatePayload.status = 'Completed'; // syncs bookings.status → 'completed'
+            } else if (liveStatus === 'Cancelled') {
+                updatePayload.status = 'Cancelled'; // syncs bookings.status → 'cancelled'
+            }
+            await updateBooking(bookingId, updatePayload);
+            // Notify other pages (e.g. Bookings) of the change
+            window.dispatchEvent(new CustomEvent('bookings-changed'));
             toast.success('Tour status updated');
         } catch { toast.error('Failed to update tour status'); }
     };
@@ -455,6 +443,29 @@ export const Operations: React.FC = () => {
         setWhatsappGroupUrl(booking.whatsappGroupUrl || '');
         setModalDurationDays(booking.durationDays ? String(booking.durationDays) : '');
         setPrepModalOpen(true);
+    };
+
+    // Fix F: Save tour details (duration + WA group) — works WITHOUT a vendor selected
+    const handleSaveBookingDetails = async () => {
+        if (!selectedBookingForPrep) return;
+        const updates: any = {};
+        const newDuration = parseInt(modalDurationDays) || 0;
+        if (newDuration > 0 && newDuration !== (selectedBookingForPrep.durationDays ?? 0)) {
+            updates.durationDays = newDuration;
+        }
+        if (whatsappGroupUrl !== (selectedBookingForPrep.whatsappGroupUrl || '')) {
+            updates.whatsappGroupUrl = whatsappGroupUrl;
+        }
+        if (Object.keys(updates).length === 0) {
+            toast.info('No changes to save.');
+            return;
+        }
+        try {
+            await updateBooking(selectedBookingForPrep.id, updates as any);
+            toast.success('Tour details saved!');
+            // Fix I: refresh so duration/liveStatus resolve correctly in tourStats
+            await refreshData?.();
+        } catch { toast.error('Failed to save tour details'); }
     };
 
     const handleAssignDriver = async () => {
@@ -489,20 +500,25 @@ export const Operations: React.FC = () => {
             await addSupplierBooking(selectedBookingForPrep.id, newSb);
         }
 
-        // Persist WhatsApp group URL
+        // Persist WhatsApp group URL & duration if also changed
+        const bookingUpdates: any = {};
         if (whatsappGroupUrl !== (selectedBookingForPrep.whatsappGroupUrl || '')) {
-            await updateBooking(selectedBookingForPrep.id, { whatsappGroupUrl } as any);
+            bookingUpdates.whatsappGroupUrl = whatsappGroupUrl;
         }
-
-        // #10 — persist durationDays if changed
         const newDuration = parseInt(modalDurationDays) || 0;
         if (newDuration > 0 && newDuration !== (selectedBookingForPrep.durationDays ?? 0)) {
-            await updateBooking(selectedBookingForPrep.id, { durationDays: newDuration } as any);
+            bookingUpdates.durationDays = newDuration;
+        }
+        if (Object.keys(bookingUpdates).length > 0) {
+            await updateBooking(selectedBookingForPrep.id, bookingUpdates as any);
         }
 
         toast.success(existingTransport ? 'Driver updated successfully' : 'Driver assigned successfully');
+        // Fix I: Reload bookings so fault detection sees fresh supplierBookings
+        await refreshData?.();
         setPrepModalOpen(false);
     };
+
 
     const transportVendors = useMemo(() =>
         vendors.filter((v: any) => v.category === 'Transport' || v.category === 'Guide'),
@@ -686,15 +702,22 @@ export const Operations: React.FC = () => {
                                                 <p className="text-sm text-slate-500 font-medium mb-4 truncate" title={tour.title}>{tour.title}</p>
 
                                                 <div className="space-y-2">
-                                                    <div className="flex items-center gap-2 text-xs font-bold text-slate-600 dark:text-slate-400">
+                                                     <div className="flex items-center gap-2 text-xs font-bold text-slate-600 dark:text-slate-400">
                                                         <Calendar size={14} />
                                                         Day {dayOfTour} of {tour.duration}
+                                                        {/* Fix A: Show amber badge if duration was estimated (no confirmed duration in DB) */}
+                                                        {(tour as any).durationEstimated && (
+                                                            <span className="text-amber-500 font-bold text-[10px] bg-amber-50 dark:bg-amber-900/20 px-1.5 py-0.5 rounded" title="Duration estimated from package. Set exact duration in Prep Modal.">
+                                                                ⚠ Est.
+                                                            </span>
+                                                        )}
                                                         <span className="text-slate-400 font-normal ml-1">
                                                             (Ends {endDateLabel})
                                                         </span>
                                                     </div>
                                                     <div className="flex items-center gap-2 text-xs font-bold text-slate-600 dark:text-slate-400">
-                                                        <Users size={14} /> {tour.paxCount} Guests
+                                                        {/* Fix H: Show '?' for genuinely unknown pax count */}
+                                                        <Users size={14} /> {(tour as any).paxUnknown ? <span className="text-slate-400">? Guests</span> : `${tour.paxCount} Guests`}
                                                     </div>
                                                     <div className="flex items-center gap-2 text-xs font-bold text-slate-600 dark:text-slate-400">
                                                         <Car size={14} />
@@ -723,7 +746,14 @@ export const Operations: React.FC = () => {
                                                     return (
                                                         <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800">
                                                             <button
-                                                                onClick={() => setExpandedChecklists(prev => ({ ...prev, [tour.id]: !prev[tour.id] }))}
+                                                                onClick={() => {
+                                                                    const nowExpanded = !expandedChecklists[tour.id];
+                                                                    setExpandedChecklists(prev => ({ ...prev, [tour.id]: nowExpanded }));
+                                                                    // Fix E: Lazy-load deliverables for this booking only when first expanded
+                                                                    if (nowExpanded && !deliverables[tour.id]) {
+                                                                        fetchDeliverableForBooking(tour.id);
+                                                                    }
+                                                                }}
                                                                 className="w-full flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
                                                             >
                                                                 <span className="flex items-center gap-1.5">
@@ -735,6 +765,10 @@ export const Operations: React.FC = () => {
 
                                                              {isExpanded && (
                                                                  <div className="mt-3 space-y-3 bg-slate-50 dark:bg-slate-900/40 p-3 rounded-xl border border-slate-100 dark:border-slate-850/80 animate-in fade-in slide-in-from-top-1 duration-200">
+                                                                     {loadingDeliverables[tour.id] ? (
+                                                                         <div className="text-center py-4 text-xs text-slate-400">Loading checklist...</div>
+                                                                     ) : (
+                                                                     <>
                                                                      {/* Day selector buttons */}
                                                                      {tour.duration > 1 && (
                                                                          <div className="flex flex-wrap gap-1 mb-2 border-b border-slate-200/60 dark:border-slate-800 pb-2">
@@ -753,117 +787,117 @@ export const Operations: React.FC = () => {
                                                                              ))}
                                                                          </div>
                                                                      )}
+                                                                         {totalItems === 0 ? (
+                                                                             <div className="text-center py-4">
+                                                                                 <p className="text-[11px] text-slate-400 font-medium mb-2">No checklist items generated.</p>
+                                                                                 <button
+                                                                                     onClick={() => handleGenerateChecklist(tour, tour.duration)}
+                                                                                     className="px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 text-blue-600 dark:text-blue-400 text-[10px] font-black rounded-lg transition-colors inline-flex items-center gap-1"
+                                                                                 >
+                                                                                     <Plus size={10} /> Generate Checklist
+                                                                                 </button>
+                                                                             </div>
+                                                                         ) : (
+                                                                             <>
+                                                                                 {/* Checklist items list */}
+                                                                                 <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                                                                                     {dayItems.map(item => {
+                                                                                         const isSuccess = item.status === 'Verified Success';
+                                                                                         const isDelayed = item.status === 'Delayed';
+                                                                                         const isSubstituted = item.status === 'Substituted';
 
-                                                                     {totalItems === 0 ? (
-                                                                         <div className="text-center py-4">
-                                                                             <p className="text-[11px] text-slate-400 font-medium mb-2">No checklist items generated.</p>
-                                                                             <button
-                                                                                 onClick={() => handleGenerateChecklist(tour, tour.duration)}
-                                                                                 className="px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 text-blue-600 dark:text-blue-400 text-[10px] font-black rounded-lg transition-colors inline-flex items-center gap-1"
-                                                                             >
-                                                                                 <Plus size={10} /> Generate Checklist
-                                                                             </button>
-                                                                         </div>
-                                                                     ) : (
-                                                                         <>
-                                                                             {/* Checklist items list */}
-                                                                             <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                                                                                 {dayItems.map(item => {
-                                                                                     const isSuccess = item.status === 'Verified Success';
-                                                                                     const isDelayed = item.status === 'Delayed';
-                                                                                     const isSubstituted = item.status === 'Substituted';
-
-                                                                                     return (
-                                                                                         <div key={item.id} className="flex flex-col gap-1 bg-white dark:bg-slate-800/50 p-2 rounded-lg border border-slate-100 dark:border-slate-800/50 group/item">
-                                                                                             <div className="flex items-start justify-between gap-2">
-                                                                                                 <label className="flex items-start gap-2 cursor-pointer flex-1">
-                                                                                                     <input
-                                                                                                         type="checkbox"
-                                                                                                         checked={isSuccess}
-                                                                                                         onChange={(e) => handleUpdateStatus(
-                                                                                                             item.id,
-                                                                                                             e.target.checked ? 'Verified Success' : 'Pending',
-                                                                                                             item.notes
-                                                                                                         )}
-                                                                                                         className="mt-0.5 size-3.5 rounded text-blue-600 border-slate-300 focus:ring-blue-500/20 cursor-pointer"
-                                                                                                     />
-                                                                                                     <div className="flex flex-col flex-1">
-                                                                                                         <span className={`text-[11px] font-bold ${isSuccess ? 'line-through text-slate-400 dark:text-slate-500' : 'text-slate-700 dark:text-slate-300'}`}>
-                                                                                                             {item.itemType === 'meal' && '🍳 '}
-                                                                                                             {item.itemType === 'transport' && '🚗 '}
-                                                                                                             {item.itemType === 'guide' && '🗣️ '}
-                                                                                                             {item.itemType === 'activity' && '🎟️ '}
-                                                                                                             {item.itemType === 'hotel' && '🏨 '}
-                                                                                                             {item.itemName}
-                                                                                                         </span>
-                                                                                                         {item.scheduledTime && (
-                                                                                                             <span className="text-[9px] text-slate-400 font-mono flex items-center gap-0.5">
-                                                                                                                 <Clock size={8} /> {item.scheduledTime}
+                                                                                         return (
+                                                                                             <div key={item.id} className="flex flex-col gap-1 bg-white dark:bg-slate-800/50 p-2 rounded-lg border border-slate-100 dark:border-slate-800/50 group/item">
+                                                                                                 <div className="flex items-start justify-between gap-2">
+                                                                                                     <label className="flex items-start gap-2 cursor-pointer flex-1">
+                                                                                                         <input
+                                                                                                             type="checkbox"
+                                                                                                             checked={isSuccess}
+                                                                                                             onChange={(e) => handleUpdateStatus(
+                                                                                                                 item.id,
+                                                                                                                 tour.id,
+                                                                                                                 e.target.checked ? 'Verified Success' : 'Pending',
+                                                                                                                 item.notes
+                                                                                                             )}
+                                                                                                             className="mt-0.5 size-3.5 rounded text-blue-600 border-slate-300 focus:ring-blue-500/20 cursor-pointer"
+                                                                                                         />
+                                                                                                         <div className="flex flex-col flex-1">
+                                                                                                             <span className={`text-[11px] font-bold ${isSuccess ? 'line-through text-slate-400 dark:text-slate-500' : 'text-slate-700 dark:text-slate-300'}`}>
+                                                                                                                 {item.itemType === 'meal' && '🍳 '}
+                                                                                                                 {item.itemType === 'transport' && '🚗 '}
+                                                                                                                 {item.itemType === 'guide' && '🗣️ '}
+                                                                                                                 {item.itemType === 'activity' && '🎟️ '}
+                                                                                                                 {item.itemType === 'hotel' && '🏨 '}
+                                                                                                                 {item.itemName}
                                                                                                              </span>
-                                                                                                         )}
-                                                                                                         {item.itemType === 'transport' && assignedTransport && transportVendor && (
-                                                                                                             <button
-                                                                                                                 onClick={() => navigate(`/admin/vendors?search=${encodeURIComponent(transportVendor.name)}`)}
-                                                                                                                 className="text-[9px] text-blue-600 hover:underline font-bold mt-0.5 text-left block"
-                                                                                                             >
-                                                                                                                 Contact Driver: {transportVendor.name}
-                                                                                                             </button>
-                                                                                                         )}
-                                                                                                         {item.itemType === 'guide' && (
-                                                                                                             <button
-                                                                                                                 onClick={() => navigate('/admin/vendors?search=Guide')}
-                                                                                                                 className="text-[9px] text-blue-600 hover:underline font-bold mt-0.5 text-left block"
-                                                                                                             >
-                                                                                                                 View Guides Directory
-                                                                                                             </button>
-                                                                                                         )}
-                                                                                                         {item.itemType === 'hotel' && (
-                                                                                                             <button
-                                                                                                                 onClick={() => navigate('/admin/vendors?search=Hotel')}
-                                                                                                                 className="text-[9px] text-blue-600 hover:underline font-bold mt-0.5 text-left block"
-                                                                                                             >
-                                                                                                                 View Hotels Directory
-                                                                                                             </button>
-                                                                                                         )}
-                                                                                                     </div>
-                                                                                                 </label>
+                                                                                                             {item.scheduledTime && (
+                                                                                                                 <span className="text-[9px] text-slate-400 font-mono flex items-center gap-0.5">
+                                                                                                                     <Clock size={8} /> {item.scheduledTime}
+                                                                                                                 </span>
+                                                                                                             )}
+                                                                                                             {item.itemType === 'transport' && assignedTransport && transportVendor && (
+                                                                                                                 <button
+                                                                                                                     onClick={() => navigate(`/admin/vendors?search=${encodeURIComponent(transportVendor.name)}`)}
+                                                                                                                     className="text-[9px] text-blue-600 hover:underline font-bold mt-0.5 text-left block"
+                                                                                                                 >
+                                                                                                                     Contact Driver: {transportVendor.name}
+                                                                                                                 </button>
+                                                                                                             )}
+                                                                                                             {item.itemType === 'guide' && (
+                                                                                                                 <button
+                                                                                                                     onClick={() => navigate('/admin/vendors?search=Guide')}
+                                                                                                                     className="text-[9px] text-blue-600 hover:underline font-bold mt-0.5 text-left block"
+                                                                                                                 >
+                                                                                                                     View Guides Directory
+                                                                                                                 </button>
+                                                                                                             )}
+                                                                                                             {item.itemType === 'hotel' && (
+                                                                                                                 <button
+                                                                                                                     onClick={() => navigate('/admin/vendors?search=Hotel')}
+                                                                                                                     className="text-[9px] text-blue-600 hover:underline font-bold mt-0.5 text-left block"
+                                                                                                                 >
+                                                                                                                     View Hotels Directory
+                                                                                                                 </button>
+                                                                                                             )}
+                                                                                                         </div>
+                                                                                                     </label>
 
-                                                                                                 <div className="flex items-center gap-1.5">
-                                                                                                     <select
-                                                                                                         value={item.status}
-                                                                                                         onChange={(e) => {
-                                                                                                             const newStatus = e.target.value;
-                                                                                                             if (newStatus === 'Substituted' || newStatus === 'Delayed') {
-                                                                                                                 const notesVal = window.prompt(`Enter reason for ${newStatus}:`, item.notes || '');
-                                                                                                                 if (notesVal !== null) {
-                                                                                                                     handleUpdateStatus(item.id, newStatus, notesVal);
-                                                                                                                 }
-                                                                                                             } else {
-                                                                                                                 handleUpdateStatus(item.id, newStatus, undefined);
-                                                                                                             }
-                                                                                                         }}
-                                                                                                         className={`px-1 py-0.5 text-[9px] font-black rounded border border-slate-200 dark:border-slate-700 outline-none cursor-pointer bg-slate-50 dark:bg-slate-800 ${
-                                                                                                             isSuccess ? 'text-green-600 dark:text-green-400' :
-                                                                                                             isDelayed ? 'text-red-500' :
-                                                                                                             isSubstituted ? 'text-purple-500' :
-                                                                                                             'text-slate-500 dark:text-slate-400'
-                                                                                                         }`}
-                                                                                                     >
-                                                                                                         <option value="Pending">Pending</option>
-                                                                                                         <option value="Verified Success">Success</option>
-                                                                                                         <option value="Delayed">Delayed</option>
-                                                                                                         <option value="Substituted">Substituted</option>
-                                                                                                     </select>
+                                                                                                     <div className="flex items-center gap-1.5">
+                                                                                                         <select
+                                                                                                             value={item.status}
+                                                                                                             onChange={(e) => {
+                                                                                                                 const newStatus = e.target.value;
+                                                                                                                 if (newStatus === 'Substituted' || newStatus === 'Delayed') {
+                                                                                                                     const notesVal = window.prompt(`Enter reason for ${newStatus}:`, item.notes || '');
+                                                                                                                     if (notesVal !== null) {
+                                                                                                                         handleUpdateStatus(item.id, tour.id, newStatus as any, notesVal);
+                                                                                                                     }
+                                                                                                                 } else {
+                                                                                                                     handleUpdateStatus(item.id, tour.id, newStatus as any, undefined);
+                                                                                                                  }
+                                                                                                              }}
+                                                                                                              className={`px-1 py-0.5 text-[9px] font-black rounded border border-slate-200 dark:border-slate-700 outline-none cursor-pointer bg-slate-50 dark:bg-slate-800 ${
+                                                                                                                  isSuccess ? 'text-green-600 dark:text-green-400' :
+                                                                                                                  isDelayed ? 'text-red-500' :
+                                                                                                                  isSubstituted ? 'text-purple-500' :
+                                                                                                                  'text-slate-500 dark:text-slate-400'
+                                                                                                              }`}
+                                                                                                          >
+                                                                                                              <option value="Pending">Pending</option>
+                                                                                                              <option value="Verified Success">Success</option>
+                                                                                                              <option value="Delayed">Delayed</option>
+                                                                                                              <option value="Substituted">Substituted</option>
+                                                                                                          </select>
 
-                                                                                                     <button
-                                                                                                         onClick={() => handleDeleteDeliverable(item.id)}
-                                                                                                         className="text-slate-300 hover:text-red-500 p-0.5 rounded opacity-0 group-hover/item:opacity-100 transition-opacity"
-                                                                                                         title="Delete item"
-                                                                                                     >
-                                                                                                         <Trash2 size={10} />
-                                                                                                     </button>
-                                                                                                 </div>
-                                                                                             </div>
+                                                                                                          <button
+                                                                                                              onClick={() => handleDeleteDeliverable(item.id, tour.id)}
+                                                                                                              className="text-slate-300 hover:text-red-500 p-0.5 rounded opacity-0 group-hover/item:opacity-100 transition-opacity"
+                                                                                                              title="Delete item"
+                                                                                                          >
+                                                                                                              <Trash2 size={10} />
+                                                                                                          </button>
+                                                                                                      </div>
+                                                                                                  </div>
 
                                                                                              {item.notes && (
                                                                                                  <div className="pl-2.5 text-[9px] text-slate-500 bg-slate-50 dark:bg-slate-900/30 p-1 rounded font-medium border-l-2 border-slate-300">
@@ -913,6 +947,8 @@ export const Operations: React.FC = () => {
                                                                              </div>
                                                                          </>
                                                                      )}
+                                                                      </>
+                                                                      )}
                                                                  </div>
                                                              )}
                                                          </div>
@@ -922,7 +958,7 @@ export const Operations: React.FC = () => {
                                                 <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 flex gap-2 flex-wrap">
                                                     {/* #7 — visually disabled WA button when no link/phone */}
                                                     <button
-                                                        onClick={() => hasWa && window.open(waUrl, '_blank')}
+                                                        onClick={() => hasWa && window.open(formatExternalUrl(waUrl), '_blank')}
                                                         disabled={!hasWa}
                                                         title={hasWa ? (tour.whatsappGroupUrl ? 'Open WA Group' : 'Open WhatsApp') : 'No phone or WA group set'}
                                                         className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors ${hasWa
@@ -973,12 +1009,30 @@ export const Operations: React.FC = () => {
                             </div>
                         </div>
 
-                        {/* Upcoming Tours */}
+                        {/* Upcoming Tours — Fix B: day-range toggle */}
                         <div>
-                            <h3 className="text-lg font-black text-slate-900 dark:text-white mb-4 flex items-center gap-2">
-                                <Calendar className="text-blue-500" size={20} />
-                                Upcoming Arrivals (Next 7 Days)
-                            </h3>
+                            <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+                                <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
+                                    <Calendar className="text-blue-500" size={20} />
+                                    Upcoming Arrivals
+                                    <span className="text-sm font-normal text-slate-400">({tourStats.upcoming.length})</span>
+                                </h3>
+                                <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl gap-0.5">
+                                    {([7, 14, 30] as const).map(d => (
+                                        <button
+                                            key={d}
+                                            onClick={() => setUpcomingDays(d)}
+                                            className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                                                upcomingDays === d
+                                                    ? 'bg-white dark:bg-slate-700 shadow-sm text-blue-600 dark:text-blue-400'
+                                                    : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                                            }`}
+                                        >
+                                            {d}d
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
                             <div className="bg-white dark:bg-[#1A2633] rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden">
                                 <table className="w-full text-left">
                                     <thead className="bg-slate-50 dark:bg-slate-900/50 text-xs uppercase font-bold text-slate-400">
@@ -1003,7 +1057,10 @@ export const Operations: React.FC = () => {
                                                     </td>
                                                     <td className="px-6 py-4 font-medium text-slate-900 dark:text-white">
                                                         {tour.customer}
-                                                        <div className="text-[10px] text-slate-400 font-normal">{tour.paxCount} Pax</div>
+                                                        {/* Fix H: show ? for genuinely unknown pax */}
+                                                        <div className="text-[10px] text-slate-400 font-normal">
+                                                            {(tour as any).paxUnknown ? '? Pax' : `${tour.paxCount} Pax`}
+                                                        </div>
                                                     </td>
                                                     <td className="px-6 py-4 text-sm text-slate-500">{tour.title}</td>
                                                     <td className="px-6 py-4 text-sm">
@@ -1029,7 +1086,7 @@ export const Operations: React.FC = () => {
                                             );
                                         })}
                                         {tourStats.upcoming.length === 0 && (
-                                            <tr><td colSpan={5} className="px-6 py-8 text-center text-slate-400">No upcoming tours in the next 7 days.</td></tr>
+                                            <tr><td colSpan={5} className="px-6 py-8 text-center text-slate-400">No upcoming tours in the next {upcomingDays} days.</td></tr>
                                         )}
                                     </tbody>
                                 </table>
@@ -1259,13 +1316,24 @@ export const Operations: React.FC = () => {
                                 <input type="url" value={whatsappGroupUrl} onChange={(e) => setWhatsappGroupUrl(e.target.value)} placeholder="https://chat.whatsapp.com/..." className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border-none rounded-xl outline-none focus:ring-2 ring-blue-500/20 text-sm" />
                             </div>
 
+                            {/* Fix F: Save tour details (duration + WA) without needing a vendor */}
                             <button
-                                onClick={handleAssignDriver}
-                                disabled={!driverVendorId}
-                                className="w-full py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed mt-2 btn-glow"
+                                onClick={handleSaveBookingDetails}
+                                className="w-full py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 mt-1 text-sm"
                             >
-                                Confirm Assignment
+                                💾 Save Duration &amp; WA Group (No vendor needed)
                             </button>
+
+                            <div className="border-t border-slate-200 dark:border-slate-700 pt-3">
+                                <p className="text-[10px] text-slate-400 mb-2 font-medium">Select a vendor above to confirm transport assignment:</p>
+                                <button
+                                    onClick={handleAssignDriver}
+                                    disabled={!driverVendorId}
+                                    className="w-full py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed btn-glow"
+                                >
+                                    🚗 Confirm Driver Assignment
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>

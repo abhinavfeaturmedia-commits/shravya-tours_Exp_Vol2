@@ -113,11 +113,11 @@ export const Bookings: React.FC = () => {
             if (!viewingBookingId) return;
             setLoadingDeliverables(true);
             try {
-                const data = await api.getDailyDeliverables();
-                const filtered = data.filter(d => d.bookingId === viewingBookingId);
-                setDeliverables(filtered);
-                if (filtered.length > 0) {
-                    const minDay = Math.min(...filtered.map(f => f.dayNumber));
+                // Filter by bookingId at DB level — uses the (booking_id, day_number) index
+                const data = await api.getDailyDeliverables(viewingBookingId);
+                setDeliverables(data);
+                if (data.length > 0) {
+                    const minDay = Math.min(...data.map(f => f.dayNumber));
                     setSelectedDay(minDay);
                 } else {
                     setSelectedDay(1);
@@ -132,6 +132,7 @@ export const Bookings: React.FC = () => {
             fetchDeliverables();
         }
     }, [viewingBookingId, bookingModalTab]);
+
 
     const handleUpdateDeliverableStatus = async (id: string, status: 'Pending' | 'Verified Success' | 'Delayed' | 'Substituted', notes?: string) => {
         try {
@@ -369,6 +370,7 @@ export const Bookings: React.FC = () => {
         packageId: '',
         guests: '2 Adults, 0 Children',
         endDate: today,
+        durationDays: 1 as number | null,
         details: '',
         whatsapp: '',
         isWhatsappSame: true,
@@ -473,6 +475,7 @@ export const Bookings: React.FC = () => {
         const searchParam = searchParams.get('search');
         if (searchParam) {
             setSearch(searchParam);
+            setActiveTab('All'); // Force active tab to "All" so the searched booking is visible
         }
     }, [location.search]);
 
@@ -549,6 +552,7 @@ export const Bookings: React.FC = () => {
             packageId: '',
             guests: '2 Adults',
             endDate: today,
+            durationDays: 1,
             details: '',
             whatsapp: '',
             isWhatsappSame: true,
@@ -580,6 +584,7 @@ export const Bookings: React.FC = () => {
             packageId: booking.packageId || '',
             guests: booking.guests || '2 Adults',
             endDate: booking.endDate || booking.date,
+            durationDays: booking.durationDays || null,
             details: booking.details || '',
             whatsapp: booking.whatsapp || '',
             isWhatsappSame: booking.isWhatsappSame !== undefined ? booking.isWhatsappSame : true,
@@ -633,12 +638,15 @@ export const Bookings: React.FC = () => {
             }
         }
 
+        const days = selectedPkg?.days || 1;
+
         setFormData(prev => ({
             ...prev,
             packageId: pkgId,
             title: selectedPkg ? selectedPkg.title : '',
             amount: selectedPkg ? calculatedAmount : prev.amount,
-            endDate: calculatedEndDate
+            endDate: calculatedEndDate,
+            durationDays: days
         }));
     };
 
@@ -686,6 +694,7 @@ export const Bookings: React.FC = () => {
             title: formData.title || `${formData.type} Booking`,
             date: formData.date,
             endDate: formData.endDate,
+            durationDays: formData.durationDays || (packages.find(p => p.id === formData.packageId)?.days) || 1,
             amount: Number(formData.amount) || 0,
             status: formData.status,
             payment: formData.payment as any,

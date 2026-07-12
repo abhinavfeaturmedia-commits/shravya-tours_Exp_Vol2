@@ -1285,8 +1285,13 @@ export const api = {
     },
 
     // --- DAILY DELIVERABLES (Live Operations) ---
-    getDailyDeliverables: async (): Promise<BookingDailyDeliverable[]> => {
-        const { data } = await crud.getAll('booking_daily_deliverables');
+    // Pass bookingId to filter at DB level (uses the booking_id,day_number index).
+    // Omit bookingId only when you need all rows (e.g. bulk export) — avoid in normal flows.
+    getDailyDeliverables: async (bookingId?: string): Promise<BookingDailyDeliverable[]> => {
+        const opts = bookingId
+            ? { filters: { booking_id: bookingId }, order: 'day_number', asc: true }
+            : { order: 'day_number', asc: true };
+        const { data } = await crud.getAll('booking_daily_deliverables', opts);
         return (data || []).map((row: any) => ({
             id: row.id,
             bookingId: row.booking_id,
@@ -2249,8 +2254,12 @@ export const api = {
         return res;
     },
     upsertSetting: async (key: string, value: string) => {
-        return crud.upsert('settings', { setting_key: key, setting_value: value });
+        return fetchApi('/api/settings/upsert', {
+            method: 'POST',
+            body: JSON.stringify({ setting_key: key, setting_value: value }),
+        });
     },
+
 
     // ─── MEMBERSHIP PLANS ───
     getMembershipPlans: () =>
