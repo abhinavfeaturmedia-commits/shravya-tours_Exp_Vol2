@@ -4,9 +4,10 @@ import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import {
     Map, Calendar, Users, Briefcase, CheckCircle,
-    XCircle, AlertTriangle, LogOut, Car, RefreshCw
+    XCircle, AlertTriangle, LogOut, Car, RefreshCw,
+    Plus, Trash2, Clock, ChevronDown, ChevronUp, Coffee, Compass
 } from 'lucide-react';
-import { Booking, SupplierBooking } from '../../types';
+import { Booking, SupplierBooking, BookingDailyDeliverable } from '../../types';
 import { api } from '../../src/lib/api';
 import { toast } from 'sonner';
 
@@ -65,18 +66,235 @@ export const Operations: React.FC = () => {
     const [activeTab, setActiveTab] = useState<'Tours' | 'Attendance'>('Tours');
     const [isRefreshing, setIsRefreshing] = useState(false);
 
+    // ─── Deliverables Checklist States ───
+    const [deliverables, setDeliverables] = useState<Record<string, BookingDailyDeliverable[]>>({});
+    const [loadingDeliverables, setLoadingDeliverables] = useState(false);
+    const [expandedChecklists, setExpandedChecklists] = useState<Record<string, boolean>>({});
+    const [selectedDays, setSelectedDays] = useState<Record<string, number>>({}); // bookingId -> active day number in checklist
+    const [newDeliverableName, setNewDeliverableName] = useState<Record<string, string>>({}); // bookingId -> input text
+    const [newDeliverableType, setNewDeliverableType] = useState<Record<string, 'meal' | 'transport' | 'guide' | 'activity' | 'hotel' | 'other'>>({});
+    const [newDeliverableTime, setNewDeliverableTime] = useState<Record<string, string>>({});
+
+    const fetchDeliverables = useCallback(async () => {
+        setLoadingDeliverables(true);
+        try {
+            const data = await api.getDailyDeliverables();
+            const grouped: Record<string, BookingDailyDeliverable[]> = {};
+            data.forEach(d => {
+                if (!grouped[d.bookingId]) grouped[d.bookingId] = [];
+                grouped[d.bookingId].push(d);
+            });
+            setDeliverables(grouped);
+        } catch (err) {
+            console.error('Failed to fetch deliverables:', err);
+        } finally {
+            setLoadingDeliverables(false);
+        }
+    }, []);
+
+    React.useEffect(() => {
+        if (activeTab === 'Tours') {
+            fetchDeliverables();
+        }
+    }, [activeTab, fetchDeliverables, bookings]);
+
     // ─── Refresh handler (#9) ────────────────────────────────────────────────
     const handleRefresh = useCallback(async () => {
         setIsRefreshing(true);
         try {
             await refreshData?.();
+            await fetchDeliverables();
             toast.success('Data refreshed');
         } catch {
             toast.error('Refresh failed');
         } finally {
             setIsRefreshing(false);
         }
-    }, [refreshData]);
+    }, [refreshData, fetchDeliverables]);
+
+    // ─── Deliverables Handlers ───
+    const handleGenerateChecklist = async (booking: Booking, duration: number) => {
+        try {
+            // Find package
+            const pkg = packages.find((p: any) => p.id === booking.packageId) || packages.find((p: any) => p.title === booking.title);
+            if (!pkg) {
+                toast.error('Package details not found');
+                return;
+            }
+
+            const newItems: BookingDailyDeliverable[] = [];
+            
+            // Loop through each day from 1 to duration (days in package/booking)
+            for (let day = 1; day <= duration; day++) {
+                // Find itinerary item for this day
+                const dayItin = pkg.itinerary?.find((item: any) => item.day === day);
+                const desc = dayItin?.desc?.toLowerCase() || '';
+                const title = dayItin?.title?.toLowerCase() || '';
+
+                // 1. Breakfast check (usually included in hotel packages)
+                newItems.push({
+                    id: `DD-${booking.id}-${day}-breakfast-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+                    bookingId: booking.id,
+                    dayNumber: day,
+                    itemName: 'Breakfast (Included in Hotel Plan)',
+                    itemType: 'meal',
+                    scheduledTime: '08:00 AM',
+                    status: 'Pending'
+                });
+
+                // 2. Hotel Check-in / Stay check (every day except the last day)
+                if (day < duration) {
+                    newItems.push({
+                        id: `DD-${booking.id}-${day}-hotel-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+                        bookingId: booking.id,
+                        dayNumber: day,
+                        itemName: 'Overnight Stay check',
+                        itemType: 'hotel',
+                        scheduledTime: '12:00 PM',
+                        status: 'Pending'
+                    });
+                }
+
+                // 3. Transport check (lobby pickup / transfer)
+                let transportItemName = 'Lobby Pickup';
+                if (day === 1) {
+                    transportItemName = 'Airport / Station Pickup';
+                } else if (day === duration) {
+                    transportItemName = 'Airport / Station Drop';
+                }
+                
+                newItems.push({
+                    id: `DD-${booking.id}-${day}-trans-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+                    bookingId: booking.id,
+                    dayNumber: day,
+                    itemName: transportItemName,
+                    itemType: 'transport',
+                    scheduledTime: '09:00 AM',
+                    status: 'Pending'
+                });
+
+                // 4. Guide check (if guided activities are mentioned)
+                if (desc.includes('guide') || desc.includes('sightseeing') || title.includes('sightseeing') || title.includes('guided')) {
+                    newItems.push({
+                        id: `DD-${booking.id}-${day}-guide-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+                        bookingId: booking.id,
+                        dayNumber: day,
+                        itemName: 'Guide check-in',
+                        itemType: 'guide',
+                        scheduledTime: '09:30 AM',
+                        status: 'Pending'
+                    });
+                }
+
+                // 5. Activities (parse key sentences or activities from itinerary description)
+                // Let's split description into sentences or bullets and look for 'visit', 'explore', 'sightseeing'
+                const lines = desc.split(/[.\n•]/);
+                let activityCount = 0;
+                lines.forEach((line) => {
+                    const cleanLine = line.trim();
+                    if (cleanLine.length > 10 && (cleanLine.includes('visit') || cleanLine.includes('explore') || cleanLine.includes('sightseeing') || cleanLine.includes('safari') || cleanLine.includes('ride') || cleanLine.includes('boating'))) {
+                        // Capitalize first letter
+                        let name = cleanLine.charAt(0).toUpperCase() + cleanLine.slice(1);
+                        // Clean up common words at start
+                        name = name.replace(/^(visit|explore|enjoy|see)\s+/i, '');
+                        // Capitalize first letter again
+                        name = name.charAt(0).toUpperCase() + name.slice(1);
+                        
+                        if (name.length > 50) name = name.substring(0, 47) + '...';
+
+                        newItems.push({
+                            id: `DD-${booking.id}-${day}-act-${activityCount}-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+                            bookingId: booking.id,
+                            dayNumber: day,
+                            itemName: `${name} Entry`,
+                            itemType: 'activity',
+                            scheduledTime: '10:00 AM',
+                            status: 'Pending'
+                        });
+                        activityCount++;
+                    }
+                });
+
+                // If no activities were parsed, add a general sightseeing item
+                if (activityCount === 0 && (desc.includes('sightseeing') || desc.includes('explore') || desc.includes('visit'))) {
+                    newItems.push({
+                        id: `DD-${booking.id}-${day}-sight-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+                        bookingId: booking.id,
+                        dayNumber: day,
+                        itemName: 'Sightseeing tour entry',
+                        itemType: 'activity',
+                        scheduledTime: '10:00 AM',
+                        status: 'Pending'
+                    });
+                }
+            }
+
+            // Save all generated items to the database
+            for (const item of newItems) {
+                await api.createDailyDeliverable(item);
+            }
+
+            toast.success(`Checklist generated with ${newItems.length} items!`);
+            fetchDeliverables();
+        } catch (e) {
+            console.error('Failed to generate checklist:', e);
+            toast.error('Failed to generate checklist');
+        }
+    };
+
+    const handleAddCustomDeliverable = async (bookingId: string, dayNum: number) => {
+        const name = newDeliverableName[bookingId]?.trim();
+        if (!name) {
+            toast.error('Please enter a deliverable name');
+            return;
+        }
+
+        const type = newDeliverableType[bookingId] || 'other';
+        const time = newDeliverableTime[bookingId] || '';
+
+        try {
+            const newItem: BookingDailyDeliverable = {
+                id: `DD-${bookingId}-${dayNum}-custom-${Date.now()}`,
+                bookingId,
+                dayNumber: dayNum,
+                itemName: name,
+                itemType: type,
+                scheduledTime: time || undefined,
+                status: 'Pending'
+            };
+
+            await api.createDailyDeliverable(newItem);
+            toast.success('Deliverable added!');
+            
+            // Clear inputs
+            setNewDeliverableName(prev => ({ ...prev, [bookingId]: '' }));
+            setNewDeliverableTime(prev => ({ ...prev, [bookingId]: '' }));
+            
+            fetchDeliverables();
+        } catch {
+            toast.error('Failed to add deliverable');
+        }
+    };
+
+    const handleDeleteDeliverable = async (id: string) => {
+        try {
+            await api.deleteDailyDeliverable(id);
+            toast.success('Deliverable deleted');
+            fetchDeliverables();
+        } catch {
+            toast.error('Failed to delete deliverable');
+        }
+    };
+
+    const handleUpdateStatus = async (id: string, status: 'Pending' | 'Verified Success' | 'Delayed' | 'Substituted', notes?: string) => {
+        try {
+            await api.updateDailyDeliverable(id, { status, notes });
+            toast.success(`Status updated to ${status}`);
+            fetchDeliverables();
+        } catch {
+            toast.error('Failed to update status');
+        }
+    };
 
     // ─── Tour Operations — only Tour-type bookings (#6) ──────────────────────
     const tourStats = useMemo(() => {
@@ -492,6 +710,214 @@ export const Operations: React.FC = () => {
                                                         )}
                                                     </div>
                                                 </div>
+
+                                                {/* ─── Daily Deliverables Checklist ─── */}
+                                                {(() => {
+                                                    const bookingDeliverables = deliverables[tour.id] || [];
+                                                    const currentChecklistDay = selectedDays[tour.id] || dayOfTour;
+                                                    const dayItems = bookingDeliverables.filter(d => d.dayNumber === currentChecklistDay);
+                                                    const totalItems = dayItems.length;
+                                                    const verifiedItems = dayItems.filter(d => d.status === 'Verified Success').length;
+                                                    const isExpanded = !!expandedChecklists[tour.id];
+
+                                                    return (
+                                                        <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+                                                            <button
+                                                                onClick={() => setExpandedChecklists(prev => ({ ...prev, [tour.id]: !prev[tour.id] }))}
+                                                                className="w-full flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                                                            >
+                                                                <span className="flex items-center gap-1.5">
+                                                                    <CheckCircle size={14} className={verifiedItems === totalItems && totalItems > 0 ? "text-green-500" : "text-slate-400"} />
+                                                                    <span>Day {currentChecklistDay} Checklist ({verifiedItems}/{totalItems} Verified)</span>
+                                                                </span>
+                                                                <span>{isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</span>
+                                                            </button>
+
+                                                             {isExpanded && (
+                                                                 <div className="mt-3 space-y-3 bg-slate-50 dark:bg-slate-900/40 p-3 rounded-xl border border-slate-100 dark:border-slate-850/80 animate-in fade-in slide-in-from-top-1 duration-200">
+                                                                     {/* Day selector buttons */}
+                                                                     {tour.duration > 1 && (
+                                                                         <div className="flex flex-wrap gap-1 mb-2 border-b border-slate-200/60 dark:border-slate-800 pb-2">
+                                                                             {Array.from({ length: tour.duration }, (_, i) => i + 1).map(dayNum => (
+                                                                                 <button
+                                                                                     key={dayNum}
+                                                                                     onClick={() => setSelectedDays(prev => ({ ...prev, [tour.id]: dayNum }))}
+                                                                                     className={`px-2 py-0.5 text-[10px] font-black rounded-md transition-all ${
+                                                                                         currentChecklistDay === dayNum
+                                                                                             ? 'bg-blue-600 text-white shadow-sm'
+                                                                                             : 'bg-white dark:bg-slate-800 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700'
+                                                                                     }`}
+                                                                                 >
+                                                                                     D{dayNum}
+                                                                                 </button>
+                                                                             ))}
+                                                                         </div>
+                                                                     )}
+
+                                                                     {totalItems === 0 ? (
+                                                                         <div className="text-center py-4">
+                                                                             <p className="text-[11px] text-slate-400 font-medium mb-2">No checklist items generated.</p>
+                                                                             <button
+                                                                                 onClick={() => handleGenerateChecklist(tour, tour.duration)}
+                                                                                 className="px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 text-blue-600 dark:text-blue-400 text-[10px] font-black rounded-lg transition-colors inline-flex items-center gap-1"
+                                                                             >
+                                                                                 <Plus size={10} /> Generate Checklist
+                                                                             </button>
+                                                                         </div>
+                                                                     ) : (
+                                                                         <>
+                                                                             {/* Checklist items list */}
+                                                                             <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                                                                                 {dayItems.map(item => {
+                                                                                     const isSuccess = item.status === 'Verified Success';
+                                                                                     const isDelayed = item.status === 'Delayed';
+                                                                                     const isSubstituted = item.status === 'Substituted';
+
+                                                                                     return (
+                                                                                         <div key={item.id} className="flex flex-col gap-1 bg-white dark:bg-slate-800/50 p-2 rounded-lg border border-slate-100 dark:border-slate-800/50 group/item">
+                                                                                             <div className="flex items-start justify-between gap-2">
+                                                                                                 <label className="flex items-start gap-2 cursor-pointer flex-1">
+                                                                                                     <input
+                                                                                                         type="checkbox"
+                                                                                                         checked={isSuccess}
+                                                                                                         onChange={(e) => handleUpdateStatus(
+                                                                                                             item.id,
+                                                                                                             e.target.checked ? 'Verified Success' : 'Pending',
+                                                                                                             item.notes
+                                                                                                         )}
+                                                                                                         className="mt-0.5 size-3.5 rounded text-blue-600 border-slate-300 focus:ring-blue-500/20 cursor-pointer"
+                                                                                                     />
+                                                                                                     <div className="flex flex-col flex-1">
+                                                                                                         <span className={`text-[11px] font-bold ${isSuccess ? 'line-through text-slate-400 dark:text-slate-500' : 'text-slate-700 dark:text-slate-300'}`}>
+                                                                                                             {item.itemType === 'meal' && '🍳 '}
+                                                                                                             {item.itemType === 'transport' && '🚗 '}
+                                                                                                             {item.itemType === 'guide' && '🗣️ '}
+                                                                                                             {item.itemType === 'activity' && '🎟️ '}
+                                                                                                             {item.itemType === 'hotel' && '🏨 '}
+                                                                                                             {item.itemName}
+                                                                                                         </span>
+                                                                                                         {item.scheduledTime && (
+                                                                                                             <span className="text-[9px] text-slate-400 font-mono flex items-center gap-0.5">
+                                                                                                                 <Clock size={8} /> {item.scheduledTime}
+                                                                                                             </span>
+                                                                                                         )}
+                                                                                                         {item.itemType === 'transport' && assignedTransport && transportVendor && (
+                                                                                                             <button
+                                                                                                                 onClick={() => navigate(`/admin/vendors?search=${encodeURIComponent(transportVendor.name)}`)}
+                                                                                                                 className="text-[9px] text-blue-600 hover:underline font-bold mt-0.5 text-left block"
+                                                                                                             >
+                                                                                                                 Contact Driver: {transportVendor.name}
+                                                                                                             </button>
+                                                                                                         )}
+                                                                                                         {item.itemType === 'guide' && (
+                                                                                                             <button
+                                                                                                                 onClick={() => navigate('/admin/vendors?search=Guide')}
+                                                                                                                 className="text-[9px] text-blue-600 hover:underline font-bold mt-0.5 text-left block"
+                                                                                                             >
+                                                                                                                 View Guides Directory
+                                                                                                             </button>
+                                                                                                         )}
+                                                                                                         {item.itemType === 'hotel' && (
+                                                                                                             <button
+                                                                                                                 onClick={() => navigate('/admin/vendors?search=Hotel')}
+                                                                                                                 className="text-[9px] text-blue-600 hover:underline font-bold mt-0.5 text-left block"
+                                                                                                             >
+                                                                                                                 View Hotels Directory
+                                                                                                             </button>
+                                                                                                         )}
+                                                                                                     </div>
+                                                                                                 </label>
+
+                                                                                                 <div className="flex items-center gap-1.5">
+                                                                                                     <select
+                                                                                                         value={item.status}
+                                                                                                         onChange={(e) => {
+                                                                                                             const newStatus = e.target.value;
+                                                                                                             if (newStatus === 'Substituted' || newStatus === 'Delayed') {
+                                                                                                                 const notesVal = window.prompt(`Enter reason for ${newStatus}:`, item.notes || '');
+                                                                                                                 if (notesVal !== null) {
+                                                                                                                     handleUpdateStatus(item.id, newStatus, notesVal);
+                                                                                                                 }
+                                                                                                             } else {
+                                                                                                                 handleUpdateStatus(item.id, newStatus, undefined);
+                                                                                                             }
+                                                                                                         }}
+                                                                                                         className={`px-1 py-0.5 text-[9px] font-black rounded border border-slate-200 dark:border-slate-700 outline-none cursor-pointer bg-slate-50 dark:bg-slate-800 ${
+                                                                                                             isSuccess ? 'text-green-600 dark:text-green-400' :
+                                                                                                             isDelayed ? 'text-red-500' :
+                                                                                                             isSubstituted ? 'text-purple-500' :
+                                                                                                             'text-slate-500 dark:text-slate-400'
+                                                                                                         }`}
+                                                                                                     >
+                                                                                                         <option value="Pending">Pending</option>
+                                                                                                         <option value="Verified Success">Success</option>
+                                                                                                         <option value="Delayed">Delayed</option>
+                                                                                                         <option value="Substituted">Substituted</option>
+                                                                                                     </select>
+
+                                                                                                     <button
+                                                                                                         onClick={() => handleDeleteDeliverable(item.id)}
+                                                                                                         className="text-slate-300 hover:text-red-500 p-0.5 rounded opacity-0 group-hover/item:opacity-100 transition-opacity"
+                                                                                                         title="Delete item"
+                                                                                                     >
+                                                                                                         <Trash2 size={10} />
+                                                                                                     </button>
+                                                                                                 </div>
+                                                                                             </div>
+
+                                                                                             {item.notes && (
+                                                                                                 <div className="pl-2.5 text-[9px] text-slate-500 bg-slate-50 dark:bg-slate-900/30 p-1 rounded font-medium border-l-2 border-slate-300">
+                                                                                                     <span className="font-bold uppercase text-[8px] mr-1">Note:</span>{item.notes}
+                                                                                                 </div>
+                                                                                             )}
+                                                                                         </div>
+                                                                                     );
+                                                                                 })}
+                                                                             </div>
+
+                                                                             {/* Add custom item form */}
+                                                                             <div className="mt-3 pt-3 border-t border-slate-200/60 dark:border-slate-850 flex items-center gap-1">
+                                                                                 <input
+                                                                                     type="text"
+                                                                                     value={newDeliverableName[tour.id] || ''}
+                                                                                     onChange={(e) => setNewDeliverableName(prev => ({ ...prev, [tour.id]: e.target.value }))}
+                                                                                     placeholder="Add deliverable..."
+                                                                                     className="flex-1 min-w-0 px-2 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[10px] placeholder-slate-400 outline-none focus:ring-1 ring-blue-500/30 text-slate-700 dark:text-slate-300"
+                                                                                 />
+                                                                                 <select
+                                                                                     value={newDeliverableType[tour.id] || 'other'}
+                                                                                     onChange={(e) => setNewDeliverableType(prev => ({ ...prev, [tour.id]: e.target.value }))}
+                                                                                     className="px-1 py-1 bg-white dark:bg-slate-800 text-[10px] rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 outline-none cursor-pointer"
+                                                                                 >
+                                                                                     <option value="other">⚙️</option>
+                                                                                     <option value="meal">🍛</option>
+                                                                                     <option value="transport">🚗</option>
+                                                                                     <option value="guide">🗣️</option>
+                                                                                     <option value="activity">🎟️</option>
+                                                                                     <option value="hotel">🏨</option>
+                                                                                 </select>
+                                                                                 <input
+                                                                                     type="text"
+                                                                                     value={newDeliverableTime[tour.id] || ''}
+                                                                                     onChange={(e) => setNewDeliverableTime(prev => ({ ...prev, [tour.id]: e.target.value }))}
+                                                                                     placeholder="09:00 AM"
+                                                                                     className="w-12 px-1 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[9px] text-center placeholder-slate-400 outline-none focus:ring-1 ring-blue-500/30 text-slate-700 dark:text-slate-300"
+                                                                                 />
+                                                                                 <button
+                                                                                     onClick={() => handleAddCustomDeliverable(tour.id, currentChecklistDay)}
+                                                                                     className="p-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
+                                                                                     title="Add Item"
+                                                                                 >
+                                                                                     <Plus size={10} />
+                                                                                 </button>
+                                                                             </div>
+                                                                         </>
+                                                                     )}
+                                                                 </div>
+                                                             )}
+                                                         </div>
+                                                     );
+                                                 })()}
 
                                                 <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 flex gap-2 flex-wrap">
                                                     {/* #7 — visually disabled WA button when no link/phone */}

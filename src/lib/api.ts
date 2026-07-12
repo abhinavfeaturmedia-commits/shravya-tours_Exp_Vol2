@@ -1,5 +1,5 @@
 import imageCompression from 'browser-image-compression';
-import { Package, Booking, Lead, LeadLog, BookingStatus, StaffMember, Customer, MasterRoomType, MasterMealPlan, MasterActivity, MasterTransport, MasterPlan, MasterLeadSource, MasterTermsTemplate, CMSBanner, CMSTestimonial, CMSGalleryImage, CMSPost, FollowUp, Proposal, DailyTarget, TimeSession, AssignmentRule, UserActivity, Campaign, MasterHotel, Task, AuditLog, Expense, AttendanceLog, Coupon, DailyMarketingLog, MarketingTarget, LogComment, LogReaction, InAppNotification } from '../../types';
+import { Package, Booking, Lead, LeadLog, BookingStatus, StaffMember, Customer, MasterRoomType, MasterMealPlan, MasterActivity, MasterTransport, MasterPlan, MasterLeadSource, MasterTermsTemplate, CMSBanner, CMSTestimonial, CMSGalleryImage, CMSPost, FollowUp, Proposal, DailyTarget, TimeSession, AssignmentRule, UserActivity, Campaign, MasterHotel, Task, AuditLog, Expense, AttendanceLog, Coupon, DailyMarketingLog, MarketingTarget, LogComment, LogReaction, InAppNotification, BookingDailyDeliverable } from '../../types';
 
 // ─── BASE API URL ───
 // In dev mode, use Vite proxy (empty string) so request goes to the same origin.
@@ -1282,6 +1282,64 @@ export const api = {
         } catch {
             return null;
         }
+    },
+
+    // --- DAILY DELIVERABLES (Live Operations) ---
+    getDailyDeliverables: async (): Promise<BookingDailyDeliverable[]> => {
+        const { data } = await crud.getAll('booking_daily_deliverables');
+        return (data || []).map((row: any) => ({
+            id: row.id,
+            bookingId: row.booking_id,
+            dayNumber: Number(row.day_number),
+            itemName: row.item_name,
+            itemType: row.item_type,
+            scheduledTime: row.scheduled_time || undefined,
+            status: row.status,
+            notes: row.notes || undefined,
+            createdAt: row.created_at,
+            updatedAt: row.updated_at
+        }));
+    },
+
+    createDailyDeliverable: async (log: BookingDailyDeliverable): Promise<BookingDailyDeliverable> => {
+        const dbLog = {
+            id: log.id,
+            booking_id: log.bookingId,
+            day_number: log.dayNumber,
+            item_name: log.itemName,
+            item_type: log.itemType,
+            scheduled_time: log.scheduledTime || null,
+            status: log.status,
+            notes: log.notes || null
+        };
+        const { data } = await crud.create('booking_daily_deliverables', dbLog);
+        return {
+            id: data.id,
+            bookingId: data.booking_id,
+            dayNumber: Number(data.day_number),
+            itemName: data.item_name,
+            itemType: data.item_type,
+            scheduledTime: data.scheduled_time || undefined,
+            status: data.status,
+            notes: data.notes || undefined
+        };
+    },
+
+    updateDailyDeliverable: async (id: string, updates: Partial<BookingDailyDeliverable>): Promise<void> => {
+        const dbUpdates: any = {};
+        if (updates.bookingId !== undefined) dbUpdates.booking_id = updates.bookingId;
+        if (updates.dayNumber !== undefined) dbUpdates.day_number = updates.dayNumber;
+        if (updates.itemName !== undefined) dbUpdates.item_name = updates.itemName;
+        if (updates.itemType !== undefined) dbUpdates.item_type = updates.itemType;
+        if (updates.scheduledTime !== undefined) dbUpdates.scheduled_time = updates.scheduledTime || null;
+        if (updates.status !== undefined) dbUpdates.status = updates.status;
+        if (updates.notes !== undefined) dbUpdates.notes = updates.notes || null;
+
+        await crud.update('booking_daily_deliverables', id, dbUpdates);
+    },
+
+    deleteDailyDeliverable: async (id: string): Promise<void> => {
+        await crud.remove('booking_daily_deliverables', id);
     },
 
     // --- ATTENDANCE LOGS (Live Operations) ---

@@ -103,6 +103,24 @@ async function runMigration() {
             )
         `);
         console.log('[Migration] booking_purchased_addons table verified/created');
+
+        // Create table for daywise tour deliverables
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS booking_daily_deliverables (
+                id VARCHAR(64) PRIMARY KEY,
+                booking_id VARCHAR(64) NOT NULL,
+                day_number INT NOT NULL,
+                item_name VARCHAR(255) NOT NULL,
+                item_type VARCHAR(50) NOT NULL DEFAULT 'other',
+                scheduled_time VARCHAR(50) DEFAULT NULL,
+                status VARCHAR(50) NOT NULL DEFAULT 'Pending',
+                notes TEXT DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_booking_day (booking_id, day_number)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+        console.log('[Migration] booking_daily_deliverables table verified/created');
     } catch (err) {
         console.error('[Migration Error]', err.message);
     }
@@ -1772,7 +1790,8 @@ const ALLOWED_TABLES = new Set([
     'coupons',  // Coupon Manager
     'marketing_logs',
     'marketing_targets', 'marketing_log_comments', 'marketing_log_reactions',
-    'marketing_log_leads', 'marketing_log_bookings', 'in_app_notifications'
+    'marketing_log_leads', 'marketing_log_bookings', 'in_app_notifications',
+    'booking_daily_deliverables'
 ]);
 
 // ─── Auth Middleware ───
@@ -1824,6 +1843,7 @@ const TABLE_TO_MODULE = {
     'bookings': 'bookings',
     'booking_transactions': 'invoices',
     'supplier_bookings': 'operations',
+    'booking_daily_deliverables': 'operations',
     'leads': 'leads',
     'lead_logs': 'leads',
     'vendors': 'vendors',

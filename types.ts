@@ -156,6 +156,19 @@ export interface SupplierBooking {
   vehicleNumber?: string; // Vehicle registration number
 }
 
+export interface BookingDailyDeliverable {
+  id: string;
+  bookingId: string;
+  dayNumber: number;
+  itemName: string;
+  itemType: 'meal' | 'transport' | 'guide' | 'activity' | 'hotel' | 'other';
+  scheduledTime?: string;
+  status: 'Pending' | 'Verified Success' | 'Delayed' | 'Substituted';
+  notes?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 // Attendance log entry persisted per-day per-staff in MySQL attendance_logs table
 export interface AttendanceLog {
   id: string;

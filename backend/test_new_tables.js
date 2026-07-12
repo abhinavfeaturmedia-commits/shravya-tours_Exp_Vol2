@@ -23,7 +23,10 @@ async function main() {
         const [rowsAddons] = await pool.query('SHOW COLUMNS FROM booking_purchased_addons');
         console.log('booking_purchased_addons columns:', rowsAddons.map(r => `${r.Field} (${r.Type})`));
 
-        console.log('SUCCESS! Both tables exist and are structured correctly.');
+        const [rowsDeliverables] = await pool.query('SHOW COLUMNS FROM booking_daily_deliverables');
+        console.log('booking_daily_deliverables columns:', rowsDeliverables.map(r => `${r.Field} (${r.Type})`));
+
+        console.log('SUCCESS! All tables exist and are structured correctly.');
     } catch (e) {
         console.error('Migration verification failed with error:');
         console.error(e);

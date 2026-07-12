@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useData } from '../../context/DataContext';
 import { useBookings } from '../../src/hooks/useBookings';
-import { BookingStatus, Booking, BookingType, BookingNote, Task } from '../../types';
+import { BookingStatus, Booking, BookingType, BookingNote, Task, BookingDailyDeliverable } from '../../types';
 import { api } from '../../src/lib/api';
 import { generateReceiptPDF } from '../../utils/pdfGenerator';
 import { SupplierManagementModal } from '../../components/admin/SupplierManagementModal';
@@ -80,7 +80,45 @@ export const Bookings: React.FC = () => {
     const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
     const [editNoteText, setEditNoteText] = useState('');
 
-    const [bookingModalTab, setBookingModalTab] = useState<'info' | 'checklist' | 'chat'>('info');
+    const [bookingModalTab, setBookingModalTab] = useState<'info' | 'checklist' | 'deliverables' | 'chat'>('info');
+    const [deliverables, setDeliverables] = useState<BookingDailyDeliverable[]>([]);
+    const [loadingDeliverables, setLoadingDeliverables] = useState(false);
+    const [selectedDay, setSelectedDay] = useState<number>(1);
+
+    useEffect(() => {
+        const fetchDeliverables = async () => {
+            if (!viewingBookingId) return;
+            setLoadingDeliverables(true);
+            try {
+                const data = await api.getDailyDeliverables();
+                const filtered = data.filter(d => d.bookingId === viewingBookingId);
+                setDeliverables(filtered);
+                if (filtered.length > 0) {
+                    const minDay = Math.min(...filtered.map(f => f.dayNumber));
+                    setSelectedDay(minDay);
+                } else {
+                    setSelectedDay(1);
+                }
+            } catch (e) {
+                console.error('Failed to fetch deliverables:', e);
+            } finally {
+                setLoadingDeliverables(false);
+            }
+        };
+        if (viewingBookingId && bookingModalTab === 'deliverables') {
+            fetchDeliverables();
+        }
+    }, [viewingBookingId, bookingModalTab]);
+
+    const handleUpdateDeliverableStatus = async (id: string, status: 'Pending' | 'Verified Success' | 'Delayed' | 'Substituted', notes?: string) => {
+        try {
+            await api.updateDailyDeliverable(id, { status, notes });
+            toast.success(`Status updated to ${status}`);
+            setDeliverables(prev => prev.map(d => d.id === id ? { ...d, status, notes } : d));
+        } catch {
+            toast.error('Failed to update status');
+        }
+    };
     const [chatInput, setChatInput] = useState('');
 
     const [manualTaskTitle, setManualTaskTitle] = useState('');
@@ -948,6 +986,17 @@ export const Bookings: React.FC = () => {
                                 <span className="material-symbols-outlined text-[16px]">playlist_add_check</span>
                                 Operations Checklist
                             </button>
+                            <button
+                                onClick={() => setBookingModalTab('deliverables')}
+                                className={`text-xs font-bold pb-1 transition-all flex items-center gap-1.5 ${
+                                    bookingModalTab === 'deliverables'
+                                        ? 'text-primary border-b-2 border-primary'
+                                        : 'text-slate-400 hover:text-slate-600'
+                                }`}
+                            >
+                                <span className="material-symbols-outlined text-[16px]">today</span>
+                                Daily Deliverables
+                            </button>
                             {viewingBooking.partnerId && (
                                 <button
                                     onClick={() => setBookingModalTab('chat')}
@@ -1067,6 +1116,123 @@ export const Bookings: React.FC = () => {
                                         </div>
                                     );
                                 })()
+                            ) : bookingModalTab === 'deliverables' ? (
+                                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 pb-6">
+                                    <div className="p-5 rounded-2xl bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900/60 dark:to-slate-800/40 border border-slate-200/60 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4 font-sans">
+                                        <div>
+                                            <span className="px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-blue-500/10 text-blue-600 dark:text-blue-400 mb-1 inline-block">
+                                                On-Tour Fulfillment
+                                            </span>
+                                            <h3 className="text-sm font-black text-slate-800 dark:text-white uppercase tracking-tight">
+                                                Granular Daywise Deliverables Checklist
+                                            </h3>
+                                        </div>
+                                    </div>
+
+                                    {loadingDeliverables ? (
+                                        <div className="py-12 text-center text-slate-400 text-xs">Loading deliverables...</div>
+                                    ) : deliverables.length === 0 ? (
+                                        <div className="py-12 text-center bg-white dark:bg-slate-800 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700 font-sans">
+                                            <p className="text-xs text-slate-400 font-medium mb-3">No daywise checklist generated for this booking.</p>
+                                            <p className="text-[10px] text-slate-400">Initialize this checklist from the Operations Center page.</p>
+                                        </div>
+                                    ) : (
+                                        <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-5 space-y-4">
+                                            {/* Days Selector */}
+                                            <div className="flex flex-wrap gap-1.5 pb-3 border-b border-slate-100 dark:border-slate-700 font-sans">
+                                                {Array.from(new Set(deliverables.map(d => d.dayNumber))).sort((a,b)=>a-b).map(dayNum => (
+                                                    <button
+                                                        key={dayNum}
+                                                        type="button"
+                                                        onClick={() => setSelectedDay(dayNum)}
+                                                        className={`px-3 py-1 text-xs font-black rounded-lg transition-all ${
+                                                            selectedDay === dayNum
+                                                                ? 'bg-blue-650 text-white shadow-sm'
+                                                                : 'bg-slate-50 dark:bg-slate-900 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700'
+                                                        }`}
+                                                    >
+                                                        Day {dayNum}
+                                                    </button>
+                                                ))}
+                                            </div>
+
+                                            {/* Deliverables List */}
+                                            <div className="space-y-3 font-sans">
+                                                {deliverables.filter(d => d.dayNumber === selectedDay).map(item => {
+                                                    const isSuccess = item.status === 'Verified Success';
+                                                    const isDelayed = item.status === 'Delayed';
+                                                    const isSubstituted = item.status === 'Substituted';
+
+                                                    return (
+                                                        <div key={item.id} className="flex flex-col gap-1.5 p-3.5 bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-slate-100 dark:border-slate-800/80">
+                                                            <div className="flex items-center justify-between gap-3">
+                                                                <label className="flex items-start gap-2.5 cursor-pointer flex-1">
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        checked={isSuccess}
+                                                                        onChange={(e) => handleUpdateDeliverableStatus(
+                                                                            item.id,
+                                                                            e.target.checked ? 'Verified Success' : 'Pending',
+                                                                            item.notes
+                                                                        )}
+                                                                        className="mt-0.5 size-4 rounded text-blue-600 border-slate-300 focus:ring-blue-500/20 cursor-pointer"
+                                                                    />
+                                                                    <div className="flex flex-col flex-1">
+                                                                        <span className={`text-xs font-bold ${isSuccess ? 'line-through text-slate-400 dark:text-slate-505' : 'text-slate-750 dark:text-slate-200'}`}>
+                                                                            {item.itemType === 'meal' && '🍳 '}
+                                                                            {item.itemType === 'transport' && '🚗 '}
+                                                                            {item.itemType === 'guide' && '🗣️ '}
+                                                                            {item.itemType === 'activity' && '🎟️ '}
+                                                                            {item.itemType === 'hotel' && '🏨 '}
+                                                                            {item.itemName}
+                                                                        </span>
+                                                                        {item.scheduledTime && (
+                                                                            <span className="text-[10px] text-slate-400 font-semibold flex items-center gap-0.5 mt-0.5">
+                                                                                <span className="material-symbols-outlined text-[12px]">schedule</span> {item.scheduledTime}
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                </label>
+
+                                                                <select
+                                                                    value={item.status}
+                                                                    onChange={(e) => {
+                                                                        const newStatus = e.target.value;
+                                                                        if (newStatus === 'Substituted' || newStatus === 'Delayed') {
+                                                                            const notesVal = window.prompt(`Enter reason for ${newStatus}:`, item.notes || '');
+                                                                            if (notesVal !== null) {
+                                                                                handleUpdateDeliverableStatus(item.id, newStatus, notesVal);
+                                                                            }
+                                                                        } else {
+                                                                            handleUpdateDeliverableStatus(item.id, newStatus, undefined);
+                                                                        }
+                                                                    }}
+                                                                    className={`px-2 py-1 text-xs font-black rounded-lg border border-slate-200 dark:border-slate-700 outline-none cursor-pointer bg-white dark:bg-slate-800 ${
+                                                                        isSuccess ? 'text-green-600 dark:text-green-400' :
+                                                                        isDelayed ? 'text-red-500' :
+                                                                        isSubstituted ? 'text-purple-500' :
+                                                                        'text-slate-500 dark:text-slate-450'
+                                                                    }`}
+                                                                >
+                                                                    <option value="Pending">Pending</option>
+                                                                    <option value="Verified Success">Success</option>
+                                                                    <option value="Delayed">Delayed</option>
+                                                                    <option value="Substituted">Substituted</option>
+                                                                </select>
+                                                            </div>
+
+                                                            {item.notes && (
+                                                                <div className="pl-3 text-[10px] text-slate-505 bg-white dark:bg-slate-900/30 p-2 rounded-lg font-medium border-l-2 border-slate-300 dark:border-slate-600 mt-1">
+                                                                    <span className="font-bold uppercase text-[9px] mr-1">Note:</span>{item.notes}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
                             ) : bookingModalTab === 'checklist' ? (
                                 <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 pb-6">
                                     {/* Playbook Progress Card */}
