@@ -27,15 +27,16 @@ export const Expenses: React.FC = () => {
 
     const stats = useMemo(() => {
         const total = filteredExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
-        const paid = filteredExpenses.filter(e => e.status === 'Paid').reduce((sum, e) => sum + Number(e.amount || 0), 0);
-        const pending = filteredExpenses.filter(e => e.status === 'Pending').reduce((sum, e) => sum + Number(e.amount || 0), 0);
+        const paid = filteredExpenses.filter(e => e.status === 'Verified').reduce((sum, e) => sum + Number(e.amount || 0), 0);
+        const pending = filteredExpenses.filter(e => e.status === 'Pending' || e.status === 'Unpaid').reduce((sum, e) => sum + Number(e.amount || 0), 0);
         return { total, paid, pending };
     }, [filteredExpenses]);
 
     const handleOpenModal = (expense?: Expense) => {
         if (expense) {
             setEditingExpense(expense);
-            setNewExpense({ ...expense });
+            const uiStatus = (expense.status === 'Verified' || expense.status === 'Pending') ? 'Paid' : 'Pending';
+            setNewExpense({ ...expense, status: uiStatus as any });
         } else {
             setEditingExpense(null);
             setNewExpense({ category: 'Other', paymentMethod: 'UPI', status: 'Paid', date: new Date().toISOString().split('T')[0] });
@@ -46,9 +47,11 @@ export const Expenses: React.FC = () => {
     const handleSaveExpense = async (e: React.FormEvent) => {
         e.preventDefault();
 
+        const dbStatus = newExpense.status === 'Paid' ? 'Pending' : 'Unpaid';
+
         if (editingExpense) {
             // Update existing
-            await updateExpense(editingExpense.id, newExpense);
+            await updateExpense(editingExpense.id, { ...newExpense, status: dbStatus as any });
         } else {
             // Create new
             const expense: Expense = {
@@ -58,7 +61,7 @@ export const Expenses: React.FC = () => {
                 category: newExpense.category as any,
                 date: newExpense.date!,
                 paymentMethod: newExpense.paymentMethod as any,
-                status: newExpense.status as any,
+                status: dbStatus as any,
                 notes: newExpense.notes
             };
             await addExpense(expense);
@@ -182,8 +185,16 @@ export const Expenses: React.FC = () => {
                                                 </span>
                                             </td>
                                             <td className="px-6 py-4">
-                                                <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${expense.status === 'Paid' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-700'}`}>
-                                                    {expense.status}
+                                                <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${
+                                                    expense.status === 'Verified' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
+                                                    expense.status === 'Pending' ? 'bg-yellow-100 text-yellow-750 dark:bg-yellow-900/20 dark:text-yellow-400' :
+                                                    expense.status === 'Rejected' ? 'bg-red-100 text-red-700 dark:bg-red-900/20 dark:text-red-400' :
+                                                    'bg-orange-100 text-orange-700 dark:bg-orange-900/20 dark:text-orange-400'
+                                                }`}>
+                                                    {expense.status === 'Verified' ? 'Paid' :
+                                                     expense.status === 'Pending' ? 'Pending Approval' :
+                                                     expense.status === 'Unpaid' ? 'Unpaid' :
+                                                     expense.status || 'Unpaid'}
                                                 </span>
                                             </td>
                                             <td className="px-6 py-4 text-right font-black text-slate-900 dark:text-white">

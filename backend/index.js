@@ -6894,7 +6894,7 @@ app.get('/api/accounts-with-transactions', authMiddleware, async (req, res) => {
     }
 });
 
-// Finance: Booking transactions + Expenses with booking context
+// Finance: Booking transactions + Expenses + Vendor Payouts + Partner Payouts
 app.get('/api/finance/booking-transactions', authMiddleware, async (req, res) => {
     try {
         // Query 1: Client payments (booking transactions)
@@ -6918,10 +6918,82 @@ app.get('/api/finance/booking-transactions', authMiddleware, async (req, res) =>
                 title as customer, NULL as email, NULL as phone, category as packageId,
                 'expense' as source
             FROM expenses
+            WHERE status IN ('Pending', 'Verified', 'Rejected')
         `);
 
+        // Query 3: Vendor Payouts
+        const [vendors] = await pool.query(`
+            SELECT id, name, contact_email, contact_phone, category, transactions 
+            FROM vendors
+        `);
+        const vendorRows = [];
+        vendors.forEach(v => {
+            let txs = [];
+            try {
+                txs = typeof v.transactions === 'string' ? JSON.parse(v.transactions) : v.transactions;
+            } catch(e) {}
+            if (Array.isArray(txs)) {
+                txs.forEach(tx => {
+                    // Extract payouts that are pending/verified/rejected
+                    if (tx.type === 'Debit' && tx.id && (tx.id.startsWith('VT-') || tx.id.startsWith('VP-'))) {
+                        const txStatus = tx.status || 'Verified'; // fallback for legacy
+                        if (['Pending', 'Verified', 'Rejected'].includes(txStatus)) {
+                            vendorRows.push({
+                                id: tx.id,
+                                date: tx.date ? tx.date.split('T')[0] : new Date().toISOString().split('T')[0],
+                                amount: Number(tx.amount) || 0,
+                                type: 'Payout',
+                                method: tx.method || 'UPI',
+                                reference: tx.reference || '',
+                                notes: tx.notes || tx.description || 'Vendor Payout',
+                                status: txStatus,
+                                receipt_url: tx.receiptUrl || tx.receipt_url || null,
+                                bookingId: null,
+                                created_at: tx.date || new Date().toISOString(),
+                                customer: v.name,
+                                email: v.contact_email || null,
+                                phone: v.contact_phone || null,
+                                packageId: v.category || 'General',
+                                recordedByName: tx.recordedBy || 'System',
+                                source: 'vendor_payout'
+                            });
+                        }
+                    }
+                });
+            }
+        });
+
+        // Query 4: Partner Payouts
+        const [partnerComms] = await pool.query(`
+            SELECT 
+                pc.id, pc.commission_amount, pc.notes, pc.paid_at, pc.updated_at, pc.created_at, pc.booking_id, pc.status,
+                p.name as partner_name, p.company_name as partner_company_name, p.email as partner_email, p.phone as partner_phone
+            FROM partner_commissions pc
+            JOIN partners p ON pc.partner_id = p.id
+            WHERE pc.status IN ('PaidPending', 'Paid', 'Rejected')
+        `);
+        const partnerRows = partnerComms.map(pc => ({
+            id: 'PC-' + pc.id,
+            date: pc.paid_at || pc.updated_at || pc.created_at,
+            amount: Number(pc.commission_amount) || 0,
+            type: 'Payout',
+            method: 'Bank Transfer',
+            reference: pc.notes || '',
+            notes: `Commission Payout for Booking: ${pc.booking_id}`,
+            status: pc.status === 'PaidPending' ? 'Pending' : pc.status === 'Paid' ? 'Verified' : 'Rejected',
+            receipt_url: null,
+            bookingId: pc.booking_id,
+            created_at: pc.updated_at || pc.created_at,
+            customer: pc.partner_company_name || pc.partner_name || 'B2B Partner',
+            email: pc.partner_email || null,
+            phone: pc.partner_phone || null,
+            packageId: 'Partner Payout',
+            recordedByName: 'System',
+            source: 'partner_payout'
+        }));
+
         // Combine and sort by created_at descending
-        const combined = [...txRows, ...expRows].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        const combined = [...txRows, ...expRows, ...vendorRows, ...partnerRows].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
         res.json({ data: combined });
     } catch (error) {
         console.error(error);
@@ -6975,6 +7047,205 @@ app.post('/api/finance/sync-booking-payment', authMiddleware, async (req, res) =
     } catch (error) {
         console.error('[Payment Sync] Error:', error.message);
         res.status(500).json({ error: 'Failed to sync booking payment status', details: error.message });
+    }
+});
+
+// POST /api/finance/update-transaction-status
+// Handles unified verification status updates for bookings, expenses, vendors, and partners.
+app.post('/api/finance/update-transaction-status', authMiddleware, async (req, res) => {
+    try {
+        const { id, status } = req.body;
+        if (!id || !status) {
+            return res.status(400).json({ error: 'id and status are required' });
+        }
+        if (!['Pending', 'Verified', 'Rejected'].includes(status)) {
+            return res.status(400).json({ error: 'invalid status' });
+        }
+
+        const userEmail = req.user?.email || 'System';
+
+        // 1. Expense Payout Approval
+        if (String(id).startsWith('EXP-')) {
+            await pool.query('UPDATE expenses SET status = ? WHERE id = ?', [status, id]);
+            
+            // Side-effect: If verified, record in secure ledger (Main Office Account)
+            if (status === 'Verified') {
+                const [[expense]] = await pool.query('SELECT title, amount, paymentMethod FROM expenses WHERE id = ?', [id]);
+                if (expense) {
+                    const targetAccountName = 'Main Office';
+                    const [[account]] = await pool.query('SELECT id, current_balance FROM accounts WHERE name = ?', [targetAccountName]);
+                    const targetAccount = account || (await pool.query('SELECT id, current_balance FROM accounts LIMIT 1'))[0][0];
+                    if (targetAccount) {
+                        const accTxId = `TX-${Date.now()}-${id}`;
+                        const amount = Number(expense.amount) || 0;
+                        const newBalance = targetAccount.current_balance - amount;
+
+                        // Insert account transaction
+                        await pool.query(`
+                            INSERT INTO account_transactions (id, account_id, date, type, amount, description, reference, status)
+                            VALUES (?, ?, CURDATE(), 'Debit', ?, ?, ?, 'Confirmed')
+                        `, [accTxId, targetAccount.id, amount, `Expense Approved: ${expense.title}`, id]);
+
+                        // Update account balance
+                        await pool.query('UPDATE accounts SET current_balance = ? WHERE id = ?', [newBalance, targetAccount.id]);
+                    }
+                }
+            }
+            
+            await auditLog('ExpenseApproval', 'Finance', `Expense ${id} status updated to ${status}.`, userEmail);
+            return res.json({ status: 'ok', id, newStatus: status });
+        }
+
+        // 2. Vendor Payout Approval
+        if (String(id).startsWith('VT-') || String(id).startsWith('VP-')) {
+            // Find vendor
+            const [vendors] = await pool.query('SELECT id, name, transactions, balance_due FROM vendors');
+            let targetVendor = null;
+            let updatedTransactions = [];
+            let payoutAmount = 0;
+
+            for (const vendor of vendors) {
+                let txs = [];
+                try {
+                    txs = typeof vendor.transactions === 'string' ? JSON.parse(vendor.transactions) : vendor.transactions;
+                } catch(e) {}
+                if (!Array.isArray(txs)) txs = [];
+
+                const idx = txs.findIndex(t => t.id === id);
+                if (idx !== -1) {
+                    targetVendor = vendor;
+                    payoutAmount = Number(txs[idx].amount) || 0;
+                    txs[idx].status = status;
+                    updatedTransactions = txs;
+                    break;
+                }
+            }
+
+            if (!targetVendor) {
+                return res.status(404).json({ error: 'Vendor transaction not found' });
+            }
+
+            // Update vendor row
+            const newBalanceDue = status === 'Verified' 
+                ? Math.max(0, Number(targetVendor.balance_due) - payoutAmount) 
+                : Number(targetVendor.balance_due);
+
+            await pool.query(
+                'UPDATE vendors SET transactions = ?, balance_due = ? WHERE id = ?',
+                [JSON.stringify(updatedTransactions), newBalanceDue, targetVendor.id]
+            );
+
+            // Side-effect: If verified, record in secure ledger (Main Office Account)
+            if (status === 'Verified') {
+                const targetAccountName = 'Main Office';
+                const [[account]] = await pool.query('SELECT id, current_balance FROM accounts WHERE name = ?', [targetAccountName]);
+                const targetAccount = account || (await pool.query('SELECT id, current_balance FROM accounts LIMIT 1'))[0][0];
+                if (targetAccount) {
+                    const accTxId = `TX-${Date.now()}-${id}`;
+                    const newBalance = targetAccount.current_balance - payoutAmount;
+
+                    // Insert account transaction
+                    await pool.query(`
+                        INSERT INTO account_transactions (id, account_id, date, type, amount, description, reference, status)
+                        VALUES (?, ?, CURDATE(), 'Debit', ?, ?, ?, 'Confirmed')
+                    `, [accTxId, targetAccount.id, payoutAmount, `Vendor Payout Approved: ${targetVendor.name}`, id]);
+
+                    // Update account balance
+                    await pool.query('UPDATE accounts SET current_balance = ? WHERE id = ?', [newBalance, targetAccount.id]);
+                }
+            }
+
+            await auditLog('VendorPayoutApproval', 'Vendors', `Vendor payout ${id} status updated to ${status} for ${targetVendor.name}.`, userEmail);
+            return res.json({ status: 'ok', id, newStatus: status, balanceDue: newBalanceDue });
+        }
+
+        // 3. Partner Payout Approval
+        if (String(id).startsWith('PC-')) {
+            const commId = id.substring(3); // remove 'PC-'
+            const [[commission]] = await pool.query('SELECT * FROM partner_commissions WHERE id = ?', [commId]);
+            if (!commission) {
+                return res.status(404).json({ error: 'Commission not found' });
+            }
+
+            const partnerId = commission.partner_id;
+            const payoutAmount = Number(commission.commission_amount) || 0;
+
+            if (status === 'Verified') {
+                // Update commission to Paid
+                await pool.query(
+                    "UPDATE partner_commissions SET status = 'Paid', paid_at = NOW() WHERE id = ?",
+                    [commId]
+                );
+
+                // Send simulated email
+                const [p] = await pool.query("SELECT email, name FROM partners WHERE id = ?", [partnerId]);
+                if (p.length) {
+                    console.log(`[Email Service Mock] Sending payout confirmation email to partner: ${p[0].email} for ₹${payoutAmount}`);
+                }
+
+                // Side-effect: If verified, record in secure ledger (Main Office Account)
+                const targetAccountName = 'Main Office';
+                const [[account]] = await pool.query('SELECT id, current_balance FROM accounts WHERE name = ?', [targetAccountName]);
+                const targetAccount = account || (await pool.query('SELECT id, current_balance FROM accounts LIMIT 1'))[0][0];
+                if (targetAccount) {
+                    const accTxId = `TX-${Date.now()}-${id}`;
+                    const newBalance = targetAccount.current_balance - payoutAmount;
+
+                    // Insert account transaction
+                    await pool.query(`
+                        INSERT INTO account_transactions (id, account_id, date, type, amount, description, reference, status)
+                        VALUES (?, ?, CURDATE(), 'Debit', ?, ?, ?, 'Confirmed')
+                    `, [accTxId, targetAccount.id, payoutAmount, `Partner Commission Payout: ${p[0]?.name || partnerId}`, id]);
+
+                    // Update account balance
+                    await pool.query('UPDATE accounts SET current_balance = ? WHERE id = ?', [newBalance, targetAccount.id]);
+                }
+            } else if (status === 'Rejected') {
+                // Return to Approved state so it can be paid again
+                await pool.query(
+                    "UPDATE partner_commissions SET status = 'Approved' WHERE id = ?",
+                    [commId]
+                );
+            }
+
+            await auditLog('PartnerPayoutApproval', 'Partners', `Partner payout ${id} status updated to ${status}.`, userEmail);
+            return res.json({ status: 'ok', id, newStatus: status });
+        }
+
+        // 4. Booking Payment Approval (Standard)
+        await pool.query('UPDATE booking_transactions SET status = ? WHERE id = ?', [status, id]);
+        
+        // Re-sync booking payment status
+        const [[tx]] = await pool.query('SELECT booking_id FROM booking_transactions WHERE id = ?', [id]);
+        if (tx && tx.booking_id) {
+            const bookingId = tx.booking_id;
+            const [verifiedTxs] = await pool.query(
+                "SELECT amount, type FROM booking_transactions WHERE booking_id = ? AND status = 'Verified'",
+                [bookingId]
+            );
+            const netPaid = verifiedTxs.reduce((sum, t) => {
+                return sum + (t.type === 'Payment' ? Number(t.amount) : t.type === 'Refund' ? -Number(t.amount) : 0);
+            }, 0);
+
+            const [[booking]] = await pool.query('SELECT total_price FROM bookings WHERE id = ?', [bookingId]);
+            if (booking) {
+                const totalPrice = Number(booking.total_price || 0);
+                let newPaymentStatus = 'pending';
+                if (totalPrice > 0 && netPaid >= totalPrice) newPaymentStatus = 'paid';
+                else if (netPaid > 0) newPaymentStatus = 'deposit';
+                else if (netPaid < 0) newPaymentStatus = 'refunded';
+
+                await pool.query('UPDATE bookings SET payment_status = ? WHERE id = ?', [newPaymentStatus, bookingId]);
+                await auditLog('Finance', 'bookings', `Payment status synced to ${newPaymentStatus} after transaction approval for booking ${bookingId}`, userEmail);
+            }
+        }
+
+        await auditLog('PaymentApproval', 'Finance', `Booking transaction ${id} status updated to ${status}.`, userEmail);
+        return res.json({ status: 'ok', id, newStatus: status });
+
+    } catch (error) {
+        console.error('[Update Transaction Status] Error:', error);
+        res.status(500).json({ error: 'Failed to update transaction status', details: error.message });
     }
 });
 
@@ -7829,23 +8100,19 @@ app.patch('/api/admin/partner-commissions/:id/approve', authMiddleware, requireP
     }
 });
 
-// Admin: Mark commission as Paid
+// Admin: Mark commission as Paid (Pending Approval)
 app.patch('/api/admin/partner-commissions/:id/pay', authMiddleware, requirePartnerAdmin, async (req, res) => {
     try {
         await pool.query(
-            "UPDATE partner_commissions SET status = 'Paid', paid_at = NOW() WHERE id = ?",
+            "UPDATE partner_commissions SET status = 'PaidPending', paid_at = NOW() WHERE id = ?",
             [req.params.id]
         );
         
-        // Simulated Email Notification
-        const [c] = await pool.query("SELECT p.email, pc.commission_amount FROM partner_commissions pc JOIN partners p ON pc.partner_id = p.id WHERE pc.id = ?", [req.params.id]);
-        if (c.length) {
-            console.log(`[Email Service Mock] Sending payout confirmation email to partner: ${c[0].email} for ₹${c[0].commission_amount}`);
-        }
-        await auditLog('CommissionPaid', 'Partners', `Commission ${req.params.id} marked as Paid.`, req.user.email);
-        res.json({ message: 'Commission marked as paid' });
+        await auditLog('CommissionPaidInitiated', 'Partners', `Commission ${req.params.id} marked as Paid (Pending Approval).`, req.user.email);
+        res.json({ message: 'Commission payout submitted for approval' });
     } catch (err) {
-        res.status(500).json({ error: 'Failed to mark commission as paid' });
+        console.error(err);
+        res.status(500).json({ error: 'Failed to submit commission payout' });
     }
 });
 

@@ -10,7 +10,7 @@ export interface FinanceTransaction extends BookingTransaction {
     packageId?: string;
     bookingName?: string;
     recordedBy?: string;
-    source?: 'booking_payment' | 'expense';
+    source?: 'booking_payment' | 'expense' | 'vendor_payout' | 'partner_payout';
 }
 
 export const useFinance = () => {

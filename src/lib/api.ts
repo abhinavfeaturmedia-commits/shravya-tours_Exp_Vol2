@@ -378,26 +378,14 @@ export const api = {
 
     // After verifying a finance transaction, also re-sync the booking's payment_status in DB
     updateFinanceTransactionStatus: async (id: string, status: 'Pending' | 'Verified' | 'Rejected') => {
-        // Expense IDs start with 'EXP-', otherwise it's a booking_transaction
-        if (String(id).startsWith('EXP-')) {
-            await crud.update('expenses', id, { status });
-        } else {
-            await crud.update('booking_transactions', id, { status });
-            // After a booking transaction is verified/rejected, re-sync the booking payment_status
-            // by fetching all verified txs for this booking and updating the bookings table.
-            // We do this via the backend endpoint so it stays server-authoritative.
-            try {
-                await fetchApi('/api/finance/sync-booking-payment', {
-                    method: 'POST',
-                    body: JSON.stringify({ transactionId: id }),
-                });
-            } catch (_e) {
-                // Non-critical: the getBookings API already recomputes dynamicPayment from txs
-                console.warn('[Payment Sync] Could not sync booking payment_status after approval:', _e);
-            }
-            // Notify the useBookings React Query cache to refetch live booking data
+        const res = await fetchApi('/api/finance/update-transaction-status', {
+            method: 'POST',
+            body: JSON.stringify({ id, status }),
+        });
+        if (!String(id).startsWith('EXP-') && !String(id).startsWith('VT-') && !String(id).startsWith('VP-') && !String(id).startsWith('PC-')) {
             window.dispatchEvent(new CustomEvent('booking-transactions-changed', { detail: { transactionId: id } }));
         }
+        return res;
     },
 
     createAccountTransaction: async (accountId: string, tx: any) => {

@@ -196,7 +196,7 @@ export interface Expense {
   category: 'Rent' | 'Salaries' | 'Software' | 'Marketing' | 'Office Supplies' | 'Utilities' | 'Other';
   date: string;
   paymentMethod: 'Bank Transfer' | 'Cash' | 'Credit Card' | 'UPI';
-  status: 'Paid' | 'Pending';
+  status: 'Paid' | 'Pending' | 'Verified' | 'Rejected' | 'Unpaid';
   notes?: string;
   receiptUrl?: string;
 }

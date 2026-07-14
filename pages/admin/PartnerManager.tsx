@@ -346,6 +346,7 @@ export const PartnerManager: React.FC = () => {
     Pending: 'bg-amber-500/20 text-amber-300',
     Approved: 'bg-blue-500/20 text-blue-300',
     Paid: 'bg-emerald-500/20 text-emerald-300',
+    PaidPending: 'bg-yellow-500/20 text-yellow-300',
     Rejected: 'bg-red-500/20 text-red-300',
   };
 
@@ -486,8 +487,14 @@ export const PartnerManager: React.FC = () => {
                   </div>
                   <div>
                     <span className={`inline-flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-full font-bold ${commStatusBadge[c.status] || 'bg-slate-100 text-slate-500 dark:bg-white/10 dark:text-white/50'}`}>
-                      <span className={`size-1.5 rounded-full ${c.status === 'Paid' ? 'bg-emerald-400' : c.status === 'Approved' ? 'bg-blue-400' : c.status === 'Rejected' ? 'bg-red-400' : 'bg-amber-400'}`} />
-                      {c.status}
+                      <span className={`size-1.5 rounded-full ${
+                          c.status === 'Paid' ? 'bg-emerald-400' : 
+                          c.status === 'Approved' ? 'bg-blue-400' : 
+                          c.status === 'PaidPending' ? 'bg-yellow-400' :
+                          c.status === 'Rejected' ? 'bg-red-400' : 
+                          'bg-amber-400'
+                      }`} />
+                      {c.status === 'PaidPending' ? 'Pending Approval' : c.status}
                     </span>
                   </div>
                   <div className="flex items-center gap-1.5 flex-wrap justify-end">
@@ -504,6 +511,9 @@ export const PartnerManager: React.FC = () => {
                     )}
                     {(c.status === 'Pending' || c.status === 'Approved') && (
                       <button onClick={() => handleCommission(c.id, 'reject')} className="px-2.5 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg text-xs font-bold transition-all active:scale-95">Reject</button>
+                    )}
+                    {c.status === 'PaidPending' && (
+                      <span className="text-xs text-slate-400 font-semibold px-3 py-1">Pending verification</span>
                     )}
                   </div>
                 </div>
@@ -1164,8 +1174,14 @@ export const PartnerManager: React.FC = () => {
                                         {/* Status & inline payout actions */}
                                         <div className="flex justify-between items-center pt-2 border-t border-slate-100 dark:border-white/5 flex-wrap gap-2">
                                           <span className={`inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full ${commStatusBadge[c.status] || 'bg-slate-100'}`}>
-                                            <span className={`size-1.5 rounded-full ${c.status === 'Paid' ? 'bg-emerald-400' : c.status === 'Approved' ? 'bg-blue-400' : c.status === 'Rejected' ? 'bg-red-400' : 'bg-amber-400'}`} />
-                                            {c.status}
+                                            <span className={`size-1.5 rounded-full ${
+                                                c.status === 'Paid' ? 'bg-emerald-400' : 
+                                                c.status === 'Approved' ? 'bg-blue-400' : 
+                                                c.status === 'PaidPending' ? 'bg-yellow-400' :
+                                                c.status === 'Rejected' ? 'bg-red-400' : 
+                                                'bg-amber-400'
+                                            }`} />
+                                            {c.status === 'PaidPending' ? 'Pending Approval' : c.status}
                                           </span>
                                           
                                           {/* Direct ledger transition tools */}
@@ -1183,6 +1199,9 @@ export const PartnerManager: React.FC = () => {
                                             )}
                                             {(c.status === 'Pending' || c.status === 'Approved') && (
                                               <button onClick={async () => { if (window.confirm('Reject this commission?')) { await handleCommission(c.id, 'reject'); loadPartnerDetails(detailPartnerId); } }} className="px-2 py-1 bg-red-500/10 text-red-500 hover:bg-red-500/20 text-[10px] font-bold rounded">Reject</button>
+                                            )}
+                                            {c.status === 'PaidPending' && (
+                                              <span className="text-[10px] text-slate-400 font-semibold px-2 py-1">In Verification</span>
                                             )}
                                           </div>
                                         </div>

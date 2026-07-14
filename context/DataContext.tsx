@@ -1336,13 +1336,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const processVendorPayment = useCallback(async (vendorId: string, amount: number, reference?: string) => {
-    const transaction: import('../types').VendorTransaction = {
+    const transaction: any = {
       id: `VT-${Date.now()}`,
       date: new Date().toISOString(),
       description: 'Payout',
       amount: amount,
       type: 'Debit',
       reference: reference,
+      status: 'Pending',
     };
     
     setVendors(prev => prev.map(v => {
@@ -1350,7 +1351,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const pureManualTransactions = (v.transactions || []).filter(tx => !tx.id || (!tx.id.includes('-cost') && !tx.id.includes('-paid')));
         return {
           ...v,
-          balanceDue: v.balanceDue - amount,
           transactions: [transaction, ...pureManualTransactions]
         };
       }
@@ -1362,46 +1362,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (vendor) {
         const pureManualTransactions = (vendor.transactions || []).filter(tx => !tx.id || (!tx.id.includes('-cost') && !tx.id.includes('-paid')));
         await api.updateVendor(vendorId, {
-          transactions: [transaction, ...pureManualTransactions],
-          balanceDue: vendor.balanceDue - amount
+          transactions: [transaction, ...pureManualTransactions]
         });
 
-        // ─── ADD TO SECURE LEDGER (Main Office Account) ───
-        const targetAccount = accounts.find(a => a.name === 'Main Office') || accounts[0];
-        if (targetAccount) {
-          const accTx: AccountTransaction = {
-            id: `TX-${Date.now()}-V${vendorId}`,
-            date: new Date().toISOString().split('T')[0],
-            type: 'Debit',
-            amount: amount,
-            description: `Vendor Payout: ${vendor.name}`,
-            reference: reference || `VP-${vendorId}`
-          };
-          
-          const newBalance = targetAccount.currentBalance - amount;
-          
-          await api.createAccountTransaction(targetAccount.id, accTx);
-          await api.updateAccount(targetAccount.id, { currentBalance: newBalance });
-
-          setAccounts(prevAccounts => prevAccounts.map(acc => {
-            if (acc.id === targetAccount.id) {
-              return {
-                ...acc,
-                currentBalance: newBalance,
-                transactions: [accTx, ...(acc.transactions || [])]
-              };
-            }
-            return acc;
-          }));
-        }
-
-        logAction('Update', 'Vendors', `Processed payment for Vendor: ${vendor.name}`);
-        toast.success("Payment recorded");
+        logAction('Update', 'Vendors', `Initiated payout for Vendor: ${vendor.name} (Pending Approval)`);
+        toast.success("Payout submitted for approval");
       }
     } catch (e: any) {
-      toast.error(e.message || "Failed to record vendor payment");
+      toast.error(e.message || "Failed to submit vendor payout");
     }
-  }, [vendors, accounts, logAction]);
+  }, [vendors, logAction]);
 
   const addVendorDocument = useCallback(async (vendorId: string, doc: VendorDocument) => {
     setVendors(prev => prev.map(v => {

@@ -19,19 +19,21 @@ export const FinanceVerification: React.FC = () => {
     const [transferTab, setTransferTab] = useState<'Pending' | 'Approved' | 'Rejected'>('Pending');
     
     const [search, setSearch] = useState('');
+    const [sourceFilter, setSourceFilter] = useState<'All' | 'booking_payment' | 'expense' | 'vendor_payout' | 'partner_payout'>('All');
 
     // --- PAYMENTS FILTERING ---
     const filteredTransactions = useMemo(() => {
         return transactions.filter(tx => {
             const matchesTab = tx.status === paymentTab;
+            const matchesSource = sourceFilter === 'All' || tx.source === sourceFilter;
             const matchesSearch = 
                 tx.id.toLowerCase().includes(search.toLowerCase()) || 
                 (tx.customer && tx.customer.toLowerCase().includes(search.toLowerCase())) ||
                 (tx.bookingId && tx.bookingId.toLowerCase().includes(search.toLowerCase())) ||
                 (tx.reference && tx.reference.toLowerCase().includes(search.toLowerCase()));
-            return matchesTab && matchesSearch;
+            return matchesTab && matchesSource && matchesSearch;
         });
-    }, [transactions, paymentTab, search]);
+    }, [transactions, paymentTab, sourceFilter, search]);
 
     // --- TRANSFERS FILTERING ---
     const filteredTransfers = useMemo(() => {
@@ -177,8 +179,24 @@ export const FinanceVerification: React.FC = () => {
                         )}
                     </div>
 
-                    <div className="flex items-center gap-3 w-full lg:w-auto">
-                        <div className="relative flex-1 lg:w-64">
+                    <div className="flex items-center gap-3 w-full lg:w-auto flex-wrap">
+                        {viewMode === 'payments' && (
+                            <select
+                                value={sourceFilter}
+                                onChange={(e) => {
+                                    setSourceFilter(e.target.value as any);
+                                    paymentPagination.setCurrentPage(1);
+                                }}
+                                className="px-3 py-2.5 bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-primary/50 dark:text-white outline-none font-bold"
+                            >
+                                <option value="All">All Types</option>
+                                <option value="booking_payment">Booking Payments</option>
+                                <option value="expense">Corporate Expenses</option>
+                                <option value="vendor_payout">Vendor Payouts</option>
+                                <option value="partner_payout">Partner Payouts</option>
+                            </select>
+                        )}
+                        <div className="relative flex-1 lg:w-64 min-w-[200px]">
                             <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">search</span>
                             <input
                                 type="text"
@@ -208,7 +226,7 @@ export const FinanceVerification: React.FC = () => {
                                 <thead className="bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 sticky top-0 z-10">
                                     <tr>
                                         <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Transaction ID</th>
-                                        <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Customer</th>
+                                        <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Beneficiary / Customer</th>
                                         <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Context / Amount</th>
                                         <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Payment Meta</th>
                                         <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-center">Receipt</th>
@@ -217,9 +235,18 @@ export const FinanceVerification: React.FC = () => {
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-                                    {paginatedTransactions.length > 0 ? (
+                                                                      {paginatedTransactions.length > 0 ? (
                                         paginatedTransactions.map((tx) => (
-                                            <tr key={tx.id} className="group hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                                            <tr 
+                                                key={tx.id} 
+                                                className={`group hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-all border-l-4 ${
+                                                    tx.source === 'booking_payment' ? 'border-l-emerald-500' :
+                                                    tx.source === 'expense' ? 'border-l-amber-500' :
+                                                    tx.source === 'vendor_payout' ? 'border-l-rose-500' :
+                                                    tx.source === 'partner_payout' ? 'border-l-indigo-500' :
+                                                    'border-l-transparent'
+                                                }`}
+                                            >
                                                 <td className="px-6 py-4">
                                                     <div className="flex flex-col">
                                                         <span className="text-xs font-bold font-mono text-primary">{tx.id}</span>
@@ -228,27 +255,59 @@ export const FinanceVerification: React.FC = () => {
                                                 </td>
                                                 <td className="px-6 py-4">
                                                     <div className="flex items-center gap-3">
-                                                        <div className="size-8 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center font-bold text-xs text-slate-600 dark:text-slate-300">
-                                                            {(tx.customer || 'U').charAt(0).toUpperCase()}
-                                                        </div>
+                                                        {tx.source === 'expense' ? (
+                                                            <div className="size-8 rounded-full bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 flex items-center justify-center text-amber-600 dark:text-amber-400 font-bold">
+                                                                <span className="material-symbols-outlined text-[18px]">receipt_long</span>
+                                                            </div>
+                                                        ) : tx.source === 'vendor_payout' ? (
+                                                            <div className="size-8 rounded-full bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/50 flex items-center justify-center text-rose-600 dark:text-rose-400 font-bold">
+                                                                <span className="material-symbols-outlined text-[18px]">storefront</span>
+                                                            </div>
+                                                        ) : tx.source === 'partner_payout' ? (
+                                                            <div className="size-8 rounded-full bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold">
+                                                                <span className="material-symbols-outlined text-[18px]">handshake</span>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="size-8 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center font-bold text-xs text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600">
+                                                                {(tx.customer || 'U').charAt(0).toUpperCase()}
+                                                            </div>
+                                                        )}
                                                         <div>
-                                                            <p className="text-sm font-bold text-slate-900 dark:text-white">{tx.customer || 'Unknown Client'}</p>
-                                                            <p className="text-xs text-slate-500">{tx.email || 'No email'}</p>
+                                                            <p className="text-sm font-bold text-slate-900 dark:text-white">{tx.customer || 'Unknown Recipient'}</p>
+                                                            <p className="text-xs text-slate-500">
+                                                                {tx.source === 'expense' ? 'Operational Expense' :
+                                                                 tx.source === 'vendor_payout' ? 'Vendor Payout' :
+                                                                 tx.source === 'partner_payout' ? (tx.email || 'B2B Partner') :
+                                                                 (tx.email || 'No email')}
+                                                            </p>
                                                         </div>
                                                     </div>
                                                 </td>
                                                 <td className="px-6 py-4">
                                                     <p className="text-xs font-bold text-slate-900 dark:text-white">
-                                                        {tx.source === 'expense' ? `Category: ${tx.packageId || 'None'}` : (tx.bookingName || 'Unknown Booking')}
+                                                        {tx.source === 'expense' ? `Category: ${tx.packageId || 'None'}` : 
+                                                         tx.source === 'vendor_payout' ? `Vendor Payout` :
+                                                         tx.source === 'partner_payout' ? `Partner Commission` :
+                                                         (tx.bookingName || 'Unknown Booking')}
                                                     </p>
-                                                    {tx.source !== 'expense' && (
+                                                    {(tx.source === 'booking_payment' || tx.source === 'partner_payout') && tx.bookingId && (
                                                         <p className="text-[10px] font-mono text-slate-500 dark:text-slate-400 mt-0.5 break-all">
-                                                            ID: {tx.bookingId}
+                                                            Booking: {tx.bookingId}
+                                                        </p>
+                                                    )}
+                                                    {tx.source === 'vendor_payout' && tx.packageId && (
+                                                        <p className="text-[10px] text-slate-450 mt-0.5 font-medium">
+                                                            Category: {tx.packageId}
                                                         </p>
                                                     )}
                                                     <div className="flex items-center gap-2 mt-2">
-                                                        <span className={`text-sm kpi-number font-bold ${tx.type === 'Refund' || tx.source === 'expense' ? 'text-red-600' : 'text-slate-900 dark:text-white'}`}>
-                                                            {tx.type === 'Refund' || tx.source === 'expense' ? '-' : ''}₹{tx.amount.toLocaleString()}
+                                                        {tx.type === 'Refund' || tx.source === 'expense' || tx.source === 'vendor_payout' || tx.source === 'partner_payout' ? (
+                                                            <span className="material-symbols-outlined text-red-650 text-[14px]">north_east</span>
+                                                        ) : (
+                                                            <span className="material-symbols-outlined text-green-655 text-[14px]">south_east</span>
+                                                        )}
+                                                        <span className={`text-sm kpi-number font-bold ${tx.type === 'Refund' || tx.source === 'expense' || tx.source === 'vendor_payout' || tx.source === 'partner_payout' ? 'text-red-600' : 'text-slate-900 dark:text-white'}`}>
+                                                            {tx.type === 'Refund' || tx.source === 'expense' || tx.source === 'vendor_payout' || tx.source === 'partner_payout' ? '-' : ''}₹{tx.amount.toLocaleString()}
                                                         </span>
                                                         {tx.recordedBy && (
                                                             <span className="text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-500 px-1.5 py-0.5 rounded font-medium">
@@ -263,8 +322,16 @@ export const FinanceVerification: React.FC = () => {
                                                             {tx.method}
                                                         </span>
                                                         {tx.reference && <span className="text-[10px] text-slate-505 font-mono">Ref: {tx.reference}</span>}
-                                                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded w-fit uppercase ${tx.source === 'expense' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                                                            {tx.source === 'expense' ? 'EXPENSE' : tx.type}
+                                                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded w-fit uppercase ${
+                                                            tx.source === 'expense' ? 'bg-amber-100 text-amber-700' :
+                                                            tx.source === 'vendor_payout' ? 'bg-rose-100 text-rose-700' :
+                                                            tx.source === 'partner_payout' ? 'bg-indigo-100 text-indigo-700' :
+                                                            'bg-emerald-100 text-emerald-700'
+                                                        }`}>
+                                                            {tx.source === 'expense' ? 'EXPENSE' :
+                                                             tx.source === 'vendor_payout' ? 'VENDOR PAYOUT' :
+                                                             tx.source === 'partner_payout' ? 'PARTNER PAYOUT' :
+                                                             tx.type}
                                                         </span>
                                                     </div>
                                                 </td>
@@ -290,7 +357,12 @@ export const FinanceVerification: React.FC = () => {
                                                             <>
                                                                 <button 
                                                                     onClick={() => {
-                                                                        if(confirm('Are you sure you want to verify this payment? It will be permanently recorded towards the booking.')) {
+                                                                        const entityName = 
+                                                                            tx.source === 'expense' ? 'expense' :
+                                                                            tx.source === 'vendor_payout' ? 'vendor payout' :
+                                                                            tx.source === 'partner_payout' ? 'partner commission payout' :
+                                                                            'booking payment';
+                                                                        if(confirm(`Are you sure you want to verify this ${entityName}? This will perform account balance adjustments and ledger updates.`)) {
                                                                             updateTransactionStatus(tx.id, 'Verified');
                                                                         }
                                                                     }}
