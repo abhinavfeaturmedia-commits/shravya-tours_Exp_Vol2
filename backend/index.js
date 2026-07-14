@@ -9144,22 +9144,19 @@ app.get('/uploads/:filename', async (req, res) => {
     res.status(404).send('Not Found');
 });
 
-// Catch-all: send React's index.html for any non-API route (SPA routing)
-app.get('*', (req, res) => {
-    if (!req.path.startsWith('/api/')) {
-        res.sendFile(path.join(__dirname, 'public', 'index.html'));
-    }
-});
-
-// ═══════════════════════════════════════════
-// START SERVER
-// ═══════════════════════════════════════════
 // Fix #17: Expose available playbook keys so frontend can dynamically populate the dropdown
 app.get('/api/playbook-keys', authMiddleware, (req, res) => {
     res.json({
         leadStages: Object.keys(LEAD_STAGE_PLAYBOOKS),
         bookingTypes: Object.keys(BOOKING_TYPE_PLAYBOOKS)
     });
+});
+
+// Catch-all: send React's index.html for any non-API route (SPA routing)
+app.get('*', (req, res) => {
+    if (!req.path.startsWith('/api/')) {
+        res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    }
 });
 
 const PORT = process.env.PORT || 5000;

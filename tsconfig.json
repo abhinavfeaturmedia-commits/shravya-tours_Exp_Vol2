@@ -29,6 +29,10 @@
   },
   "exclude": [
     "supabase",
-    "node_modules"
+    "node_modules",
+    "backend",
+    "dist",
+    ".tmp",
+    "temp_deploy"
   ]
 }
