@@ -43,6 +43,7 @@ export const Bookings: React.FC = () => {
     const [viewingBookingId, setViewingBookingId] = useState<string | null>(null);
     const [printingTxId, setPrintingTxId] = useState<string | null>(null);
     const [activePaymentPopoverId, setActivePaymentPopoverId] = useState<string | null>(null);
+    const [activeVendorPaymentPopoverId, setActiveVendorPaymentPopoverId] = useState<string | null>(null);
 
     const handlePrintReceiptInBookings = async (tx: any, booking: Booking) => {
         setPrintingTxId(tx.id);
@@ -90,6 +91,7 @@ export const Bookings: React.FC = () => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.key === 'Escape') {
                 setActivePaymentPopoverId(null);
+                setActiveVendorPaymentPopoverId(null);
             }
         };
         const handleClickOutside = (e: MouseEvent) => {
@@ -97,8 +99,11 @@ export const Bookings: React.FC = () => {
             if (!target.closest('.payment-popover') && !target.closest('.payment-dot-trigger')) {
                 setActivePaymentPopoverId(null);
             }
+            if (!target.closest('.vendor-payment-popover') && !target.closest('.vendor-payment-dot-trigger')) {
+                setActiveVendorPaymentPopoverId(null);
+            }
         };
-        if (activePaymentPopoverId) {
+        if (activePaymentPopoverId || activeVendorPaymentPopoverId) {
             window.addEventListener('keydown', handleKeyDown);
             window.addEventListener('click', handleClickOutside);
         }
@@ -106,7 +111,7 @@ export const Bookings: React.FC = () => {
             window.removeEventListener('keydown', handleKeyDown);
             window.removeEventListener('click', handleClickOutside);
         };
-    }, [activePaymentPopoverId]);
+    }, [activePaymentPopoverId, activeVendorPaymentPopoverId]);
 
     useEffect(() => {
         const fetchDeliverables = async () => {
@@ -2495,6 +2500,7 @@ export const Bookings: React.FC = () => {
                                             <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Details</th>
                                             <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Date</th>
                                             <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Payment</th>
+                                            <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Vendor Pay</th>
                                             <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-center">Status</th>
                                             <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-right">Actions</th>
                                         </tr>
@@ -2664,6 +2670,111 @@ export const Bookings: React.FC = () => {
                                                                                 </div>
                                                                             </div>
                                                                         )}
+                                                                    </div>
+                                                                );
+                                                            })()}
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-6 py-4">
+                                                        <div className="flex flex-col gap-1 relative">
+                                                            {(() => {
+                                                                const sBookings = booking.supplierBookings || [];
+                                                                const activeSBookings = sBookings.filter(sb => sb.bookingStatus !== 'Cancelled');
+                                                                const totalCost = activeSBookings.reduce((sum, sb) => sum + (sb.cost || 0), 0);
+                                                                const totalPaid = activeSBookings.reduce((sum, sb) => sum + (sb.paidAmount || 0), 0);
+                                                                const pendingVendorBalance = Math.max(0, totalCost - totalPaid);
+                                                                
+                                                                if (activeSBookings.length === 0) {
+                                                                    return (
+                                                                        <span className="text-xs font-semibold text-slate-400 dark:text-slate-500 italic">No Vendor</span>
+                                                                    );
+                                                                }
+                                                                
+                                                                const liveVendorStatus = totalPaid >= totalCost ? 'Paid' : totalPaid > 0 ? 'Partial' : 'Unpaid';
+                                                                const isPendingVendor = liveVendorStatus === 'Unpaid' || liveVendorStatus === 'Partial';
+                                                                const dotColor = liveVendorStatus === 'Unpaid' ? 'bg-rose-500' : 'bg-amber-500';
+                                                                
+                                                                return (
+                                                                    <div className="flex flex-col gap-1.5">
+                                                                        <span className="text-sm kpi-number text-slate-900 dark:text-white">{formatPrice(totalCost)}</span>
+                                                                        <div className="flex items-center gap-1.5">
+                                                                            <span className={`text-[10px] px-1.5 py-0.5 rounded w-fit font-bold uppercase ${liveVendorStatus === 'Paid' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : liveVendorStatus === 'Partial' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' : 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'}`}>
+                                                                                {liveVendorStatus === 'Partial' ? 'Part Paid' : liveVendorStatus}
+                                                                            </span>
+                                                                            {isPendingVendor && (
+                                                                                <span 
+                                                                                    onClick={(e) => {
+                                                                                        e.stopPropagation();
+                                                                                        setActiveVendorPaymentPopoverId(activeVendorPaymentPopoverId === booking.id ? null : booking.id);
+                                                                                    }}
+                                                                                    className="vendor-payment-dot-trigger relative flex h-2.5 w-2.5 cursor-pointer items-center justify-center shrink-0 animate-pulse-slow"
+                                                                                    title="Click to view pending vendor payment details"
+                                                                                >
+                                                                                    <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${dotColor}`}></span>
+                                                                                    <span className={`relative inline-flex rounded-full h-1.5 w-1.5 ${dotColor}`}></span>
+                                                                                </span>
+                                                                            )}
+
+                                                                            {/* Desktop Vendor Popover */}
+                                                                            {activeVendorPaymentPopoverId === booking.id && (
+                                                                                <div 
+                                                                                    className="vendor-payment-popover absolute top-full left-0 mt-1 w-72 p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl z-50 text-left"
+                                                                                    onClick={e => e.stopPropagation()}
+                                                                                >
+                                                                                    <div className="flex justify-between items-center pb-2 mb-2 border-b border-slate-100 dark:border-slate-800">
+                                                                                        <span className="text-[10px] font-extrabold text-indigo-500 uppercase tracking-wider">Vendor Cost Breakdown</span>
+                                                                                        <button 
+                                                                                            onClick={() => setActiveVendorPaymentPopoverId(null)}
+                                                                                            className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm font-bold leading-none"
+                                                                                        >
+                                                                                            &times;
+                                                                                        </button>
+                                                                                    </div>
+                                                                                    <div className="flex flex-col gap-2 max-h-48 overflow-y-auto mb-3 custom-scrollbar">
+                                                                                        {activeSBookings.map((sb) => (
+                                                                                            <div key={sb.id} className="flex flex-col gap-0.5 pb-2 border-b border-slate-100 dark:border-slate-800 last:border-0 last:pb-0 text-xs">
+                                                                                                <div className="flex justify-between font-semibold text-slate-700 dark:text-slate-300">
+                                                                                                    <span>{sb.serviceType}</span>
+                                                                                                    <span>{formatPrice(sb.cost)}</span>
+                                                                                                </div>
+                                                                                                <div className="flex justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                                                                                                    <span>Paid: {formatPrice(sb.paidAmount)}</span>
+                                                                                                    <span className={`font-bold ${sb.paymentStatus === 'Paid' ? 'text-green-600' : sb.paymentStatus === 'Partially Paid' ? 'text-amber-600' : 'text-rose-600'}`}>
+                                                                                                        {sb.paymentStatus}
+                                                                                                    </span>
+                                                                                                </div>
+                                                                                            </div>
+                                                                                        ))}
+                                                                                    </div>
+                                                                                    <div className="flex flex-col gap-1.5 text-xs text-slate-600 dark:text-slate-400 border-t border-slate-100 dark:border-slate-800 pt-2 mb-3">
+                                                                                        <div className="flex justify-between">
+                                                                                            <span>Total Vendor Cost:</span>
+                                                                                            <span className="font-bold text-slate-800 dark:text-white">{formatPrice(totalCost)}</span>
+                                                                                        </div>
+                                                                                        <div className="flex justify-between">
+                                                                                            <span>Total Paid:</span>
+                                                                                            <span className="font-bold text-slate-800 dark:text-white">{formatPrice(totalPaid)}</span>
+                                                                                        </div>
+                                                                                        <div className="flex justify-between border-t border-dashed border-slate-200 dark:border-slate-700 pt-1.5">
+                                                                                            <span className="font-bold">Pending Payable:</span>
+                                                                                            <span className="font-extrabold text-xs text-rose-600 dark:text-rose-400">
+                                                                                                {formatPrice(pendingVendorBalance)}
+                                                                                            </span>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                    <button 
+                                                                                        onClick={() => {
+                                                                                            setActiveVendorPaymentPopoverId(null);
+                                                                                            setSelectedBookingForSuppliersId(booking.id);
+                                                                                        }}
+                                                                                        className="w-full py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] rounded-lg transition-colors flex items-center justify-center gap-1.5 uppercase tracking-wider"
+                                                                                    >
+                                                                                        <span className="material-symbols-outlined text-[14px]">payments</span>
+                                                                                        Manage Vendor Payments
+                                                                                    </button>
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
                                                                     </div>
                                                                 );
                                                             })()}
@@ -2883,6 +2994,100 @@ export const Bookings: React.FC = () => {
                                                                 </div>
                                                             )}
                                                         </div>
+
+                                                        {/* Vendor Pay Row in Mobile */}
+                                                        {(() => {
+                                                            const sBookings = booking.supplierBookings || [];
+                                                            const activeSBookings = sBookings.filter(sb => sb.bookingStatus !== 'Cancelled');
+                                                            const totalCost = activeSBookings.reduce((sum, sb) => sum + (sb.cost || 0), 0);
+                                                            const totalPaid = activeSBookings.reduce((sum, sb) => sum + (sb.paidAmount || 0), 0);
+                                                            const pendingVendorBalance = Math.max(0, totalCost - totalPaid);
+                                                            
+                                                            if (activeSBookings.length === 0) return null;
+                                                            
+                                                            const liveVendorStatus = totalPaid >= totalCost ? 'Paid' : totalPaid > 0 ? 'Partial' : 'Unpaid';
+                                                            const isPendingVendor = liveVendorStatus === 'Unpaid' || liveVendorStatus === 'Partial';
+                                                            const dotColor = liveVendorStatus === 'Unpaid' ? 'bg-rose-500' : 'bg-amber-500';
+                                                            
+                                                            return (
+                                                                <div className="flex items-center gap-1 mt-1 justify-end">
+                                                                    <span className="text-[11px] font-medium text-slate-500">Vendor:</span>
+                                                                    <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">{formatPrice(totalCost)}</span>
+                                                                    <span className={`text-[9px] px-1 py-0.2 rounded font-bold uppercase ${liveVendorStatus === 'Paid' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : liveVendorStatus === 'Partial' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' : 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'}`}>
+                                                                        {liveVendorStatus === 'Partial' ? 'Part' : liveVendorStatus}
+                                                                    </span>
+                                                                    {isPendingVendor && (
+                                                                        <span 
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                setActiveVendorPaymentPopoverId(activeVendorPaymentPopoverId === booking.id ? null : booking.id);
+                                                                            }}
+                                                                            className="vendor-payment-dot-trigger relative flex h-2 w-2 cursor-pointer items-center justify-center shrink-0"
+                                                                            title="Click to view pending vendor payment details"
+                                                                        >
+                                                                            <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${dotColor}`}></span>
+                                                                            <span className={`relative inline-flex rounded-full h-1 w-1 ${dotColor}`}></span>
+                                                                        </span>
+                                                                    )}
+
+                                                                    {/* Mobile Vendor Popover */}
+                                                                    {activeVendorPaymentPopoverId === booking.id && (
+                                                                        <div 
+                                                                            className="vendor-payment-popover absolute top-full right-0 mt-1 w-64 p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl z-[60] text-left"
+                                                                            onClick={e => e.stopPropagation()}
+                                                                        >
+                                                                            <div className="flex justify-between items-center pb-2 mb-2 border-b border-slate-100 dark:border-slate-800">
+                                                                                <span className="text-[10px] font-extrabold text-indigo-500 uppercase tracking-wider">Vendor Cost Breakdown</span>
+                                                                                <button 
+                                                                                    onClick={() => setActiveVendorPaymentPopoverId(null)}
+                                                                                    className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm font-bold leading-none"
+                                                                                >
+                                                                                    &times;
+                                                                                </button>
+                                                                            </div>
+                                                                            <div className="flex flex-col gap-2 max-h-36 overflow-y-auto mb-3 custom-scrollbar">
+                                                                                {activeSBookings.map((sb) => (
+                                                                                    <div key={sb.id} className="flex flex-col gap-0.5 pb-2 border-b border-slate-100 dark:border-slate-800 last:border-0 last:pb-0 text-xs">
+                                                                                        <div className="flex justify-between font-semibold text-slate-700 dark:text-slate-300">
+                                                                                            <span>{sb.serviceType}</span>
+                                                                                            <span>{formatPrice(sb.cost)}</span>
+                                                                                        </div>
+                                                                                        <div className="flex justify-between text-[10px] text-slate-500 dark:text-slate-400">
+                                                                                            <span>Paid: {formatPrice(sb.paidAmount)}</span>
+                                                                                            <span className={`font-bold ${sb.paymentStatus === 'Paid' ? 'text-green-600' : sb.paymentStatus === 'Partially Paid' ? 'text-amber-600' : 'text-rose-600'}`}>
+                                                                                                {sb.paymentStatus}
+                                                                                            </span>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                ))}
+                                                                            </div>
+                                                                            <div className="flex flex-col gap-1 text-xs text-slate-600 dark:text-slate-400 border-t border-slate-100 dark:border-slate-800 pt-2 mb-3">
+                                                                                <div className="flex justify-between">
+                                                                                    <span>Total Vendor Cost:</span>
+                                                                                    <span className="font-bold text-slate-800 dark:text-white">{formatPrice(totalCost)}</span>
+                                                                                </div>
+                                                                                <div className="flex justify-between border-t border-dashed border-slate-200 dark:border-slate-700 pt-1">
+                                                                                    <span className="font-bold">Pending Payable:</span>
+                                                                                    <span className="font-extrabold text-xs text-rose-600 dark:text-rose-400">
+                                                                                        {formatPrice(pendingVendorBalance)}
+                                                                                    </span>
+                                                                                </div>
+                                                                            </div>
+                                                                            <button 
+                                                                                onClick={() => {
+                                                                                    setActiveVendorPaymentPopoverId(null);
+                                                                                    setSelectedBookingForSuppliersId(booking.id);
+                                                                                }}
+                                                                                className="w-full py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] rounded-lg transition-colors flex items-center justify-center gap-1.5 uppercase tracking-wider"
+                                                                            >
+                                                                                <span className="material-symbols-outlined text-[14px]">payments</span>
+                                                                                Manage Vendor Payments
+                                                                            </button>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })()}
                                                     </div>
                                                 </div>
                                                 

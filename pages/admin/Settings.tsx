@@ -540,6 +540,8 @@ const IntegrationsSection: React.FC = () => {
   const setWA = (field: string, val: any) => { setForm(p => ({ ...p, whatsapp: { ...p.whatsapp, [field]: val } })); setIsDirty(true); };
   const setRZ = (field: string, val: any) => { setForm(p => ({ ...p, razorpay: { ...p.razorpay, [field]: val } })); setIsDirty(true); };
   const setSMTP = (field: string, val: any) => { setForm(p => ({ ...p, smtp: { ...p.smtp, [field]: val } })); setIsDirty(true); };
+  const setSMTPGeneral = (field: string, val: any) => { setForm(p => ({ ...p, smtpGeneral: { ...p.smtpGeneral, [field]: val } })); setIsDirty(true); };
+  const setSMTPBilling = (field: string, val: any) => { setForm(p => ({ ...p, smtpBilling: { ...p.smtpBilling, [field]: val } })); setIsDirty(true); };
   const setSMS = (field: string, val: any) => { setForm(p => ({ ...p, sms: { ...p.sms, [field]: val } })); setIsDirty(true); };
   const setGG = (field: string, val: any) => { setForm(p => ({ ...p, google: { ...p.google, [field]: val } })); setIsDirty(true); };
   const setOR = (field: string, val: any) => { setForm(p => ({ ...p, openrouter: { ...p.openrouter, [field]: val } })); setIsDirty(true); };
@@ -564,6 +566,43 @@ const IntegrationsSection: React.FC = () => {
       .catch(err => console.error('Failed to fetch OpenRouter models:', err))
       .finally(() => setLoadingModels(false));
   }, []);
+
+  const handleTestSmtp = async (smtpType: 'general' | 'billing') => {
+    const targetEmail = prompt(`Enter recipient email address to send test message from ${smtpType === 'general' ? 'General' : 'Billing'} SMTP:`);
+    if (!targetEmail) return;
+    
+    const credentials = smtpType === 'general' ? form.smtpGeneral : form.smtpBilling;
+    if (!credentials.host || !credentials.username || !credentials.password) {
+      toast.error('Please configure and save SMTP Host, Username and Password first.');
+      return;
+    }
+    
+    const toastId = toast.loading(`Sending test email using ${smtpType} SMTP...`);
+    try {
+      const res = await fetch('/api/email/test', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('shravya_jwt') || localStorage.getItem('shrawello_partner_jwt')}`
+        },
+        body: JSON.stringify({
+          type: smtpType,
+          targetEmail,
+          smtpSettings: credentials
+        })
+      });
+      const data = await res.json();
+      toast.dismiss(toastId);
+      if (res.ok && data.status === 'success') {
+        toast.success(`Test email sent successfully to ${targetEmail}!`);
+      } else {
+        toast.error(data.error || 'Failed to send test email.');
+      }
+    } catch (err: any) {
+      toast.dismiss(toastId);
+      toast.error(err.message || 'Error occurred during SMTP test.');
+    }
+  };
 
   const handleSave = async () => {
     try {
@@ -688,38 +727,90 @@ const IntegrationsSection: React.FC = () => {
         </div>
       </IntegrationCard>
 
-      {/* ── SMTP Email ── */}
+      {/* ── SMTP Email (General) ── */}
       <IntegrationCard
-        title="SMTP Email"
-        description="Send transactional emails — booking confirmations, invoices, proposals, and password resets"
+        title="SMTP Email (General & Marketing)"
+        description="Send general emails — lead assignments, agent introductions, proposals, queries, and marketing updates"
         icon="email" color="bg-indigo-500"
-        enabled={form.smtp.enabled}
-        onToggle={v => setSMTP('enabled', v)}
+        enabled={form.smtpGeneral.enabled}
+        onToggle={v => setSMTPGeneral('enabled', v)}
         docsUrl="https://support.google.com/mail/answer/7126229"
-        workflow="Workflow: Booking confirmed → Email invoice PDF → Proposal created → Email proposal link → Lead assigned → Agent introduction email"
+        workflow="Workflow: Lead assigned → Agent introduction email → Proposal created → Email proposal link"
       >
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Field label="SMTP Host" hint="e.g. smtp.gmail.com / smtp.hostinger.com">
-            <TextInput value={form.smtp.host} onChange={v => setSMTP('host', v)} placeholder="smtp.gmail.com" />
+            <TextInput value={form.smtpGeneral.host} onChange={v => setSMTPGeneral('host', v)} placeholder="smtp.hostinger.com" />
           </Field>
           <Field label="Port" hint="587 for TLS, 465 for SSL, 25 for plain">
-            <NumberInput value={form.smtp.port} onChange={v => setSMTP('port', v)} min={1} max={65535} />
+            <NumberInput value={form.smtpGeneral.port} onChange={v => setSMTPGeneral('port', v)} min={1} max={65535} />
           </Field>
           <Field label="Username / Email">
-            <TextInput type="email" value={form.smtp.username} onChange={v => setSMTP('username', v)} placeholder="info@shrawello.com" />
+            <TextInput type="email" value={form.smtpGeneral.username} onChange={v => setSMTPGeneral('username', v)} placeholder="hello@shrawello.com" />
           </Field>
-          <Field label="Password / App Password" hint="Use App Password for Gmail (2FA accounts)">
-            <SecretInput value={form.smtp.password} onChange={v => setSMTP('password', v)} placeholder="app_password_here" />
+          <Field label="Password / App Password" hint="Use App Password for Gmail or Hostinger SMTP password">
+            <SecretInput value={form.smtpGeneral.password} onChange={v => setSMTPGeneral('password', v)} placeholder="app_password_here" />
           </Field>
           <Field label="From Name" hint="Shown in recipient's inbox">
-            <TextInput value={form.smtp.fromName} onChange={v => setSMTP('fromName', v)} placeholder="SHRAWELLO Travel Hub" />
+            <TextInput value={form.smtpGeneral.fromName} onChange={v => setSMTPGeneral('fromName', v)} placeholder="SHRAWELLO Travel Hub" />
           </Field>
           <Field label="From Email">
-            <TextInput type="email" value={form.smtp.fromEmail} onChange={v => setSMTP('fromEmail', v)} placeholder="noreply@shravyatours.com" />
+            <TextInput type="email" value={form.smtpGeneral.fromEmail} onChange={v => setSMTPGeneral('fromEmail', v)} placeholder="hello@shrawello.com" />
           </Field>
         </div>
-        <Toggle checked={form.smtp.useTls} onChange={v => setSMTP('useTls', v)}
+        <Toggle checked={form.smtpGeneral.useTls} onChange={v => setSMTPGeneral('useTls', v)}
           label="Use TLS/STARTTLS" description="Recommended for all modern SMTP servers" />
+        <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+          <button
+            type="button"
+            onClick={() => handleTestSmtp('general')}
+            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
+          >
+            <span className="material-symbols-outlined text-[16px]">send</span> Send Test Email
+          </button>
+        </div>
+      </IntegrationCard>
+
+      {/* ── SMTP Email (Billing) ── */}
+      <IntegrationCard
+        title="SMTP Email (Billing & Finance)"
+        description="Send billing emails — booking confirmations, invoices, receipts, and refund updates"
+        icon="payments" color="bg-emerald-500"
+        enabled={form.smtpBilling.enabled}
+        onToggle={v => setSMTPBilling('enabled', v)}
+        docsUrl="https://support.google.com/mail/answer/7126229"
+        workflow="Workflow: Booking confirmed → Email invoice PDF → Payment receipt sent"
+      >
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Field label="SMTP Host" hint="e.g. smtp.gmail.com / smtp.hostinger.com">
+            <TextInput value={form.smtpBilling.host} onChange={v => setSMTPBilling('host', v)} placeholder="smtp.hostinger.com" />
+          </Field>
+          <Field label="Port" hint="587 for TLS, 465 for SSL, 25 for plain">
+            <NumberInput value={form.smtpBilling.port} onChange={v => setSMTPBilling('port', v)} min={1} max={65535} />
+          </Field>
+          <Field label="Username / Email">
+            <TextInput type="email" value={form.smtpBilling.username} onChange={v => setSMTPBilling('username', v)} placeholder="billing@shrawello.com" />
+          </Field>
+          <Field label="Password / App Password" hint="Use App Password for Gmail or Hostinger SMTP password">
+            <SecretInput value={form.smtpBilling.password} onChange={v => setSMTPBilling('password', v)} placeholder="app_password_here" />
+          </Field>
+          <Field label="From Name" hint="Shown in recipient's inbox">
+            <TextInput value={form.smtpBilling.fromName} onChange={v => setSMTPBilling('fromName', v)} placeholder="SHRAWELLO Billing" />
+          </Field>
+          <Field label="From Email">
+            <TextInput type="email" value={form.smtpBilling.fromEmail} onChange={v => setSMTPBilling('fromEmail', v)} placeholder="billing@shrawello.com" />
+          </Field>
+        </div>
+        <Toggle checked={form.smtpBilling.useTls} onChange={v => setSMTPBilling('useTls', v)}
+          label="Use TLS/STARTTLS" description="Recommended for all modern SMTP servers" />
+        <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+          <button
+            type="button"
+            onClick={() => handleTestSmtp('billing')}
+            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
+          >
+            <span className="material-symbols-outlined text-[16px]">send</span> Send Test Email
+          </button>
+        </div>
       </IntegrationCard>
 
       {/* ── SMS ── */}

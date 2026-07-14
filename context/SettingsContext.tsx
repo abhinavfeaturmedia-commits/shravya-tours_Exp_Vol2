@@ -106,6 +106,8 @@ export interface IntegrationSettings {
   whatsapp: WhatsAppSettings;
   razorpay: RazorpaySettings;
   smtp: SmtpSettings;
+  smtpGeneral: SmtpSettings;
+  smtpBilling: SmtpSettings;
   sms: SmsSettings;
   google: GoogleSettings;
   openrouter: OpenRouterSettings;
@@ -190,6 +192,26 @@ export const DEFAULT_SETTINGS: AppSettings = {
       password: '',
       fromName: 'SHRAWELLO Travel Hub',
       fromEmail: '',
+      useTls: true,
+    },
+    smtpGeneral: {
+      enabled: false,
+      host: 'smtp.hostinger.com',
+      port: 465,
+      username: 'hello@shrawello.com',
+      password: '',
+      fromName: 'SHRAWELLO Travel Hub',
+      fromEmail: 'hello@shrawello.com',
+      useTls: true,
+    },
+    smtpBilling: {
+      enabled: false,
+      host: 'smtp.hostinger.com',
+      port: 465,
+      username: 'billing@shrawello.com',
+      password: '',
+      fromName: 'SHRAWELLO Billing',
+      fromEmail: 'billing@shrawello.com',
       useTls: true,
     },
     sms: {

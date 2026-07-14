@@ -38,6 +38,7 @@ const NAV_GROUPS = [
       { name: 'Memberships', path: '/admin/memberships', icon: 'card_membership', module: 'memberships' },
       { name: 'Support Inbox', path: '/admin/support-inbox', icon: 'forum', module: 'memberships' },
       { name: 'Partners', path: '/admin/partners', icon: 'handshake', module: 'partners' },
+      { name: 'KYC Management', path: '/admin/kyc', icon: 'verified_user', module: 'partners' },
       { name: 'Coupons', path: '/admin/coupons', icon: 'local_offer', module: 'marketing' },
       { name: 'Marketing Logs', path: '/admin/marketing-logs', icon: 'edit_note', module: 'marketing' },
       { name: 'Accounts', path: '/admin/accounts', icon: 'account_balance', module: 'finance' },

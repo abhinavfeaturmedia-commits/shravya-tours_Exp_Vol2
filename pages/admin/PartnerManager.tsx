@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -31,6 +31,14 @@ const PartnerTable: React.FC<{
   handleDelete: (id: string) => void; openEdit: (p: any) => void;
   openDetails: (id: string) => void;
 }> = ({ partners, search, statusFilter, setSearch, setStatusFilter, statusBadge, handleApprove, handleBlock, handleDelete, openEdit, openDetails }) => {
+  const navigate = useNavigate();
+  const kycBadgeConfig: Record<string, { label: string; style: string; icon: string }> = {
+    Pending: { label: 'Pending', style: 'bg-slate-50 text-slate-500 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700/50', icon: 'hourglass_empty' },
+    Submitted: { label: 'Submitted', style: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-900/30 animate-pulse', icon: 'pending' },
+    Verified: { label: 'Verified', style: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-900/30', icon: 'verified_user' },
+    Rejected: { label: 'Rejected', style: 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/20 dark:text-rose-400 dark:border-rose-900/30', icon: 'cancel' },
+  };
+
   const filtered = partners.filter(p => {
     const q = search.toLowerCase();
     const matchQ = !q || p.name?.toLowerCase().includes(q) || p.email?.toLowerCase().includes(q) || (p.company_name || '').toLowerCase().includes(q);
@@ -41,8 +49,8 @@ const PartnerTable: React.FC<{
     <div className="bg-white dark:bg-[#1A2633]/80 border border-slate-200 dark:border-white/10 rounded-2xl overflow-hidden shadow-sm">
       <div className="overflow-x-auto">
         <div className="min-w-[700px]">
-      <div className="hidden lg:grid grid-cols-[2fr_1fr_1fr_1fr_120px_170px] gap-4 px-6 py-3 bg-slate-50 dark:bg-white/[0.03] border-b border-slate-100 dark:border-white/5 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
-        <span>Partner</span><span>Commission</span><span>Activity</span><span>Earnings</span><span>Status</span><span className="text-right">Actions</span>
+      <div className="hidden lg:grid grid-cols-[2fr_1fr_1fr_1fr_110px_110px_170px] gap-4 px-6 py-3 bg-slate-50 dark:bg-white/[0.03] border-b border-slate-100 dark:border-white/5 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
+        <span>Partner</span><span>Commission</span><span>Activity</span><span>Earnings</span><span>Status</span><span>KYC Status</span><span className="text-right">Actions</span>
       </div>
       {filtered.length === 0 ? (
         <div className="text-center py-16">
@@ -55,13 +63,13 @@ const PartnerTable: React.FC<{
           {filtered.map((p: any) => {
             const convPct = p.total_leads_submitted > 0 ? Math.round((p.total_bookings_converted / p.total_leads_submitted) * 100) : 0;
             return (
-              <div key={p.id} className="grid grid-cols-1 lg:grid-cols-[2fr_1fr_1fr_1fr_120px_170px] gap-4 px-6 py-4 hover:bg-slate-50 dark:hover:bg-white/[0.03] transition-colors items-center">
+              <div key={p.id} className="grid grid-cols-1 lg:grid-cols-[2fr_1fr_1fr_1fr_110px_110px_170px] gap-4 px-6 py-4 hover:bg-slate-50 dark:hover:bg-white/[0.03] transition-colors items-center">
                 <div className="flex items-center gap-3 cursor-pointer group/item shrink-0" onClick={() => openDetails(p.id)}>
                   <div className={`size-10 rounded-xl bg-gradient-to-br ${getAvatarColor(p.id)} flex items-center justify-center text-white font-black text-sm shrink-0 shadow-md transition-transform group-hover/item:scale-110 duration-200`}>{getInitials(p.name)}</div>
                   <div className="min-w-0">
                     <p className="font-bold text-slate-900 dark:text-white text-sm leading-tight hover:text-violet-600 dark:hover:text-violet-400 transition-colors">{p.name}</p>
                     <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{p.email}</p>
-                    {p.company_name && <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{p.company_name}{p.location ? ` · ${p.location}` : ''}</p>}
+                    {p.company_name && <p className="text-[10px] text-slate-400 dark:text-slate-550 mt-0.5">{p.company_name}{p.location ? ` · ${p.location}` : ''}</p>}
                   </div>
                 </div>
                 <div>
@@ -87,6 +95,25 @@ const PartnerTable: React.FC<{
                     <span className={`size-1.5 rounded-full ${p.status === 'Active' ? 'bg-emerald-400' : p.status === 'Blocked' ? 'bg-red-400' : 'bg-amber-400'} animate-pulse`} />
                     {p.status}
                   </span>
+                </div>
+                <div>
+                  {(() => {
+                    const status = p.kyc_status || 'Pending';
+                    const cfg = kycBadgeConfig[status] || kycBadgeConfig.Pending;
+                    return (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(`/admin/kyc?partnerId=${p.id}`);
+                        }}
+                        className={`inline-flex items-center gap-1.5 text-[10px] px-2.5 py-1 rounded-full font-bold border ${cfg.style} transition-all hover:scale-105 active:scale-95`}
+                        title="Click to manage partner KYC documents"
+                      >
+                        <span className="material-symbols-outlined text-[14px]">{cfg.icon}</span>
+                        {cfg.label}
+                      </button>
+                    );
+                  })()}
                 </div>
                 <div className="flex items-center gap-1.5 flex-wrap justify-end">
                   {p.status === 'Pending Approval' && (

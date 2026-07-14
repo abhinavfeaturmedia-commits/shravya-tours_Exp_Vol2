@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   { name: 'Submit Lead', path: '/partner/leads/new', icon: 'person_add' },
   { name: 'My Leads', path: '/partner/leads', icon: 'groups' },
   { name: 'Earnings', path: '/partner/earnings', icon: 'payments' },
+  { name: 'Milestones & Plans', path: '/partner/milestones', icon: 'emoji_events' },
   { name: 'Profile', path: '/partner/profile', icon: 'manage_accounts' },
 ];
 

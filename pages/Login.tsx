@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'sonner';
@@ -11,13 +11,22 @@ export const Login: React.FC = () => {
     const { login } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
-
     const from = location.state?.from?.pathname || '/admin';
+
+    // Forgot password state
+    const [fpPhase, setFpPhase] = useState<'none'|'email'|'otp'|'newpass'>('none');
+    const [fpEmail, setFpEmail] = useState('');
+    const [fpOtp, setFpOtp] = useState(['','','','','','']);
+    const [fpResetToken, setFpResetToken] = useState('');
+    const [fpNewPass, setFpNewPass] = useState('');
+    const [fpConfirmPass, setFpConfirmPass] = useState('');
+    const [fpLoading, setFpLoading] = useState(false);
+    const [fpResendCooldown, setFpResendCooldown] = useState(0);
+    const otpRefs = useRef<(HTMLInputElement|null)[]>([]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
-
         try {
             const success = await login(email.trim(), password);
             if (success) {
@@ -29,6 +38,62 @@ export const Login: React.FC = () => {
         } finally {
             setLoading(false);
         }
+    };
+
+    const startResendCooldown = () => {
+        setFpResendCooldown(60);
+        const timer = setInterval(() => {
+            setFpResendCooldown(prev => { if (prev <= 1) { clearInterval(timer); return 0; } return prev - 1; });
+        }, 1000);
+    };
+
+    const handleSendOTP = async () => {
+        if (!fpEmail.trim()) return toast.error('Enter your email address');
+        setFpLoading(true);
+        try {
+            const res = await fetch('/api/auth/forgot-password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: fpEmail.trim() }) });
+            await res.json();
+            setFpPhase('otp');
+            startResendCooldown();
+            toast.success('OTP sent! Check your email.');
+        } catch { toast.error('Failed to send OTP'); } finally { setFpLoading(false); }
+    };
+
+    const handleVerifyOTP = async () => {
+        const otp = fpOtp.join('');
+        if (otp.length < 6) return toast.error('Enter the complete 6-digit OTP');
+        setFpLoading(true);
+        try {
+            const res = await fetch('/api/auth/verify-otp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: fpEmail.trim(), otp, portal: 'admin' }) });
+            const data = await res.json();
+            if (!res.ok) return toast.error(data.error || 'Invalid OTP');
+            setFpResetToken(data.reset_session_token);
+            setFpPhase('newpass');
+        } catch { toast.error('OTP verification failed'); } finally { setFpLoading(false); }
+    };
+
+    const handleResetPassword = async () => {
+        if (fpNewPass.length < 6) return toast.error('Password must be at least 6 characters');
+        if (fpNewPass !== fpConfirmPass) return toast.error('Passwords do not match');
+        setFpLoading(true);
+        try {
+            const res = await fetch('/api/auth/reset-password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reset_session_token: fpResetToken, newPassword: fpNewPass, portal: 'admin' }) });
+            const data = await res.json();
+            if (!res.ok) return toast.error(data.error || 'Password reset failed');
+            toast.success('Password updated! You can now log in.');
+            setFpPhase('none');
+            setFpOtp(['','','','','','']);
+        } catch { toast.error('Password reset failed'); } finally { setFpLoading(false); }
+    };
+
+    const handleOtpChange = (idx: number, val: string) => {
+        if (!/^\d?$/.test(val)) return;
+        const updated = [...fpOtp]; updated[idx] = val;
+        setFpOtp(updated);
+        if (val && idx < 5) otpRefs.current[idx + 1]?.focus();
+    };
+    const handleOtpKeyDown = (idx: number, e: React.KeyboardEvent) => {
+        if (e.key === 'Backspace' && !fpOtp[idx] && idx > 0) otpRefs.current[idx - 1]?.focus();
     };
 
     return (
@@ -147,7 +212,71 @@ export const Login: React.FC = () => {
                                     </span>
                                 </button>
                             </div>
+                            {/* Forgot Password Link */}
+                            <div className="text-right">
+                                <button type="button" onClick={() => setFpPhase('email')} className="text-xs text-primary hover:underline font-medium">
+                                    Forgot Password?
+                                </button>
+                            </div>
                         </div>
+
+                        {/* Forgot Password Inline Panel */}
+                        {fpPhase !== 'none' && (
+                            <div className="border border-primary/20 bg-primary/5 rounded-2xl p-5 space-y-4 animate-fade-in">
+                                <div className="flex items-center justify-between">
+                                    <p className="text-sm font-bold text-slate-700 dark:text-white">
+                                        {fpPhase === 'email' && '🔑 Reset Password'}
+                                        {fpPhase === 'otp' && '📩 Enter OTP'}
+                                        {fpPhase === 'newpass' && '🔒 Set New Password'}
+                                    </p>
+                                    <button type="button" onClick={() => { setFpPhase('none'); setFpOtp(['','','','','','']); }} className="text-slate-400 hover:text-slate-600 text-xs">✕ Cancel</button>
+                                </div>
+
+                                {fpPhase === 'email' && (
+                                    <>
+                                        <p className="text-xs text-slate-500">Enter your registered email. We'll send a 6-digit OTP.</p>
+                                        <input type="email" value={fpEmail} onChange={e => setFpEmail(e.target.value)} placeholder="Your registered email" className="w-full h-10 px-4 rounded-xl bg-white dark:bg-white/10 border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white text-sm outline-none focus:ring-2 focus:ring-primary/30" />
+                                        <button type="button" onClick={handleSendOTP} disabled={fpLoading} className="w-full h-10 bg-primary text-white rounded-xl text-sm font-semibold disabled:opacity-60 flex items-center justify-center gap-2">
+                                            {fpLoading ? <span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : '📨 Send OTP'}
+                                        </button>
+                                    </>
+                                )}
+                                {fpPhase === 'otp' && (
+                                    <>
+                                        <p className="text-xs text-slate-500">OTP sent to <strong>{fpEmail}</strong>. Expires in 10 minutes.</p>
+                                        <div className="flex gap-2 justify-center">
+                                            {fpOtp.map((d, i) => (
+                                                <input key={i} ref={el => { otpRefs.current[i] = el; }} type="text" maxLength={1} value={d}
+                                                    onChange={e => handleOtpChange(i, e.target.value)}
+                                                    onKeyDown={e => handleOtpKeyDown(i, e)}
+                                                    className="w-10 h-12 text-center text-xl font-bold bg-white dark:bg-white/10 border-2 border-slate-200 dark:border-white/15 rounded-xl text-slate-900 dark:text-white outline-none focus:border-primary transition-all"
+                                                />
+                                            ))}
+                                        </div>
+                                        <button type="button" onClick={handleVerifyOTP} disabled={fpLoading} className="w-full h-10 bg-primary text-white rounded-xl text-sm font-semibold disabled:opacity-60 flex items-center justify-center gap-2">
+                                            {fpLoading ? <span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : '✅ Verify OTP'}
+                                        </button>
+                                        <div className="text-center">
+                                            {fpResendCooldown > 0 ? (
+                                                <p className="text-xs text-slate-400">Resend in {fpResendCooldown}s</p>
+                                            ) : (
+                                                <button type="button" onClick={() => { setFpPhase('email'); }} className="text-xs text-primary hover:underline">← Change email / Resend</button>
+                                            )}
+                                        </div>
+                                    </>
+                                )}
+                                {fpPhase === 'newpass' && (
+                                    <>
+                                        <p className="text-xs text-slate-500">OTP verified! Set your new password.</p>
+                                        <input type="password" value={fpNewPass} onChange={e => setFpNewPass(e.target.value)} placeholder="New password (min 6 chars)" className="w-full h-10 px-4 rounded-xl bg-white dark:bg-white/10 border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white text-sm outline-none focus:ring-2 focus:ring-primary/30" />
+                                        <input type="password" value={fpConfirmPass} onChange={e => setFpConfirmPass(e.target.value)} placeholder="Confirm new password" className="w-full h-10 px-4 rounded-xl bg-white dark:bg-white/10 border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white text-sm outline-none focus:ring-2 focus:ring-primary/30" />
+                                        <button type="button" onClick={handleResetPassword} disabled={fpLoading} className="w-full h-10 bg-emerald-600 text-white rounded-xl text-sm font-semibold disabled:opacity-60 flex items-center justify-center gap-2">
+                                            {fpLoading ? <span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : '🔒 Update Password'}
+                                        </button>
+                                    </>
+                                )}
+                            </div>
+                        )}
 
                         {/* Submit */}
                         <button

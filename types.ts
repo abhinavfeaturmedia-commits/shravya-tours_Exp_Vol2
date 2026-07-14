@@ -395,6 +395,7 @@ export interface VendorTransaction {
   amount: number;
   type: 'Credit' | 'Debit';
   reference?: string;
+  status?: 'Pending' | 'Verified' | 'Rejected';
 }
 
 export interface VendorNote {

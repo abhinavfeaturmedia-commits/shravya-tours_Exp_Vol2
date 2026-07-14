@@ -63,6 +63,7 @@ const PartnerManager = lazy(() => import('./pages/admin/PartnerManager').then(mo
 const CouponManager = lazy(() => import('./pages/admin/CouponManager').then(module => ({ default: module.CouponManager })));
 const MarketingLogs = lazy(() => import('./pages/admin/MarketingLogs').then(module => ({ default: module.MarketingLogs })));
 const TrendingDestinationsManager = lazy(() => import('./pages/admin/TrendingDestinationsManager').then(module => ({ default: module.TrendingDestinationsManager })));
+const AdminKYCManager = lazy(() => import('./pages/admin/AdminKYCManager').then(module => ({ default: module.AdminKYCManager })));
 
 // Partner Portal Pages
 const PartnerLogin = lazy(() => import('./pages/partner/PartnerLogin').then(m => ({ default: m.PartnerLogin })));
@@ -73,6 +74,7 @@ const PartnerPackages = lazy(() => import('./pages/partner/PartnerPackages').the
 const PartnerSubmitLead = lazy(() => import('./pages/partner/PartnerSubmitLead').then(m => ({ default: m.PartnerSubmitLead })));
 const PartnerEarnings = lazy(() => import('./pages/partner/PartnerEarnings').then(m => ({ default: m.PartnerEarnings })));
 const PartnerProfile = lazy(() => import('./pages/partner/PartnerProfile').then(m => ({ default: m.PartnerProfile })));
+const PartnerMilestones = lazy(() => import('./pages/partner/PartnerMilestones').then(m => ({ default: m.PartnerMilestones })));
 
 // Customer Portal Pages
 const CustomerLogin = lazy(() => import('./pages/customer/CustomerLogin').then(m => ({ default: m.CustomerLogin })));
@@ -154,6 +156,7 @@ const App: React.FC = () => {
                   <Route path="memberships" element={<MembershipManager />} />
                   <Route path="support-inbox" element={<SupportInbox />} />
                   <Route path="partners" element={<PartnerManager />} />
+                  <Route path="kyc" element={<AdminKYCManager />} />
                   <Route path="coupons" element={<CouponManager />} />
                   <Route path="marketing-logs" element={<MarketingLogs />} />
                   <Route path="trending" element={<TrendingDestinationsManager />} />
@@ -171,6 +174,7 @@ const App: React.FC = () => {
                   <Route path="leads/new" element={<PartnerSubmitLead />} />
                   <Route path="earnings" element={<PartnerEarnings />} />
                   <Route path="profile" element={<PartnerProfile />} />
+                  <Route path="milestones" element={<PartnerMilestones />} />
                 </Route>
 
                 {/* Customer Portal Routes */}

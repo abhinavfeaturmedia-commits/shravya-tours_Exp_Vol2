@@ -9,6 +9,9 @@ import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import { initEmailService, sendTestEmail, sendAgentIntroductionEmail, sendProposalEmail, sendInvoiceEmail,
+    sendOTPEmail, sendPartnerKYCVerifiedEmail, sendPartnerKYCRejectedEmail,
+    sendPartnerCommissionPaidEmail, sendLoyaltyTierUpgradeEmail, sendPartnerApprovedEmail } from './emailService.js';
 
 dotenv.config();
 
@@ -50,7 +53,7 @@ const upload = multer({
     }
 });
 
-const pool = mysql.createPool({
+export const pool = mysql.createPool({
     host: process.env.DB_HOST,
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
@@ -62,6 +65,8 @@ const pool = mysql.createPool({
     enableKeepAlive: true,
     keepAliveInitialDelay: 10000
 });
+
+initEmailService(pool);
 
 // ─── DB Migration: Add new task columns if not present ───
 async function runMigration() {
@@ -121,6 +126,27 @@ async function runMigration() {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `);
         console.log('[Migration] booking_daily_deliverables table verified/created');
+
+        // ─── OTP Tokens table for forgot-password ───
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS otp_tokens (
+                id VARCHAR(64) PRIMARY KEY,
+                email VARCHAR(255) NOT NULL,
+                portal ENUM('admin','partner','customer') NOT NULL,
+                otp_hash VARCHAR(255) NOT NULL,
+                reset_session_token VARCHAR(128) DEFAULT NULL,
+                session_token_expires DATETIME DEFAULT NULL,
+                expires_at DATETIME NOT NULL,
+                used TINYINT(1) DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_otp_email_portal (email, portal),
+                INDEX idx_otp_session_token (reset_session_token)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+        console.log('[Migration] otp_tokens table verified/created');
+
+        // Clean up expired OTPs
+        await pool.query(`DELETE FROM otp_tokens WHERE expires_at < NOW() - INTERVAL 1 HOUR`).catch(() => {});
     } catch (err) {
         console.error('[Migration Error]', err.message);
     }
@@ -148,9 +174,11 @@ async function syncLocalUploadsToDb() {
     try {
         if (!fs.existsSync(uploadsDir)) return;
         const files = fs.readdirSync(uploadsDir);
-        console.log(`[Uploads Sync] Found ${files.length} files in local uploads directory.`);
+        console.log(`[Uploads Sync] Found ${files.length} files/dirs in local uploads directory.`);
         
         let syncedCount = 0;
+        
+        // Scan main uploads dir
         for (const file of files) {
             const filePath = path.join(uploadsDir, file);
             const stat = fs.statSync(filePath);
@@ -166,6 +194,7 @@ async function syncLocalUploadsToDb() {
                 else if (ext === '.webp') mimeType = 'image/webp';
                 else if (ext === '.gif') mimeType = 'image/gif';
                 else if (ext === '.svg') mimeType = 'image/svg+xml';
+                else if (ext === '.pdf') mimeType = 'application/pdf';
                 
                 await pool.query(
                     'INSERT INTO uploaded_files (id, filename, mime_type, data) VALUES (?, ?, ?, ?)',
@@ -174,6 +203,37 @@ async function syncLocalUploadsToDb() {
                 syncedCount++;
             }
         }
+
+        // Scan uploads/kyc subdirectory
+        const kycDir = path.join(uploadsDir, 'kyc');
+        if (fs.existsSync(kycDir)) {
+            const kycFiles = fs.readdirSync(kycDir);
+            for (const file of kycFiles) {
+                const filePath = path.join(kycDir, file);
+                const stat = fs.statSync(filePath);
+                if (!stat.isFile()) continue;
+
+                const [rows] = await pool.query('SELECT id FROM uploaded_files WHERE filename = ?', [file]);
+                if (rows.length === 0) {
+                    const fileData = fs.readFileSync(filePath);
+                    const id = crypto.randomBytes(16).toString('hex');
+                    const ext = path.extname(file).toLowerCase();
+                    let mimeType = 'image/jpeg';
+                    if (ext === '.png') mimeType = 'image/png';
+                    else if (ext === '.webp') mimeType = 'image/webp';
+                    else if (ext === '.gif') mimeType = 'image/gif';
+                    else if (ext === '.svg') mimeType = 'image/svg+xml';
+                    else if (ext === '.pdf') mimeType = 'application/pdf';
+                    
+                    await pool.query(
+                        'INSERT INTO uploaded_files (id, filename, mime_type, data) VALUES (?, ?, ?, ?)',
+                        [id, file, mimeType, fileData]
+                    );
+                    syncedCount++;
+                }
+            }
+        }
+
         if (syncedCount > 0) {
             console.log(`[Uploads Sync] Successfully synced ${syncedCount} new local files to database.`);
         } else {
@@ -196,7 +256,14 @@ async function syncDbUploadsToLocal() {
         
         let restoredCount = 0;
         for (const row of rows) {
-            const filePath = path.join(uploadsDir, row.filename);
+            const isKyc = row.filename.startsWith('kyc-');
+            const targetDir = isKyc ? path.join(uploadsDir, 'kyc') : uploadsDir;
+            
+            if (!fs.existsSync(targetDir)) {
+                fs.mkdirSync(targetDir, { recursive: true });
+            }
+
+            const filePath = path.join(targetDir, row.filename);
             if (!fs.existsSync(filePath)) {
                 fs.writeFileSync(filePath, row.data);
                 restoredCount++;
@@ -439,6 +506,25 @@ app.post('/api/settings/upsert', authMiddleware, async (req, res) => {
     } catch (error) {
         console.error('[Settings Upsert] Error:', error.message, '| Key:', setting_key, '| Value:', setting_value);
         res.status(500).json({ error: 'Failed to save setting: ' + error.message });
+    }
+});
+
+// ─── SMTP Email Test Endpoint ───
+app.post('/api/email/test', authMiddleware, async (req, res) => {
+    const { type, targetEmail, smtpSettings } = req.body;
+    if (!targetEmail || !smtpSettings) {
+        return res.status(400).json({ error: 'targetEmail and smtpSettings are required' });
+    }
+    try {
+        const success = await sendTestEmail(smtpSettings, targetEmail);
+        if (success) {
+            res.json({ status: 'success' });
+        } else {
+            res.status(500).json({ error: `Failed to send test email using ${type} SMTP settings. Please verify configuration parameters.` });
+        }
+    } catch (error) {
+        console.error(`[Email Test] ${type} SMTP test error:`, error.message);
+        res.status(500).json({ error: 'SMTP connection failed: ' + error.message });
     }
 });
 
@@ -1366,6 +1452,32 @@ async function ensurePartnerTables() {
             await pool.query("ALTER TABLE partners ADD COLUMN IF NOT EXISTS flight_commission_type VARCHAR(50) DEFAULT 'Flat_Amount'");
             await pool.query("ALTER TABLE partners ADD COLUMN IF NOT EXISTS flight_commission_value DECIMAL(10,2) DEFAULT 200.00");
             console.log('[Partner Migration] flight_commission columns added to partners.');
+        } catch(e) { /* already exists */ }
+
+        // ─── KYC columns ───
+        try {
+            await pool.query("ALTER TABLE partners ADD COLUMN IF NOT EXISTS kyc_status ENUM('Pending','Submitted','Verified','Rejected') DEFAULT 'Pending'");
+            await pool.query("ALTER TABLE partners ADD COLUMN IF NOT EXISTS kyc_pan_number VARCHAR(20) DEFAULT NULL");
+            await pool.query("ALTER TABLE partners ADD COLUMN IF NOT EXISTS kyc_pan_front_url VARCHAR(500) DEFAULT NULL");
+            await pool.query("ALTER TABLE partners ADD COLUMN IF NOT EXISTS kyc_pan_back_url VARCHAR(500) DEFAULT NULL");
+            await pool.query("ALTER TABLE partners ADD COLUMN IF NOT EXISTS kyc_aadhaar_number VARCHAR(16) DEFAULT NULL");
+            await pool.query("ALTER TABLE partners ADD COLUMN IF NOT EXISTS kyc_aadhaar_front_url VARCHAR(500) DEFAULT NULL");
+            await pool.query("ALTER TABLE partners ADD COLUMN IF NOT EXISTS kyc_aadhaar_back_url VARCHAR(500) DEFAULT NULL");
+            await pool.query("ALTER TABLE partners ADD COLUMN IF NOT EXISTS kyc_passport_url VARCHAR(500) DEFAULT NULL");
+            await pool.query("ALTER TABLE partners ADD COLUMN IF NOT EXISTS kyc_dl_url VARCHAR(500) DEFAULT NULL");
+            await pool.query("ALTER TABLE partners ADD COLUMN IF NOT EXISTS kyc_submitted_at DATETIME DEFAULT NULL");
+            await pool.query("ALTER TABLE partners ADD COLUMN IF NOT EXISTS kyc_verified_at DATETIME DEFAULT NULL");
+            await pool.query("ALTER TABLE partners ADD COLUMN IF NOT EXISTS kyc_verified_by VARCHAR(255) DEFAULT NULL");
+            await pool.query("ALTER TABLE partners ADD COLUMN IF NOT EXISTS kyc_rejection_reason TEXT DEFAULT NULL");
+            console.log('[Partner Migration] KYC columns added to partners.');
+        } catch(e) { /* already exists */ }
+
+        // ─── Loyalty columns ───
+        try {
+            await pool.query("ALTER TABLE partners ADD COLUMN IF NOT EXISTS loyalty_tier ENUM('Bronze','Silver','Gold','Platinum') DEFAULT 'Bronze'");
+            await pool.query("ALTER TABLE partners ADD COLUMN IF NOT EXISTS loyalty_override TINYINT(1) DEFAULT 0");
+            await pool.query("ALTER TABLE partners ADD COLUMN IF NOT EXISTS milestone_notes TEXT DEFAULT NULL");
+            console.log('[Partner Migration] Loyalty columns added to partners.');
         } catch(e) { /* already exists */ }
 
         console.log('[Partner Migration] Partner tables ensured.');
@@ -5499,6 +5611,17 @@ app.post('/api/crud/:table', authMiddleware, validateTable, writeGuard, permissi
         // Server-side audit log
         auditLog('Create', table, `Created record ${fetchedId}`, req.user?.email);
 
+        // Transactional Email Triggers on Creation
+        if (table === 'leads' && body.assigned_to) {
+            sendAgentIntroductionEmail(fetchedId);
+        }
+        if (table === 'proposals') {
+            sendProposalEmail(fetchedId);
+        }
+        if (table === 'bookings' && (body.status === 'confirmed' || body.status === 'completed' || body.payment_status === 'paid')) {
+            sendInvoiceEmail(fetchedId);
+        }
+
         // Auto-create user record for partners if created via CRUD
         if (table === 'partners' && body.email) {
             const trimmedEmail = body.email.trim().toLowerCase();
@@ -5631,7 +5754,7 @@ app.put('/api/crud/:table/:id', authMiddleware, validateTable, writeGuard, permi
             const [[row]] = await pool.query('SELECT status, assigned_to FROM leads WHERE id = ?', [id]);
             oldLead = row;
         } else if (table === 'bookings') {
-            const [[row]] = await pool.query('SELECT type, assigned_to FROM bookings WHERE id = ?', [id]);
+            const [[row]] = await pool.query('SELECT type, assigned_to, status, payment_status FROM bookings WHERE id = ?', [id]);
             oldBooking = row;
         }
 
@@ -5676,6 +5799,7 @@ app.put('/api/crud/:table/:id', authMiddleware, validateTable, writeGuard, permi
             if (statusChanged) {
                 await generateLeadPlaybook(id, newStatus, newAssignee, req.user?.email);
             } else if (assigneeChanged) {
+                sendAgentIntroductionEmail(id);
                 await pool.query(
                     "UPDATE tasks SET assigned_to = ? WHERE related_lead_id = ? AND category = 'checklist' AND status = 'Pending'",
                     [newAssignee, id]
@@ -5735,6 +5859,23 @@ app.put('/api/crud/:table/:id', authMiddleware, validateTable, writeGuard, permi
         // Auto-Commission Trigger
         if (table === 'bookings' && (body.status === 'confirmed' || body.status === 'completed' || body.payment_status === 'paid')) {
             autoCalculatePartnerCommission(id);
+        }
+
+        // Proposal Update Trigger (send email when status changes to 'Sent')
+        if (table === 'proposals' && body.status === 'Sent') {
+            const [[oldProp]] = await pool.query('SELECT status FROM proposals WHERE id = ?', [id]);
+            if (oldProp && oldProp.status !== 'Sent') {
+                sendProposalEmail(id);
+            }
+        }
+
+        // Booking Invoice Update Trigger (send invoice when confirmed/completed or paid status is updated)
+        if (table === 'bookings' && (body.status === 'confirmed' || body.status === 'completed' || body.payment_status === 'paid')) {
+            const statusChanged = oldBooking && oldBooking.status !== body.status && body.status !== undefined && (body.status === 'confirmed' || body.status === 'completed');
+            const paymentStatusChanged = oldBooking && oldBooking.payment_status !== body.payment_status && body.payment_status !== undefined && body.payment_status === 'paid';
+            if (statusChanged || paymentStatusChanged) {
+                sendInvoiceEmail(id);
+            }
         }
 
         // Server-side audit log
@@ -7503,13 +7644,31 @@ app.get('/api/partner/me', partnerAuthMiddleware, async (req, res) => {
         const stats = commissionsRows[0];
         const bankDetails = p.bank_details ? (typeof p.bank_details === 'string' ? JSON.parse(p.bank_details) : p.bank_details) : null;
 
+        // Compute bank completeness
+        const bd = bankDetails || {};
+        const bank_complete = !!(bd.accountName && bd.accountNumber && bd.bankName && bd.ifsc);
+
+        // Compute loyalty progress
+        const converted = Number(stats.converted_bookings) || 0;
+        const loyaltyTier = p.loyalty_tier || 'Bronze';
+        const TIERS = { Bronze: 0, Silver: 10, Gold: 25, Platinum: 50 };
+        const NEXT_TIER = { Bronze: 'Silver', Silver: 'Gold', Gold: 'Platinum', Platinum: null };
+        const nextTier = NEXT_TIER[loyaltyTier];
+        const nextThreshold = nextTier ? TIERS[nextTier] : null;
+        const progressToNext = nextThreshold ? Math.min(100, Math.round((converted / nextThreshold) * 100)) : 100;
+
         res.json({
             ...p,
             bank_details: bankDetails,
+            bank_complete,
             total_leads_submitted: Number(leadsRows[0].cnt) || 0,
-            total_bookings_converted: Number(stats.converted_bookings) || 0,
+            total_bookings_converted: converted,
             total_earnings: Number(stats.total_earnings) || 0,
             pending_payout: Number(stats.pending_payout) || 0,
+            loyalty_tier: loyaltyTier,
+            next_loyalty_tier: nextTier,
+            loyalty_progress_pct: progressToNext,
+            loyalty_next_threshold: nextThreshold,
         });
     } catch (err) {
         console.error('Partner /me error:', err);
@@ -7801,6 +7960,261 @@ app.get('/api/partner/commissions', partnerAuthMiddleware, async (req, res) => {
     }
 });
 
+// Partner: Get milestones / loyalty info
+app.get('/api/partner/milestones', partnerAuthMiddleware, async (req, res) => {
+    try {
+        const partnerId = req.partner.partnerId;
+        const [rows] = await pool.query('SELECT loyalty_tier, loyalty_override, milestone_notes, total_bookings_converted FROM partners WHERE id = ?', [partnerId]).catch(() => [[]]);
+        const [partnerRow] = await pool.query(
+            `SELECT COUNT(DISTINCT booking_id) as converted FROM partner_commissions WHERE partner_id = ?`, [partnerId]
+        );
+        const converted = Number(partnerRow[0]?.converted) || 0;
+        const TIERS = ['Bronze', 'Silver', 'Gold', 'Platinum'];
+        const THRESHOLDS = { Bronze: 0, Silver: 10, Gold: 25, Platinum: 50 };
+        const BONUSES = { Bronze: 0, Silver: 0.5, Gold: 1, Platinum: 2 };
+        const tier = rows[0]?.loyalty_tier || 'Bronze';
+        const history = TIERS.filter(t => THRESHOLDS[t] <= converted).map(t => ({
+            tier: t, threshold: THRESHOLDS[t], bonus: BONUSES[t],
+            achieved: converted >= THRESHOLDS[t]
+        }));
+        res.json({ tier, converted, history, thresholds: THRESHOLDS, bonuses: BONUSES });
+    } catch (err) {
+        console.error('Partner milestones error:', err);
+        res.status(500).json({ error: 'Failed to fetch milestones' });
+    }
+});
+
+// Partner: Get membership plans (with 5% earning info)
+app.get('/api/partner/membership-plans', partnerAuthMiddleware, async (req, res) => {
+    try {
+        const [plans] = await pool.query(
+            `SELECT id, name, tier, price, billing_cycle, features, discount_pct, description FROM membership_plans WHERE is_active = 1 ORDER BY price ASC`
+        );
+        const enriched = plans.map(p => ({
+            ...p,
+            features: typeof p.features === 'string' ? JSON.parse(p.features || '[]') : (p.features || []),
+            partner_earning: Math.round(Number(p.price) * 0.05 * 100) / 100,
+        }));
+        res.json({ data: enriched });
+    } catch (err) {
+        console.error('Partner membership-plans error:', err);
+        res.status(500).json({ error: 'Failed to fetch membership plans' });
+    }
+});
+
+// Partner KYC: Upload documents (multipart)
+const kycUpload = multer({
+    storage: multer.diskStorage({
+        destination: (_req, _file, cb) => {
+            const dir = path.join(__dirname, 'public', 'uploads', 'kyc');
+            if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+            cb(null, dir);
+        },
+        filename: (_req, file, cb) => {
+            const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
+            cb(null, `kyc-${Date.now()}-${crypto.randomBytes(4).toString('hex')}${ext}`);
+        }
+    }),
+    limits: { fileSize: 10 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+        const allowed = ['image/jpeg','image/png','image/webp','application/pdf'];
+        cb(null, allowed.includes(file.mimetype));
+    }
+});
+
+app.post('/api/partner/kyc/upload',
+    partnerAuthMiddleware,
+    kycUpload.fields([
+        { name: 'pan_front', maxCount: 1 },
+        { name: 'pan_back', maxCount: 1 },
+        { name: 'aadhaar_front', maxCount: 1 },
+        { name: 'aadhaar_back', maxCount: 1 },
+        { name: 'passport', maxCount: 1 },
+        { name: 'driving_licence', maxCount: 1 },
+    ]),
+    async (req, res) => {
+        try {
+            const partnerId = req.partner.partnerId;
+            const { panNumber, aadhaarNumber } = req.body || {};
+            const files = req.files || {};
+
+            if (!panNumber || !aadhaarNumber) return res.status(400).json({ error: 'PAN number and Aadhaar number are required' });
+            if (!files.pan_front || !files.pan_back) return res.status(400).json({ error: 'PAN card front and back photos are required' });
+            if (!files.aadhaar_front || !files.aadhaar_back) return res.status(400).json({ error: 'Aadhaar card front and back photos are required' });
+
+            const BASE_URL = process.env.BASE_URL || '';
+            const toUrl = (f) => f ? `${BASE_URL}/uploads/kyc/${f[0].filename}` : null;
+
+            // Save each uploaded file to the database table uploaded_files
+            for (const key of Object.keys(files)) {
+                if (files[key] && files[key][0]) {
+                    await saveUploadedFileToDb(files[key][0]);
+                }
+            }
+
+            await pool.query(`
+                UPDATE partners SET
+                    kyc_pan_number = ?, kyc_pan_front_url = ?, kyc_pan_back_url = ?,
+                    kyc_aadhaar_number = ?, kyc_aadhaar_front_url = ?, kyc_aadhaar_back_url = ?,
+                    kyc_passport_url = ?, kyc_dl_url = ?,
+                    kyc_status = 'Submitted', kyc_submitted_at = NOW()
+                WHERE id = ?`,
+                [
+                    panNumber, toUrl(files.pan_front), toUrl(files.pan_back),
+                    aadhaarNumber, toUrl(files.aadhaar_front), toUrl(files.aadhaar_back),
+                    toUrl(files.passport), toUrl(files.driving_licence),
+                    partnerId
+                ]
+            );
+            await auditLog('PartnerKYCSubmit', 'Partners', `Partner ${partnerId} submitted KYC documents.`, req.partner.email);
+            res.json({ message: 'KYC submitted successfully. Awaiting admin verification.' });
+        } catch (err) {
+            console.error('KYC upload error:', err);
+            res.status(500).json({ error: 'KYC upload failed', details: err.message });
+        }
+    }
+);
+
+// ═══════════════════════════════════════════
+// FORGOT PASSWORD / OTP ROUTES
+// ═══════════════════════════════════════════
+
+function generateOTP() {
+    return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+// Admin/Staff forgot password
+app.post('/api/auth/forgot-password', async (req, res) => {
+    const { email } = req.body || {};
+    if (!email) return res.status(400).json({ error: 'Email is required' });
+    try {
+        const trimmedEmail = email.trim().toLowerCase();
+        const [users] = await pool.query('SELECT email, role FROM users WHERE email = ?', [trimmedEmail]);
+        // Always return success to prevent email enumeration
+        if (users.length === 0) return res.json({ message: 'If that email is registered, an OTP has been sent.' });
+        const otp = generateOTP();
+        const otpHash = await bcrypt.hash(otp, 10);
+        const id = crypto.randomBytes(16).toString('hex');
+        await pool.query('DELETE FROM otp_tokens WHERE email = ? AND portal = ?', [trimmedEmail, 'admin']);
+        await pool.query(
+            `INSERT INTO otp_tokens (id, email, portal, otp_hash, expires_at) VALUES (?, ?, 'admin', ?, DATE_ADD(NOW(), INTERVAL 10 MINUTE))`,
+            [id, trimmedEmail, otpHash]
+        );
+        await sendOTPEmail({ to: trimmedEmail, name: users[0].email, otp, portal: 'Admin', expiresInMinutes: 10 });
+        res.json({ message: 'If that email is registered, an OTP has been sent.' });
+    } catch (err) {
+        console.error('Admin forgot password error:', err);
+        res.status(500).json({ error: 'Failed to send OTP' });
+    }
+});
+
+// Partner forgot password
+app.post('/api/partner/auth/forgot-password', async (req, res) => {
+    const { email } = req.body || {};
+    if (!email) return res.status(400).json({ error: 'Email is required' });
+    try {
+        const trimmedEmail = email.trim().toLowerCase();
+        const [partners] = await pool.query('SELECT name FROM partners WHERE email = ?', [trimmedEmail]);
+        if (partners.length === 0) return res.json({ message: 'If that email is registered, an OTP has been sent.' });
+        const otp = generateOTP();
+        const otpHash = await bcrypt.hash(otp, 10);
+        const id = crypto.randomBytes(16).toString('hex');
+        await pool.query('DELETE FROM otp_tokens WHERE email = ? AND portal = ?', [trimmedEmail, 'partner']);
+        await pool.query(
+            `INSERT INTO otp_tokens (id, email, portal, otp_hash, expires_at) VALUES (?, ?, 'partner', ?, DATE_ADD(NOW(), INTERVAL 10 MINUTE))`,
+            [id, trimmedEmail, otpHash]
+        );
+        await sendOTPEmail({ to: trimmedEmail, name: partners[0].name, otp, portal: 'Partner', expiresInMinutes: 10 });
+        res.json({ message: 'If that email is registered, an OTP has been sent.' });
+    } catch (err) {
+        console.error('Partner forgot password error:', err);
+        res.status(500).json({ error: 'Failed to send OTP' });
+    }
+});
+
+// Customer forgot password
+app.post('/api/customer/auth/forgot-password', async (req, res) => {
+    const { email } = req.body || {};
+    if (!email) return res.status(400).json({ error: 'Email is required' });
+    try {
+        const trimmedEmail = email.trim().toLowerCase();
+        const [customers] = await pool.query('SELECT name FROM customers WHERE email = ?', [trimmedEmail]);
+        if (customers.length === 0) return res.json({ message: 'If that email is registered, an OTP has been sent.' });
+        const otp = generateOTP();
+        const otpHash = await bcrypt.hash(otp, 10);
+        const id = crypto.randomBytes(16).toString('hex');
+        await pool.query('DELETE FROM otp_tokens WHERE email = ? AND portal = ?', [trimmedEmail, 'customer']);
+        await pool.query(
+            `INSERT INTO otp_tokens (id, email, portal, otp_hash, expires_at) VALUES (?, ?, 'customer', ?, DATE_ADD(NOW(), INTERVAL 10 MINUTE))`,
+            [id, trimmedEmail, otpHash]
+        );
+        await sendOTPEmail({ to: trimmedEmail, name: customers[0].name, otp, portal: 'Customer', expiresInMinutes: 10 });
+        res.json({ message: 'If that email is registered, an OTP has been sent.' });
+    } catch (err) {
+        console.error('Customer forgot password error:', err);
+        res.status(500).json({ error: 'Failed to send OTP' });
+    }
+});
+
+// Verify OTP (universal - portal in body)
+app.post('/api/auth/verify-otp', async (req, res) => {
+    const { email, otp, portal } = req.body || {};
+    if (!email || !otp || !portal) return res.status(400).json({ error: 'Email, OTP, and portal are required' });
+    try {
+        const trimmedEmail = email.trim().toLowerCase();
+        const [tokens] = await pool.query(
+            `SELECT * FROM otp_tokens WHERE email = ? AND portal = ? AND used = 0 AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1`,
+            [trimmedEmail, portal]
+        );
+        if (tokens.length === 0) return res.status(400).json({ error: 'Invalid or expired OTP. Please request a new one.' });
+        const valid = await bcrypt.compare(otp.toString(), tokens[0].otp_hash);
+        if (!valid) return res.status(400).json({ error: 'Incorrect OTP. Please try again.' });
+        // Issue a short-lived reset session token (15 min)
+        const resetToken = crypto.randomBytes(32).toString('hex');
+        await pool.query(
+            `UPDATE otp_tokens SET reset_session_token = ?, session_token_expires = DATE_ADD(NOW(), INTERVAL 15 MINUTE) WHERE id = ?`,
+            [resetToken, tokens[0].id]
+        );
+        res.json({ reset_session_token: resetToken, message: 'OTP verified. You may now set a new password.' });
+    } catch (err) {
+        console.error('Verify OTP error:', err);
+        res.status(500).json({ error: 'OTP verification failed' });
+    }
+});
+
+// Reset password (universal)
+app.post('/api/auth/reset-password', async (req, res) => {
+    const { reset_session_token, newPassword, portal } = req.body || {};
+    if (!reset_session_token || !newPassword || !portal) return res.status(400).json({ error: 'Missing required fields' });
+    if (newPassword.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    try {
+        const [tokens] = await pool.query(
+            `SELECT * FROM otp_tokens WHERE reset_session_token = ? AND portal = ? AND used = 0 AND session_token_expires > NOW()`,
+            [reset_session_token, portal]
+        );
+        if (tokens.length === 0) return res.status(400).json({ error: 'Reset session expired. Please start again.' });
+        const { email } = tokens[0];
+        const hash = await bcrypt.hash(newPassword, 10);
+        // Update password in users table (covers admin, partner, customer who use users table)
+        if (portal === 'admin' || portal === 'partner') {
+            await pool.query('UPDATE users SET password_hash = ? WHERE email = ?', [hash, email]);
+        } else if (portal === 'customer') {
+            // Customers use their own password column
+            await pool.query('UPDATE customers SET password_hash = ? WHERE email = ?', [hash, email]).catch(async () => {
+                // Fallback: customers table might use 'password' column
+                await pool.query('UPDATE customers SET password = ? WHERE email = ?', [hash, email]);
+            });
+        }
+        // Invalidate all OTPs for this email+portal
+        await pool.query(`UPDATE otp_tokens SET used = 1 WHERE email = ? AND portal = ?`, [email, portal]);
+        await auditLog('PasswordReset', 'Users', `Password reset via OTP for ${email} (${portal} portal).`, 'System');
+        res.json({ message: 'Password updated successfully. You may now login.' });
+    } catch (err) {
+        console.error('Reset password error:', err);
+        res.status(500).json({ error: 'Password reset failed' });
+    }
+});
+
 // ═══════════════════════════════════════════
 // ADMIN: PARTNER MANAGEMENT ROUTES
 // ═══════════════════════════════════════════
@@ -8008,16 +8422,75 @@ app.get('/api/admin/partners/:id/details', authMiddleware, async (req, res) => {
 app.patch('/api/admin/partners/:id/approve', authMiddleware, requirePartnerAdmin, async (req, res) => {
     try {
         await pool.query("UPDATE partners SET status = 'Active' WHERE id = ?", [req.params.id]);
-        
-        // Simulated Email Notification
-        const [p] = await pool.query("SELECT email FROM partners WHERE id = ?", [req.params.id]);
+        const [p] = await pool.query("SELECT name, email FROM partners WHERE id = ?", [req.params.id]);
         if (p.length) {
-            console.log(`[Email Service Mock] Sending approval email to partner: ${p[0].email}`);
+            sendPartnerApprovedEmail({ to: p[0].email, name: p[0].name }).catch(e => console.error('[Email] Partner approved email failed:', e.message));
         }
         await auditLog('PartnerApprove', 'Partners', `Partner ID ${req.params.id} approved.`, req.user.email);
         res.json({ message: 'Partner approved' });
     } catch (err) {
         res.status(500).json({ error: 'Failed to approve partner' });
+    }
+});
+
+// Admin: KYC Verify or Reject
+app.patch('/api/admin/partners/:id/kyc', authMiddleware, requirePartnerAdmin, async (req, res) => {
+    try {
+        const { action, reason } = req.body || {};
+        if (!action || !['verify','reject'].includes(action)) return res.status(400).json({ error: 'action must be verify or reject' });
+        const [p] = await pool.query('SELECT name, email FROM partners WHERE id = ?', [req.params.id]);
+        if (!p.length) return res.status(404).json({ error: 'Partner not found' });
+        if (action === 'verify') {
+            await pool.query(
+                `UPDATE partners SET kyc_status = 'Verified', kyc_verified_at = NOW(), kyc_verified_by = ?, kyc_rejection_reason = NULL WHERE id = ?`,
+                [req.user.email, req.params.id]
+            );
+            sendPartnerKYCVerifiedEmail({ to: p[0].email, name: p[0].name }).catch(e => console.error('[Email] KYC verified email failed:', e.message));
+            await auditLog('PartnerKYCVerify', 'Partners', `KYC verified for partner ${req.params.id} by ${req.user.email}`, req.user.email);
+            res.json({ message: 'KYC verified successfully' });
+        } else {
+            await pool.query(
+                `UPDATE partners SET kyc_status = 'Rejected', kyc_rejection_reason = ? WHERE id = ?`,
+                [reason || 'Documents could not be verified', req.params.id]
+            );
+            sendPartnerKYCRejectedEmail({ to: p[0].email, name: p[0].name, reason: reason || 'Documents could not be verified' }).catch(e => console.error('[Email] KYC rejected email failed:', e.message));
+            await auditLog('PartnerKYCReject', 'Partners', `KYC rejected for partner ${req.params.id}. Reason: ${reason}`, req.user.email);
+            res.json({ message: 'KYC rejected' });
+        }
+    } catch (err) {
+        console.error('Admin KYC action error:', err);
+        res.status(500).json({ error: 'KYC action failed' });
+    }
+});
+
+// Admin: Get all KYC submissions
+app.get('/api/admin/kyc', authMiddleware, async (req, res) => {
+    try {
+        const { status } = req.query;
+        let whereClause = '';
+        const params = [];
+        if (status && status !== 'All') {
+            whereClause = 'WHERE p.kyc_status = ?';
+            params.push(status);
+        }
+        const [rows] = await pool.query(`
+            SELECT p.id, p.name, p.email, p.phone, p.company_name, p.status,
+                   p.kyc_status, p.kyc_pan_number, p.kyc_pan_front_url, p.kyc_pan_back_url,
+                   p.kyc_aadhaar_number, p.kyc_aadhaar_front_url, p.kyc_aadhaar_back_url,
+                   p.kyc_passport_url, p.kyc_dl_url, p.kyc_submitted_at, p.kyc_verified_at,
+                   p.kyc_verified_by, p.kyc_rejection_reason, p.bank_details,
+                   p.joined_date, p.created_at
+            FROM partners p ${whereClause}
+            ORDER BY FIELD(p.kyc_status,'Submitted','Pending','Rejected','Verified'), p.kyc_submitted_at DESC
+        `, params);
+        const enriched = rows.map(r => ({
+            ...r,
+            bank_details: r.bank_details ? (typeof r.bank_details === 'string' ? JSON.parse(r.bank_details) : r.bank_details) : null
+        }));
+        res.json({ data: enriched });
+    } catch (err) {
+        console.error('Admin get KYC error:', err);
+        res.status(500).json({ error: 'Failed to fetch KYC submissions' });
     }
 });
 
@@ -8100,19 +8573,28 @@ app.patch('/api/admin/partner-commissions/:id/approve', authMiddleware, requireP
     }
 });
 
-// Admin: Mark commission as Paid (Pending Approval)
+// Admin: Mark commission as Paid
 app.patch('/api/admin/partner-commissions/:id/pay', authMiddleware, requirePartnerAdmin, async (req, res) => {
     try {
         await pool.query(
-            "UPDATE partner_commissions SET status = 'PaidPending', paid_at = NOW() WHERE id = ?",
+            "UPDATE partner_commissions SET status = 'Paid', paid_at = NOW() WHERE id = ?",
             [req.params.id]
         );
-        
-        await auditLog('CommissionPaidInitiated', 'Partners', `Commission ${req.params.id} marked as Paid (Pending Approval).`, req.user.email);
-        res.json({ message: 'Commission payout submitted for approval' });
+        // Send commission paid email
+        const [rows] = await pool.query(
+            `SELECT pc.commission_amount, pc.booking_amount, p.name, p.email, p.bank_details FROM partner_commissions pc JOIN partners p ON p.id = pc.partner_id WHERE pc.id = ?`,
+            [req.params.id]
+        );
+        if (rows.length) {
+            const r = rows[0];
+            const bd = r.bank_details ? (typeof r.bank_details === 'string' ? JSON.parse(r.bank_details) : r.bank_details) : {};
+            sendPartnerCommissionPaidEmail({ to: r.email, name: r.name, amount: r.commission_amount, bookingAmount: r.booking_amount, bankDetails: bd }).catch(e => console.error('[Email] Commission paid email failed:', e.message));
+        }
+        await auditLog('CommissionPaid', 'Partners', `Commission ${req.params.id} marked as Paid.`, req.user.email);
+        res.json({ message: 'Commission marked as Paid' });
     } catch (err) {
         console.error(err);
-        res.status(500).json({ error: 'Failed to submit commission payout' });
+        res.status(500).json({ error: 'Failed to mark commission paid' });
     }
 });
 
@@ -8207,6 +8689,25 @@ async function autoCalculatePartnerCommission(bookingId) {
             [commId, booking.partner_id, bookingId, bookingAmount, commissionType, commissionRate, commissionAmount]
         );
         console.log(`[Commission] Auto-created commission ${commId} for partner ${booking.partner_id}: ₹${commissionAmount.toFixed(2)}`);
+
+        // ─── Auto-update loyalty tier if not manually overridden ───
+        if (!partner.loyalty_override) {
+            const [countRow] = await pool.query(
+                `SELECT COUNT(DISTINCT booking_id) as cnt FROM partner_commissions WHERE partner_id = ?`, [booking.partner_id]
+            );
+            const totalConverted = Number(countRow[0]?.cnt) || 0;
+            let newTier = 'Bronze';
+            if (totalConverted >= 50) newTier = 'Platinum';
+            else if (totalConverted >= 25) newTier = 'Gold';
+            else if (totalConverted >= 10) newTier = 'Silver';
+
+            if (newTier !== (partner.loyalty_tier || 'Bronze')) {
+                await pool.query('UPDATE partners SET loyalty_tier = ? WHERE id = ?', [newTier, booking.partner_id]);
+                console.log(`[Loyalty] Partner ${booking.partner_id} upgraded to ${newTier}`);
+                // Send tier upgrade email
+                sendLoyaltyTierUpgradeEmail({ to: partner.email, name: partner.name, newTier, converted: totalConverted }).catch(e => console.error('[Email] Tier upgrade email failed:', e.message));
+            }
+        }
     } catch (err) {
         console.error('[Commission] Auto-calculate failed:', err.message);
     }
@@ -8581,6 +9082,37 @@ app.post('/api/upload', authMiddleware, upload.single('file'), async (req, res) 
 app.use(express.static(path.join(__dirname, 'public')));
 // Explicitly serve uploads directory too
 app.use('/uploads', express.static(uploadsDir));
+
+// Fallback auto-healing route to restore deleted KYC images from DB
+app.get('/uploads/kyc/:filename', async (req, res) => {
+    const { filename } = req.params;
+    try {
+        const [rows] = await pool.query(
+            'SELECT mime_type, data FROM uploaded_files WHERE filename = ?',
+            [filename]
+        );
+        if (rows.length > 0) {
+            const { mime_type, data } = rows[0];
+            const kycDir = path.join(uploadsDir, 'kyc');
+            const targetPath = path.join(kycDir, filename);
+            
+            // Ensure KYC uploads directory exists
+            if (!fs.existsSync(kycDir)) {
+                fs.mkdirSync(kycDir, { recursive: true });
+            }
+            
+            // Write to local disk cache
+            fs.writeFileSync(targetPath, data);
+            console.log(`[Auto-Heal KYC] Restored file to disk: kyc/${filename}`);
+            
+            res.setHeader('Content-Type', mime_type);
+            return res.send(data);
+        }
+    } catch (err) {
+        console.error('[Auto-Heal KYC Error]', err.message);
+    }
+    res.status(404).send('Not Found');
+});
 
 // Fallback auto-healing route to restore deleted images from DB
 app.get('/uploads/:filename', async (req, res) => {

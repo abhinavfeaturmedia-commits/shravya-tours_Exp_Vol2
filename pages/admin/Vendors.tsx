@@ -75,7 +75,31 @@ export const Vendors: React.FC = () => {
 
     // UI State
     const [selectedVendorId, setSelectedVendorId] = useState<string | null>(null);
+    const [activeVendorPaymentPopoverId, setActiveVendorPaymentPopoverId] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<'Overview' | 'Services' | 'Financials' | 'Documents' | 'Settings'>('Overview');
+
+    // Handle click outside & escape key to close vendor payment popovers
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                setActiveVendorPaymentPopoverId(null);
+            }
+        };
+        const handleClickOutside = (e: MouseEvent) => {
+            const target = e.target as HTMLElement;
+            if (!target.closest('.vendor-payment-popover') && !target.closest('.vendor-payment-dot-trigger')) {
+                setActiveVendorPaymentPopoverId(null);
+            }
+        };
+        if (activeVendorPaymentPopoverId) {
+            window.addEventListener('keydown', handleKeyDown);
+            window.addEventListener('click', handleClickOutside);
+        }
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('click', handleClickOutside);
+        };
+    }, [activeVendorPaymentPopoverId]);
 
     // Modals State
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -814,9 +838,102 @@ export const Vendors: React.FC = () => {
                                                 </span>
                                             </div>
                                             <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800">
-                                                <div className="flex flex-col">
+                                                <div className="flex flex-col relative" onClick={e => e.stopPropagation()}>
                                                     <span className="text-[10px] text-slate-400 font-bold uppercase">Balance</span>
-                                                    <span className="font-bold text-slate-900 dark:text-white">{formatPriceCompact(vendor.balanceDue)}</span>
+                                                    <div className="flex items-center gap-1.5 font-bold text-slate-900 dark:text-white">
+                                                        <span className="cursor-pointer hover:underline" onClick={() => setSelectedVendorId(vendor.id)}>
+                                                            {formatPrice(vendor.balanceDue || 0)}
+                                                        </span>
+                                                        {(() => {
+                                                            // Filter outstanding bookings for this vendor
+                                                            const vendorSBookings = (bookings || []).flatMap(booking => 
+                                                                (booking.supplierBookings || [])
+                                                                    .filter(sb => String(sb.vendorId) === String(vendor.id) && sb.bookingStatus !== 'Cancelled')
+                                                                    .map(sb => ({
+                                                                        ...sb,
+                                                                        bookingId: booking.id,
+                                                                        bookingNumber: booking.bookingNumber,
+                                                                        customer: booking.customer,
+                                                                        bookingTitle: booking.title
+                                                                    }))
+                                                            );
+                                                            const outstanding = vendorSBookings.filter(sb => sb.paymentStatus !== 'Paid' && sb.cost > sb.paidAmount);
+                                                            if (outstanding.length === 0) return null;
+                                                            
+                                                            return (
+                                                                <>
+                                                                    <span 
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            setActiveVendorPaymentPopoverId(activeVendorPaymentPopoverId === vendor.id ? null : vendor.id);
+                                                                        }}
+                                                                        className="vendor-payment-dot-trigger relative flex h-2 w-2 cursor-pointer items-center justify-center shrink-0"
+                                                                        title="Click to view outstanding bookings breakdown"
+                                                                    >
+                                                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 bg-indigo-500"></span>
+                                                                        <span className="relative inline-flex rounded-full h-1 w-1 bg-indigo-500"></span>
+                                                                    </span>
+
+                                                                    {activeVendorPaymentPopoverId === vendor.id && (
+                                                                        <div 
+                                                                            className="vendor-payment-popover absolute bottom-full left-0 mb-1 w-64 p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl z-50 text-left"
+                                                                            onClick={e => e.stopPropagation()}
+                                                                        >
+                                                                            <div className="flex justify-between items-center pb-2 mb-2 border-b border-slate-100 dark:border-slate-800">
+                                                                                <span className="text-[10px] font-extrabold text-indigo-500 uppercase tracking-wider">Outstanding Bookings</span>
+                                                                                <button 
+                                                                                    onClick={() => setActiveVendorPaymentPopoverId(null)}
+                                                                                    className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm font-bold leading-none"
+                                                                                >
+                                                                                    &times;
+                                                                                </button>
+                                                                            </div>
+                                                                            <div className="flex flex-col gap-2 max-h-36 overflow-y-auto custom-scrollbar">
+                                                                                {outstanding.map((sb) => (
+                                                                                    <div key={sb.id} className="flex flex-col gap-1 pb-2 border-b border-slate-100 dark:border-slate-800 last:border-0 last:pb-0 text-xs">
+                                                                                        <div className="flex justify-between font-bold text-slate-850 dark:text-slate-200">
+                                                                                            <span className="truncate max-w-[120px]">{sb.bookingNumber ? `BK-${String(sb.bookingNumber).padStart(4, '0')}` : sb.bookingId.substring(0, 8)} • {sb.customer}</span>
+                                                                                            <span>{formatPrice(sb.cost)}</span>
+                                                                                        </div>
+                                                                                        <div className="flex justify-between text-[10px] text-slate-500 dark:text-slate-400">
+                                                                                            <span>{sb.serviceType} | Paid: {formatPrice(sb.paidAmount)}</span>
+                                                                                            <span className="font-semibold text-rose-600 dark:text-rose-400">
+                                                                                                Due: {formatPrice(sb.cost - sb.paidAmount)}
+                                                                                            </span>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                ))}
+                                                                            </div>
+                                                                            <div className="mt-3 pt-2 border-t border-slate-100 dark:border-slate-850 flex gap-2">
+                                                                                <button 
+                                                                                    onClick={() => {
+                                                                                        setActiveVendorPaymentPopoverId(null);
+                                                                                        setSelectedVendorId(vendor.id);
+                                                                                        setActiveTab('Financials');
+                                                                                        setIsPaymentModalOpen(true);
+                                                                                    }}
+                                                                                    className="flex-1 py-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[9px] rounded-lg transition-colors flex items-center justify-center gap-1 uppercase tracking-wider"
+                                                                                >
+                                                                                    Payout
+                                                                                </button>
+                                                                                <button 
+                                                                                    onClick={() => {
+                                                                                        setActiveVendorPaymentPopoverId(null);
+                                                                                        setSelectedVendorId(vendor.id);
+                                                                                        setActiveTab('Overview');
+                                                                                    }}
+                                                                                    className="flex-1 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-355 font-bold text-[9px] rounded-lg transition-colors flex items-center justify-center gap-1 uppercase tracking-wider"
+                                                                                    
+                                                                                >
+                                                                                    Details
+                                                                                </button>
+                                                                            </div>
+                                                                        </div>
+                                                                    )}
+                                                                </>
+                                                            );
+                                                        })()}
+                                                    </div>
                                                 </div>
                                                 <div className="flex flex-col text-right">
                                                     <span className="text-[10px] text-slate-400 font-bold uppercase">Rating</span>
@@ -882,7 +999,101 @@ export const Vendors: React.FC = () => {
                                                             {vendor.contractStatus}
                                                         </span>
                                                     </td>
-                                                    <td className="px-6 py-4 font-medium text-slate-900 dark:text-white" onClick={() => setSelectedVendorId(vendor.id)}>{formatPriceCompact(vendor.balanceDue)}</td>
+                                                    <td className="px-6 py-4 relative" onClick={e => e.stopPropagation()}>
+                                                        <div className="flex items-center gap-1.5 font-medium text-slate-900 dark:text-white">
+                                                            <span className="cursor-pointer hover:underline" onClick={() => setSelectedVendorId(vendor.id)}>
+                                                                {formatPrice(vendor.balanceDue || 0)}
+                                                            </span>
+                                                            {(() => {
+                                                                // Filter outstanding bookings for this vendor
+                                                                const vendorSBookings = (bookings || []).flatMap(booking => 
+                                                                    (booking.supplierBookings || [])
+                                                                        .filter(sb => String(sb.vendorId) === String(vendor.id) && sb.bookingStatus !== 'Cancelled')
+                                                                        .map(sb => ({
+                                                                            ...sb,
+                                                                            bookingId: booking.id,
+                                                                            bookingNumber: booking.bookingNumber,
+                                                                            customer: booking.customer,
+                                                                            bookingTitle: booking.title
+                                                                        }))
+                                                                );
+                                                                const outstanding = vendorSBookings.filter(sb => sb.paymentStatus !== 'Paid' && sb.cost > sb.paidAmount);
+                                                                if (outstanding.length === 0) return null;
+                                                                
+                                                                return (
+                                                                    <>
+                                                                        <span 
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                setActiveVendorPaymentPopoverId(activeVendorPaymentPopoverId === vendor.id ? null : vendor.id);
+                                                                            }}
+                                                                            className="vendor-payment-dot-trigger relative flex h-2.5 w-2.5 cursor-pointer items-center justify-center shrink-0 animate-pulse-slow"
+                                                                            title="Click to view outstanding bookings breakdown"
+                                                                        >
+                                                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 bg-indigo-500"></span>
+                                                                            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-indigo-500"></span>
+                                                                        </span>
+
+                                                                        {activeVendorPaymentPopoverId === vendor.id && (
+                                                                            <div 
+                                                                                className="vendor-payment-popover absolute top-full left-0 mt-1 w-72 p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl z-50 text-left"
+                                                                                onClick={e => e.stopPropagation()}
+                                                                            >
+                                                                                <div className="flex justify-between items-center pb-2 mb-2 border-b border-slate-100 dark:border-slate-800">
+                                                                                    <span className="text-[10px] font-extrabold text-indigo-500 uppercase tracking-wider">Outstanding Bookings</span>
+                                                                                    <button 
+                                                                                        onClick={() => setActiveVendorPaymentPopoverId(null)}
+                                                                                        className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm font-bold leading-none"
+                                                                                    >
+                                                                                        &times;
+                                                                                    </button>
+                                                                                </div>
+                                                                                <div className="flex flex-col gap-2 max-h-48 overflow-y-auto custom-scrollbar">
+                                                                                    {outstanding.map((sb) => (
+                                                                                        <div key={sb.id} className="flex flex-col gap-1 pb-2 border-b border-slate-100 dark:border-slate-800 last:border-0 last:pb-0 text-xs">
+                                                                                            <div className="flex justify-between font-bold text-slate-850 dark:text-slate-200">
+                                                                                                <span className="truncate max-w-[140px]">{sb.bookingNumber ? `BK-${String(sb.bookingNumber).padStart(4, '0')}` : sb.bookingId.substring(0, 8)} • {sb.customer}</span>
+                                                                                                <span>{formatPrice(sb.cost)}</span>
+                                                                                            </div>
+                                                                                            <div className="flex justify-between text-[10px] text-slate-500 dark:text-slate-400">
+                                                                                                <span>{sb.serviceType} | Paid: {formatPrice(sb.paidAmount)}</span>
+                                                                                                <span className="font-semibold text-rose-600 dark:text-rose-400">
+                                                                                                    Due: {formatPrice(sb.cost - sb.paidAmount)}
+                                                                                                </span>
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    ))}
+                                                                                </div>
+                                                                                <div className="mt-3 pt-2 border-t border-slate-100 dark:border-slate-850 flex gap-2">
+                                                                                    <button 
+                                                                                        onClick={() => {
+                                                                                            setActiveVendorPaymentPopoverId(null);
+                                                                                            setSelectedVendorId(vendor.id);
+                                                                                            setActiveTab('Financials');
+                                                                                            setIsPaymentModalOpen(true);
+                                                                                        }}
+                                                                                        className="flex-1 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] rounded-lg transition-colors flex items-center justify-center gap-1 uppercase tracking-wider"
+                                                                                    >
+                                                                                        Record Payout
+                                                                                    </button>
+                                                                                    <button 
+                                                                                        onClick={() => {
+                                                                                            setActiveVendorPaymentPopoverId(null);
+                                                                                            setSelectedVendorId(vendor.id);
+                                                                                            setActiveTab('Overview');
+                                                                                        }}
+                                                                                        className="flex-1 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-355 font-bold text-[10px] rounded-lg transition-colors flex items-center justify-center gap-1 uppercase tracking-wider"
+                                                                                    >
+                                                                                        Details
+                                                                                    </button>
+                                                                                </div>
+                                                                            </div>
+                                                                        )}
+                                                                    </>
+                                                                );
+                                                            })()}
+                                                        </div>
+                                                    </td>
                                                     <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
                                                         <div className="flex items-center justify-end gap-1">
                                                             <button onClick={(e) => { e.stopPropagation(); setSelectedVendorId(vendor.id); }} className="p-1.5 text-slate-400 hover:text-primary hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">
@@ -1380,18 +1591,53 @@ export const Vendors: React.FC = () => {
                                                 {selectedVendor.transactions && selectedVendor.transactions.length > 0 ? selectedVendor.transactions.map((tx) => (
                                                     <div key={tx.id} className="group bg-white dark:bg-[#1A2633] p-4 rounded-2xl border border-slate-100 dark:border-slate-800 hover:shadow-md transition-all flex items-center justify-between">
                                                         <div className="flex items-center gap-4">
-                                                            <div className={`size-10 rounded-full flex items-center justify-center ${tx.type === 'Credit' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
-                                                                <span className="material-symbols-outlined text-lg">{tx.type === 'Credit' ? 'south_west' : 'north_east'}</span>
+                                                            <div className={`size-10 rounded-full flex items-center justify-center ${
+                                                                tx.type === 'Credit' 
+                                                                    ? 'bg-green-100 text-green-600' 
+                                                                    : tx.status === 'Pending'
+                                                                        ? 'bg-amber-100 text-amber-600'
+                                                                        : tx.status === 'Rejected'
+                                                                            ? 'bg-slate-100 text-slate-400'
+                                                                            : 'bg-red-100 text-red-600'
+                                                            }`}>
+                                                                <span className="material-symbols-outlined text-lg">
+                                                                    {tx.type === 'Credit' 
+                                                                        ? 'south_west' 
+                                                                        : tx.status === 'Pending'
+                                                                            ? 'pending'
+                                                                            : tx.status === 'Rejected'
+                                                                                ? 'cancel'
+                                                                                : 'north_east'}
+                                                                </span>
                                                             </div>
                                                             <div>
-                                                                <p className="text-sm font-bold text-slate-900 dark:text-white">{tx.description}</p>
+                                                                <div className="flex items-center gap-2">
+                                                                    <p className="text-sm font-bold text-slate-900 dark:text-white">{tx.description}</p>
+                                                                    {tx.status && tx.status !== 'Verified' && (
+                                                                        <span className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded ${
+                                                                            tx.status === 'Pending' 
+                                                                                ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' 
+                                                                                : 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400'
+                                                                        }`}>
+                                                                            {tx.status === 'Pending' ? 'Pending Approval' : 'Rejected'}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
                                                                 <div className="flex items-center gap-2 mt-0.5">
                                                                     <span className="text-[10px] font-bold text-slate-400 uppercase">{tx.date}</span>
                                                                     {tx.reference && <span className="text-[10px] font-mono text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">{tx.reference}</span>}
                                                                 </div>
                                                             </div>
                                                         </div>
-                                                        <span className={`text-sm font-black ${tx.type === 'Credit' ? 'text-green-600' : 'text-red-500'}`}>
+                                                        <span className={`text-sm font-black ${
+                                                            tx.type === 'Credit' 
+                                                                ? 'text-green-600' 
+                                                                : tx.status === 'Pending'
+                                                                    ? 'text-amber-500 dark:text-amber-400'
+                                                                    : tx.status === 'Rejected'
+                                                                        ? 'text-slate-400 dark:text-slate-600 line-through'
+                                                                        : 'text-red-500'
+                                                        }`}>
                                                             {tx.type === 'Credit' ? '+' : '-'} ₹{tx.amount.toLocaleString()}
                                                         </span>
                                                     </div>
@@ -1624,6 +1870,12 @@ export const Vendors: React.FC = () => {
                                 <div>
                                     <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Reference / UTR</label>
                                     <input type="text" required className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-2.5 focus:ring-2 focus:ring-primary outline-none" value={paymentForm.reference} onChange={e => setPaymentForm({ ...paymentForm, reference: e.target.value })} placeholder="e.g. UTR-123456" />
+                                </div>
+                                <div className="p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200/50 dark:border-amber-900/30 rounded-xl flex items-start gap-2.5">
+                                    <span className="material-symbols-outlined text-amber-600 dark:text-amber-400 text-lg mt-0.5">info</span>
+                                    <p className="text-xs text-slate-600 dark:text-slate-300 leading-normal font-semibold">
+                                        Payouts enter a pending state and will deduct from the outstanding balance once approved by the Finance Admin.
+                                    </p>
                                 </div>
                                 <div className="flex gap-2 pt-2">
                                     <button type="button" onClick={() => setIsPaymentModalOpen(false)} className="flex-1 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700">Cancel</button>

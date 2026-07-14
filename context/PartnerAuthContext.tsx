@@ -30,7 +30,7 @@ async function fetchWithPartnerToken(path: string, options: RequestInit = {}) {
   return res.json();
 }
 
-function mapPartner(raw: any): Partner {
+function mapPartner(raw: any): Partner & Record<string, any> {
   return {
     id: raw.id,
     name: raw.name,
@@ -49,6 +49,8 @@ function mapPartner(raw: any): Partner {
     trainCommissionValue: raw.train_commission_value !== undefined && raw.train_commission_value !== null ? Number(raw.train_commission_value) : 100,
     flightCommissionType: raw.flight_commission_type || 'Flat_Amount',
     flightCommissionValue: raw.flight_commission_value !== undefined && raw.flight_commission_value !== null ? Number(raw.flight_commission_value) : 200,
+    hotelCommissionType: raw.hotel_commission_type || 'Percentage',
+    hotelCommissionValue: raw.hotel_commission_value !== undefined && raw.hotel_commission_value !== null ? Number(raw.hotel_commission_value) : 5,
     totalEarnings: Number(raw.total_earnings) || 0,
     pendingPayout: Number(raw.pending_payout) || 0,
     totalLeadsSubmitted: Number(raw.total_leads_submitted) || 0,
@@ -56,6 +58,25 @@ function mapPartner(raw: any): Partner {
     joinedDate: raw.joined_date || raw.created_at,
     notes: raw.notes || '',
     bankDetails: raw.bank_details || undefined,
+    // KYC fields
+    kyc_status: raw.kyc_status || 'Pending',
+    kyc_pan_number: raw.kyc_pan_number || null,
+    kyc_aadhaar_number: raw.kyc_aadhaar_number || null,
+    kyc_submitted_at: raw.kyc_submitted_at || null,
+    kyc_verified_at: raw.kyc_verified_at || null,
+    kyc_rejection_reason: raw.kyc_rejection_reason || null,
+    kyc_pan_front_url: raw.kyc_pan_front_url || null,
+    kyc_pan_back_url: raw.kyc_pan_back_url || null,
+    kyc_aadhaar_front_url: raw.kyc_aadhaar_front_url || null,
+    kyc_aadhaar_back_url: raw.kyc_aadhaar_back_url || null,
+    // Bank completeness
+    bank_complete: raw.bank_complete || false,
+    // Loyalty fields
+    loyalty_tier: raw.loyalty_tier || 'Bronze',
+    next_loyalty_tier: raw.next_loyalty_tier || null,
+    loyalty_progress_pct: raw.loyalty_progress_pct || 0,
+    loyalty_next_threshold: raw.loyalty_next_threshold || null,
+    total_bookings_converted: Number(raw.total_bookings_converted) || 0,
   };
 }
 

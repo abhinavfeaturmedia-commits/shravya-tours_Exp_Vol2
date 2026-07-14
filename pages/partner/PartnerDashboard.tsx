@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { usePartnerAuth } from '../../context/PartnerAuthContext';
 import { api } from '../../src/lib/api';
+import { PartnerKYCModal } from './PartnerKYCModal';
+
 import {
   ResponsiveContainer,
   AreaChart,
@@ -31,17 +33,29 @@ const StatCard: React.FC<{ icon: string; label: string; value: string; sub?: str
 );
 
 export const PartnerDashboard: React.FC = () => {
-  const { partner, refreshPartner } = usePartnerAuth();
+  const { partner, refreshPartner } = usePartnerAuth() as any;
   const [recentLeads, setRecentLeads] = useState<any[]>([]);
   const [leadsLoading, setLeadsLoading] = useState(true);
   const [analytics, setAnalytics] = useState<{ earnings: any[]; funnel: any[]; destinations: any[] } | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
+  const [showKYCModal, setShowKYCModal] = useState(false);
 
   useEffect(() => {
     refreshPartner();
     fetchRecentLeads();
     fetchAnalytics();
   }, []);
+
+  // Show KYC modal if not submitted/verified or bank incomplete
+  useEffect(() => {
+    if (!partner) return;
+    const kycStatus = (partner as any).kyc_status || 'Pending';
+    const bankComplete = (partner as any).bank_complete || false;
+    // Hard-block: Pending (not yet started) or Rejected (needs resubmission) or bank details missing
+    const hardBlock = (kycStatus === 'Pending' || kycStatus === 'Rejected') || !bankComplete;
+    setShowKYCModal(hardBlock);
+  }, [partner]);
+
 
   const fetchAnalytics = async () => {
     try {
@@ -70,6 +84,22 @@ export const PartnerDashboard: React.FC = () => {
 
   if (!partner) return null;
 
+  const kycStatus = (partner as any).kyc_status || 'Pending';
+  const bankComplete = (partner as any).bank_complete || false;
+  const loyaltyTier = (partner as any).loyalty_tier || 'Bronze';
+  const loyaltyProgress = (partner as any).loyalty_progress_pct || 0;
+  const nextTier = (partner as any).next_loyalty_tier;
+  const nextThreshold = (partner as any).loyalty_next_threshold;
+  const converted = (partner as any).total_bookings_converted || 0;
+
+  const TIER_ICONS: Record<string, string> = { Bronze: '🥉', Silver: '🥈', Gold: '🥇', Platinum: '💎' };
+  const TIER_ACCENT: Record<string, string> = {
+    Bronze: 'bg-orange-500', Silver: 'bg-slate-400', Gold: 'bg-amber-400', Platinum: 'bg-purple-500'
+  };
+  const TIER_TEXT: Record<string, string> = {
+    Bronze: 'text-orange-300', Silver: 'text-slate-300', Gold: 'text-amber-300', Platinum: 'text-purple-300'
+  };
+
   const statusColor: Record<string, string> = {
     New: 'bg-blue-500/20 text-blue-300',
     Warm: 'bg-amber-500/20 text-amber-300',
@@ -81,6 +111,31 @@ export const PartnerDashboard: React.FC = () => {
 
   return (
     <div className="space-y-8 max-w-6xl mx-auto">
+      {/* KYC Blocking Modal */}
+      {showKYCModal && (
+        <PartnerKYCModal onComplete={async () => { await refreshPartner(); }} />
+      )}
+
+      {/* KYC Alert Banner (non-blocking notice when submitted) */}
+      {kycStatus === 'Submitted' && !showKYCModal && (
+        <div className="flex items-center gap-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl px-5 py-3">
+          <span className="material-symbols-outlined text-amber-400 text-xl shrink-0">hourglass_top</span>
+          <p className="text-amber-200 text-sm"><strong>KYC Under Review</strong> — Our team will verify your documents within 1–2 business days. You'll be notified by email.</p>
+        </div>
+      )}
+      {kycStatus === 'Rejected' && (
+        <div className="flex items-center gap-3 bg-red-500/10 border border-red-500/30 rounded-2xl px-5 py-3 cursor-pointer" onClick={() => setShowKYCModal(true)}>
+          <span className="material-symbols-outlined text-red-400 text-xl shrink-0">error</span>
+          <p className="text-red-200 text-sm"><strong>KYC Rejected</strong> — {(partner as any).kyc_rejection_reason || 'Please resubmit your documents.'} <span className="underline font-semibold">Click to resubmit →</span></p>
+        </div>
+      )}
+      {!bankComplete && kycStatus === 'Verified' && (
+        <div className="flex items-center gap-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl px-5 py-3 cursor-pointer" onClick={() => setShowKYCModal(true)}>
+          <span className="material-symbols-outlined text-amber-400 text-xl shrink-0">account_balance</span>
+          <p className="text-amber-200 text-sm"><strong>Bank Details Incomplete</strong> — Add your bank details to receive commission payouts. <span className="underline font-semibold">Add now →</span></p>
+        </div>
+      )}
+
       {/* Welcome Banner */}
       <div className="bg-gradient-to-r from-violet-600/25 via-purple-600/15 to-indigo-600/25 border border-violet-500/25 rounded-3xl p-6 lg:p-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
@@ -109,30 +164,59 @@ export const PartnerDashboard: React.FC = () => {
       {/* Stats Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
-          icon="groups" label="Leads Submitted" value={String(partner.totalLeadsSubmitted)}
+          icon="groups" label="Leads Submitted" value={String(partner.totalLeadsSubmitted ?? (partner as any).total_leads_submitted ?? 0)}
           sub="Total referrals sent"
           gradient="from-blue-900/30 to-indigo-900/20"
           iconColor="bg-gradient-to-br from-blue-500 to-indigo-600"
         />
         <StatCard
-          icon="airplane_ticket" label="Bookings Converted" value={String(partner.totalBookingsConverted)}
+          icon="airplane_ticket" label="Bookings Converted" value={String(converted)}
           sub="Leads turned to bookings"
           gradient="from-emerald-900/30 to-teal-900/20"
           iconColor="bg-gradient-to-br from-emerald-500 to-teal-600"
         />
         <StatCard
-          icon="payments" label="Total Earnings" value={`₹${Number(partner.totalEarnings).toLocaleString('en-IN')}`}
+          icon="payments" label="Total Earnings" value={`₹${Number(partner.totalEarnings ?? (partner as any).total_earnings ?? 0).toLocaleString('en-IN')}`}
           sub="Lifetime commissions earned"
           gradient="from-amber-900/30 to-orange-900/20"
           iconColor="bg-gradient-to-br from-amber-500 to-orange-600"
         />
         <StatCard
-          icon="account_balance_wallet" label="Pending Payout" value={`₹${Number(partner.pendingPayout).toLocaleString('en-IN')}`}
+          icon="account_balance_wallet" label="Pending Payout" value={`₹${Number(partner.pendingPayout ?? (partner as any).pending_payout ?? 0).toLocaleString('en-IN')}`}
           sub="Approved, awaiting payment"
           gradient="from-violet-900/30 to-purple-900/20"
           iconColor="bg-gradient-to-br from-violet-500 to-purple-600"
         />
       </div>
+
+      {/* Loyalty Tier Widget */}
+      <Link to="/partner/milestones" className="block">
+        <div className="bg-gradient-to-r from-slate-800/50 to-slate-700/30 border border-white/10 hover:border-violet-500/40 rounded-2xl p-5 flex flex-col sm:flex-row items-start sm:items-center gap-4 transition-all group">
+          <div className="flex items-center gap-3 shrink-0">
+            <span className="text-3xl">{TIER_ICONS[loyaltyTier]}</span>
+            <div>
+              <p className="text-white/50 text-xs uppercase tracking-widest font-semibold">Loyalty Tier</p>
+              <p className={`text-xl font-black ${TIER_TEXT[loyaltyTier]}`}>{loyaltyTier}</p>
+            </div>
+          </div>
+          <div className="flex-1 w-full sm:w-auto">
+            {nextTier ? (
+              <>
+                <div className="flex justify-between mb-1">
+                  <p className="text-white/50 text-xs">{converted} / {nextThreshold} bookings to {nextTier}</p>
+                  <p className="text-white/50 text-xs">{loyaltyProgress}%</p>
+                </div>
+                <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                  <div className={`h-full ${TIER_ACCENT[nextTier]} rounded-full transition-all duration-700`} style={{ width: `${loyaltyProgress}%` }} />
+                </div>
+              </>
+            ) : (
+              <p className="text-purple-300 font-semibold text-sm">💎 Maximum Tier Achieved! You're a Platinum Partner.</p>
+            )}
+          </div>
+          <span className="material-symbols-outlined text-white/20 group-hover:text-violet-400 transition-colors text-xl shrink-0">arrow_forward</span>
+        </div>
+      </Link>
 
       {/* Performance & Insights Charts */}
       <div>

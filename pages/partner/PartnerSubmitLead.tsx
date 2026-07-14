@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { usePartnerAuth } from '../../context/PartnerAuthContext';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
 export const PartnerSubmitLead: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const { partner } = usePartnerAuth() as any;
   const [form, setForm] = useState({
     name: '', email: '', phone: '', location: '', destination: '',
     startDate: '', endDate: '', travelers: '2 Adults', budget: '',
@@ -74,13 +76,42 @@ export const PartnerSubmitLead: React.FC = () => {
         <p className="text-white/50 text-sm mt-1">Enter your customer's travel details and we'll follow up to convert the booking</p>
       </div>
 
-      {/* Commission reminder */}
-      <div className="flex items-start gap-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4">
-        <span className="material-symbols-outlined text-emerald-400 text-[20px] shrink-0 mt-0.5">payments</span>
-        <p className="text-sm text-white/70">
-          You'll earn your commission once this customer's booking is <strong className="text-emerald-300">completed and payment is verified</strong>. Commission will appear in your Earnings page.
-        </p>
-      </div>
+      {/* Dynamic Commission Banner */}
+      {(() => {
+        const type = form.type || 'Tour';
+        // Map lead type to partner commission fields
+        const commMap: Record<string, { typeKey: string; valKey: string; icon: string; desc: string }> = {
+          Tour:   { typeKey: 'commissionType',        valKey: 'commissionValue',        icon: 'travel_explore', desc: 'Tour booking' },
+          Hotel:  { typeKey: 'hotel_commission_type', valKey: 'hotel_commission_value',  icon: 'hotel',          desc: 'Hotel booking' },
+          Car:    { typeKey: 'cab_commission_type',   valKey: 'cab_commission_value',    icon: 'directions_car', desc: 'Cab/Car booking' },
+          Bus:    { typeKey: 'bus_commission_type',   valKey: 'bus_commission_value',    icon: 'directions_bus', desc: 'Bus booking' },
+          Train:  { typeKey: 'train_commission_type', valKey: 'train_commission_value',  icon: 'train',          desc: 'Train booking' },
+          Flight: { typeKey: 'flight_commission_type',valKey: 'flight_commission_value', icon: 'flight',         desc: 'Flight booking' },
+        };
+        const cfg = commMap[type] || commMap.Tour;
+        const commType = partner?.[cfg.typeKey] || 'Percentage';
+        const commVal  = partner?.[cfg.valKey] || partner?.commissionValue || 0;
+        const isFlat = commType === 'Flat_Amount' || commType === 'Flat';
+        return (
+          <div className="flex items-start gap-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4">
+            <span className="material-symbols-outlined text-emerald-400 text-[20px] shrink-0 mt-0.5">{cfg.icon}</span>
+            <div className="flex-1">
+              <p className="text-sm text-white/70">
+                <strong className="text-emerald-300">{cfg.desc}</strong> — You earn{' '}
+                {isFlat
+                  ? <strong className="text-emerald-300">₹{Number(commVal).toLocaleString('en-IN')} flat</strong>
+                  : <strong className="text-emerald-300">{commVal}% of booking value</strong>
+                } when this lead converts to a confirmed booking.
+              </p>
+              {partner?.loyalty_tier && partner.loyalty_tier !== 'Bronze' && (
+                <p className="text-xs text-violet-300 mt-1">
+                  🏆 {partner.loyalty_tier} bonus applies — extra commission on successful conversion!
+                </p>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       <form onSubmit={handleSubmit} className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6 space-y-6">
         {error && (
