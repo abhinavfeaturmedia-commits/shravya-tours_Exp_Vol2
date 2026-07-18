@@ -502,7 +502,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       // 1. Fetch public data immediately (including all critical homepage tables)
       const [
-        pkgs, locs, htl, activities, cmsBannersList, cmsTestList, cmsGalList, cmsPostsList, trendingList
+        pkgs, locs, htl, activities, cmsBannersList, cmsTestList, cmsGalList, cmsPostsList, trendingList, publicMembershipPlansList
       ] = await Promise.all([
         api.getPackages().catch(() => []),
         api.getLocations().catch(() => []),
@@ -512,7 +512,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         api.getCMSTestimonials().catch(() => []),
         api.getCMSGalleryImages().catch(() => []),
         api.getCMSPosts().catch(() => []),
-        api.getTrendingDestinations().catch(() => [])
+        api.getTrendingDestinations().catch(() => []),
+        api.getMembershipPlans().catch(() => [])  // public — needed for homepage section
       ]);
       setPackages(pkgs);
       setMasterLocations(locs as MasterLocation[]);
@@ -523,6 +524,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (cmsGalList.length > 0) setCmsGallery(cmsGalList);
       if (cmsPostsList.length > 0) setCmsPosts(cmsPostsList);
       if (trendingList.length > 0) setTrendingDestinations(trendingList);
+      if (publicMembershipPlansList.length > 0) setMembershipPlans(publicMembershipPlansList);
 
       // 2. Fetch authenticated data only if token is present
       if (hasToken) {
@@ -587,7 +589,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             api.getAssignmentRules().catch(() => []),
             api.getUserActivities().catch(() => []),
             api.getAuditLogs().catch(() => []),
-            api.getMembershipPlans().catch(() => []),
+            api.getMembershipPlans().catch(() => []),  // re-fetch to get latest for admin
             api.getCustomerMemberships().catch(() => []),
             api.getCoupons().catch(() => [])
           ]);
@@ -605,7 +607,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (rules.length > 0) setAssignmentRules(rules);
           if (uActs.length > 0) setUserActivities(uActs);
           if (auditList.length > 0) setAuditLogs(auditList);
-          if (membershipPlansList.length > 0) setMembershipPlans(membershipPlansList);
+          if (membershipPlansList.length > 0) setMembershipPlans(membershipPlansList);  // overwrites with authenticated copy
           if (membershipsList.length > 0) setCustomerMemberships(membershipsList);
           if (couponsList && couponsList.length > 0) setCoupons(couponsList);
         }

@@ -31,24 +31,20 @@ export const Home: React.FC = () => {
       if (carouselRef.current) {
         const { scrollLeft, scrollWidth, clientWidth } = carouselRef.current;
         const maxScroll = scrollWidth - clientWidth;
-        
-        // If we've reached the end
         if (scrollLeft >= maxScroll - 10) {
           carouselRef.current.scrollTo({ left: 0, behavior: 'smooth' });
         } else {
-          // Find the width of a single card + gap
           const cardWidth = carouselRef.current.children[0]?.clientWidth || 350;
-          const gap = 24; // 6 * 4px = 24px (gap-6)
+          const gap = 24;
           carouselRef.current.scrollBy({ left: cardWidth + gap, behavior: 'smooth' });
         }
       }
-    }, 3500); // Wait 3.5 seconds before scrolling to the next
-    
+    }, 3500);
     return () => clearInterval(interval);
   }, []);
 
-  const heroBanner = cmsBanners[0]; // Active Banner
-  const collections = cmsGallery; // Use CMS Gallery for collections
+  const heroBanner = cmsBanners[0];
+  const collections = cmsGallery;
 
   // Quick Booking Modal State
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
@@ -82,7 +78,7 @@ export const Home: React.FC = () => {
     setBookingOrigin(data.pickupLocation);
     setBookingDestination(data.dropoffLocation || data.pickupLocation);
     setBookingDate(data.pickupDate);
-    setBookingTravelers('2 Adults'); // Defaults to 2 adults for car bookings
+    setBookingTravelers('2 Adults');
     setIsBookingModalOpen(true);
   };
 
@@ -116,9 +112,6 @@ export const Home: React.FC = () => {
     setIsBookingModalOpen(true);
   };
 
-  // Collections are now dynamic
-  // const collections = ... (Removed static)
-
   // Trending packages: active only, first 4
   const trendingPackages = packages.filter(p => p.status !== 'Inactive').slice(0, 4);
 
@@ -132,12 +125,12 @@ export const Home: React.FC = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const spacingFactor = 
-    windowWidth >= 1536 ? 240 : // 2xl
-    windowWidth >= 1280 ? 220 : // xl
-    windowWidth >= 1024 ? 190 : // lg
-    windowWidth >= 768  ? 145 : // md
-    95;                         // mobile
+  const spacingFactor =
+    windowWidth >= 1536 ? 240 :
+    windowWidth >= 1280 ? 220 :
+    windowWidth >= 1024 ? 190 :
+    windowWidth >= 768  ? 145 :
+    95;
 
   const [destFilter, setDestFilter] = useState('All');
   const [isHovered, setIsHovered] = useState(false);
@@ -163,7 +156,6 @@ export const Home: React.FC = () => {
     return () => { if (fanTimerRef.current) clearInterval(fanTimerRef.current); };
   }, [goNext, filteredDests.length, isHovered]);
 
-  // Reset index when filter changes
   useEffect(() => { setFanIndex(0); }, [destFilter]);
 
   const fallbackReviews = [
@@ -242,7 +234,7 @@ export const Home: React.FC = () => {
   ];
 
   const activeCmsTestimonials = cmsTestimonials.filter(t => t.isActive);
-  const displayReviews = activeCmsTestimonials.length > 0 
+  const displayReviews = activeCmsTestimonials.length > 0
     ? activeCmsTestimonials.map(t => ({
         id: t.id,
         customerName: t.customerName,
@@ -254,6 +246,12 @@ export const Home: React.FC = () => {
       }))
     : fallbackReviews;
 
+  // Hero floating images
+  const heroFloatingImages = [
+    heroBanner?.imageUrl || "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=400&q=80&auto=format&fit=crop",
+    "https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?w=400&q=80&auto=format&fit=crop",
+    "https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?w=400&q=80&auto=format&fit=crop",
+  ];
 
   return (
     <>
@@ -274,33 +272,182 @@ export const Home: React.FC = () => {
         defaultTravelers={bookingTravelers}
       />
 
-      {/* Hero Section */}
-      {/* Hero Section */}
-      <section className="relative w-full overflow-visible bg-slate-900 z-20">
-        <div className="absolute inset-0 z-0">
-          <OptimizedImage
-            src={heroBanner?.imageUrl || "https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?w=1920&q=85&auto=format&fit=crop"}
-            alt="Hero Background"
-            className="w-full h-full"
-          />
-          <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/40 to-slate-900"></div>
-        </div>
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {/* HERO SECTION — WonderKids-inspired bright airy layout       */}
+      {/* ═══════════════════════════════════════════════════════════ */}
+      <section className="relative w-full overflow-hidden bg-[#FBF7F0] dark:bg-[#0D1710]" style={{ minHeight: '92vh' }}>
+        {/* Decorative blob backgrounds */}
+        <div className="absolute top-[-80px] right-[-80px] w-[420px] h-[420px] rounded-full bg-primary/10 dark:bg-primary/15 blur-[100px] pointer-events-none" />
+        <div className="absolute bottom-[-60px] left-[-60px] w-[340px] h-[340px] rounded-full bg-accent/10 dark:bg-accent/15 blur-[90px] pointer-events-none" />
+        <div className="absolute top-1/2 left-1/3 w-[200px] h-[200px] rounded-full bg-amber-400/8 blur-[70px] pointer-events-none" />
 
-        <div className="relative z-10 container mx-auto px-4 flex flex-col items-center gap-8 md:gap-12 text-center pt-28 pb-20 lg:pt-32 lg:pb-24">
-          <div className="flex flex-col gap-4 md:gap-6 max-w-5xl reveal">
-            <h1 className="font-display text-white text-5xl md:text-7xl font-bold leading-[1.05] tracking-tight drop-shadow-2xl italic">
-              {heroBanner?.title || "Experience the World"}
-            </h1>
-            <p className="text-slate-200 text-base md:text-xl font-light leading-relaxed max-w-3xl mx-auto drop-shadow-lg reveal reveal-delay-2">
-              {heroBanner?.subtitle || "Premium tours, transparent pricing, and 24/7 expert support."}
-            </p>
+        <div className="container mx-auto px-4 md:px-10 relative z-10">
+          <div className="flex flex-col lg:flex-row items-center gap-12 pt-24 pb-16 lg:pt-28 lg:pb-20 min-h-[92vh]">
+
+            {/* LEFT — Text + CTAs + Stats */}
+            <div className="flex-1 flex flex-col gap-8 text-center lg:text-left max-w-xl mx-auto lg:mx-0">
+              {/* Eyebrow badge */}
+              <div className="flex justify-center lg:justify-start">
+                <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 dark:bg-primary/20 text-primary text-xs font-black uppercase tracking-[0.2em] border border-primary/20">
+                  <span className="size-2 rounded-full bg-primary animate-ping inline-block" />
+                  ✦ India's Most Loved Travel Hub
+                </span>
+              </div>
+
+              {/* Headline */}
+              <div className="reveal">
+                <h1 className="font-display text-slate-900 dark:text-white leading-[1.07] tracking-tight">
+                  <span className="text-5xl md:text-6xl xl:text-7xl font-black block">
+                    {heroBanner?.title
+                      ? heroBanner.title.split(' ').map((word: string, i: number) =>
+                          i === 1 || i === 2
+                            ? <span key={i} className="italic" style={{ color: '#C9732A', fontFamily: 'Outfit, sans-serif' }}>{word}{' '}</span>
+                            : <span key={i}>{word}{' '}</span>
+                        )
+                      : <>
+                          Your Journey{' '}
+                          <span className="italic" style={{ color: '#C9732A', fontFamily: 'Outfit, sans-serif' }}>Starts&nbsp;</span>
+                          Here
+                        </>
+                    }
+                  </span>
+                </h1>
+                <p className="mt-5 text-slate-600 dark:text-slate-400 text-base md:text-lg font-light leading-relaxed max-w-lg mx-auto lg:mx-0 reveal reveal-delay-2">
+                  {heroBanner?.subtitle || "Premium tours, transparent pricing, and 24/7 expert support — crafted for every kind of traveler."}
+                </p>
+              </div>
+
+              {/* CTA Buttons */}
+              <div className="flex flex-wrap gap-4 justify-center lg:justify-start reveal reveal-delay-2">
+                <Link
+                  to="/packages"
+                  className="inline-flex items-center gap-2.5 px-8 py-4 rounded-full text-white font-bold text-sm shadow-lg transition-all duration-300 hover:scale-105 hover:shadow-xl active:scale-100"
+                  style={{ backgroundColor: '#C9732A', boxShadow: '0 8px 30px rgba(201,115,42,0.35)' }}
+                >
+                  <span className="material-symbols-outlined text-[18px]">explore</span>
+                  Explore Tours
+                </Link>
+                <a
+                  href="#booking-widget"
+                  className="inline-flex items-center gap-2.5 px-8 py-4 rounded-full text-slate-800 dark:text-white font-bold text-sm bg-white dark:bg-white/10 border border-slate-200 dark:border-white/15 shadow-sm transition-all duration-300 hover:scale-105 hover:shadow-md active:scale-100"
+                >
+                  Book Now
+                  <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
+                </a>
+              </div>
+
+              {/* Stats row */}
+              <div className="flex items-center gap-8 justify-center lg:justify-start reveal reveal-delay-4">
+                {[
+                  { value: '50K+', label: 'Happy Travelers' },
+                  { value: '200+', label: 'Destinations' },
+                  { value: '4.9★', label: 'Avg. Rating' },
+                ].map((stat, i) => (
+                  <div key={i} className="flex flex-col items-center lg:items-start">
+                    <span className="font-display text-2xl font-black text-slate-900 dark:text-white">{stat.value}</span>
+                    <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">{stat.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* RIGHT — Floating photo collage */}
+            <div className="flex-1 relative hidden lg:flex items-center justify-center" style={{ minHeight: '480px' }}>
+              {/* Blob shape behind */}
+              <div
+                className="absolute inset-0 rounded-[60%_40%_30%_70%/60%_30%_70%_40%] opacity-30 dark:opacity-20"
+                style={{ background: 'linear-gradient(135deg, #C9732A33 0%, #2D6A4F33 100%)', top: '5%', left: '5%', right: '5%', bottom: '5%' }}
+              />
+
+              {/* Main large image */}
+              <div
+                className="absolute rounded-[2.5rem] overflow-hidden shadow-2xl border-4 border-white dark:border-white/10 transition-transform duration-700 hover:scale-[1.02]"
+                style={{ width: '260px', height: '340px', top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }}
+              >
+                <img
+                  src={heroFloatingImages[0]}
+                  alt="Featured destination"
+                  className="w-full h-full object-cover"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
+                <div className="absolute bottom-4 left-4 text-white">
+                  <p className="font-bold text-sm leading-tight">Discover India</p>
+                  <p className="text-xs text-white/70 mt-0.5">200+ Packages</p>
+                </div>
+              </div>
+
+              {/* Top-right floating image */}
+              <div
+                className="absolute rounded-[1.5rem] overflow-hidden shadow-xl border-3 border-white dark:border-white/10 hover:scale-105 transition-transform duration-500"
+                style={{ width: '150px', height: '190px', top: '2%', right: '6%' }}
+              >
+                <img src={heroFloatingImages[1]} alt="Travel" className="w-full h-full object-cover" />
+              </div>
+
+              {/* Bottom-left floating image */}
+              <div
+                className="absolute rounded-[1.5rem] overflow-hidden shadow-xl border-3 border-white dark:border-white/10 hover:scale-105 transition-transform duration-500"
+                style={{ width: '140px', height: '170px', bottom: '4%', left: '4%' }}
+              >
+                <img src={heroFloatingImages[2]} alt="Adventure" className="w-full h-full object-cover" />
+              </div>
+
+              {/* Floating stat badge */}
+              <div
+                className="absolute flex items-center gap-3 bg-white dark:bg-slate-800 rounded-2xl px-4 py-3 shadow-xl border border-white dark:border-white/10"
+                style={{ bottom: '20%', right: '2%' }}
+              >
+                <div className="size-10 rounded-full flex items-center justify-center text-white text-lg" style={{ backgroundColor: '#C9732A' }}>
+                  <span className="material-symbols-outlined text-[20px]">verified</span>
+                </div>
+                <div>
+                  <p className="font-black text-sm text-slate-900 dark:text-white">Book Risk-Free</p>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400">Free cancellation</p>
+                </div>
+              </div>
+
+              {/* Floating hashtag tags — WonderKids style */}
+              <div className="absolute top-[8%] left-[0%] flex flex-col gap-2">
+                {['#adventure', '#comfort', '#memories'].map((tag, i) => (
+                  <span
+                    key={i}
+                    className="px-3 py-1.5 rounded-full text-[11px] font-black border shadow-sm"
+                    style={{
+                      backgroundColor: i === 0 ? '#C9732A18' : i === 1 ? '#2D6A4F18' : '#f59e0b18',
+                      color: i === 0 ? '#C9732A' : i === 1 ? '#2D6A4F' : '#d97706',
+                      borderColor: i === 0 ? '#C9732A30' : i === 1 ? '#2D6A4F30' : '#f59e0b30',
+                    }}
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </div>
+
+              {/* Animated ping dot */}
+              <div className="absolute top-[18%] right-[28%]">
+                <div className="size-3 rounded-full bg-primary animate-ping opacity-60" />
+              </div>
+            </div>
           </div>
+        </div>
+      </section>
 
-          {/* Booking Widget */}
-          <div className="w-full max-w-6xl mt-2 animate-in slide-in-from-bottom-10 duration-1000 delay-200">
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {/* BOOKING WIDGET — Elevated card anchored below hero          */}
+      {/* ═══════════════════════════════════════════════════════════ */}
+      <section id="booking-widget" className="relative bg-[#FBF7F0] dark:bg-[#0D1710] pb-16">
+        <div className="container mx-auto px-4 md:px-10">
+          <div className="w-full max-w-5xl mx-auto -mt-2 animate-in slide-in-from-bottom-8 duration-700">
+            {/* Section label */}
+            <div className="flex justify-center mb-6">
+              <h2 className="font-display text-slate-900 dark:text-white text-2xl md:text-3xl font-bold text-center">
+                Our <em className="not-italic" style={{ fontFamily: 'Georgia, serif', fontStyle: 'italic' }}>booking</em> services
+              </h2>
+            </div>
+
             {/* Tabs */}
-            <div className="flex justify-center mb-8 px-4 w-full overflow-hidden">
-              <div className="bg-black/30 backdrop-blur-md p-1.5 rounded-full inline-flex flex-nowrap max-w-full overflow-x-auto [-ms-scrollbar-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden border border-white/10 shadow-xl touch-pan-x snap-x snap-mandatory">
+            <div className="flex justify-center mb-5 px-4 w-full overflow-hidden">
+              <div className="bg-white dark:bg-white/5 backdrop-blur-md p-1.5 rounded-full inline-flex flex-nowrap max-w-full overflow-x-auto [-ms-scrollbar-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden border border-slate-200 dark:border-white/10 shadow-md touch-pan-x snap-x snap-mandatory">
                 {[
                   { id: 'hotel-booking', icon: 'hotel', label: 'Hotels' },
                   { id: 'tour-packages', icon: 'luggage', label: 'Tours' },
@@ -313,9 +460,10 @@ export const Home: React.FC = () => {
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id)}
                     className={`px-4 md:px-6 py-3 rounded-full flex items-center gap-2.5 text-sm font-bold transition-all duration-300 whitespace-nowrap ${activeTab === tab.id
-                      ? 'bg-white text-slate-900 shadow-md transform scale-105'
-                      : 'text-white/80 hover:bg-white/10 hover:text-white'
-                      }`}
+                      ? 'text-white shadow-md transform scale-105'
+                      : 'text-slate-600 dark:text-white/70 hover:bg-slate-100 dark:hover:bg-white/10 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                    style={activeTab === tab.id ? { backgroundColor: '#C9732A', boxShadow: '0 4px 16px rgba(201,115,42,0.35)' } : {}}
                   >
                     <span className="material-symbols-outlined text-[20px]">{tab.icon}</span>
                     <span>{tab.label}</span>
@@ -325,9 +473,8 @@ export const Home: React.FC = () => {
             </div>
 
             {/* Form Container */}
-            <div className="bg-white/95 dark:bg-slate-900/90 backdrop-blur-md rounded-[2rem] shadow-2xl p-4 md:p-6 text-left border border-white/20 relative overflow-visible transition-all duration-500">
-              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary via-amber-400 to-accent rounded-t-[2rem]"></div>
-
+            <div className="bg-white dark:bg-slate-900 rounded-[2rem] shadow-2xl p-4 md:p-6 text-left border border-slate-100 dark:border-white/10 relative overflow-visible transition-all duration-500">
+              <div className="absolute top-0 left-0 w-full h-1 rounded-t-[2rem]" style={{ background: 'linear-gradient(90deg, #C9732A, #f59e0b, #2D6A4F)' }} />
               {activeTab === 'hotel-booking' && <HotelBookingForm onSubmit={handleHotelSubmit} />}
               {activeTab === 'tour-packages' && <TourBookingForm onSubmit={handleTourSubmit} />}
               {activeTab === 'flight-booking' && <FlightBookingForm onSubmit={handleFlightSubmit} />}
@@ -339,45 +486,185 @@ export const Home: React.FC = () => {
         </div>
       </section>
 
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {/* WHY SHRAWELLO — WonderKids bold colored feature cards       */}
+      {/* ═══════════════════════════════════════════════════════════ */}
+      <section className="py-20 bg-white dark:bg-slate-950 relative overflow-hidden">
+        {/* Decorative dots grid */}
+        <div
+          className="absolute inset-0 pointer-events-none opacity-[0.04] dark:opacity-[0.06]"
+          style={{ backgroundImage: 'radial-gradient(#C9732A 1px, transparent 1px)', backgroundSize: '28px 28px' }}
+        />
 
-
-      {/* The SHRAWELLO Advantage */}
-      <section className="py-12 mesh-warm dark:bg-slate-900 border-b border-border-light dark:border-border-dark grain">
         <div className="container mx-auto px-4 md:px-10 relative z-10">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          {/* Section Header */}
+          <div className="text-center mb-14 reveal">
+            <span className="inline-flex items-center gap-2 px-4 py-1.5 mb-4 rounded-full bg-primary/10 dark:bg-primary/15 text-primary text-xs font-bold uppercase tracking-widest border border-primary/20">
+              <span className="material-symbols-outlined text-[14px]">auto_awesome</span>
+              The SHRAWELLO Advantage
+            </span>
+            <h2 className="font-display text-slate-900 dark:text-white text-4xl md:text-5xl font-bold leading-tight">
+              Our <em className="not-italic" style={{ fontFamily: 'Georgia, serif', fontStyle: 'italic' }}>exceptional</em>{' '}
+              <br className="hidden md:block" />features
+            </h2>
+            <p className="mt-4 text-slate-500 dark:text-slate-400 text-base font-light max-w-lg mx-auto">
+              Everything you need for a seamless, memorable journey — all in one place.
+            </p>
+          </div>
+
+          {/* Feature Cards Grid — WonderKids style */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {[
-              { icon: 'verified_user', title: 'Book Risk-Free', desc: 'Flexible cancellations & full refunds.', delay: '' },
-              { icon: 'support_agent', title: '24/7 Expert Support', desc: 'Real humans, always ready to help.', delay: 'reveal-delay-2' },
-              { icon: 'diamond', title: 'Handpicked Quality', desc: 'Every experience is vetted by experts.', delay: 'reveal-delay-4' }
-            ].map((item, i) => (
-              <div key={i} className={`reveal ${item.delay} flex items-center gap-4 p-5 rounded-2xl bg-white/60 dark:bg-white/5 backdrop-blur-sm hover:bg-white/90 dark:hover:bg-white/10 transition-colors border border-white/80 dark:border-white/10 shadow-sm`}>
-                <div className="size-12 bg-primary/10 text-primary rounded-xl flex items-center justify-center shrink-0">
-                  <span className="material-symbols-outlined text-2xl">{item.icon}</span>
+              {
+                icon: 'verified_user',
+                title: 'Book',
+                titleAccent: 'Risk-Free',
+                desc: 'Flexible cancellations and full refunds on eligible bookings. Travel with complete peace of mind.',
+                bg: 'bg-[#FBF7F0] dark:bg-white/5',
+                iconBg: '#C9732A',
+                accentColor: '#C9732A',
+                delay: '',
+                tag: '#safe',
+              },
+              {
+                icon: 'support_agent',
+                title: '24/7 Expert',
+                titleAccent: 'Support',
+                desc: 'Real humans, always ready to help. Our team is available around the clock for every traveler.',
+                bg: 'bg-[#C9732A] dark:bg-[#C9732A]',
+                iconBg: '#fff',
+                accentColor: '#fff',
+                delay: 'reveal-delay-2',
+                tag: '#reliable',
+                dark: true,
+              },
+              {
+                icon: 'diamond',
+                title: 'Handpicked',
+                titleAccent: 'Quality',
+                desc: 'Every tour, hotel, and experience is personally vetted by our travel experts for excellence.',
+                bg: 'bg-amber-50 dark:bg-amber-950/20',
+                iconBg: '#f59e0b',
+                accentColor: '#d97706',
+                delay: 'reveal-delay-4',
+                tag: '#premium',
+              },
+            ].map((card, i) => (
+              <div
+                key={i}
+                className={`reveal ${card.delay} relative group ${card.bg} rounded-[2rem] p-8 overflow-hidden border transition-all duration-500 hover:-translate-y-2 hover:shadow-2xl ${
+                  card.dark
+                    ? 'border-white/10 text-white'
+                    : 'border-slate-100 dark:border-white/10 text-slate-900 dark:text-white'
+                }`}
+              >
+                {/* Background blob */}
+                <div
+                  className="absolute -top-12 -right-12 w-40 h-40 rounded-full opacity-20 transition-transform duration-700 group-hover:scale-150"
+                  style={{ backgroundColor: card.dark ? '#fff' : card.iconBg }}
+                />
+
+                {/* Tag pill */}
+                <span
+                  className="inline-block px-3 py-1 rounded-full text-[11px] font-black mb-5 border"
+                  style={{
+                    backgroundColor: card.dark ? 'rgba(255,255,255,0.15)' : `${card.iconBg}18`,
+                    color: card.dark ? '#fff' : card.accentColor,
+                    borderColor: card.dark ? 'rgba(255,255,255,0.25)' : `${card.iconBg}30`,
+                  }}
+                >
+                  {card.tag}
+                </span>
+
+                {/* Icon */}
+                <div
+                  className="size-14 rounded-2xl flex items-center justify-center mb-5 shadow-lg"
+                  style={{ backgroundColor: card.dark ? 'rgba(255,255,255,0.2)' : `${card.iconBg}20` }}
+                >
+                  <span
+                    className="material-symbols-outlined text-[28px]"
+                    style={{ color: card.dark ? '#fff' : card.iconBg }}
+                  >
+                    {card.icon}
+                  </span>
                 </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-slate-900 dark:text-white leading-tight">{item.title}</h3>
-                  <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{item.desc}</p>
-                </div>
+
+                <h3 className={`font-display text-2xl font-black leading-tight mb-3 ${card.dark ? 'text-white' : 'text-slate-900 dark:text-white'}`}>
+                  {card.title}{' '}
+                  <span className="italic block" style={{ color: card.dark ? '#ffe0b2' : card.accentColor }}>
+                    {card.titleAccent}
+                  </span>
+                </h3>
+                <p className={`text-sm leading-relaxed font-light ${card.dark ? 'text-white/80' : 'text-slate-500 dark:text-slate-400'}`}>
+                  {card.desc}
+                </p>
+
+                {/* Arrow link */}
+                <Link
+                  to="/about"
+                  className="inline-flex items-center gap-1.5 mt-5 text-[13px] font-bold transition-all duration-300"
+                  style={{ color: card.dark ? '#ffe0b2' : card.accentColor }}
+                >
+                  Learn more
+                  <span className="material-symbols-outlined text-[15px] transition-transform duration-300 group-hover:translate-x-1">
+                    arrow_forward
+                  </span>
+                </Link>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* Testimonials Section (New) */}
-      <section className="py-20 bg-[#F4EFE6] dark:bg-[#0D1710] grain relative overflow-hidden">
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {/* TESTIMONIALS — Blog-card style strip                        */}
+      {/* ═══════════════════════════════════════════════════════════ */}
+      <section className="py-20 bg-[#FBF7F0] dark:bg-[#0D1710] relative overflow-hidden">
+        {/* Subtle wavy border top */}
+        <div className="absolute top-0 left-0 right-0 h-1" style={{ background: 'linear-gradient(90deg, #C9732A, #f59e0b, #2D6A4F, #C9732A)' }} />
+
         <div className="container mx-auto px-4 md:px-10 relative z-10">
-          <h2 className="font-display text-4xl md:text-5xl font-bold text-center mb-4 text-slate-900 dark:text-white reveal italic">Stories from Happy Travelers</h2>
-          <p className="text-center text-slate-500 max-w-2xl mx-auto mb-12">Don't just take our word for it—read verified reviews from our travelers on Google and Justdial.</p>
-          
-          {/* Carousel Container */}
+          {/* Section Header */}
+          <div className="flex flex-col md:flex-row items-end justify-between mb-12 gap-6 reveal">
+            <div>
+              <span className="inline-flex items-center gap-1.5 text-xs font-black uppercase tracking-[0.25em] mb-3 block"
+                style={{ color: '#C9732A' }}>
+                <span className="size-2 rounded-full animate-ping inline-block" style={{ backgroundColor: '#C9732A' }} />
+                ✦ Verified Reviews
+              </span>
+              <h2 className="font-display text-slate-900 dark:text-white text-4xl md:text-5xl font-bold leading-tight">
+                Read our <em className="not-italic" style={{ fontFamily: 'Georgia, serif', fontStyle: 'italic' }}>traveler</em> stories
+              </h2>
+            </div>
+            <div className="flex items-center gap-3 shrink-0">
+              <div className="flex -space-x-3">
+                {[
+                  "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=80&fit=crop&crop=faces&q=80",
+                  "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=80&fit=crop&crop=faces&q=80",
+                  "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=80&fit=crop&crop=faces&q=80",
+                ].map((src, i) => (
+                  <img key={i} src={src} alt={`Traveler ${i + 1}`} className="size-10 rounded-full ring-3 ring-white dark:ring-slate-900 object-cover shadow-md" />
+                ))}
+              </div>
+              <div>
+                <p className="font-black text-slate-900 dark:text-white text-sm">50,000+</p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">happy travelers</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Scrollable testimonial cards */}
           <div ref={carouselRef} className="flex overflow-x-auto pb-8 gap-6 snap-x snap-mandatory [-ms-scrollbar-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden reveal">
             {displayReviews.map((t, idx) => (
-              <div 
-                key={t.id} 
-                className="snap-center shrink-0 w-[85vw] sm:w-[350px] md:w-[400px] bg-white/90 dark:bg-white/5 backdrop-blur-sm p-8 rounded-[2rem] shadow-lg border border-white dark:border-white/10 relative flex flex-col justify-between"
+              <div
+                key={t.id}
+                className="snap-center shrink-0 w-[85vw] sm:w-[340px] md:w-[380px] bg-white dark:bg-white/5 p-7 rounded-[1.75rem] shadow-lg border border-slate-100 dark:border-white/10 relative flex flex-col justify-between group hover:-translate-y-1 transition-all duration-300 hover:shadow-xl"
               >
+                {/* Left accent bar */}
+                <div className="absolute left-0 top-6 bottom-6 w-1 rounded-r-full" style={{ backgroundColor: idx % 3 === 0 ? '#C9732A' : idx % 3 === 1 ? '#2D6A4F' : '#f59e0b' }} />
+
                 <div>
+                  {/* Stars + Platform */}
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex text-amber-500">
                       {[...Array(Math.floor(t.rating))].map((_, i) => (
@@ -387,34 +674,38 @@ export const Home: React.FC = () => {
                         <span className="material-symbols-outlined text-lg fill">star_half</span>
                       )}
                     </div>
-                    <div className="text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-md">
+                    <span className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-md">
                       {t.platform}
-                    </div>
+                    </span>
                   </div>
-                  <div className="text-5xl text-primary/10 dark:text-primary/20 absolute top-5 left-6 font-display leading-none select-none">"
-                  </div>
-                  <p className="text-slate-700 dark:text-slate-300 relative z-10 italic mb-6 leading-relaxed font-light line-clamp-6 text-sm md:text-base">
+
+                  {/* Big quote mark */}
+                  <div className="text-6xl font-display leading-none select-none mb-2 opacity-10" style={{ color: '#C9732A' }}>"</div>
+                  <p className="text-slate-700 dark:text-slate-300 italic mb-6 leading-relaxed font-light line-clamp-5 text-sm">
                     "{t.text}"
                   </p>
                 </div>
-                <div className="flex items-center gap-4 mt-auto">
+
+                {/* Author */}
+                <div className="flex items-center gap-4 mt-auto pt-4 border-t border-slate-100 dark:border-white/10">
                   {t.avatarUrl ? (
-                    <img src={t.avatarUrl} alt={t.customerName} className="size-12 rounded-full object-cover shadow-inner" />
+                    <img src={t.avatarUrl} alt={t.customerName} className="size-11 rounded-full object-cover shadow-inner ring-2" style={{ ringColor: '#C9732A20' }} />
                   ) : (
-                    <div className="size-12 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white font-bold text-lg shadow-inner">
+                    <div className="size-11 rounded-full flex items-center justify-center text-white font-black text-base shadow-inner"
+                      style={{ background: 'linear-gradient(135deg, #C9732A, #2D6A4F)' }}>
                       {t.customerName[0]}
                     </div>
                   )}
                   <div>
-                    <h4 className="font-bold text-slate-900 dark:text-white leading-none text-base">{t.customerName}</h4>
-                    {t.date && <p className="text-xs text-slate-500 mt-1">{t.date}</p>}
+                    <h4 className="font-black text-slate-900 dark:text-white text-[15px] leading-none">{t.customerName}</h4>
+                    {t.date && <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">{t.date}</p>}
                   </div>
                 </div>
               </div>
             ))}
           </div>
-          
-          {/* Carousel instruction for mobile */}
+
+          {/* Swipe hint (mobile) */}
           <div className="flex justify-center mt-4 md:hidden">
             <div className="flex items-center gap-2 text-slate-400 text-sm animate-pulse">
               <span className="material-symbols-outlined text-[18px]">swipe</span>
@@ -424,9 +715,9 @@ export const Home: React.FC = () => {
         </div>
       </section>
 
-      {/* ═══════════════════════════════════════════════════════════════════ */}
+      {/* ═══════════════════════════════════════════════════════════════ */}
       {/* TRENDING DESTINATIONS — Fan Carousel (Pixel-perfect reference match) */}
-      {/* ═══════════════════════════════════════════════════════════════════ */}
+      {/* ═══════════════════════════════════════════════════════════════ */}
       <section
         className="py-20 bg-slate-50 dark:bg-slate-950 relative overflow-hidden transition-colors duration-500"
         onMouseEnter={() => setIsHovered(true)}
@@ -445,8 +736,8 @@ export const Home: React.FC = () => {
               <span className="inline-block size-2 rounded-full bg-primary animate-ping" />
               ✦ TRENDING NOW
             </span>
-            <h2 className="font-display text-slate-900 dark:text-white text-4xl md:text-5xl font-bold leading-tight tracking-tight italic mb-3">
-              Trending Destinations
+            <h2 className="font-display text-slate-900 dark:text-white text-4xl md:text-5xl font-bold leading-tight tracking-tight mb-3">
+              Trending <em className="not-italic" style={{ fontFamily: 'Georgia, serif', fontStyle: 'italic' }}>Destinations</em>
             </h2>
             <p className="text-slate-500 dark:text-slate-400 text-base font-light max-w-xl mx-auto">
               Explore the world's most sought-after travel destinations, handpicked by our expert team.
@@ -646,51 +937,74 @@ export const Home: React.FC = () => {
         </div>
       </section>
 
-      {/* ═══════════════════════════════════════════════════════════════ */}
-      {/* CURATED COLLECTIONS — Original Circular Section                 */}
-      {/* ═══════════════════════════════════════════════════════════════ */}
-      <section className="py-12 bg-background-light dark:bg-background-dark border-t border-border-light dark:border-border-dark">
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {/* CURATED COLLECTIONS — Restyled pill cards                   */}
+      {/* ═══════════════════════════════════════════════════════════ */}
+      <section className="py-16 bg-white dark:bg-slate-950 border-t border-slate-100 dark:border-white/5">
         <div className="container mx-auto px-4 md:px-10">
-          <div className="flex flex-col md:flex-row justify-between items-end mb-8 gap-4 reveal">
+          <div className="flex flex-col md:flex-row justify-between items-end mb-10 gap-4 reveal">
             <div>
-              <h2 className="font-display text-slate-900 dark:text-white text-3xl md:text-4xl font-bold tracking-tight mb-2 italic">Curated Collections</h2>
-              <p className="text-slate-500 dark:text-slate-400 text-base font-light">Handpicked experiences for every type of traveler.</p>
+              <span className="inline-flex items-center gap-1.5 text-xs font-black uppercase tracking-[0.25em] mb-2 block"
+                style={{ color: '#C9732A' }}>
+                ✦ Hand-selected for you
+              </span>
+              <h2 className="font-display text-slate-900 dark:text-white text-3xl md:text-4xl font-bold">
+                Curated <em className="not-italic" style={{ fontFamily: 'Georgia, serif', fontStyle: 'italic' }}>Collections</em>
+              </h2>
+              <p className="text-slate-500 dark:text-slate-400 text-base font-light mt-1">Handpicked experiences for every type of traveler.</p>
             </div>
-            <Link to="/packages" className="hidden md:flex items-center gap-2 text-primary font-bold hover:text-primary-dark transition-colors text-sm">
+            <Link to="/packages" className="hidden md:flex items-center gap-2 font-bold hover:opacity-75 transition-opacity text-sm" style={{ color: '#C9732A' }}>
               View All <span className="material-symbols-outlined text-sm">arrow_forward</span>
             </Link>
           </div>
 
-          <div className="flex overflow-x-auto pb-4 gap-4 [-ms-scrollbar-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {/* Horizontal scrollable pill cards */}
+          <div className="flex overflow-x-auto pb-4 gap-4 [-ms-scrollbar-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden reveal">
             {collections.length > 0 ? collections.map((trip, idx) => (
-              <div key={idx} onClick={() => navigate('/packages?search=' + encodeURIComponent(trip.title))} className="group cursor-pointer flex-shrink-0 flex flex-col items-center gap-3 min-w-[140px] md:min-w-[180px]">
-                <div className="relative size-28 md:size-36 rounded-full overflow-hidden border-[4px] border-white dark:border-slate-800 shadow-xl group-hover:shadow-primary/30 transition-all duration-500 group-hover:-translate-y-1">
-                  <div className="absolute inset-0 bg-black/20 group-hover:bg-transparent transition-colors z-10"></div>
+              <div
+                key={idx}
+                onClick={() => navigate('/packages?search=' + encodeURIComponent(trip.title))}
+                className="group cursor-pointer flex-shrink-0 flex items-center gap-4 bg-[#FBF7F0] dark:bg-white/5 hover:bg-white dark:hover:bg-white/10 border border-slate-100 dark:border-white/10 rounded-2xl px-4 py-3 pr-6 shadow-sm hover:shadow-lg transition-all duration-300 hover:-translate-y-0.5 min-w-[200px]"
+              >
+                {/* Circular thumbnail */}
+                <div className="relative size-14 rounded-xl overflow-hidden flex-shrink-0 border-2 border-white dark:border-white/10 shadow-md group-hover:scale-105 transition-transform duration-300">
                   <OptimizedImage
                     src={trip.imageUrl}
                     alt={trip.title}
                     className="w-full h-full"
                   />
                 </div>
-                <div className="text-center px-2">
-                  <p className="text-slate-900 dark:text-white font-bold text-sm md:text-base group-hover:text-primary transition-colors leading-tight">{trip.title}</p>
-                  <p className="text-slate-500 dark:text-slate-400 text-[10px] font-medium uppercase tracking-wide mt-1 line-clamp-1">{trip.category}</p>
+                <div>
+                  <p className="text-slate-900 dark:text-white font-black text-sm group-hover:text-primary transition-colors">{trip.title}</p>
+                  <p className="text-slate-400 dark:text-slate-500 text-[11px] font-medium uppercase tracking-wide mt-0.5">{trip.category}</p>
                 </div>
+                <span className="material-symbols-outlined text-slate-300 dark:text-slate-600 text-[18px] ml-auto group-hover:text-primary group-hover:translate-x-1 transition-all duration-300">arrow_forward</span>
               </div>
-            )) : <p className="text-center w-full text-slate-500">No collections found.</p>}
+            )) : (
+              <p className="text-center w-full text-slate-500 py-8">No collections found.</p>
+            )}
+          </div>
+
+          {/* Mobile view all link */}
+          <div className="flex justify-center mt-6 md:hidden">
+            <Link to="/packages" className="flex items-center gap-2 font-bold text-sm px-6 py-3 rounded-full border transition-all duration-300 hover:text-white hover:border-transparent"
+              style={{ color: '#C9732A', borderColor: '#C9732A40' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = '#C9732A'; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent'; }}
+            >
+              View All Collections <span className="material-symbols-outlined text-sm">arrow_forward</span>
+            </Link>
           </div>
         </div>
       </section>
 
-      {/* ═══════════════════════════════════════════════════════════════ */}
-      {/* MEMBERSHIP PRICING SECTION                                      */}
-      {/* Only renders when at least one active plan has showOnHomepage   */}
-      {/* ═══════════════════════════════════════════════════════════════ */}
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {/* MEMBERSHIP PRICING SECTION — Unchanged logic/data           */}
+      {/* ═══════════════════════════════════════════════════════════ */}
       {(() => {
         const visiblePlans = membershipPlans.filter(p => p.isActive && p.showOnHomepage);
         if (visiblePlans.length === 0) return null;
 
-        // Mark the most expensive plan as "Popular"
         const popularPlanId = visiblePlans.reduce((best, p) =>
           p.pricePerYear > best.pricePerYear ? p : best, visiblePlans[0]
         ).id;
@@ -702,8 +1016,7 @@ export const Home: React.FC = () => {
         };
 
         return (
-          <section className="py-20 bg-background-light dark:bg-background-dark border-t border-border-light dark:border-border-dark relative overflow-hidden">
-            {/* Subtle decorative blobs */}
+          <section className="py-20 bg-[#FBF7F0] dark:bg-[#0D1710] border-t border-slate-100 dark:border-white/5 relative overflow-hidden">
             <div className="pointer-events-none absolute -top-32 -left-32 w-96 h-96 rounded-full bg-primary/5 blur-3xl" />
             <div className="pointer-events-none absolute -bottom-32 -right-32 w-96 h-96 rounded-full bg-indigo-400/5 blur-3xl" />
 
@@ -744,12 +1057,10 @@ export const Home: React.FC = () => {
                       }`}
                       style={isPopular ? { ringColor: plan.color } : {}}
                     >
-                      {/* Popular ring via inline style */}
                       {isPopular && (
                         <div className="absolute inset-0 rounded-3xl pointer-events-none" style={{ boxShadow: `0 0 0 2px ${plan.color}` }} />
                       )}
 
-                      {/* Popular Badge */}
                       {isPopular && (
                         <div className="absolute top-5 right-5 z-20">
                           <span className="inline-flex items-center gap-1 text-[11px] font-black uppercase tracking-wider px-3 py-1 rounded-full text-white shadow-lg" style={{ backgroundColor: plan.color }}>
@@ -759,16 +1070,11 @@ export const Home: React.FC = () => {
                         </div>
                       )}
 
-                      {/* Card Header */}
                       <div className={`bg-gradient-to-br ${tierBg} px-8 pt-8 pb-7 relative overflow-hidden`}>
-                        {/* Decorative circle */}
                         <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full opacity-10" style={{ backgroundColor: plan.color }} />
-
                         <div className="relative z-10">
-                          {/* Tier badge */}
                           <span className="inline-flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider px-3 py-1 rounded-full mb-4 border"
-                            style={{ backgroundColor: `${plan.color}18`, color: plan.color, borderColor: `${plan.color}30` }}
-                          >
+                            style={{ backgroundColor: `${plan.color}18`, color: plan.color, borderColor: `${plan.color}30` }}>
                             <span className="material-symbols-outlined text-[13px]">workspace_premium</span>
                             {plan.tier} Tier
                           </span>
@@ -781,7 +1087,6 @@ export const Home: React.FC = () => {
                             }
                           </p>
 
-                          {/* Price */}
                           <div className="flex items-baseline gap-2 mb-1">
                             <span className="text-4xl font-black text-slate-900 dark:text-white">
                               ₹{plan.pricePerYear.toLocaleString()}
@@ -796,7 +1101,6 @@ export const Home: React.FC = () => {
                         </div>
                       </div>
 
-                      {/* CTA Buttons */}
                       <div className="px-8 py-5 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-white/5 flex flex-col gap-3">
                         <Link
                           to={`/contact?plan=${encodeURIComponent(plan.name)}`}
@@ -815,9 +1119,7 @@ export const Home: React.FC = () => {
                         </Link>
                       </div>
 
-                      {/* Perks List */}
                       <div className="px-8 py-7 bg-white dark:bg-slate-900 flex-1 flex flex-col">
-                        {/* Discount highlights */}
                         <div className="grid grid-cols-2 gap-3 mb-6">
                           {plan.hotelDiscount > 0 && (
                             <div className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/5">
@@ -845,7 +1147,6 @@ export const Home: React.FC = () => {
                           )}
                         </div>
 
-                        {/* Included Perks label */}
                         {topPerks.length > 0 && (
                           <>
                             <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-4">Included perks</p>
@@ -876,16 +1177,14 @@ export const Home: React.FC = () => {
                 })}
               </div>
 
-              {/* Bottom note */}
               <p className="text-center text-sm text-slate-400 dark:text-slate-500 mt-10 font-light">
                 All plans include priority customer support. &nbsp;
-                <Link to="/contact" className="text-primary font-semibold hover:underline">Contact us</Link> to learn more.
+                <Link to="/contact" className="font-semibold hover:underline" style={{ color: '#C9732A' }}>Contact us</Link> to learn more.
               </p>
             </div>
           </section>
         );
       })()}
-
 
     </>
   );
