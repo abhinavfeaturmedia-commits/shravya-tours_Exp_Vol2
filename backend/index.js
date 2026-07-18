@@ -84,6 +84,14 @@ async function runMigration() {
         await pool.query(`ALTER TABLE membership_plans ADD COLUMN IF NOT EXISTS show_on_homepage TINYINT(1) NOT NULL DEFAULT 0`);
         console.log('[Migration] membership_plans.show_on_homepage column verified/added');
 
+        // ─── Car Rental Bookings: days column ───
+        await pool.query(`ALTER TABLE car_bookings ADD COLUMN IF NOT EXISTS days INT NOT NULL DEFAULT 1`);
+        console.log('[Migration] car_bookings.days column verified/added');
+
+        // ─── Car Rental Bookings: lead_id column ───
+        await pool.query(`ALTER TABLE car_bookings ADD COLUMN IF NOT EXISTS lead_id VARCHAR(64) DEFAULT NULL`);
+        console.log('[Migration] car_bookings.lead_id column verified/added');
+
         // Create table for customer packing checklists
         await pool.query(`
             CREATE TABLE IF NOT EXISTS customer_packing_checklists (
@@ -222,6 +230,8 @@ async function runMigration() {
                 assigned_vendor_id VARCHAR(64) DEFAULT NULL,
                 base_fare DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
                 estimated_km INT NOT NULL DEFAULT 0,
+                days INT NOT NULL DEFAULT 1,
+                lead_id VARCHAR(64) DEFAULT NULL,
                 driver_allowance DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
                 night_charges DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
                 toll_charges DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
@@ -7027,6 +7037,15 @@ app.get('/api/vendors-with-stats', authMiddleware, async (req, res) => {
             LEFT JOIN bookings b ON sb.booking_id = b.id
             ORDER BY sb.created_at DESC
         `);
+
+        // Query car bookings assigned to vendors
+        const [carBookings] = await pool.query(`
+            SELECT cb.* 
+            FROM car_bookings cb
+            WHERE cb.assigned_vendor_id IS NOT NULL 
+              AND cb.assigned_vendor_id != '' 
+              AND cb.vendor_cost > 0
+        `);
         
         // Build per-vendor stats maps
         const statsByVendor = {};       // totalCost, totalPaid, totalCompleted, totalCount
@@ -7084,6 +7103,48 @@ app.get('/api/vendors-with-stats', authMiddleware, async (req, res) => {
                     amount: paidAmount,
                     type: 'Debit',
                     reference: sb.booking_id
+                });
+            }
+        });
+
+        // Integrate car bookings into vendor ledger & stats
+        carBookings.forEach(cb => {
+            const vid = cb.assigned_vendor_id;
+            if (!vid) return;
+
+            // Initialize
+            if (!statsByVendor[vid]) {
+                statsByVendor[vid] = { totalCost: 0, totalPaid: 0, totalCompleted: 0, totalCount: 0 };
+            }
+            if (!ledgerByVendor[vid]) ledgerByVendor[vid] = [];
+            if (!bookingIdsByVendor[vid]) bookingIdsByVendor[vid] = new Set();
+
+            const cost = Number(cb.vendor_cost) || 0;
+            const customerLabel = cb.customer_name || 'Customer';
+            const status = (cb.status || '').toLowerCase();
+
+            // Skip cancelled bookings
+            if (status === 'cancelled') return;
+
+            statsByVendor[vid].totalCost += cost;
+            statsByVendor[vid].totalCount += 1;
+            if (status === 'completed' || status === 'confirmed' || status === 'running') {
+                statsByVendor[vid].totalCompleted += 1;
+            }
+
+            // Track unique booking IDs for cross-page linkage
+            bookingIdsByVendor[vid].add(cb.id);
+
+            // Build ledger entry
+            if (cost > 0) {
+                ledgerByVendor[vid].push({
+                    id: `${cb.id}-cost`,
+                    date: cb.pickup_date || cb.created_at,
+                    description: `Car Rental (${cb.pickup_location} → ${cb.drop_location}) for ${customerLabel}`,
+                    amount: cost,
+                    type: 'Credit',
+                    reference: cb.id,
+                    bookingTitle: `Car Rental: ${cb.pickup_location} to ${cb.drop_location}`
                 });
             }
         });

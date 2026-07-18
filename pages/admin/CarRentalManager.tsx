@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 
 export const CarRentalManager: React.FC = () => {
-    const { vendors, customers } = useData();
+    const { vendors, customers, leads } = useData();
 
     // Tabs
     const [activeTab, setActiveTab] = useState<'trips' | 'bookings' | 'vehicles' | 'drivers' | 'categories' | 'payments'>('trips');
@@ -55,6 +55,7 @@ export const CarRentalManager: React.FC = () => {
     const [editingBooking, setEditingBooking] = useState<any>(null);
     const [bookingForm, setBookingForm] = useState<any>({
         customer_id: '', customer_name: '', customer_email: '', customer_mobile: '',
+        lead_id: '', vendor_cost: 0,
         pickup_location: '', drop_location: '', pickup_date: '', pickup_time: '',
         trip_type: 'Oneway', vehicle_category_id: '', status: 'Confirmed',
         assigned_vehicle_id: '', assigned_driver_id: '', assigned_vendor_id: '',
@@ -102,6 +103,17 @@ export const CarRentalManager: React.FC = () => {
 
     // Rate details display formatting helper
     const fmt = (v: any) => `₹${Number(v || 0).toLocaleString('en-IN')}`;
+
+    // Format date string to DD-MM-YYYY timezone-safely
+    const formatDate = (dStr: string) => {
+        if (!dStr) return '';
+        const clean = dStr.split('T')[0]; // "YYYY-MM-DD"
+        const parts = clean.split('-');
+        if (parts.length === 3) {
+            return `${parts[2]}-${parts[1]}-${parts[0]}`; // "DD-MM-YYYY"
+        }
+        return clean;
+    };
 
     // Dynamic Quotation Calculation
     const quotation = useMemo(() => {
@@ -306,7 +318,26 @@ export const CarRentalManager: React.FC = () => {
     const handleOpenBookingModal = (booking?: any) => {
         if (booking) {
             setEditingBooking(booking);
-            setBookingForm(booking);
+            let formattedDate = '';
+            if (booking.pickup_date) {
+                if (typeof booking.pickup_date === 'string') {
+                    formattedDate = booking.pickup_date.split('T')[0];
+                } else {
+                    try {
+                        const d = new Date(booking.pickup_date);
+                        const year = d.getFullYear();
+                        const month = String(d.getMonth() + 1).padStart(2, '0');
+                        const day = String(d.getDate()).padStart(2, '0');
+                        formattedDate = `${year}-${month}-${day}`;
+                    } catch (e) {
+                        formattedDate = '';
+                    }
+                }
+            }
+            setBookingForm({
+                ...booking,
+                pickup_date: formattedDate
+            });
         } else {
             setEditingBooking(null);
             setBookingForm({
@@ -314,6 +345,8 @@ export const CarRentalManager: React.FC = () => {
                 customer_name: '',
                 customer_email: '',
                 customer_mobile: '',
+                lead_id: '',
+                vendor_cost: 0,
                 pickup_location: '',
                 drop_location: '',
                 pickup_date: new Date().toISOString().split('T')[0],
@@ -350,6 +383,52 @@ export const CarRentalManager: React.FC = () => {
             outstanding: totalBookedVal - paymentsRec
         };
     }, [carBookings, payments]);
+
+    // Selector for vehicles that are of matching category and have no conflict on the pickup date
+    const availableVehicles = useMemo(() => {
+        return vehicles.filter(v => {
+            // Keep currently assigned vehicle if editing
+            if (editingBooking && editingBooking.assigned_vehicle_id === v.id) {
+                return true;
+            }
+            // Must match selected category
+            if (bookingForm.vehicle_category_id && v.category_id !== bookingForm.vehicle_category_id) {
+                return false;
+            }
+            // Check date conflict with other bookings
+            if (bookingForm.pickup_date) {
+                const hasConflict = carBookings.some(b => 
+                    b.id !== (editingBooking?.id || '') &&
+                    b.assigned_vehicle_id === v.id &&
+                    b.pickup_date === bookingForm.pickup_date &&
+                    b.status !== 'Cancelled'
+                );
+                if (hasConflict) return false;
+            }
+            return v.status === 'Available';
+        });
+    }, [vehicles, bookingForm.vehicle_category_id, bookingForm.pickup_date, carBookings, editingBooking]);
+
+    // Selector for drivers with no conflict on the pickup date
+    const availableDrivers = useMemo(() => {
+        return drivers.filter(d => {
+            // Keep currently assigned driver if editing
+            if (editingBooking && editingBooking.assigned_driver_id === d.id) {
+                return true;
+            }
+            // Check date conflict with other bookings
+            if (bookingForm.pickup_date) {
+                const hasConflict = carBookings.some(b => 
+                    b.id !== (editingBooking?.id || '') &&
+                    b.assigned_driver_id === d.id &&
+                    b.pickup_date === bookingForm.pickup_date &&
+                    b.status !== 'Cancelled'
+                );
+                if (hasConflict) return false;
+            }
+            return d.status === 'Available';
+        });
+    }, [drivers, bookingForm.pickup_date, carBookings, editingBooking]);
 
     // Filtering active list of trips/bookings
     const filteredTrips = useMemo(() => {
@@ -628,7 +707,7 @@ export const CarRentalManager: React.FC = () => {
                                                             {b.pickup_location} <span className="text-slate-400">→</span> {b.drop_location}
                                                         </h4>
                                                         <p className="text-[10px] text-slate-400 font-bold mt-1 uppercase">
-                                                            {b.pickup_date} @ {b.pickup_time.slice(0, 5)} • {b.trip_type}
+                                                            {formatDate(b.pickup_date)} @ {b.pickup_time.slice(0, 5)} • {b.trip_type}
                                                         </p>
                                                     </div>
                                                     <div className="text-right">
@@ -892,6 +971,56 @@ export const CarRentalManager: React.FC = () => {
                                         </table>
                                     </div>
                                 </div>
+
+                                {/* Vendor Payables Log */}
+                                <div className="bg-white dark:bg-[#1E293B] p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
+                                    <h3 className="text-base font-black text-slate-900 dark:text-white">Vendor Payables Log</h3>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-left border-collapse text-xs">
+                                            <thead>
+                                                <tr className="bg-slate-50 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 text-[10px] uppercase font-black tracking-widest text-slate-400">
+                                                    <th className="p-4">Trip Details</th>
+                                                    <th className="p-4">Vendor</th>
+                                                    <th className="p-4">Vendor Cost</th>
+                                                    <th className="p-4">Trip Status</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/40">
+                                                {carBookings.filter(b => b.assigned_vendor_id && Number(b.vendor_cost || 0) > 0).map(b => {
+                                                    const vend = vendors.find(x => x.id === b.assigned_vendor_id);
+                                                    return (
+                                                        <tr key={b.id}>
+                                                            <td className="p-4">
+                                                                <div className="font-bold text-slate-800 dark:text-slate-200">{b.pickup_location} → {b.drop_location}</div>
+                                                                <div className="text-[10px] text-slate-400 mt-0.5">{b.customer_name} • {formatDate(b.pickup_date)}</div>
+                                                            </td>
+                                                            <td className="p-4 font-semibold text-slate-700 dark:text-slate-300">
+                                                                {vend ? vend.name : 'Unknown Vendor'}
+                                                            </td>
+                                                            <td className="p-4 font-bold text-slate-900 dark:text-white">
+                                                                {fmt(b.vendor_cost)}
+                                                            </td>
+                                                            <td className="p-4">
+                                                                <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${
+                                                                    b.status === 'Completed' ? 'bg-emerald-100 text-emerald-700' :
+                                                                    b.status === 'Cancelled' ? 'bg-rose-100 text-rose-700' :
+                                                                    'bg-indigo-100 text-indigo-700'
+                                                                }`}>{b.status}</span>
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                                {carBookings.filter(b => b.assigned_vendor_id && Number(b.vendor_cost || 0) > 0).length === 0 && (
+                                                    <tr>
+                                                        <td colSpan={4} className="text-center py-8 text-slate-400 font-semibold">
+                                                            No vendor payables recorded.
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
                             </div>
                         )}
                     </>
@@ -1102,7 +1231,7 @@ export const CarRentalManager: React.FC = () => {
                         </div>
                         <form onSubmit={handleSaveBooking} className="p-6 space-y-4 overflow-y-auto flex-1 text-left">
                             {/* Customer Select */}
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-3 gap-4">
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 mb-1">Link CRM Customer *</label>
                                     <select value={bookingForm.customer_id} onChange={e => {
@@ -1117,6 +1246,13 @@ export const CarRentalManager: React.FC = () => {
                                     }} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs">
                                         <option value="">-- Guest Checkout / Manual --</option>
                                         {customers.map(c => <option key={c.id} value={c.id}>{c.name} ({c.email})</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">Link CRM Lead</label>
+                                    <select value={bookingForm.lead_id} onChange={e => setBookingForm({...bookingForm, lead_id: e.target.value})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs">
+                                        <option value="">-- No Lead Associated --</option>
+                                        {leads.map(l => <option key={l.id} value={l.id}>{l.leadNumber || l.id.slice(0, 8)} - {l.name}</option>)}
                                     </select>
                                 </div>
                                 <div>
@@ -1181,26 +1317,63 @@ export const CarRentalManager: React.FC = () => {
                             <div className="grid grid-cols-3 gap-4">
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 mb-1">Vehicle Class *</label>
-                                    <select required value={bookingForm.vehicle_category_id} onChange={e => setBookingForm({...bookingForm, vehicle_category_id: e.target.value})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs">
+                                    <select required value={bookingForm.vehicle_category_id} onChange={e => setBookingForm({...bookingForm, vehicle_category_id: e.target.value, assigned_vehicle_id: '', assigned_vendor_id: '', vendor_cost: 0})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs">
                                         <option value="">-- Choose Category --</option>
                                         {categories.map(c => <option key={c.id} value={c.id}>{c.name} ({fmt(c.rate_per_km)}/km)</option>)}
                                     </select>
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 mb-1">Assign Cab</label>
-                                    <select value={bookingForm.assigned_vehicle_id} onChange={e => setBookingForm({...bookingForm, assigned_vehicle_id: e.target.value})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs">
+                                    <select value={bookingForm.assigned_vehicle_id} onChange={e => {
+                                        const vId = e.target.value;
+                                        const selectedVeh = vehicles.find(x => x.id === vId);
+                                        const vendorId = (selectedVeh && selectedVeh.ownership === 'Vendor') ? selectedVeh.vendor_id : '';
+                                        setBookingForm({
+                                            ...bookingForm,
+                                            assigned_vehicle_id: vId,
+                                            assigned_vendor_id: vendorId,
+                                            vendor_cost: vendorId ? bookingForm.vendor_cost : 0
+                                        });
+                                    }} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs">
                                         <option value="">No vehicle allocated</option>
-                                        {vehicles.map(v => <option key={v.id} value={v.id}>{v.name} ({v.registration_number})</option>)}
+                                        {availableVehicles.map(v => <option key={v.id} value={v.id}>{v.name} ({v.registration_number})</option>)}
                                     </select>
+                                    {availableVehicles.length === 0 && bookingForm.vehicle_category_id && (
+                                        <span className="text-[10px] text-rose-500 font-bold block mt-1">⚠️ No available cabs in this class on this date!</span>
+                                    )}
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 mb-1">Assign Driver</label>
                                     <select value={bookingForm.assigned_driver_id} onChange={e => setBookingForm({...bookingForm, assigned_driver_id: e.target.value})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs">
                                         <option value="">No driver allocated</option>
-                                        {drivers.map(d => <option key={d.id} value={d.id}>{d.name} ({d.mobile})</option>)}
+                                        {availableDrivers.map(d => <option key={d.id} value={d.id}>{d.name} ({d.mobile})</option>)}
                                     </select>
+                                    {availableDrivers.length === 0 && bookingForm.pickup_date && (
+                                        <span className="text-[10px] text-rose-500 font-bold block mt-1">⚠️ No available drivers on this date!</span>
+                                    )}
                                 </div>
                             </div>
+
+                            {bookingForm.assigned_vehicle_id && (() => {
+                                const selectedVeh = vehicles.find(x => x.id === bookingForm.assigned_vehicle_id);
+                                if (selectedVeh && selectedVeh.ownership === 'Vendor') {
+                                    const vend = vendors.find(x => x.id === selectedVeh.vendor_id);
+                                    return (
+                                        <div className="grid grid-cols-2 gap-4 bg-amber-500/5 p-4 rounded-2xl border border-amber-500/10">
+                                            <div>
+                                                <label className="block text-xs font-bold text-slate-500 mb-1">Vendor Cost (₹)</label>
+                                                <input type="number" required value={bookingForm.vendor_cost} onChange={e => setBookingForm({...bookingForm, vendor_cost: Number(e.target.value)})} className="w-full h-10 px-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-bold text-xs" min={0} />
+                                            </div>
+                                            <div className="flex flex-col justify-center">
+                                                <span className="text-[10px] text-slate-400 font-bold uppercase block">Associated Vendor</span>
+                                                <span className="text-xs font-bold text-amber-600 dark:text-amber-400 mt-0.5">{vend ? vend.name : 'Unknown Vendor'}</span>
+                                                <span className="text-[10px] text-slate-500 mt-1">This cost will be added to the vendor's ledger balance upon booking confirmation.</span>
+                                            </div>
+                                        </div>
+                                    );
+                                }
+                                return null;
+                            })()}
 
                             <div className="grid grid-cols-3 gap-4 bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
                                 <div>

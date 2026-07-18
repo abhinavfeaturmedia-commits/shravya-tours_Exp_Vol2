@@ -30,6 +30,7 @@ backend/public/uploads/
 
 # 3-Layer Architecture
 .tmp/
+temp_deploy/
 credentials.json
 token.json
 .DS_Store
