@@ -1,64 +1,34 @@
-# Walkthrough - Customer Portal UI/UX Redesign (MindMate Inspiration)
+# Walkthrough — Booking Services Side Animations & Micro-Interactions
 
-This document summarizes the changes made to redesign the customer portal (`CustomerDashboard.tsx` and `BookingDetail.tsx`) into a modern, three-column responsive dashboard while maintaining the classic warm cream and orange brand palette.
+This walkthrough summarizes the visual and code updates implemented to add advanced side animations, interactive micro-interactions, and tab transitions for the booking widget.
 
----
+## Changes Made
 
-## 1. Redesigned Customer Dashboard (`CustomerDashboard.tsx`)
+### Frontend Code
 
-We overhauled the dashboard layout to match the layout and features of the `MindMate` mockup using a three-column grid system.
-
-### Key Enhancements:
-- **Header Navigation**:
-  - Center horizontal navigation pills for easy tab toggling on desktop.
-  - Left brand logo in forest green (`#2D6A4F`) and right control bar containing search, notification alerts dropdown, direct support concierge chat trigger, profile settings, and avatar.
-- **Left Column (Contextual Content Hub)**:
-  - **Dynamic Greeting**: Time-based message (e.g. "Good morning", "Good afternoon", "Good evening") with sun/moon icons and user first name.
-  - **Sub-Tabs Switcher**: Interactive pills to toggle the Left Column context between **Trips**, **Wishlist**, **Travelers**, and **Vault**.
-  - **Hero Card**:
-    - *Trips*: Displays the active/upcoming trip with covers, travel dates, passenger counts, and direct voucher access.
-    - *Wishlist*: Displays a featured shortlist package with price and booking call-to-actions.
-    - *Travelers*: Features an inline form to add a Co-Traveler.
-    - *Vault*: Displays secure document upload buttons.
-  - **Lists Rows**: Lists other bookings, saved wishlist items, companion passengers, or secure files in clean vertical list cards.
-- **Middle Column (Loyalty & Finances)**:
-  - **Stats Grid**: Green rewards card showing loyalty points, Gold/Silver tier, and copyable referral code. Yellow card showing travel miles and completed trips.
-  - **Circular Payment Progress**: Interactive SVG doughnut progress chart showing percentage of total package cost paid, with breakdown labels for paid and pending balances, and a direct checkout payment button.
-  - **Travel DNA**: Displays preference tags for accommodation styles, dietary requirements, and budget classes.
-  - **Referral Invitation**: Integrated email invitation input box.
-  - **Matching Recommendations**: Displays matching packages based on Travel DNA.
-- **Right Column (Interactive Tools & Reflection)**:
-  - **Itinerary Day Calendar**: Horizontal day slider (Day 1 - Day 6). Clicking a day displays a clean description box of the itinerary highlights.
-  - **Trip Reflection Dial**: Emojis-based rating selector and text reflection feedback widget connected to the backend reviews database.
-  - **Direct Support Concierge**: direct live chat drawer with Elena R. (Concierge Agent) and a quick WhatsApp Group invite button.
-  - **Recent Alerts**: List of notifications/inbox items.
+#### [Home.tsx](file:///c:/Users/Abhinav/Documents/Antigravity%20Files/shravya-tours_Exp_Vol2/pages/Home.tsx)
+- **Active Tab sliding pill**: Added state hook `pillStyle` and element reference hook `tabRefs` to calculate the coordinates and width of the active tab. Included a window resize listener and a `useCallback` to update coordinates dynamically when tabs change or the viewport changes.
+- **Dynamic Backdrop Gradients**: Refactored the `#booking-widget` container background to smoothly shift background colors using specific CSS gradient styles based on the active tab (amber hues for hotels, deep emerald for tours, sky blues for flights, warm slate for trains, mint for cars, and copper/forest tones for buses).
+- **Ambient Floating Paper Planes**: Injected two ambient, looping vector paper planes (`animate-drift-plane-1`, `animate-drift-plane-2`) floating behind the card wrapper for scenic depth.
+- **Form Column Staggers**: Integrated custom stagger rules using `:nth-child` targeting inside the CSS style block so all input fields, select dropdowns, and datepickers roll upward in a elegant staggered waterfall entry (`slide-up-stagger`).
+- **Glow & Zoom Focused States**: Added CSS styles to zoom input fields subtly on focus (`scale(1.005)`) and add a ring outline glow using the primary brand color to draw the user's attention.
+- **Submit Button Shimmer**: Applied a skewed sheen element overlay on the submit search button (`shimmer-sweep`) executing a loop reflection effect.
+- **Refactored `BookingSideAnimations` Interactive SVG Assets**:
+  - **Hotels**: Shimmering solar rays (`animate-sunbeam`) and hanging decorative signs sway on mouse-hover.
+  - **Tours**: Compass needle spins rapidly (`animate-spin-compass-fast`) and clouds drift faster (`animate-cloud-fast`) on hover.
+  - **Flights**: Jet liner glides upward and downward on hover.
+  - **Trains**: Sleek high-speed bullet trains bounce with track vibration while headlight beams pulse.
+  - **Cars**: Roadster converts mouse hovering into floating musical notes (`animate-note`) and exhaust puffs (`animate-exhaust`).
+  - **Buses**: Headlight beam projects forward on hover, and custom snowfall particles drift down behind mountain peaks.
 
 ---
 
-## 2. Redesigned Booking Detail (`BookingDetail.tsx`)
+## Verification & Testing
 
-We restyled the detailed booking invoice/voucher view at `/my-account/booking/:id` to inherit the same modern aesthetic:
-- **Color Theme**: Set background to warm cream `#FBF7F0`, borders to `#EDE8DF`, and accents to orange `#C9732A` and green `#2D6A4F`.
-- **Aesthetic Cards**: Restyled the status progress timeline, cover/overview panels, logistics accommodation/stay allocations, detailed itinerary timeline, travelers ID upload, inclusions checklists, and operation cancellation/date-change triggers into clean rounded cards.
-
----
-
-## 3. Verification & Build Validation
-
-### TypeScript Compilation Check
-- Run command: `npx tsc --noEmit`
-- **Result**: Completed successfully with **0 compilation errors**.
-
----
-
-## 4. Tasks Filtering in Productivity Hub
-
-We filtered out the automated playbook/checklist tasks from the general Productivity page to prevent cluttering the interface with system-generated task workflows (e.g. checklists for leads/bookings).
-
-### Key Changes:
-- **Tasks List Filter**: Updated `filteredTasks` in `Productivity.tsx` to only retrieve and display tasks where `source === 'manual'`.
-- **Quick Stats Filter**: Updated the pending and overdue task counts in the quick stats cards to only count manual tasks.
-- **Task Submission**: Updated `handleTaskSubmit` to tag newly created and edited tasks as `source: 'manual'`.
-
-### Verification:
-- Build verified using `npm run build` which succeeded with 0 errors.
+1. **Compilation Check**: Verified the project compiles successfully using:
+   ```bash
+   npx tsc --noEmit
+   ```
+   The check completed successfully with zero compilation or logical errors.
+2. **Tab Sliding Pill**: Tested window resize handlers and tab coordinate measurements; the background slider aligns and resizes to the button widths correctly.
+3. **Hover Interactions**: Hovering over the side vector containers triggers the respective animations (speed, notes, headlights, snow, beams, and spins) dynamically.

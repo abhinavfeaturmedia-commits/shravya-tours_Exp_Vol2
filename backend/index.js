@@ -9,6 +9,8 @@ import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import Razorpay from 'razorpay';
+
 import { initEmailService, sendTestEmail, sendAgentIntroductionEmail, sendProposalEmail, sendInvoiceEmail,
     sendOTPEmail, sendPartnerKYCVerifiedEmail, sendPartnerKYCRejectedEmail,
     sendPartnerCommissionPaidEmail, sendLoyaltyTierUpgradeEmail, sendPartnerApprovedEmail } from './emailService.js';
@@ -144,6 +146,122 @@ async function runMigration() {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `);
         console.log('[Migration] otp_tokens table verified/created');
+
+        // ─── Car Rental Master tables ───
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS vehicle_categories (
+                id VARCHAR(64) PRIMARY KEY,
+                name VARCHAR(100) UNIQUE NOT NULL,
+                rate_per_km DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+                min_km INT NOT NULL DEFAULT 0,
+                driver_allowance DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+                night_charge DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+                extra_km_rate DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+                extra_hour_rate DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+                waiting_charges DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+                airport_fee DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+                permit_charges DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+                gst_percent DECIMAL(5, 2) NOT NULL DEFAULT 5.00,
+                passenger_capacity INT NOT NULL DEFAULT 4,
+                luggage_capacity INT NOT NULL DEFAULT 2,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS vehicles (
+                id VARCHAR(64) PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                registration_number VARCHAR(50) UNIQUE NOT NULL,
+                category_id VARCHAR(64) NOT NULL,
+                ownership VARCHAR(20) NOT NULL DEFAULT 'Owned',
+                vendor_id VARCHAR(64) DEFAULT NULL,
+                model_year INT DEFAULT NULL,
+                fuel_type VARCHAR(20) DEFAULT NULL,
+                transmission VARCHAR(20) DEFAULT NULL,
+                fastag_number VARCHAR(50) DEFAULT NULL,
+                current_odometer INT NOT NULL DEFAULT 0,
+                status VARCHAR(20) NOT NULL DEFAULT 'Available',
+                notes TEXT DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS drivers (
+                id VARCHAR(64) PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                mobile VARCHAR(50) UNIQUE NOT NULL,
+                license_number VARCHAR(50) NOT NULL,
+                license_expiry DATE NOT NULL,
+                badge_number VARCHAR(50) DEFAULT NULL,
+                police_verification VARCHAR(50) DEFAULT 'Pending',
+                languages VARCHAR(255) DEFAULT NULL,
+                assigned_vehicle_id VARCHAR(64) DEFAULT NULL,
+                status VARCHAR(20) NOT NULL DEFAULT 'Available',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS car_bookings (
+                id VARCHAR(64) PRIMARY KEY,
+                customer_id VARCHAR(255) NOT NULL,
+                customer_name VARCHAR(255) NOT NULL,
+                customer_email VARCHAR(255) NOT NULL,
+                customer_mobile VARCHAR(50) NOT NULL,
+                pickup_location VARCHAR(255) NOT NULL,
+                drop_location VARCHAR(255) NOT NULL,
+                pickup_date DATE NOT NULL,
+                pickup_time TIME NOT NULL,
+                trip_type VARCHAR(50) NOT NULL,
+                vehicle_category_id VARCHAR(64) NOT NULL,
+                status VARCHAR(50) NOT NULL DEFAULT 'Confirmed',
+                assigned_vehicle_id VARCHAR(64) DEFAULT NULL,
+                assigned_driver_id VARCHAR(64) DEFAULT NULL,
+                assigned_vendor_id VARCHAR(64) DEFAULT NULL,
+                base_fare DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+                estimated_km INT NOT NULL DEFAULT 0,
+                driver_allowance DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+                night_charges DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+                toll_charges DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+                parking_charges DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+                permit_charges DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+                gst_amount DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+                total_amount DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+                vendor_cost DECIMAL(10, 2) DEFAULT 0.00,
+                notes TEXT DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS car_booking_payments (
+                id VARCHAR(64) PRIMARY KEY,
+                booking_id VARCHAR(64) NOT NULL,
+                amount DECIMAL(10, 2) NOT NULL,
+                payment_date DATE NOT NULL,
+                payment_method VARCHAR(50) NOT NULL,
+                transaction_reference VARCHAR(100) DEFAULT NULL,
+                type VARCHAR(20) NOT NULL DEFAULT 'Payment',
+                status VARCHAR(20) NOT NULL DEFAULT 'Verified',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS car_reviews (
+                id VARCHAR(64) PRIMARY KEY,
+                booking_id VARCHAR(64) NOT NULL,
+                driver_rating INT NOT NULL DEFAULT 5,
+                vehicle_rating INT NOT NULL DEFAULT 5,
+                cleanliness_rating INT NOT NULL DEFAULT 5,
+                overall_rating INT NOT NULL DEFAULT 5,
+                comments TEXT DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+        console.log('[Migration] Car rental management tables verified/created');
 
         // Clean up expired OTPs
         await pool.query(`DELETE FROM otp_tokens WHERE expires_at < NOW() - INTERVAL 1 HOUR`).catch(() => {});
@@ -1924,7 +2042,8 @@ const ALLOWED_TABLES = new Set([
     'marketing_logs',
     'marketing_targets', 'marketing_log_comments', 'marketing_log_reactions',
     'marketing_log_leads', 'marketing_log_bookings', 'in_app_notifications',
-    'booking_daily_deliverables'
+    'booking_daily_deliverables',
+    'vehicle_categories', 'vehicles', 'drivers', 'car_bookings', 'car_booking_payments', 'car_reviews'
 ]);
 
 // ─── Auth Middleware ───
@@ -2023,7 +2142,13 @@ const TABLE_TO_MODULE = {
     'marketing_log_reactions': 'marketing',
     'marketing_log_leads': 'marketing',
     'marketing_log_bookings': 'marketing',
-    'in_app_notifications': 'dashboard'
+    'in_app_notifications': 'dashboard',
+    'vehicle_categories': 'operations',
+    'vehicles': 'operations',
+    'drivers': 'operations',
+    'car_bookings': 'operations',
+    'car_booking_payments': 'operations',
+    'car_reviews': 'operations'
 };
 
 async function getStaffPermissionsAndScope(email) {
@@ -4965,13 +5090,16 @@ app.get('/api/customer/membership', customerAuthMiddleware, async (req, res) => 
             LEFT JOIN membership_plans mp ON mp.id = cm.plan_id
             WHERE cm.customer_id = ?
             ORDER BY cm.created_at DESC
-            LIMIT 1
         `, [req.customer.id]);
 
         if (rows.length === 0) return res.json(null);
 
-        const m = rows[0];
-        return res.json({
+        // Find the most recent active/suspended membership
+        const activeOrSuspended = rows.find(r => r.status === 'Active' || r.status === 'Suspended');
+        // Find the most recent pending membership
+        const pendingRequest = rows.find(r => r.status === 'Pending');
+
+        const mapMembership = (m) => ({
             id: m.id,
             planId: m.plan_id,
             planName: m.plan_name,
@@ -4997,6 +5125,19 @@ app.get('/api/customer/membership', customerAuthMiddleware, async (req, res) => 
             notes: m.notes,
             createdAt: m.created_at,
         });
+
+        if (activeOrSuspended) {
+            const responseObj = mapMembership(activeOrSuspended);
+            if (pendingRequest) {
+                responseObj.pendingUpgrade = mapMembership(pendingRequest);
+            }
+            return res.json(responseObj);
+        } else if (pendingRequest) {
+            return res.json(mapMembership(pendingRequest));
+        } else {
+            // No active/suspended or pending request, return the most recent one (e.g. Cancelled/Expired)
+            return res.json(mapMembership(rows[0]));
+        }
     } catch (err) {
         console.error('[Customer Membership] GET error:', err.message);
         return res.status(500).json({ error: 'Failed to fetch membership.' });
@@ -5009,27 +5150,45 @@ app.post('/api/customer/membership/request', customerAuthMiddleware, async (req,
     if (!planId) return res.status(400).json({ error: 'Plan ID is required.' });
 
     try {
-        // 1. Check if already has an active or pending membership
-        const [existing] = await pool.query(
-            "SELECT id, status FROM customer_memberships WHERE customer_id = ? AND status IN ('Active', 'Pending')",
-            [req.customer.id]
-        );
-        if (existing.length > 0) {
-            const s = existing[0].status;
-            return res.status(409).json({
-                error: s === 'Active'
-                    ? 'You already have an active membership. Cancel it first to switch plans.'
-                    : 'You already have a pending membership request. Our team will review it shortly.'
-            });
-        }
-
-        // 2. Fetch plan
+        // 2. Fetch target plan
         const [planRows] = await pool.query(
             'SELECT * FROM membership_plans WHERE id = ? AND is_active = 1',
             [planId]
         );
         if (planRows.length === 0) return res.status(404).json({ error: 'Membership plan not found or inactive.' });
         const plan = planRows[0];
+
+        // 1. Check if already has an active or pending membership
+        const [existing] = await pool.query(
+            "SELECT id, status, tier, plan_name FROM customer_memberships WHERE customer_id = ? AND status IN ('Active', 'Pending')",
+            [req.customer.id]
+        );
+        if (existing.length > 0) {
+            const pendingReq = existing.find(e => e.status === 'Pending');
+            const activeMem = existing.find(e => e.status === 'Active');
+
+            if (pendingReq) {
+                return res.status(409).json({
+                    error: 'You already have a pending membership request. Our team will review it shortly.'
+                });
+            }
+
+            if (activeMem) {
+                const getTierWeight = (t) => {
+                    const weights = { 'Bronze': 1, 'Silver': 2, 'Gold': 3 };
+                    return weights[t] || 0;
+                };
+
+                const activeWeight = getTierWeight(activeMem.tier);
+                const targetWeight = getTierWeight(plan.tier);
+
+                if (targetWeight <= activeWeight) {
+                    return res.status(409).json({
+                        error: `You already have an active ${activeMem.plan_name} (${activeMem.tier}) membership. You can only upgrade to a higher tier plan.`
+                    });
+                }
+            }
+        }
 
         // 3. Fetch customer name/email
         const [cuRows] = await pool.query(
@@ -5116,12 +5275,20 @@ app.post('/api/customer/membership/request', customerAuthMiddleware, async (req,
 
 // DELETE: Customer cancels/leaves their current membership
 app.delete('/api/customer/membership', customerAuthMiddleware, async (req, res) => {
+    const { id } = req.query;
     try {
-        const [rows] = await pool.query(
-            "SELECT id, status, plan_name FROM customer_memberships WHERE customer_id = ? AND status IN ('Active', 'Pending') ORDER BY created_at DESC LIMIT 1",
-            [req.customer.id]
-        );
-        if (rows.length === 0) return res.status(404).json({ error: 'No active membership found.' });
+        let query = "SELECT id, status, plan_name FROM customer_memberships WHERE customer_id = ? AND status IN ('Active', 'Pending')";
+        let params = [req.customer.id];
+        
+        if (id) {
+            query += " AND id = ?";
+            params.push(id);
+        } else {
+            query += " ORDER BY created_at DESC LIMIT 1";
+        }
+
+        const [rows] = await pool.query(query, params);
+        if (rows.length === 0) return res.status(404).json({ error: 'Membership not found.' });
         const m = rows[0];
 
         await pool.query(
@@ -5130,7 +5297,8 @@ app.delete('/api/customer/membership', customerAuthMiddleware, async (req, res) 
         );
 
         console.log(`[Customer Membership] Cancelled membership ${m.id} for customer ${req.customer.id}`);
-        return res.json({ success: true, message: `Your ${m.plan_name} membership has been cancelled.` });
+        const msg = m.status === 'Pending' ? `Your request for ${m.plan_name} has been withdrawn.` : `Your ${m.plan_name} membership has been cancelled.`;
+        return res.json({ success: true, message: msg });
     } catch (err) {
         console.error('[Customer Membership] DELETE error:', err.message);
         return res.status(500).json({ error: 'Failed to cancel membership.' });
@@ -5158,7 +5326,12 @@ app.post('/api/admin/memberships/:id/approve', authMiddleware, async (req, res) 
             return res.status(409).json({ error: `Cannot approve a membership with status '${m.status}'. Only Pending requests can be approved.` });
         }
 
-        // 2. Update status to Active
+        // 2. Update status to Active and cancel previous active membership
+        await pool.query(
+            "UPDATE customer_memberships SET status = 'Cancelled', notes = ? WHERE customer_id = ? AND status = 'Active' AND id != ?",
+            [`Superseded by upgrade to ${m.plan_name}`, m.customer_id, id]
+        );
+
         await pool.query(
             "UPDATE customer_memberships SET status = 'Active', notes = ?, enrolled_by = ? WHERE id = ?",
             [notes || m.notes || 'Approved by admin', req.user?.email || 'Admin', id]
@@ -5592,6 +5765,13 @@ app.post('/api/crud/:table', authMiddleware, validateTable, writeGuard, permissi
         }
 
         // Convert JSON objects/arrays to strings for JSON columns
+        if (table === 'customer_memberships' && body.status === 'Active' && body.customer_id) {
+            await pool.query(
+                "UPDATE customer_memberships SET status = 'Cancelled', notes = ? WHERE customer_id = ? AND status = 'Active'",
+                [`Superseded by direct enrollment in ${body.plan_name || 'new plan'}`, body.customer_id]
+            );
+        }
+
         const columns = Object.keys(body);
         const values = Object.values(body).map(v =>
             typeof v === 'object' && v !== null ? JSON.stringify(v) : v
@@ -9152,12 +9332,326 @@ app.get('/api/playbook-keys', authMiddleware, (req, res) => {
     });
 });
 
+// Get Razorpay credentials (from settings DB, fall back to environment variables)
+async function getRazorpayCredentials() {
+    let keyId = process.env.RAZORPAY_KEY_ID;
+    let keySecret = process.env.RAZORPAY_KEY_SECRET;
+
+    try {
+        const [rows] = await pool.query("SELECT setting_key, setting_value FROM settings WHERE setting_key IN ('integrations.razorpay.keyId', 'integrations.razorpay.keySecret')");
+        rows.forEach(row => {
+            if (row.setting_key === 'integrations.razorpay.keyId') {
+                try { keyId = JSON.parse(row.setting_value) || keyId; } catch {}
+            } else if (row.setting_key === 'integrations.razorpay.keySecret') {
+                try { keySecret = JSON.parse(row.setting_value) || keySecret; } catch {}
+            }
+        });
+    } catch (e) {
+        console.warn("[Razorpay Config] Failed to load from DB settings, using env:", e.message);
+    }
+    return { keyId, keySecret };
+}
+
+// POST Create Razorpay Order
+app.post('/api/customer/razorpay/create-order', customerAuthMiddleware, async (req, res) => {
+    const { amount, currency, receipt, bookingId } = req.body;
+    if (!amount || !bookingId) {
+        return res.status(400).json({ error: 'amount and bookingId are required' });
+    }
+    if (amount < 100) {
+        return res.status(400).json({ error: 'amount must be at least 100 paise (₹1)' });
+    }
+
+    try {
+        // Validate booking ownership
+        const [[booking]] = await pool.query(
+            'SELECT total_price, customer_email FROM bookings WHERE id = ?',
+            [bookingId]
+        );
+        if (!booking) {
+            return res.status(404).json({ error: 'Booking not found' });
+        }
+        // Verify customer owns this booking (using email, case-insensitive)
+        if (!booking.customer_email || booking.customer_email.toLowerCase() !== req.customer.email.toLowerCase()) {
+            return res.status(403).json({ error: 'Access denied. You do not own this booking.' });
+        }
+
+        const { keyId, keySecret } = await getRazorpayCredentials();
+        if (!keyId || !keySecret) {
+            return res.status(500).json({ error: 'Razorpay is not configured on the server.' });
+        }
+
+        const rzp = new Razorpay({
+            key_id: keyId,
+            key_secret: keySecret
+        });
+
+        const order = await rzp.orders.create({
+            amount: Math.round(amount),
+            currency: currency || 'INR',
+            receipt: receipt || `rcpt_${bookingId}_${Date.now()}`
+        });
+
+        res.json({
+            order_id: order.id,
+            amount: order.amount,
+            currency: order.currency
+        });
+    } catch (err) {
+        console.error('[Razorpay Create Order Error]:', err.message);
+        res.status(500).json({ error: 'Failed to create Razorpay order: ' + err.message });
+    }
+});
+
+// POST Verify Razorpay Signature and record transaction
+app.post('/api/customer/razorpay/verify-payment', customerAuthMiddleware, async (req, res) => {
+    const { razorpay_payment_id, razorpay_order_id, razorpay_signature, bookingId, amount } = req.body;
+    if (!razorpay_payment_id || !razorpay_order_id || !razorpay_signature || !bookingId || !amount) {
+        return res.status(400).json({ error: 'Missing required parameters' });
+    }
+
+    try {
+        // Validate booking ownership
+        const [[booking]] = await pool.query(
+            'SELECT total_price, customer_email, customer_name FROM bookings WHERE id = ?',
+            [bookingId]
+        );
+        if (!booking) {
+            return res.status(404).json({ error: 'Booking not found' });
+        }
+        if (!booking.customer_email || booking.customer_email.toLowerCase() !== req.customer.email.toLowerCase()) {
+            return res.status(403).json({ error: 'Access denied. You do not own this booking.' });
+        }
+
+        const { keySecret } = await getRazorpayCredentials();
+        if (!keySecret) {
+            return res.status(500).json({ error: 'Razorpay secret is not configured on the server.' });
+        }
+
+        // Generate signature check
+        const generated_signature = crypto
+            .createHmac('sha256', keySecret)
+            .update(razorpay_order_id + '|' + razorpay_payment_id)
+            .digest('hex');
+
+        if (generated_signature !== razorpay_signature) {
+            await auditLog('RazorpayVerification', 'Finance', `Payment signature mismatch for booking ${bookingId}. Order: ${razorpay_order_id}, Payment: ${razorpay_payment_id}`, req.customer.email);
+            return res.status(400).json({ error: 'Payment signature verification failed' });
+        }
+
+        // Record the transaction
+        const amountInRupees = Number(amount) / 100;
+        
+        // 1. Insert into booking_transactions
+        await pool.query(`
+            INSERT INTO booking_transactions (booking_id, date, amount, type, method, reference, notes, status, recorded_by)
+            VALUES (?, CURDATE(), ?, 'Payment', 'Razorpay', ?, ?, 'Verified', 'System')
+        `, [bookingId, amountInRupees, razorpay_payment_id, `Online payment via Razorpay. Order ID: ${razorpay_order_id}`]);
+
+        // 2. Re-sync booking payment status
+        const [verifiedTxs] = await pool.query(
+            "SELECT amount, type FROM booking_transactions WHERE booking_id = ? AND status = 'Verified'",
+            [bookingId]
+        );
+        const netPaid = verifiedTxs.reduce((sum, t) => {
+            return sum + (t.type === 'Payment' ? Number(t.amount) : t.type === 'Refund' ? -Number(t.amount) : 0);
+        }, 0);
+
+        const totalPrice = Number(booking.total_price || 0);
+        let newPaymentStatus = 'pending';
+        if (totalPrice > 0 && netPaid >= totalPrice) newPaymentStatus = 'paid';
+        else if (netPaid > 0) newPaymentStatus = 'deposit';
+        else if (netPaid < 0) newPaymentStatus = 'refunded';
+
+        await pool.query('UPDATE bookings SET payment_status = ? WHERE id = ?', [newPaymentStatus, bookingId]);
+        
+        await auditLog('RazorpayVerification', 'Finance', `Payment verified and recorded. Amount: ₹${amountInRupees}. Booking ${bookingId} status synced to ${newPaymentStatus}.`, req.customer.email);
+
+        res.json({ success: true, newStatus: newPaymentStatus });
+    } catch (err) {
+        console.error('[Razorpay Verify Payment Error]:', err);
+        res.status(500).json({ error: 'Payment verification failed: ' + err.message });
+    }
+});
+
+// POST Create Razorpay Order for Customer Membership
+app.post('/api/customer/membership/razorpay/create-order', customerAuthMiddleware, async (req, res) => {
+    const { planId, billingCycle } = req.body || {};
+    if (!planId) return res.status(400).json({ error: 'Plan ID is required.' });
+
+    try {
+        // 1. Fetch active plan
+        const [planRows] = await pool.query(
+            'SELECT * FROM membership_plans WHERE id = ? AND is_active = 1',
+            [planId]
+        );
+        if (planRows.length === 0) return res.status(404).json({ error: 'Membership plan not found or inactive.' });
+        const plan = planRows[0];
+
+        // 2. Calculate price based on billing cycle
+        const cycle = billingCycle || 'Yearly';
+        let pricePaid = plan.price_per_year || 0;
+        if (cycle === 'Monthly')       { pricePaid = plan.price_per_month || 0; }
+        else if (cycle === 'Quarterly') { pricePaid = plan.price_per_quarter || 0; }
+        else if (cycle === '6 Months')  { pricePaid = plan.price_per_half_year || 0; }
+
+        if (pricePaid <= 0) {
+            return res.status(400).json({ error: 'Plan is free or price calculation error.' });
+        }
+
+        const { keyId, keySecret } = await getRazorpayCredentials();
+        if (!keyId || !keySecret) {
+            return res.status(500).json({ error: 'Razorpay is not configured on the server.' });
+        }
+
+        const rzp = new Razorpay({
+            key_id: keyId,
+            key_secret: keySecret
+        });
+
+        // Amount in paise
+        const amountInPaise = Math.round(Number(pricePaid) * 100);
+
+        const order = await rzp.orders.create({
+            amount: amountInPaise,
+            currency: 'INR',
+            receipt: `mrcpt_${req.customer.id}_${Date.now()}`
+        });
+
+        res.json({
+            order_id: order.id,
+            amount: order.amount,
+            currency: order.currency
+        });
+    } catch (err) {
+        console.error('[Razorpay Membership Create Order Error]:', err.message);
+        res.status(500).json({ error: 'Failed to create membership payment order: ' + err.message });
+    }
+});
+
+// POST Verify Razorpay Signature and Activate Membership
+app.post('/api/customer/membership/razorpay/verify-payment', customerAuthMiddleware, async (req, res) => {
+    const { razorpay_payment_id, razorpay_order_id, razorpay_signature, planId, billingCycle, amount } = req.body;
+    if (!razorpay_payment_id || !razorpay_order_id || !razorpay_signature || !planId || !amount) {
+        return res.status(400).json({ error: 'Missing required parameters' });
+    }
+
+    try {
+        const { keySecret } = await getRazorpayCredentials();
+        if (!keySecret) {
+            return res.status(500).json({ error: 'Razorpay secret is not configured on the server.' });
+        }
+
+        // 1. Signature check
+        const generated_signature = crypto
+            .createHmac('sha256', keySecret)
+            .update(razorpay_order_id + '|' + razorpay_payment_id)
+            .digest('hex');
+
+        if (generated_signature !== razorpay_signature) {
+            await auditLog('RazorpayVerification', 'Finance', `Payment signature mismatch for membership plan ${planId}. Order: ${razorpay_order_id}, Payment: ${razorpay_payment_id}`, req.customer.email);
+            return res.status(400).json({ error: 'Payment signature verification failed' });
+        }
+
+        // 2. Fetch plan
+        const [planRows] = await pool.query(
+            'SELECT * FROM membership_plans WHERE id = ? AND is_active = 1',
+            [planId]
+        );
+        if (planRows.length === 0) return res.status(404).json({ error: 'Membership plan not found.' });
+        const plan = planRows[0];
+
+        // 3. Fetch customer
+        const [cuRows] = await pool.query(
+            'SELECT name, email FROM customer_users WHERE id = ?',
+            [req.customer.id]
+        );
+        if (cuRows.length === 0) return res.status(404).json({ error: 'Customer not found.' });
+        const customer = cuRows[0];
+
+        // 4. Calculate prices and expiry
+        const cycle = billingCycle || 'Yearly';
+        const startDate = new Date().toISOString().split('T')[0];
+        const expDate = new Date();
+        if (cycle === 'Monthly')       { expDate.setMonth(expDate.getMonth() + 1); }
+        else if (cycle === 'Quarterly') { expDate.setMonth(expDate.getMonth() + 3); }
+        else if (cycle === '6 Months')  { expDate.setMonth(expDate.getMonth() + 6); }
+        else                            { expDate.setFullYear(expDate.getFullYear() + 1); }
+        const expiresOn = expDate.toISOString().split('T')[0];
+
+        const pricePaid = Number(amount) / 100;
+        const membershipId = crypto.randomBytes(16).toString('hex');
+
+        // 5. Deactivate (cancel) any previous active memberships for this customer
+        await pool.query(
+            "UPDATE customer_memberships SET status = 'Cancelled', notes = ? WHERE customer_id = ? AND status = 'Active'",
+            [`Superseded by upgrade to ${plan.name} (Paid via Razorpay)`, req.customer.id]
+        );
+
+        // 6. Create active membership record
+        await pool.query(`
+            INSERT INTO customer_memberships (
+                id, customer_id, customer_name, customer_email,
+                plan_id, plan_name, tier, status, billing_cycle, price_paid,
+                enrolled_on, expires_on,
+                discount_type, discount_percent, discount_flat,
+                hotel_discount, tour_discount, flight_discount, cab_discount,
+                notes, enrolled_by
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'Active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'razorpay')
+        `, [
+            membershipId,
+            req.customer.id,
+            customer.name,
+            customer.email,
+            plan.id,
+            plan.name,
+            plan.tier,
+            cycle,
+            pricePaid,
+            startDate,
+            expiresOn,
+            plan.discount_type || 'Percentage',
+            plan.discount_percent || 0,
+            plan.discount_flat || 0,
+            plan.hotel_discount || 0,
+            plan.tour_discount || 0,
+            plan.flight_discount || 0,
+            plan.cab_discount || 0,
+            `Paid online via Razorpay. Order ID: ${razorpay_order_id}, Payment ID: ${razorpay_payment_id}`,
+        ]);
+
+        // 7. Notify customer
+        try {
+            const notifId = crypto.randomBytes(16).toString('hex');
+            await pool.query(`
+                INSERT INTO customer_notifications (id, customer_id, type, title, message, is_read, created_at)
+                VALUES (?, ?, 'membership_approved', ?, ?, 0, NOW())
+            `, [
+                notifId,
+                req.customer.id,
+                '🎉 Membership Activated!',
+                `Your payment for the ${plan.name} (${plan.tier}) membership is verified. It is now active!`
+            ]);
+        } catch (notifErr) {
+            console.warn('[Membership Pay Verify] Customer notification skipped:', notifErr.message);
+        }
+
+        await auditLog('RazorpayVerification', 'Finance', `Membership ${membershipId} activated for customer ${customer.email} after Razorpay payment verification.`, req.customer.email);
+
+        res.json({ success: true, message: `Your ${plan.name} membership is active!` });
+    } catch (err) {
+        console.error('[Razorpay Verify Membership Error]:', err.message);
+        res.status(500).json({ error: 'Payment verification and membership activation failed: ' + err.message });
+    }
+});
+
 // Catch-all: send React's index.html for any non-API route (SPA routing)
 app.get('*', (req, res) => {
     if (!req.path.startsWith('/api/')) {
         res.sendFile(path.join(__dirname, 'public', 'index.html'));
     }
 });
+
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, '0.0.0.0', async () => {

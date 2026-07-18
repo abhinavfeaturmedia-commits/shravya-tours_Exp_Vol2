@@ -58,6 +58,7 @@ const DocumentEditor = lazy(() => import('./pages/admin/DocumentEditor').then(mo
 const AdminSettings = lazy(() => import('./pages/admin/Settings').then(module => ({ default: module.Settings })));
 const TestimonialsManager = lazy(() => import('./pages/admin/TestimonialsManager').then(module => ({ default: module.TestimonialsManager })));
 const MembershipManager = lazy(() => import('./pages/admin/MembershipManager').then(module => ({ default: module.MembershipManager })));
+const CarRentalManager = lazy(() => import('./pages/admin/CarRentalManager').then(module => ({ default: module.CarRentalManager })));
 const SupportInbox = lazy(() => import('./pages/admin/SupportInbox').then(module => ({ default: module.SupportInbox })));
 const PartnerManager = lazy(() => import('./pages/admin/PartnerManager').then(module => ({ default: module.PartnerManager })));
 const CouponManager = lazy(() => import('./pages/admin/CouponManager').then(module => ({ default: module.CouponManager })));
@@ -154,6 +155,7 @@ const App: React.FC = () => {
                   <Route path="settings" element={<AdminSettings />} />
                   <Route path="testimonials" element={<TestimonialsManager />} />
                   <Route path="memberships" element={<MembershipManager />} />
+                  <Route path="car-rental" element={<CarRentalManager />} />
                   <Route path="support-inbox" element={<SupportInbox />} />
                   <Route path="partners" element={<PartnerManager />} />
                   <Route path="kyc" element={<AdminKYCManager />} />

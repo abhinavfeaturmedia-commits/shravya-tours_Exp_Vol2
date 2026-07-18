@@ -27,6 +27,7 @@ const NAV_GROUPS = [
       { name: 'Itineraries', path: '/admin/itineraries', icon: 'auto_stories', module: 'itinerary' },
       { name: 'Itinerary Builder', path: '/admin/itinerary-builder', icon: 'map', module: 'itinerary' },
       { name: 'Live Operations', path: '/admin/operations', icon: 'traffic', module: 'operations' },
+      { name: 'Car Rentals', path: '/admin/car-rental', icon: 'directions_car', module: 'operations' },
       { name: 'Masters', path: '/admin/masters', icon: 'dataset', module: 'masters' },
     ]
   },

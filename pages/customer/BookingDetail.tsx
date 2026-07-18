@@ -151,6 +151,8 @@ export const BookingDetail: React.FC = () => {
   // Pay Modal State
   const [showPayModal, setShowPayModal] = useState(false);
   const [payAmount, setPayAmount] = useState('');
+  const [onlinePayLoading, setOnlinePayLoading] = useState(false);
+
   const [payMethod, setPayMethod] = useState('UPI / GPay / PhonePe');
   const [payRef, setPayRef] = useState('');
   const [payNotes, setPayNotes] = useState('');
@@ -348,6 +350,104 @@ export const BookingDetail: React.FC = () => {
       setPayLoading(false);
     }
   };
+
+  const formatPrice = (amount: number) => {
+    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount);
+  };
+
+  const handlePayOnline = async () => {
+    if (balanceDue < 1) {
+      alert('The balance due is ₹0 or too small to pay online.');
+      return;
+    }
+
+    if (!(window as any).Razorpay) {
+      alert('Razorpay payment gateway is loading. Please try again in a moment.');
+      return;
+    }
+
+    setOnlinePayLoading(true);
+    try {
+      const token = localStorage.getItem(CUSTOMER_JWT_KEY);
+      if (!token) throw new Error('Authentication token missing. Please log in again.');
+
+      // 1. Create Order on Backend (amount in paise, so * 100)
+      const res = await fetch(`${API_BASE}/api/customer/razorpay/create-order`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          amount: Math.round(balanceDue * 100),
+          currency: 'INR',
+          bookingId: id
+        })
+      });
+      
+      const orderData = await res.json();
+      if (!res.ok) throw new Error(orderData.error || 'Failed to create Razorpay order');
+
+      // 2. Open Razorpay Checkout Modal
+      const options = {
+        key: import.meta.env.VITE_RAZORPAY_KEY_ID,
+        amount: orderData.amount,
+        currency: orderData.currency || 'INR',
+        name: 'SHRAWELLO Travel Hub',
+        description: `Payment for Booking #${id}`,
+        image: '/logo.png',
+        order_id: orderData.order_id,
+        handler: async function (response: any) {
+          setOnlinePayLoading(true);
+          try {
+            const verifyRes = await fetch(`${API_BASE}/api/customer/razorpay/verify-payment`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_signature: response.razorpay_signature,
+                bookingId: id,
+                amount: orderData.amount
+              })
+            });
+            const verifyData = await verifyRes.json();
+            if (!verifyRes.ok) throw new Error(verifyData.error || 'Payment signature verification failed');
+
+            alert('Payment verified and recorded successfully!');
+            fetchAllData();
+          } catch (err: any) {
+            alert('Verification failed: ' + err.message);
+          } finally {
+            setOnlinePayLoading(false);
+          }
+        },
+        prefill: {
+          name: customer?.name || '',
+          email: customer?.email || '',
+          contact: customer?.phone || ''
+        },
+        theme: {
+          color: '#C9732A'
+        },
+        modal: {
+          ondismiss: function () {
+            setOnlinePayLoading(false);
+          }
+        }
+      };
+
+      const rzp = new (window as any).Razorpay(options);
+      rzp.open();
+    } catch (err: any) {
+      alert('Error initiating checkout: ' + err.message);
+      setOnlinePayLoading(false);
+    }
+  };
+
 
   const handleCancelSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -896,6 +996,102 @@ export const BookingDetail: React.FC = () => {
 
             {/* Right Column (Travelers, Inclusions, Actions) */}
             <div className="space-y-6 text-xs font-semibold no-print">
+
+              {/* ── Payment Details Panel ── */}
+              <div className="bg-white rounded-3xl p-6 border border-[#EDE8DF] shadow-sm space-y-4">
+                <div className="flex justify-between items-center border-b border-slate-50 pb-3">
+                  <h3 className="font-display font-bold text-base text-slate-900 flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-primary" style={{ color: '#C9732A' }}>payments</span>
+                    Payment Summary
+                  </h3>
+                  <span className={`text-[10px] font-black px-2.5 py-1 rounded-full uppercase ${
+                    booking.payment_status?.toLowerCase() === 'paid' ? 'bg-emerald-50 text-emerald-600' :
+                    booking.payment_status?.toLowerCase() === 'deposit' ? 'bg-blue-50 text-blue-600' : 'bg-amber-50 text-amber-600'
+                  }`}>
+                    {booking.payment_status?.toLowerCase() === 'paid' ? 'Paid' : booking.payment_status?.toLowerCase() === 'deposit' ? 'Deposit Paid' : 'Unpaid'}
+                  </span>
+                </div>
+
+                <div className="space-y-3 text-xs font-semibold">
+                  <div className="flex justify-between text-slate-500">
+                    <span>Total Package Price</span>
+                    <span className="text-slate-900 font-bold">{formatPrice(Number(booking.total_price || 0))}</span>
+                  </div>
+                  <div className="flex justify-between text-slate-500">
+                    <span>Total Amount Paid</span>
+                    <span className="text-emerald-600 font-bold">{formatPrice(netPaid)}</span>
+                  </div>
+                  <div className="flex justify-between border-t pt-2.5 text-sm font-bold text-slate-800">
+                    <span>Balance Due</span>
+                    <span className="text-primary font-black" style={{ color: '#C9732A' }}>{formatPrice(balanceDue)}</span>
+                  </div>
+
+                  {balanceDue > 0 && booking.status !== 'cancelled' && (
+                    <div className="pt-2">
+                      <button
+                        onClick={() => handlePayOnline()}
+                        disabled={onlinePayLoading}
+                        className="w-full py-3 bg-primary text-white font-bold text-xs rounded-xl shadow-md hover:bg-primary-dark transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+                        style={{ background: 'linear-gradient(135deg, #C9732A, #E8935B)' }}
+                      >
+                        {onlinePayLoading ? (
+                          <>
+                            <div className="animate-spin rounded-full h-4 w-4 border-2 border-t-transparent border-white" />
+                            Processing...
+                          </>
+                        ) : (
+                          <>
+                            <span className="material-symbols-outlined text-[16px]">credit_card</span>
+                            Pay Balance Online
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
+
+                  {balanceDue > 0 && booking.status !== 'cancelled' && (
+                    <button 
+                      onClick={() => setShowPayModal(true)} 
+                      className="w-full text-center text-[10px] font-bold text-slate-400 hover:text-slate-655 transition-colors pt-1"
+                    >
+                      Or upload bank transfer (UTR) receipt
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* ── Transaction History Panel ── */}
+              <div className="bg-white rounded-3xl p-6 border border-[#EDE8DF] shadow-sm space-y-4">
+                <div className="flex justify-between items-center border-b border-slate-50 pb-3">
+                  <h3 className="font-display font-bold text-base text-slate-900">Transaction History</h3>
+                </div>
+                
+                {transactions.length === 0 ? (
+                  <div className="text-center py-4 text-slate-400 text-xs font-medium">
+                    No transactions recorded yet for this booking.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {transactions.map((tx, idx) => (
+                      <div key={idx} className="p-3 bg-slate-50 rounded-2xl flex justify-between items-center text-xs">
+                        <div>
+                          <p className="font-bold text-slate-800">{tx.method || 'Online Payment'}</p>
+                          <p className="text-[9px] text-slate-400 mt-0.5">{tx.date ? new Date(tx.date).toLocaleDateString('en-IN') : ''} &bull; Ref: {tx.reference}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-bold text-slate-800">{formatPrice(Number(tx.amount || 0))}</p>
+                          <span className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider ${
+                            tx.status === 'Verified' ? 'bg-emerald-50 text-emerald-600' :
+                            tx.status === 'Rejected' ? 'bg-rose-50 text-rose-600' : 'bg-amber-50 text-amber-600'
+                          }`}>
+                            {tx.status}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
               
               {/* Travelers Panel */}
               <div className="bg-white rounded-3xl p-6 border border-[#EDE8DF] shadow-sm space-y-4">

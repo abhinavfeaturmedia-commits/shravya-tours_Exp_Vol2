@@ -19,12 +19,360 @@ import {
   FlightBookingData,
 } from '../components/booking';
 
+const BookingSideAnimations: React.FC<{ activeTab: string; side: 'left' | 'right' }> = ({ activeTab, side }) => {
+  const isLeft = side === 'left';
+
+  switch (activeTab) {
+    case 'hotel-booking':
+      if (isLeft) {
+        return (
+          <div key="hotel-left" className="w-full h-full flex items-center justify-center animate-car-enter group cursor-pointer">
+            <svg viewBox="0 0 100 100" className="w-28 h-28 2xl:w-40 2xl:h-40 animate-float-slow group-hover:scale-105 transition-transform duration-300" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M35 80H65M35 80C30 80 25 75 25 70V30C25 22 35 15 50 15C65 15 75 22 75 30V70C75 75 70 80 65 80M50 15V80" stroke="#C9732A" strokeWidth="3" strokeLinecap="round" />
+              <path d="M25 45H75M25 65H75" stroke="#C9732A" strokeWidth="2" />
+              <circle cx="35" cy="85" r="5" fill="#475569" stroke="#C9732A" strokeWidth="2" />
+              <circle cx="65" cy="85" r="5" fill="#475569" stroke="#C9732A" strokeWidth="2" />
+              <rect x="28" y="66" width="20" height="13" rx="2" fill="#2D6A4F" stroke="#1B4332" strokeWidth="1.5" />
+              <rect x="34" y="63" width="8" height="3" rx="1" fill="#1b4332" />
+              <rect x="50" y="67" width="22" height="12" rx="2" fill="#E8935B" stroke="#C9732A" strokeWidth="1.5" />
+              <rect x="57" y="64" width="8" height="3" rx="1" fill="#C9732A" />
+              <rect x="33" y="50" width="34" height="14" rx="2" fill="#52B788" stroke="#2D6A4F" strokeWidth="1.5" />
+              <rect x="46" y="47" width="8" height="3" rx="1" fill="#2D6A4F" />
+              <line x1="68" y1="35" x2="71" y2="40" stroke="#C9732A" strokeWidth="1.5" />
+              <rect x="68" y="40" width="8" height="12" rx="1" fill="#f59e0b" className="animate-sway-sign" style={{ transformOrigin: '72px 40px' }} />
+              <circle cx="50" cy="12" r="3" fill="#f59e0b" />
+            </svg>
+          </div>
+        );
+      } else {
+        return (
+          <div key="hotel-right" className="w-full h-full flex items-center justify-center animate-sign-enter group cursor-pointer">
+            <svg viewBox="0 0 100 100" className="w-28 h-28 2xl:w-40 2xl:h-40 animate-float-medium group-hover:scale-105 transition-transform duration-300" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <linearGradient id="hotelSunset" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#C9732A" />
+                  <stop offset="60%" stopColor="#f59e0b" />
+                  <stop offset="100%" stopColor="#52B788" stopOpacity="0.4" />
+                </linearGradient>
+              </defs>
+              <circle cx="50" cy="50" r="40" fill="url(#hotelSunset)" />
+              <g className="animate-sunbeam" style={{ transformOrigin: '50px 55px' }}>
+                <line x1="50" y1="32" x2="50" y2="24" stroke="#FEF08A" strokeWidth="1.5" strokeLinecap="round" />
+                <line x1="68" y1="40" x2="75" y2="34" stroke="#FEF08A" strokeWidth="1.5" strokeLinecap="round" />
+                <line x1="72" y1="58" x2="80" y2="60" stroke="#FEF08A" strokeWidth="1.5" strokeLinecap="round" />
+                <line x1="32" y1="40" x2="25" y2="34" stroke="#FEF08A" strokeWidth="1.5" strokeLinecap="round" />
+                <line x1="28" y1="58" x2="20" y2="60" stroke="#FEF08A" strokeWidth="1.5" strokeLinecap="round" />
+              </g>
+              <circle cx="50" cy="55" r="14" fill="#FEF08A" />
+              <path d="M25 85C28 70 36 60 48 58" stroke="#1E293B" strokeWidth="3" strokeLinecap="round" />
+              <path d="M48 58C42 52 32 54 28 58" stroke="#2D6A4F" strokeWidth="2.5" strokeLinecap="round" className="animate-sway-sign" style={{ transformOrigin: '48px 58px' }} />
+              <path d="M48 58C46 48 38 46 34 48" stroke="#2D6A4F" strokeWidth="2.5" strokeLinecap="round" />
+              <path d="M48 58C52 48 58 50 62 54" stroke="#2D6A4F" strokeWidth="2.5" strokeLinecap="round" />
+              <path d="M48 58C54 62 52 68 46 70" stroke="#2D6A4F" strokeWidth="2.5" strokeLinecap="round" />
+              <path d="M52 80H78M60 80L66 68L78 68" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" />
+              <path d="M78 68L84 60" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" />
+              <path d="M15 78C25 76 35 80 45 78C55 76 65 80 75 78C80 77 82 78 85 78" stroke="#ffffff" strokeWidth="1.5" strokeOpacity="0.6" strokeLinecap="round" />
+              <path d="M18 83C28 81 38 85 48 83C58 81 68 85 78 83" stroke="#ffffff" strokeWidth="1.5" strokeOpacity="0.4" strokeLinecap="round" />
+            </svg>
+          </div>
+        );
+      }
+
+    case 'tour-packages':
+      if (isLeft) {
+        return (
+          <div key="tour-left" className="w-full h-full flex items-center justify-center animate-spin-compass group cursor-pointer">
+            <svg viewBox="0 0 100 100" className="w-24 h-24 2xl:w-36 2xl:h-36 transition-transform duration-300 group-hover:scale-105" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="50" cy="50" r="42" stroke="#C9732A" strokeWidth="3.5" fill="#FFFFFF" className="dark:fill-[#152019]" />
+              <circle cx="50" cy="50" r="37" stroke="#2D6A4F" strokeWidth="1.5" strokeDasharray="3 3" />
+              <text x="47" y="22" fill="#C9732A" fontSize="9" fontWeight="900" fontFamily="sans-serif">N</text>
+              <text x="48" y="86" fill="#64748B" fontSize="8" fontWeight="700" fontFamily="sans-serif">S</text>
+              <text x="81" y="53" fill="#64748B" fontSize="8" fontWeight="700" fontFamily="sans-serif">E</text>
+              <text x="14" y="53" fill="#64748B" fontSize="8" fontWeight="700" fontFamily="sans-serif">W</text>
+              <path d="M50 25L53 37L50 40L47 37Z" fill="#C9732A" />
+              <path d="M50 75L53 63L50 60L47 63Z" fill="#64748B" />
+              <g className="animate-sway group-hover:animate-spin-compass-fast" style={{ transformOrigin: '50px 50px' }}>
+                <path d="M50 50L44 46L50 16Z" fill="#ef4444" stroke="#dc2626" strokeWidth="0.5" />
+                <path d="M50 50L56 46L50 16Z" fill="#f87171" stroke="#dc2626" strokeWidth="0.5" />
+                <path d="M50 50L44 54L50 84Z" fill="#94a3b8" stroke="#64748B" strokeWidth="0.5" />
+                <path d="M50 50L56 54L50 84Z" fill="#cbd5e1" stroke="#64748B" strokeWidth="0.5" />
+                <circle cx="50" cy="50" r="5" fill="#475569" stroke="#ffffff" strokeWidth="1.5" />
+              </g>
+            </svg>
+          </div>
+        );
+      } else {
+        return (
+          <div key="tour-right" className="w-full h-full flex items-center justify-center animate-balloon-rise group cursor-pointer">
+            <svg viewBox="0 0 100 100" className="w-28 h-28 2xl:w-40 2xl:h-40 group-hover:translate-y-[-10px] transition-transform duration-500" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M10 82C15 77 25 77 30 82C35 80 45 80 50 85H10" fill="#e2e8f0" fillOpacity="0.7" className="animate-cloud dark:fill-[#243527] group-hover:animate-cloud-fast" />
+              <path d="M55 88C60 83 70 83 75 88C80 86 90 86 95 91H55" fill="#cbd5e1" fillOpacity="0.5" className="animate-cloud dark:fill-[#243527] group-hover:animate-cloud-fast" style={{ animationDelay: '-2s' }} />
+              <defs>
+                <clipPath id="balloonClip">
+                  <path d="M50 15C32 15 25 28 25 45C25 58 38 68 44 75H56C62 68 75 58 75 45C75 28 68 15 50 15Z" />
+                </clipPath>
+              </defs>
+              <g clipPath="url(#balloonClip)">
+                <rect x="20" y="10" width="60" height="70" fill="#E8935B" />
+                <path d="M35 10C42 20 42 60 35 80" fill="none" stroke="#C9732A" strokeWidth="8" />
+                <path d="M50 10C50 20 50 60 50 80" fill="none" stroke="#2D6A4F" strokeWidth="8" />
+                <path d="M65 10C58 20 58 60 65 80" fill="none" stroke="#f59e0b" strokeWidth="8" />
+              </g>
+              <path d="M50 15C32 15 25 28 25 45C25 58 38 68 44 75H56C62 68 75 58 75 45C75 28 68 15 50 15Z" stroke="#475569" strokeWidth="2.5" />
+              <line x1="46" y1="75" x2="47" y2="82" stroke="#475569" strokeWidth="1.5" />
+              <line x1="54" y1="75" x2="53" y2="82" stroke="#475569" strokeWidth="1.5" />
+              <rect x="45" y="82" width="10" height="8" rx="1.5" fill="#b45309" stroke="#78350f" strokeWidth="1.5" />
+            </svg>
+          </div>
+        );
+      }
+
+    case 'flight-booking':
+      if (isLeft) {
+        return (
+          <div key="flight-left" className="w-full h-full flex items-center justify-center animate-plane-takeoff group cursor-pointer">
+            <svg viewBox="0 0 100 100" className="w-28 h-28 2xl:w-40 2xl:h-40 animate-float-slow group-hover:translate-y-[-8px] transition-transform duration-300" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M15 85C25 80 40 70 55 45C62 34 72 16 80 15" stroke="#C9732A" strokeWidth="2" strokeDasharray="5 5" className="animate-dash" />
+              <g transform="translate(50, 42) rotate(-30) scale(0.9)">
+                <path d="M-20 -2C-22 -2 -25 0 -25 3C-25 6 -20 6 -15 6L20 4C24 4 28 2 28 -1C28 -4 24 -5 20 -5L-20 -2Z" fill="#C9732A" />
+                <path d="M-20 0C-22 0 -25 1 -25 3C-25 5 -20 5 -15 5L20 3.5C24 3.5 28 2 28 0C28 -2 24 -3 20 -3L-20 0Z" fill="#FFFFFF" />
+                <path d="M-5 -2L-15 -25L-5 -25L5 -2Z" fill="#C9732A" />
+                <path d="M-5 4L-15 27L-5 27L5 4Z" fill="#C9732A" />
+                <path d="M-20 -2L-26 -14L-18 -14L-14 -2Z" fill="#2D6A4F" />
+                <rect x="-8" y="-12" width="6" height="3" rx="1.5" fill="#475569" />
+                <rect x="-8" y="10" width="6" height="3" rx="1.5" fill="#475569" />
+              </g>
+            </svg>
+          </div>
+        );
+      } else {
+        return (
+          <div key="flight-right" className="w-full h-full flex items-center justify-center animate-plane-landing group cursor-pointer">
+            <svg viewBox="0 0 100 100" className="w-28 h-28 2xl:w-40 2xl:h-40 animate-float-slow group-hover:translate-y-[8px] transition-transform duration-300" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M45 42C50 37 60 37 65 42C70 40 80 40 85 45H45" fill="#ffffff" fillOpacity="0.8" className="animate-cloud group-hover:animate-cloud-fast" />
+              <path d="M10 72C15 67 25 67 30 72C35 70 45 70 50 75H10" fill="#e2e8f0" fillOpacity="0.6" className="animate-cloud dark:fill-[#243527] group-hover:animate-cloud-fast" style={{ animationDelay: '-3s' }} />
+              <g transform="translate(42, 45) rotate(15) scale(0.9)">
+                <path d="M-20 -2C-22 -2 -25 0 -25 3C-25 6 -20 6 -15 6L20 4C24 4 28 2 28 -1C28 -4 24 -5 20 -5L-20 -2Z" fill="#2D6A4F" />
+                <path d="M-20 0C-22 0 -25 1 -25 3C-25 5 -20 5 -15 5L20 3.5C24 3.5 28 2 28 0C28 -2 24 -3 20 -3L-20 0Z" fill="#FFFFFF" />
+                <path d="M-5 -2L-15 -25L-5 -25L5 -2Z" fill="#2D6A4F" />
+                <path d="M-5 4L-15 27L-5 27L5 4Z" fill="#2D6A4F" />
+                <path d="M-20 -2L-26 -14L-18 -14L-14 -2Z" fill="#C9732A" />
+              </g>
+            </svg>
+          </div>
+        );
+      }
+
+    case 'train-booking':
+      if (isLeft) {
+        return (
+          <div key="train-left" className="w-full h-full flex items-center justify-center animate-train-left group cursor-pointer">
+            <svg viewBox="0 0 100 100" className="w-28 h-28 2xl:w-40 2xl:h-40 group-hover:translate-x-[5px] transition-transform duration-300" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <line x1="5" y1="78" x2="95" y2="78" stroke="#94a3b8" strokeWidth="2.5" />
+              <line x1="5" y1="84" x2="95" y2="84" stroke="#475569" strokeWidth="1" />
+              <line x1="15" y1="78" x2="10" y2="84" stroke="#64748B" strokeWidth="1.5" />
+              <line x1="35" y1="78" x2="30" y2="84" stroke="#64748B" strokeWidth="1.5" />
+              <line x1="55" y1="78" x2="50" y2="84" stroke="#64748B" strokeWidth="1.5" />
+              <line x1="75" y1="78" x2="70" y2="84" stroke="#64748B" strokeWidth="1.5" />
+              <path d="M-30 45H35C45 45 60 48 70 54L85 64C88 66 88 74 82 75H-30V45Z" fill="#E2E8F0" className="dark:fill-[#243527]" stroke="#475569" strokeWidth="1.5" />
+              <path d="M-30 60H64C68 60 72 62 75 64L82 70V72H-30V60Z" fill="#2D6A4F" />
+              <path d="M68 53C70 53 72 54 74 56L80 63H68V53Z" fill="#1E293B" />
+              <rect x="-20" y="50" width="12" height="7" rx="1.5" fill="#1E293B" />
+              <rect x="-3" y="50" width="12" height="7" rx="1.5" fill="#1E293B" />
+              <rect x="14" y="50" width="12" height="7" rx="1.5" fill="#1E293B" />
+              <rect x="31" y="50" width="12" height="7" rx="1.5" fill="#1E293B" />
+              <circle cx="81" cy="70" r="3.5" fill="#FEF08A" className="group-hover:animate-pulse" />
+              <circle cx="81" cy="70" r="1.5" fill="#FFFFFF" />
+              <path d="M-25 38H15M-10 33H5" stroke="#E8935B" strokeWidth="2" strokeLinecap="round" opacity="0.8" />
+            </svg>
+          </div>
+        );
+      } else {
+        return (
+          <div key="train-right" className="w-full h-full flex items-center justify-center animate-train-right group cursor-pointer">
+            <svg viewBox="0 0 100 100" className="w-28 h-28 2xl:w-40 2xl:h-40 group-hover:translate-x-[-5px] transition-transform duration-300" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <line x1="5" y1="78" x2="95" y2="78" stroke="#94a3b8" strokeWidth="2.5" />
+              <line x1="5" y1="84" x2="95" y2="84" stroke="#475569" strokeWidth="1" />
+              <line x1="25" y1="78" x2="30" y2="84" stroke="#64748B" strokeWidth="1.5" />
+              <line x1="45" y1="78" x2="50" y2="84" stroke="#64748B" strokeWidth="1.5" />
+              <line x1="65" y1="78" x2="70" y2="84" stroke="#64748B" strokeWidth="1.5" />
+              <line x1="85" y1="78" x2="90" y2="84" stroke="#64748B" strokeWidth="1.5" />
+              <path d="M130 45H65C55 45 40 48 30 54L15 64C12 66 12 74 18 75H130V45Z" fill="#E2E8F0" className="dark:fill-[#243527]" stroke="#475569" strokeWidth="1.5" />
+              <path d="M130 60H36C32 60 28 62 25 64L18 70V72H130V60Z" fill="#C9732A" />
+              <path d="M32 53C30 53 28 54 26 56L20 63H32V53Z" fill="#1E293B" />
+              <rect x="108" y="50" width="12" height="7" rx="1.5" fill="#1E293B" />
+              <rect x="91" y="50" width="12" height="7" rx="1.5" fill="#1E293B" />
+              <rect x="74" y="50" width="12" height="7" rx="1.5" fill="#1E293B" />
+              <rect x="57" y="50" width="12" height="7" rx="1.5" fill="#1E293B" />
+              <circle cx="19" cy="70" r="3.5" fill="#FEF08A" className="group-hover:animate-pulse" />
+              <circle cx="19" cy="70" r="1.5" fill="#FFFFFF" />
+              <path d="M125 38H85M110 33H95" stroke="#52B788" strokeWidth="2" strokeLinecap="round" opacity="0.8" />
+            </svg>
+          </div>
+        );
+      }
+
+    case 'car-booking':
+      if (isLeft) {
+        return (
+          <div key="car-left" className="w-full h-full flex items-center justify-center animate-car-enter group cursor-pointer">
+            <svg viewBox="0 0 100 100" className="w-32 h-32 2xl:w-44 2xl:h-44 group-hover:-translate-y-1 transition-transform duration-300" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <ellipse cx="50" cy="80" rx="35" ry="5" fill="#475569" fillOpacity="0.2" />
+              <path d="M40 50L45 37H63L68 50Z" fill="#cbd5e1" stroke="#334155" strokeWidth="2" />
+              <path d="M22 62C22 55 30 50 48 50H78C84 50 88 54 88 60V73H22V62Z" fill="#2D6A4F" stroke="#1B4332" strokeWidth="2" />
+              <path d="M12 60C12 58 15 56 22 56V73H12V60Z" fill="#2D6A4F" stroke="#1B4332" strokeWidth="2" />
+              <g className="animate-wheel" style={{ transformOrigin: '32px 73px' }}>
+                <circle cx="32" cy="73" r="11" fill="#1E293B" stroke="#475569" strokeWidth="2.5" />
+                <circle cx="32" cy="73" r="6" fill="#cbd5e1" />
+                <line x1="32" y1="62" x2="32" y2="84" stroke="#475569" strokeWidth="1.5" />
+                <line x1="21" y1="73" x2="43" y2="73" stroke="#475569" strokeWidth="1.5" />
+              </g>
+              <g className="animate-wheel" style={{ transformOrigin: '72px 73px' }}>
+                <circle cx="72" cy="73" r="11" fill="#1E293B" stroke="#475569" strokeWidth="2.5" />
+                <circle cx="72" cy="73" r="6" fill="#cbd5e1" />
+                <line x1="72" y1="62" x2="72" y2="84" stroke="#475569" strokeWidth="1.5" />
+                <line x1="61" y1="73" x2="83" y2="73" stroke="#475569" strokeWidth="1.5" />
+              </g>
+              <rect x="10" y="62" width="4" height="6" rx="1" fill="#FEF08A" />
+              <rect x="86" y="62" width="3" height="6" rx="1" fill="#EF4444" />
+              <rect x="52" y="58" width="6" height="2" rx="1" fill="#cbd5e1" />
+              <circle cx="94" cy="73" r="2.5" fill="#94a3b8" className="animate-exhaust" />
+              <circle cx="98" cy="71" r="1.5" fill="#94a3b8" className="animate-exhaust" style={{ animationDelay: '0.4s' }} />
+              <circle cx="102" cy="69" r="1" fill="#94a3b8" className="animate-exhaust" style={{ animationDelay: '0.8s' }} />
+              <g className="opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                <path d="M48 30V18C48 18 52 16 55 19" stroke="#E8935B" strokeWidth="1.2" strokeLinecap="round" className="animate-note" />
+                <circle cx="45" cy="30" r="2.5" fill="#E8935B" />
+                
+                <path d="M62 25V13C62 13 66 11 69 14" stroke="#52B788" strokeWidth="1.2" strokeLinecap="round" className="animate-note" style={{ animationDelay: '0.5s' }} />
+                <circle cx="59" cy="25" r="2.5" fill="#52B788" />
+              </g>
+            </svg>
+          </div>
+        );
+      } else {
+        return (
+          <div key="car-right" className="w-full h-full flex items-center justify-center animate-sign-enter group cursor-pointer">
+            <svg viewBox="0 0 100 100" className="w-28 h-28 2xl:w-40 2xl:h-40 animate-sway-sign" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M20 90C40 88 60 92 80 90" stroke="#2D6A4F" strokeWidth="3" strokeLinecap="round" />
+              <rect x="47" y="25" width="6" height="65" fill="#78350f" stroke="#451a03" strokeWidth="1.5" />
+              <g transform="translate(18, 30)" className="group-hover:-translate-x-1 transition-transform duration-300">
+                <path d="M0 8L8 0H52V16H8L0 8Z" fill="#C9732A" stroke="#9A3412" strokeWidth="1.5" />
+                <text x="14" y="11" fill="#FFFFFF" fontSize="6.5" fontWeight="900" fontFamily="sans-serif">MOUNTAINS</text>
+              </g>
+              <g transform="translate(32, 48)" className="group-hover:translate-x-1 transition-transform duration-300">
+                <path d="M52 8L44 0H0V16H44L52 8Z" fill="#2D6A4F" stroke="#1B4332" strokeWidth="1.5" />
+                <text x="10" y="11" fill="#FFFFFF" fontSize="7.5" fontWeight="900" fontFamily="sans-serif">BEACH</text>
+              </g>
+              <g transform="translate(28, 66)" className="group-hover:translate-x-1 transition-transform duration-300">
+                <path d="M56 8L48 0H0V16H48L56 8Z" fill="#f59e0b" stroke="#b45309" strokeWidth="1.5" />
+                <text x="6" y="11" fill="#ffffff" fontSize="6.5" fontWeight="900" fontFamily="sans-serif">ADVENTURE</text>
+              </g>
+            </svg>
+          </div>
+        );
+      }
+
+    case 'bus-booking':
+      if (isLeft) {
+        return (
+          <div key="bus-left" className="w-full h-full flex items-center justify-center animate-car-enter group cursor-pointer">
+            <svg viewBox="0 0 100 100" className="w-32 h-32 2xl:w-44 2xl:h-44 group-hover:-translate-y-1 transition-transform duration-300" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <ellipse cx="50" cy="80" rx="36" ry="4.5" fill="#475569" fillOpacity="0.2" />
+              <rect x="18" y="28" width="68" height="44" rx="5" fill="#C9732A" stroke="#9A3412" strokeWidth="2" />
+              <circle cx="34" cy="72" r="10" fill="#FBF7F0" className="dark:fill-[#0D1710]" />
+              <circle cx="70" cy="72" r="10" fill="#FBF7F0" className="dark:fill-[#0D1710]" />
+              <rect x="23" y="33" width="10" height="10" rx="1.5" fill="#1E293B" />
+              <rect x="36" y="33" width="10" height="10" rx="1.5" fill="#1E293B" />
+              <rect x="49" y="33" width="10" height="10" rx="1.5" fill="#1E293B" />
+              <rect x="62" y="33" width="10" height="10" rx="1.5" fill="#1E293B" />
+              <rect x="75" y="33" width="8" height="10" rx="1.5" fill="#1E293B" />
+              <rect x="23" y="49" width="10" height="11" rx="1.5" fill="#1E293B" />
+              <rect x="36" y="49" width="10" height="11" rx="1.5" fill="#1E293B" />
+              <rect x="49" y="49" width="10" height="11" rx="1.5" fill="#1E293B" />
+              <rect x="62" y="49" width="10" height="11" rx="1.5" fill="#1E293B" />
+              <path d="M75 49H82V56H75V49Z" fill="#1E293B" />
+              <g className="animate-wheel" style={{ transformOrigin: '34px 72px' }}>
+                <circle cx="34" cy="72" r="9" fill="#1E293B" stroke="#475569" strokeWidth="2" />
+                <circle cx="34" cy="72" r="4" fill="#cbd5e1" />
+                <line x1="34" y1="63" x2="34" y2="81" stroke="#475569" strokeWidth="1" />
+                <line x1="25" y1="72" x2="43" y2="72" stroke="#475569" strokeWidth="1" />
+              </g>
+              <g className="animate-wheel" style={{ transformOrigin: '70px 72px' }}>
+                <circle cx="70" cy="72" r="9" fill="#1E293B" stroke="#475569" strokeWidth="2" />
+                <circle cx="70" cy="72" r="4" fill="#cbd5e1" />
+                <line x1="70" y1="63" x2="70" y2="81" stroke="#475569" strokeWidth="1" />
+                <line x1="61" y1="72" x2="79" y2="72" stroke="#475569" strokeWidth="1" />
+              </g>
+              <circle cx="16" cy="62" r="2.5" fill="#FEF08A" />
+              <polygon points="16,62 -12,52 -12,72" fill="#FEF08A" fillOpacity="0" className="group-hover:fill-opacity-25 transition-all duration-300 pointer-events-none" />
+              <rect x="85" y="60" width="2" height="6" fill="#EF4444" />
+              <circle cx="92" cy="72" r="2.5" fill="#94a3b8" className="animate-exhaust" />
+              <circle cx="96" cy="70" r="1.5" fill="#94a3b8" className="animate-exhaust" style={{ animationDelay: '0.4s' }} />
+            </svg>
+          </div>
+        );
+      } else {
+        return (
+          <div key="bus-right" className="w-full h-full flex items-center justify-center animate-sign-enter group cursor-pointer">
+            <svg viewBox="0 0 100 100" className="w-28 h-28 2xl:w-40 2xl:h-40 animate-float-medium group-hover:scale-105 transition-transform duration-300" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <polygon points="10,80 40,40 70,80" fill="#52B788" fillOpacity="0.4" stroke="#2D6A4F" strokeWidth="1.5" />
+              <polygon points="40,80 65,45 90,80" fill="#2D6A4F" fillOpacity="0.3" stroke="#1B4332" strokeWidth="1.5" />
+              <polygon points="34,48 40,40 46,48 43,46 40,48 37,46" fill="#FFFFFF" />
+              <polygon points="60,52 65,45 70,52 67,50 65,52 63,50" fill="#FFFFFF" />
+              <g className="pointer-events-none">
+                <circle cx="30" cy="20" r="1" fill="#FFFFFF" className="animate-snow" />
+                <circle cx="45" cy="15" r="1" fill="#FFFFFF" className="animate-snow" style={{ animationDelay: '0.5s' }} />
+                <circle cx="60" cy="25" r="1.2" fill="#FFFFFF" className="animate-snow" style={{ animationDelay: '1s' }} />
+                <circle cx="75" cy="18" r="1.2" fill="#FFFFFF" className="animate-snow" style={{ animationDelay: '1.5s' }} />
+                <circle cx="20" cy="30" r="1" fill="#FFFFFF" className="animate-snow" style={{ animationDelay: '2s' }} />
+              </g>
+              <path d="M5 80H95L80 92H20L5 80Z" fill="#334155" />
+              <line x1="50" y1="80" x2="50" y2="92" stroke="#E2E8F0" strokeWidth="1.5" strokeDasharray="3 3" />
+              <g className="animate-pulse-pin" style={{ transformOrigin: '50px 30px' }}>
+                <ellipse cx="50" cy="55" rx="8" ry="2" fill="#1E293B" fillOpacity="0.3" />
+                <path d="M50 55C50 55 64 42 64 30C64 18 58 10 50 10C42 10 36 18 36 30C36 42 50 55 50 55Z" fill="#C9732A" stroke="#9A3412" strokeWidth="2" />
+                <circle cx="50" cy="30" r="6" fill="#FFFFFF" />
+              </g>
+            </svg>
+          </div>
+        );
+      }
+
+    default:
+      return null;
+  }
+};
+
 export const Home: React.FC = () => {
   const { packages, cmsBanners, cmsTestimonials, cmsGallery, trendingDestinations, membershipPlans } = useData();
   const [activeTab, setActiveTab] = useState('tour-packages');
   const navigate = useNavigate();
 
   const carouselRef = useRef<HTMLDivElement>(null);
+
+  // Tab Active Pill sliding refs and effect
+  const tabRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({});
+  const [pillStyle, setPillStyle] = useState<{ left?: number; width?: number }>({});
+
+  const updatePillPosition = useCallback(() => {
+    const activeBtn = tabRefs.current[activeTab];
+    if (activeBtn) {
+      setPillStyle({
+        left: activeBtn.offsetLeft,
+        width: activeBtn.offsetWidth,
+      });
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    const timer = setTimeout(updatePillPosition, 50);
+    return () => clearTimeout(timer);
+  }, [activeTab, updatePillPosition]);
+
+  useEffect(() => {
+    window.addEventListener('resize', updatePillPosition, { passive: true });
+    return () => window.removeEventListener('resize', updatePillPosition);
+  }, [updatePillPosition]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -260,6 +608,184 @@ export const Home: React.FC = () => {
         description="Book handpicked hotels, seamless flights, and immersive tours. Join 50,000+ travelers for unforgettable experiences."
       />
 
+      <style>{`
+        @keyframes float-slow {
+          0%, 100% { transform: translateY(0px); }
+          50% { transform: translateY(-8px); }
+        }
+        @keyframes float-medium {
+          0%, 100% { transform: translateY(0px) rotate(0deg); }
+          50% { transform: translateY(-10px) rotate(2deg); }
+        }
+        @keyframes sway-needle {
+          0%, 100% { transform: rotate(0deg); }
+          25% { transform: rotate(-8deg); }
+          75% { transform: rotate(8deg); }
+        }
+        @keyframes wheel-spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        @keyframes plane-takeoff {
+          0% { transform: translate(-120px, 80px) rotate(-15deg) scale(0.7); opacity: 0; }
+          100% { transform: translate(0, 0) rotate(0deg) scale(1); opacity: 1; }
+        }
+        @keyframes plane-landing {
+          0% { transform: translate(120px, -80px) rotate(-15deg) scale(0.7); opacity: 0; }
+          100% { transform: translate(0, 0) rotate(0deg) scale(1); opacity: 1; }
+        }
+        @keyframes train-enter-left {
+          0% { transform: translateX(-180px); opacity: 0; }
+          70% { transform: translateX(8px); }
+          100% { transform: translateX(0); opacity: 1; }
+        }
+        @keyframes train-enter-right {
+          0% { transform: translateX(180px); opacity: 0; }
+          70% { transform: translateX(-8px); }
+          100% { transform: translateX(0); opacity: 1; }
+        }
+        @keyframes train-vibrate {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-1px); }
+        }
+        @keyframes car-enter {
+          0% { transform: translateX(-160px) rotate(-2deg); opacity: 0; }
+          75% { transform: translateX(6px) rotate(1deg); }
+          100% { transform: translateX(0) rotate(0deg); opacity: 1; }
+        }
+        @keyframes sign-enter {
+          0% { transform: translateY(-40px) rotate(-8deg); opacity: 0; }
+          60% { transform: translateY(6px) rotate(3deg); }
+          100% { transform: translateY(0) rotate(0deg); opacity: 1; }
+        }
+        @keyframes spin-compass {
+          0% { transform: rotate(-180deg) scale(0.6); opacity: 0; }
+          100% { transform: rotate(0deg) scale(1); opacity: 1; }
+        }
+        @keyframes balloon-rise {
+          0% { transform: translate(40px, 120px) scale(0.8); opacity: 0; }
+          100% { transform: translate(0, 0) scale(1); opacity: 1; }
+        }
+        @keyframes pulse-pin {
+          0%, 100% { transform: scale(1); filter: drop-shadow(0 2px 4px rgba(201,115,42,0.2)); }
+          50% { transform: scale(1.1) translateY(-3px); filter: drop-shadow(0 8px 12px rgba(201,115,42,0.4)); }
+        }
+        @keyframes dash-move {
+          to { stroke-dashoffset: -20; }
+        }
+        @keyframes cloud-drift {
+          0%, 100% { transform: translateX(0); }
+          50% { transform: translateX(10px); }
+        }
+        @keyframes shimmer-sweep {
+          0% { left: -150%; }
+          50% { left: 150%; }
+          100% { left: 150%; }
+        }
+        @keyframes slide-up-stagger {
+          0% { transform: translateY(16px); opacity: 0; }
+          100% { transform: translateY(0); opacity: 1; }
+        }
+        @keyframes drift-plane-1 {
+          0%, 100% { transform: translate(0, 0) rotate(45deg); }
+          50% { transform: translate(25px, -20px) rotate(48deg); }
+        }
+        @keyframes drift-plane-2 {
+          0%, 100% { transform: translate(0, 0) rotate(15deg); }
+          50% { transform: translate(-20px, 15px) rotate(12deg); }
+        }
+        @keyframes exhaust-drift {
+          0% { transform: translate(0, 0) scale(0.5); opacity: 0.8; }
+          100% { transform: translate(12px, -8px) scale(1.6); opacity: 0; }
+        }
+        @keyframes note-float {
+          0% { transform: translateY(0) scale(0.8); opacity: 0; }
+          50% { opacity: 0.9; }
+          100% { transform: translateY(-22px) scale(1.1); opacity: 0; }
+        }
+        @keyframes sunbeam-pulse {
+          0%, 100% { transform: scale(1); opacity: 0.6; }
+          50% { transform: scale(1.18); opacity: 1; }
+        }
+        @keyframes snow-fall {
+          0% { transform: translateY(-30px) translateX(0); opacity: 0; }
+          20% { opacity: 0.8; }
+          100% { transform: translateY(50px) translateX(8px); opacity: 0; }
+        }
+        @keyframes spin-compass-fast {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+
+        /* Layout-specific Staggers */
+        #booking-widget form > div > div {
+          opacity: 0;
+          animation: slide-up-stagger 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        #booking-widget form > div > div:nth-child(1) { animation-delay: 0ms; }
+        #booking-widget form > div > div:nth-child(2) { animation-delay: 75ms; }
+        #booking-widget form > div > div:nth-child(3) { animation-delay: 150ms; }
+        #booking-widget form > div > div:nth-child(4) { animation-delay: 225ms; }
+        #booking-widget form > div > div:nth-child(5) { animation-delay: 300ms; }
+
+        /* Focus glow and zoom */
+        #booking-widget input:focus,
+        #booking-widget select:focus,
+        #booking-widget button[type="button"]:focus {
+          box-shadow: 0 0 0 4px rgba(201, 115, 42, 0.25) !important;
+          transform: scale(1.005);
+          border-color: transparent !important;
+          transition: all 0.2s ease;
+        }
+
+        /* Submit Button Shimmer Sweep */
+        #booking-widget button[type="submit"] {
+          position: relative;
+          overflow: hidden;
+        }
+        #booking-widget button[type="submit"]::after {
+          content: "";
+          position: absolute;
+          top: 0;
+          left: -150%;
+          width: 50%;
+          height: 100%;
+          background: linear-gradient(
+            90deg,
+            rgba(255, 255, 255, 0) 0%,
+            rgba(255, 255, 255, 0.35) 50%,
+            rgba(255, 255, 255, 0) 100%
+          );
+          transform: skewX(-20deg);
+          animation: shimmer-sweep 3.5s infinite ease-in-out;
+        }
+
+        .animate-float-slow { animation: float-slow 4s ease-in-out infinite; }
+        .animate-float-medium { animation: float-medium 5s ease-in-out infinite; }
+        .animate-plane-takeoff { animation: plane-takeoff 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        .animate-plane-landing { animation: plane-landing 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        .animate-train-left { animation: train-enter-left 1s cubic-bezier(0.16, 1, 0.3, 1) forwards, train-vibrate 0.15s ease-in-out infinite 1s; }
+        .animate-train-right { animation: train-enter-right 1s cubic-bezier(0.16, 1, 0.3, 1) forwards, train-vibrate 0.15s ease-in-out infinite 1s; }
+        .animate-car-enter { animation: car-enter 1s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        .animate-sign-enter { animation: sign-enter 1s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        .animate-spin-compass { animation: spin-compass 1s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        .animate-balloon-rise { animation: balloon-rise 1.4s cubic-bezier(0.16, 1, 0.3, 1) forwards, float-slow 4s ease-in-out infinite 1.4s; }
+        .animate-pulse-pin { animation: pulse-pin 2s ease-in-out infinite; }
+        .animate-wheel { animation: wheel-spin 1.2s linear infinite; }
+        .animate-dash { stroke-dasharray: 6, 6; animation: dash-move 1.5s linear infinite; }
+        .animate-cloud { animation: cloud-drift 6s ease-in-out infinite; }
+        .animate-cloud-fast { animation: cloud-drift 3s ease-in-out infinite; }
+        .animate-sway { transform-origin: 50px 50px; animation: sway-needle 3s ease-in-out infinite; }
+        .animate-sway-sign { transform-origin: center top; animation: sway-needle 4s ease-in-out infinite; }
+        .animate-spin-compass-fast { transform-origin: 50px 50px; animation: spin-compass-fast 0.6s linear infinite; }
+        .animate-exhaust { transform-origin: 92px 73px; animation: exhaust-drift 1.2s infinite ease-out; }
+        .animate-note { transform-origin: center; animation: note-float 1.6s infinite linear; }
+        .animate-sunbeam { animation: sunbeam-pulse 4s ease-in-out infinite; }
+        .animate-snow { animation: snow-fall 3s infinite linear; }
+        .animate-drift-plane-1 { animation: drift-plane-1 12s ease-in-out infinite; }
+        .animate-drift-plane-2 { animation: drift-plane-2 15s ease-in-out infinite; }
+      `}</style>
+
       {/* Quick Booking Modal */}
       <QuickBookingModal
         isOpen={isBookingModalOpen}
@@ -435,9 +961,33 @@ export const Home: React.FC = () => {
       {/* ═══════════════════════════════════════════════════════════ */}
       {/* BOOKING WIDGET — Elevated card anchored below hero          */}
       {/* ═══════════════════════════════════════════════════════════ */}
-      <section id="booking-widget" className="relative bg-[#FBF7F0] dark:bg-[#0D1710] pb-16">
-        <div className="container mx-auto px-4 md:px-10">
-          <div className="w-full max-w-5xl mx-auto -mt-2 animate-in slide-in-from-bottom-8 duration-700">
+      <section
+        id="booking-widget"
+        className={`relative bg-gradient-to-br ${
+          activeTab === 'hotel-booking' ? 'from-[#FFFDF9] via-[#FFF5EC] to-[#F7ECD8] dark:from-[#09110B] dark:via-[#0F1D13] dark:to-[#16291C]' :
+          activeTab === 'tour-packages' ? 'from-[#FAFDFB] via-[#EDFAF5] to-[#E2F5EE] dark:from-[#08100C] dark:via-[#0C1B14] dark:to-[#12271C]' :
+          activeTab === 'flight-booking' ? 'from-[#FAFBFD] via-[#EFF4FA] to-[#E2EDFA] dark:from-[#0A1016] dark:via-[#0F1E29] dark:to-[#152B3C]' :
+          activeTab === 'train-booking' ? 'from-[#FDFDFB] via-[#FAF6EE] to-[#F2EADA] dark:from-[#0C100C] dark:via-[#141A13] dark:to-[#1C251C]' :
+          activeTab === 'car-booking' ? 'from-[#FAFDF9] via-[#F1FAF2] to-[#E5F5E7] dark:from-[#08100C] dark:via-[#0E1F15] dark:to-[#142B1E]' :
+          'from-[#FCFAF7] via-[#FAF4E9] to-[#F1E8D5] dark:from-[#0E100D] dark:via-[#171E14] dark:to-[#212B1E]'
+        } pb-16 overflow-hidden xl:overflow-visible transition-all duration-700`}
+      >
+        {/* Ambient paper planes */}
+        <div className="absolute top-10 left-[15%] w-8 h-8 opacity-25 dark:opacity-20 hidden xl:block animate-drift-plane-1 pointer-events-none">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#C9732A" strokeWidth="1.5" className="w-full h-full" style={{ transform: 'rotate(45deg)' }}>
+            <path d="M22 2L2 8.66L11.5 12.5L22 2Z" fill="none" />
+            <path d="M22 2L11.5 12.5V22L14.75 16L22 2Z" fill="none" />
+          </svg>
+        </div>
+        <div className="absolute bottom-10 right-[15%] w-7 h-7 opacity-25 dark:opacity-20 hidden xl:block animate-drift-plane-2 pointer-events-none" style={{ animationDelay: '-2s' }}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="#2D6A4F" strokeWidth="1.5" className="w-full h-full" style={{ transform: 'rotate(15deg)' }}>
+            <path d="M22 2L2 8.66L11.5 12.5L22 2Z" fill="none" />
+            <path d="M22 2L11.5 12.5V22L14.75 16L22 2Z" fill="none" />
+          </svg>
+        </div>
+
+        <div className="container mx-auto px-4 md:px-10 relative z-10">
+          <div className="w-full max-w-5xl mx-auto -mt-2 animate-in slide-in-from-bottom-8 duration-700 relative">
             {/* Section label */}
             <div className="flex justify-center mb-6">
               <h2 className="font-display text-slate-900 dark:text-white text-2xl md:text-3xl font-bold text-center">
@@ -447,7 +997,16 @@ export const Home: React.FC = () => {
 
             {/* Tabs */}
             <div className="flex justify-center mb-5 px-4 w-full overflow-hidden">
-              <div className="bg-white dark:bg-white/5 backdrop-blur-md p-1.5 rounded-full inline-flex flex-nowrap max-w-full overflow-x-auto [-ms-scrollbar-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden border border-slate-200 dark:border-white/10 shadow-md touch-pan-x snap-x snap-mandatory">
+              <div className="bg-white dark:bg-white/5 backdrop-blur-md p-1.5 rounded-full inline-flex flex-nowrap max-w-full overflow-x-auto [-ms-scrollbar-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden border border-slate-200 dark:border-white/10 shadow-md touch-pan-x snap-x snap-mandatory relative z-0">
+                {/* Sliding active tab pill background */}
+                <div
+                  className="absolute top-1.5 bottom-1.5 bg-[#C9732A] rounded-full transition-all duration-300 ease-out shadow-lg z-0 pointer-events-none"
+                  style={{
+                    left: pillStyle.left !== undefined ? `${pillStyle.left}px` : 'auto',
+                    width: pillStyle.width !== undefined ? `${pillStyle.width}px` : 'auto',
+                  }}
+                />
+
                 {[
                   { id: 'hotel-booking', icon: 'hotel', label: 'Hotels' },
                   { id: 'tour-packages', icon: 'luggage', label: 'Tours' },
@@ -458,14 +1017,15 @@ export const Home: React.FC = () => {
                 ].map((tab) => (
                   <button
                     key={tab.id}
+                    ref={(el) => { tabRefs.current[tab.id] = el; }}
                     onClick={() => setActiveTab(tab.id)}
-                    className={`px-4 md:px-6 py-3 rounded-full flex items-center gap-2.5 text-sm font-bold transition-all duration-300 whitespace-nowrap ${activeTab === tab.id
-                      ? 'text-white shadow-md transform scale-105'
-                      : 'text-slate-600 dark:text-white/70 hover:bg-slate-100 dark:hover:bg-white/10 hover:text-slate-900 dark:hover:text-white'
+                    className={`px-4 md:px-6 py-3 rounded-full flex items-center gap-2.5 text-sm font-bold transition-all duration-300 whitespace-nowrap relative z-10 group ${
+                      activeTab === tab.id
+                        ? 'text-white scale-105'
+                        : 'text-slate-600 dark:text-white/70 hover:bg-slate-100/50 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-white'
                     }`}
-                    style={activeTab === tab.id ? { backgroundColor: '#C9732A', boxShadow: '0 4px 16px rgba(201,115,42,0.35)' } : {}}
                   >
-                    <span className="material-symbols-outlined text-[20px]">{tab.icon}</span>
+                    <span className="material-symbols-outlined text-[20px] transition-transform duration-300 group-hover:-translate-y-0.5 group-hover:scale-110">{tab.icon}</span>
                     <span>{tab.label}</span>
                   </button>
                 ))}
@@ -481,6 +1041,14 @@ export const Home: React.FC = () => {
               {activeTab === 'train-booking' && <TrainBookingForm onSubmit={handleTrainSubmit} />}
               {activeTab === 'car-booking' && <CarBookingForm onSubmit={handleCarSubmit} />}
               {activeTab === 'bus-booking' && <BusBookingForm onSubmit={handleBusSubmit} />}
+            </div>
+
+            {/* Side Animations - Anchored relative to the booking widget container */}
+            <div className="absolute right-full mr-2 2xl:mr-10 top-1/2 -translate-y-1/2 w-28 h-28 2xl:w-48 2xl:h-48 hidden xl:flex items-center justify-center pointer-events-none z-10">
+              <BookingSideAnimations activeTab={activeTab} side="left" />
+            </div>
+            <div className="absolute left-full ml-2 2xl:ml-10 top-1/2 -translate-y-1/2 w-28 h-28 2xl:w-48 2xl:h-48 hidden xl:flex items-center justify-center pointer-events-none z-10">
+              <BookingSideAnimations activeTab={activeTab} side="right" />
             </div>
           </div>
         </div>

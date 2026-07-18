@@ -2904,4 +2904,34 @@ export const api = {
     deleteTrendingDestination: async (id: string): Promise<void> => {
         await fetchApi(`/api/trending-destinations/${encodeURIComponent(id)}`, { method: 'DELETE' });
     },
+
+    // --- CAR RENTAL WRAPPERS ---
+    getVehicleCategories: () => crud.getAll('vehicle_categories'),
+    createVehicleCategory: (c: any) => crud.create('vehicle_categories', c),
+    updateVehicleCategory: (id: string, c: any) => crud.update('vehicle_categories', id, c),
+    deleteVehicleCategory: (id: string) => crud.remove('vehicle_categories', id),
+
+    getVehicles: () => crud.getAll('vehicles'),
+    createVehicle: (v: any) => crud.create('vehicles', v),
+    updateVehicle: (id: string, v: any) => crud.update('vehicles', id, v),
+    deleteVehicle: (id: string) => crud.remove('vehicles', id),
+
+    getDrivers: () => crud.getAll('drivers'),
+    createDriver: (d: any) => crud.create('drivers', d),
+    updateDriver: (id: string, d: any) => crud.update('drivers', id, d),
+    deleteDriver: (id: string) => crud.remove('drivers', id),
+
+    getCarBookings: () => crud.getAll('car_bookings'),
+    createCarBooking: (b: any) => crud.create('car_bookings', b),
+    updateCarBooking: (id: string, b: any) => crud.update('car_bookings', id, b),
+    deleteCarBooking: (id: string) => crud.remove('car_bookings', id),
+
+    getCarPayments: (bookingId?: string) => {
+        if (bookingId) return crud.getAll('car_booking_payments', { filters: { booking_id: bookingId } });
+        return crud.getAll('car_booking_payments');
+    },
+    createCarPayment: (p: any) => crud.create('car_booking_payments', p),
+
+    getCarReviews: () => crud.getAll('car_reviews'),
+    createCarReview: (r: any) => crud.create('car_reviews', r),
 };

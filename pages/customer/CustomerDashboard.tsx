@@ -223,6 +223,7 @@ export const CustomerDashboard: React.FC = () => {
   const [publicPlans, setPublicPlans] = useState<any[]>([]);
   const [loadingPlans, setLoadingPlans] = useState(false);
   const [membershipRequestLoading, setMembershipRequestLoading] = useState(false);
+  const [razorpayLoading, setRazorpayLoading] = useState(false);
   const [membershipMsg, setMembershipMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [selectedPlanId, setSelectedPlanId] = useState('');
   const [selectedBillingCycle, setSelectedBillingCycle] = useState<'Monthly' | 'Quarterly' | '6 Months' | 'Yearly'>('Yearly');
@@ -1002,6 +1003,88 @@ export const CustomerDashboard: React.FC = () => {
     } finally { setMembershipRequestLoading(false); }
   };
 
+  const handlePayAndJoinMembership = async (plan: any, cycle: string) => {
+    if (!plan) return;
+    setRazorpayLoading(true);
+    setMembershipMsg(null);
+    try {
+      const token = localStorage.getItem(CUSTOMER_JWT_KEY);
+      if (!token) throw new Error('You must be logged in.');
+
+      // 1. Create Razorpay order on backend
+      const res = await fetch(`${API_BASE}/api/customer/membership/razorpay/create-order`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ planId: plan.id, billingCycle: cycle })
+      });
+      const orderData = await res.json();
+      if (!res.ok) throw new Error(orderData.error || 'Failed to create payment order.');
+
+      // Check if Razorpay script is loaded
+      if (!(window as any).Razorpay) {
+        throw new Error('Razorpay SDK failed to load. Please try again.');
+      }
+
+      // 2. Open Razorpay checkout modal
+      const options = {
+        key: import.meta.env.VITE_RAZORPAY_KEY_ID,
+        amount: orderData.amount,
+        currency: orderData.currency,
+        name: 'Shrawello Travel Hub',
+        description: `${plan.name} - ${cycle} Membership`,
+        order_id: orderData.order_id,
+        handler: async function (response: any) {
+          try {
+            setRazorpayLoading(true);
+            const verifyRes = await fetch(`${API_BASE}/api/customer/membership/razorpay/verify-payment`, {
+              method: 'POST',
+              headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_signature: response.razorpay_signature,
+                planId: plan.id,
+                billingCycle: cycle,
+                amount: orderData.amount
+              })
+            });
+            const verifyData = await verifyRes.json();
+            if (!verifyRes.ok) throw new Error(verifyData.error || 'Signature verification failed.');
+            
+            showToast('success', 'Payment successful! Membership activated.');
+            setShowMembershipJoinModal(false);
+            await fetchMyMembership();
+          } catch (verifyErr: any) {
+            setMembershipMsg({ type: 'error', text: verifyErr.message });
+            showToast('error', verifyErr.message);
+          } finally {
+            setRazorpayLoading(false);
+          }
+        },
+        prefill: {
+          name: customer?.name || '',
+          email: customer?.email || '',
+          contact: customer?.phone || ''
+        },
+        theme: {
+          color: plan.color || '#C9732A'
+        },
+        modal: {
+          ondismiss: function () {
+            setRazorpayLoading(false);
+          }
+        }
+      };
+
+      const rzp = new (window as any).Razorpay(options);
+      rzp.open();
+    } catch (err: any) {
+      setMembershipMsg({ type: 'error', text: err.message });
+      showToast('error', err.message);
+      setRazorpayLoading(false);
+    }
+  };
+
   const handleCancelMembership = async () => {
     showConfirm(
       'Cancel Membership',
@@ -1018,6 +1101,29 @@ export const CustomerDashboard: React.FC = () => {
           showToast('success', data.message);
           setMyMembership(null);
           setMembershipMsg(null);
+        } catch (err: any) {
+          showToast('error', err.message);
+        }
+        closeConfirm();
+      }
+    );
+  };
+
+  const handleWithdrawUpgradeRequest = async (requestId: string) => {
+    showConfirm(
+      'Withdraw Upgrade Request',
+      'Are you sure you want to withdraw your upgrade request?',
+      async () => {
+        try {
+          const token = localStorage.getItem(CUSTOMER_JWT_KEY);
+          const res = await fetch(`${API_BASE}/api/customer/membership?id=${requestId}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Failed');
+          showToast('success', data.message);
+          await fetchMyMembership();
         } catch (err: any) {
           showToast('error', err.message);
         }
@@ -2075,6 +2181,21 @@ export const CustomerDashboard: React.FC = () => {
               ) : myMembership && (myMembership.status === 'Active' || myMembership.status === 'Pending' || myMembership.status === 'Suspended') ? (
                 /* ── STATE B: Has a membership ── */
                 <div className="space-y-4">
+                  {myMembership.pendingUpgrade && (
+                    <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-3xl text-xs font-bold flex items-center gap-3">
+                      <span className="material-symbols-outlined text-[20px] text-amber-500 animate-spin">sync</span>
+                      <div className="flex-grow text-left">
+                        Upgrade request to <strong>{myMembership.pendingUpgrade.planName} ({myMembership.pendingUpgrade.tier})</strong> is pending review.
+                      </div>
+                      <button
+                        onClick={() => handleWithdrawUpgradeRequest(myMembership.pendingUpgrade.id)}
+                        className="px-3 py-1 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-lg text-[10px] font-black transition-colors shrink-0"
+                      >
+                        Withdraw
+                      </button>
+                    </div>
+                  )}
+
                   {/* Membership Status Card */}
                   <div className="relative bg-white rounded-3xl border-2 overflow-hidden shadow-lg"
                     style={{ borderColor: myMembership.color || '#CD7F32' }}>
@@ -2172,6 +2293,87 @@ export const CustomerDashboard: React.FC = () => {
                       </button>
                     </div>
                   </div>
+
+                  {/* Upgrade/Upsell Section */}
+                  {myMembership.status === 'Active' && (() => {
+                    const weights: Record<string, number> = { 'Bronze': 1, 'Silver': 2, 'Gold': 3 };
+                    const myWeight = weights[myMembership.tier] || 0;
+                    const upgradePlans = publicPlans.filter(p => (weights[p.tier] || 0) > myWeight);
+                    
+                    if (upgradePlans.length === 0) return null;
+
+                    return (
+                      <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] shadow-sm space-y-4 mt-6">
+                        <div>
+                          <h3 className="font-display font-black text-slate-900 text-sm flex items-center gap-2 text-left">
+                            <span className="material-symbols-outlined text-primary" style={{ color: '#C9732A' }}>workspace_premium</span>
+                            🌟 Premium Upgrades Available
+                          </h3>
+                          <p className="text-[10px] text-slate-400 font-medium text-left">Upgrade your membership to unlock even better discounts and perks.</p>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          {upgradePlans.map(plan => {
+                            const isPendingThisPlan = myMembership.pendingUpgrade && myMembership.pendingUpgrade.planId === plan.id;
+                            const hasAnyPendingUpgrade = !!myMembership.pendingUpgrade;
+
+                            return (
+                              <div
+                                key={plan.id}
+                                className="bg-white rounded-3xl border-2 overflow-hidden shadow-sm flex flex-col justify-between"
+                                style={{ borderColor: plan.color }}
+                              >
+                                <div className="p-4 flex-grow text-left" style={{ background: `linear-gradient(135deg, ${plan.color}08, transparent)` }}>
+                                  <div className="flex items-start justify-between mb-2">
+                                    <span className="text-[9px] font-black px-2 py-0.5 rounded-full text-white uppercase tracking-wider" style={{ backgroundColor: plan.color }}>
+                                      {plan.tier}
+                                    </span>
+                                    <div className="text-right">
+                                      <span className="text-xs font-black text-slate-900">₹{(plan.pricePerYear || 0).toLocaleString()}</span>
+                                      <span className="text-[9px] text-slate-400 font-bold block">/year</span>
+                                    </div>
+                                  </div>
+                                  <h4 className="font-black text-slate-900 text-xs mb-1" style={{ color: plan.color }}>{plan.name}</h4>
+                                  <p className="text-[10px] font-bold text-slate-600 mb-2">
+                                    {plan.discountType === 'Flat_Amount' ? `₹${plan.discountFlat} Flat Off` : `${plan.discountPercent}% Global Discount`}
+                                  </p>
+                                  
+                                  {plan.perks?.slice(0, 3).map((perk: string, i: number) => (
+                                    <div key={i} className="flex items-center gap-1.5 text-[10px] text-slate-500 mb-0.5">
+                                      <span className="w-2.5 h-2.5 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: `${plan.color}20`, color: plan.color }}>
+                                        <span className="material-symbols-outlined text-[7px] font-black">check</span>
+                                      </span>
+                                      <span className="truncate">{perk}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                                
+                                <div className="p-4 pt-0">
+                                  {isPendingThisPlan ? (
+                                    <div className="w-full py-2 bg-amber-50 text-amber-700 rounded-xl text-[10px] font-black text-center border border-amber-200 flex items-center justify-center gap-1.5">
+                                      <span className="material-symbols-outlined text-[12px] animate-spin">sync</span>
+                                      Upgrade Pending Review
+                                    </div>
+                                  ) : (
+                                    <button
+                                      onClick={() => { setJoiningPlan(plan); setSelectedBillingCycle('Yearly'); setShowMembershipJoinModal(true); }}
+                                      disabled={hasAnyPendingUpgrade}
+                                      className="w-full py-2 rounded-xl font-bold text-[10px] text-white transition-all hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 shadow-sm"
+                                      style={{ background: `linear-gradient(135deg, ${plan.color}cc, ${plan.color})` }}
+                                    >
+                                      <span className="material-symbols-outlined text-[12px]">workspace_premium</span>
+                                      {hasAnyPendingUpgrade ? 'Upgrade Pending' : 'Request Upgrade'}
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
                 </div>
               ) : (
                 /* ── STATE A: No membership — Plan Browser ── */
@@ -2296,9 +2498,8 @@ export const CustomerDashboard: React.FC = () => {
                           })}
                         </div>
                       </div>
-
                       {/* Summary */}
-                      <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-2 text-xs">
+                      <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-2 text-xs text-left">
                         <div className="flex justify-between font-semibold text-slate-500">
                           <span>Plan</span><span className="text-slate-900 font-bold">{joiningPlan.name}</span>
                         </div>
@@ -2311,31 +2512,52 @@ export const CustomerDashboard: React.FC = () => {
                             {joiningPlan.discountType === 'Flat_Amount' ? `₹${joiningPlan.discountFlat} Flat Off` : `${joiningPlan.discountPercent}% Off`}
                           </span>
                         </div>
-                        <div className="border-t border-slate-200 pt-2 flex justify-between">
-                          <span className="text-slate-400 text-[10px]">Status after submit</span>
-                          <span className="text-amber-600 font-black text-[10px]">Pending Admin Review</span>
-                        </div>
                       </div>
 
                       {membershipMsg && (
-                        <div className={`text-xs font-bold p-3 rounded-xl ${membershipMsg.type === 'error' ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                        <div className={`text-xs font-bold p-3 rounded-xl text-left ${membershipMsg.type === 'error' ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}>
                           {membershipMsg.text}
                         </div>
                       )}
 
-                      <button
-                        onClick={() => handleRequestMembership(joiningPlan, selectedBillingCycle)}
-                        disabled={membershipRequestLoading}
-                        className="w-full py-3 rounded-2xl font-bold text-sm text-white transition-all hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg"
-                        style={{ background: `linear-gradient(135deg, ${joiningPlan.color}cc, ${joiningPlan.color})`, boxShadow: `0 4px 20px ${joiningPlan.color}35` }}
-                      >
-                        {membershipRequestLoading ? (
-                          <><span className="animate-spin rounded-full h-4 w-4 border-t-2 border-white border-opacity-80" />Submitting...</>
-                        ) : (
-                          <><span className="material-symbols-outlined text-[18px]">workspace_premium</span>Submit Request</>
-                        )}
-                      </button>
-                      <p className="text-center text-[10px] text-slate-400">Our team will contact you to confirm payment and activate your plan.</p>
+                      <div className="space-y-3">
+                        {/* Option 1: Razorpay Pay & Activate */}
+                        <button
+                          onClick={() => handlePayAndJoinMembership(joiningPlan, selectedBillingCycle)}
+                          disabled={razorpayLoading || membershipRequestLoading}
+                          className="w-full py-3 rounded-2xl font-bold text-xs text-white transition-all hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-md"
+                          style={{ background: `linear-gradient(135deg, ${joiningPlan.color}e6, ${joiningPlan.color})`, boxShadow: `0 4px 15px ${joiningPlan.color}25` }}
+                        >
+                          {razorpayLoading ? (
+                            <><span className="animate-spin rounded-full h-4 w-4 border-t-2 border-white border-opacity-80" />Processing...</>
+                          ) : (
+                            <><span className="material-symbols-outlined text-[16px]">payment</span>Pay Online via Razorpay</>
+                          )}
+                        </button>
+
+                        <div className="relative flex py-1 items-center">
+                          <div className="flex-grow border-t border-slate-100"></div>
+                          <span className="flex-shrink mx-3 text-[9px] text-slate-400 font-bold uppercase tracking-wider">or pay offline</span>
+                          <div className="flex-grow border-t border-slate-100"></div>
+                        </div>
+
+                        {/* Option 2: Request Admin Approval (Manual/Offline) */}
+                        <button
+                          onClick={() => handleRequestMembership(joiningPlan, selectedBillingCycle)}
+                          disabled={razorpayLoading || membershipRequestLoading}
+                          className="w-full py-2.5 rounded-2xl font-bold text-[11px] text-slate-500 hover:text-slate-700 bg-slate-50 border border-slate-200 transition-all hover:bg-slate-100 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                        >
+                          {membershipRequestLoading ? (
+                            <><span className="animate-spin rounded-full h-3 w-3 border-t-2 border-slate-500 border-opacity-80" />Submitting...</>
+                          ) : (
+                            <><span className="material-symbols-outlined text-[14px]">mail</span>Submit Request for Admin Approval</>
+                          )}
+                        </button>
+                      </div>
+                      
+                      <p className="text-center text-[9px] text-slate-400 font-medium">
+                        Online payments activate instantly. Offline requests are reviewed and approved by administrators.
+                      </p>
                     </div>
                   </div>
                 </div>

@@ -1849,7 +1849,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const enrollCustomer = useCallback(async (m: CustomerMembership) => {
     try {
       await api.enrollCustomer(m);
-      setCustomerMemberships(prev => [m, ...prev]);
+      setCustomerMemberships(prev => {
+        const updated = prev.map(x => 
+          x.customerId === m.customerId && x.status === 'Active' && x.id !== m.id
+            ? { ...x, status: 'Cancelled' as any, notes: `Superseded by direct enrollment in ${m.planName}` }
+            : x
+        );
+        return [m, ...updated];
+      });
       logAction('Create', 'Memberships', `Enrolled ${m.customerName} in ${m.planName}`);
       toast.success(`${m.customerName} enrolled in ${m.planName}`);
     } catch (e: any) {
@@ -1891,7 +1898,19 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // ─── Admin: Approve a Pending membership request ───
   const approveMembership = useCallback(async (id: string, notes?: string) => {
     const prev = customerMemberships;
-    setCustomerMemberships(p => p.map(x => x.id === id ? { ...x, status: 'Active' as const } : x));
+    const target = customerMemberships.find(x => x.id === id);
+    if (target) {
+      setCustomerMemberships(p => p.map(x => {
+        if (x.id === id) {
+          return { ...x, status: 'Active' as const };
+        } else if (x.customerId === target.customerId && x.status === 'Active') {
+          return { ...x, status: 'Cancelled' as const };
+        }
+        return x;
+      }));
+    } else {
+      setCustomerMemberships(p => p.map(x => x.id === id ? { ...x, status: 'Active' as const } : x));
+    }
     try {
       await api.approveMembership(id, notes);
       logAction('Update', 'Memberships', `Approved membership: ${id}`);
