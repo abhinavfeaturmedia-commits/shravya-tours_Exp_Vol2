@@ -24,7 +24,7 @@ export const PartnerProfile: React.FC = () => {
       bankAccountNumber: partner.bankDetails?.accountNumber || '',
       bankName: partner.bankDetails?.bankName || '',
       ifsc: partner.bankDetails?.ifsc || '',
-      upiId: partner.bankDetails?.upiId || '',
+      upiId: partner.bankDetails?.upi || partner.bankDetails?.upiId || '',
     });
     setEditing(true);
     setMsg('');
@@ -44,7 +44,8 @@ export const PartnerProfile: React.FC = () => {
           phone: form.phone,
           companyName: form.companyName,
           location: form.location,
-          bankDetails: { accountName: form.bankAccountName, accountNumber: form.bankAccountNumber, bankName: form.bankName, ifsc: form.ifsc, upiId: form.upiId },
+          // F4: Unified UPI key is `upi` (consistent with KYC wizard)
+          bankDetails: { accountName: form.bankAccountName, accountNumber: form.bankAccountNumber, bankName: form.bankName, ifsc: form.ifsc, upi: form.upiId },
         }),
       });
       if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Update failed'); }
@@ -197,6 +198,60 @@ export const PartnerProfile: React.FC = () => {
           </form>
         )}
       </div>
+
+      {/* U5: KYC Status Card */}
+      {(() => {
+        const ks = (partner as any).kyc_status || 'Pending';
+        const kycStyles: Record<string, { bg: string; border: string; icon: string; iconColor: string; label: string; desc: string }> = {
+          Pending:   { bg: 'bg-slate-500/10', border: 'border-slate-500/20', icon: 'hourglass_empty', iconColor: 'text-slate-400', label: 'KYC Pending', desc: 'You have not yet submitted your KYC documents. Complete verification to activate your account.' },
+          Submitted: { bg: 'bg-amber-500/10', border: 'border-amber-500/20', icon: 'pending', iconColor: 'text-amber-400', label: 'KYC Under Review', desc: 'Your documents are under review. Our team will verify them within 1–2 business days.' },
+          Verified:  { bg: 'bg-emerald-500/10', border: 'border-emerald-500/20', icon: 'verified_user', iconColor: 'text-emerald-400', label: 'KYC Verified ✓', desc: 'Your KYC is fully verified. Commission payouts are active.' },
+          Rejected:  { bg: 'bg-red-500/10', border: 'border-red-500/20', icon: 'cancel', iconColor: 'text-red-400', label: 'KYC Rejected', desc: (partner as any).kyc_rejection_reason || 'Your documents were rejected. Please resubmit.' },
+        };
+        const s = kycStyles[ks] || kycStyles.Pending;
+        return (
+          <div className={`${s.bg} border ${s.border} rounded-2xl p-6`}>
+            <div className="flex items-center gap-3 mb-3">
+              <span className={`material-symbols-outlined ${s.iconColor} text-2xl`}>{s.icon}</span>
+              <div>
+                <h3 className={`font-bold text-sm ${s.iconColor}`}>{s.label}</h3>
+                <p className="text-white/50 text-xs mt-0.5">{s.desc}</p>
+              </div>
+            </div>
+            {ks !== 'Pending' && ks !== 'Submitted' && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-white/10">
+                {(partner as any).kyc_pan_number && (
+                  <div className="flex items-start gap-2 p-3 bg-white/5 rounded-xl">
+                    <span className="material-symbols-outlined text-violet-400 text-[18px] shrink-0 mt-0.5">badge</span>
+                    <div>
+                      <p className="text-[11px] font-bold text-white/40 uppercase tracking-wide">PAN Number</p>
+                      <p className="text-sm text-white font-mono mt-0.5">{(partner as any).kyc_pan_number}</p>
+                    </div>
+                  </div>
+                )}
+                {(partner as any).kyc_aadhaar_number && (
+                  <div className="flex items-start gap-2 p-3 bg-white/5 rounded-xl">
+                    <span className="material-symbols-outlined text-violet-400 text-[18px] shrink-0 mt-0.5">credit_card</span>
+                    <div>
+                      <p className="text-[11px] font-bold text-white/40 uppercase tracking-wide">Aadhaar (masked)</p>
+                      <p className="text-sm text-white font-mono mt-0.5">{(partner as any).kyc_aadhaar_number}</p>
+                    </div>
+                  </div>
+                )}
+                {ks === 'Verified' && (partner as any).kyc_verified_at && (
+                  <div className="flex items-start gap-2 p-3 bg-white/5 rounded-xl">
+                    <span className="material-symbols-outlined text-emerald-400 text-[18px] shrink-0 mt-0.5">check_circle</span>
+                    <div>
+                      <p className="text-[11px] font-bold text-white/40 uppercase tracking-wide">Verified On</p>
+                      <p className="text-sm text-white mt-0.5">{new Date((partner as any).kyc_verified_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Change Password */}
       <div className="bg-white/5 border border-white/10 rounded-2xl p-6">

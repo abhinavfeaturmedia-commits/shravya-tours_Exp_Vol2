@@ -594,3 +594,35 @@ export async function sendLoyaltyTierUpgradeEmail({ to, name, newTier, converted
     `);
     return await sendEmail({ type: 'general', to, subject, html });
 }
+
+/**
+ * 10. Notify Admin team when a partner submits KYC documents (S5)
+ * @param {object} params - { partnerName, partnerEmail, isResubmission }
+ */
+export async function sendPartnerKYCSubmittedAdminEmail({ partnerName, partnerEmail, isResubmission = false }) {
+    const ADMIN_EMAIL = process.env.ADMIN_NOTIFY_EMAIL || process.env.SMTP_FROM || 'hello@shrawello.com';
+    const actionLabel = isResubmission ? 'Resubmitted' : 'Submitted';
+    const subject = `[Action Required] Partner KYC ${actionLabel} — ${partnerName}`;
+    const html = wrapTemplate(subject, `
+        <div style="background: #fffbeb; border: 1px solid #fbbf24; border-radius: 12px; padding: 20px; margin-bottom: 24px;">
+            <p style="margin: 0; font-size: 13px; font-weight: 700; color: #92400e; text-transform: uppercase; letter-spacing: 0.5px;">🔔 Action Required</p>
+            <p style="margin: 8px 0 0 0; font-size: 15px; color: #78350f; font-weight: 600;">A partner has ${isResubmission ? 're-submitted' : 'submitted'} their KYC documents and is awaiting review.</p>
+        </div>
+        <h2 style="margin-top: 0; color: #1e1b4b; font-size: 20px; font-weight: 800;">KYC ${actionLabel} — Review Required</h2>
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin: 20px 0;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+                <tr><td style="padding: 8px 0; color: #64748b; font-weight: 600; width: 140px;">Partner Name</td><td style="padding: 8px 0; color: #1e293b; font-weight: 700;">${partnerName}</td></tr>
+                <tr><td style="padding: 8px 0; color: #64748b; font-weight: 600;">Partner Email</td><td style="padding: 8px 0; color: #1e293b;">${partnerEmail}</td></tr>
+                <tr><td style="padding: 8px 0; color: #64748b; font-weight: 600;">Submission Type</td><td style="padding: 8px 0;"><span style="background: ${isResubmission ? '#fef3c7' : '#ecfdf5'}; color: ${isResubmission ? '#92400e' : '#065f46'}; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 700;">${isResubmission ? '🔄 Re-submission' : '✨ First Submission'}</span></td></tr>
+                <tr><td style="padding: 8px 0; color: #64748b; font-weight: 600;">Submitted At</td><td style="padding: 8px 0; color: #1e293b;">${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })} IST</td></tr>
+            </table>
+        </div>
+        <div style="text-align: center; margin: 30px 0;">
+            <a href="https://shravyatours.com/#/admin/kyc" style="background-color: #4f46e5; color: #ffffff; text-decoration: none; padding: 14px 28px; font-weight: 700; font-size: 14px; border-radius: 10px; display: inline-block;">
+                Review KYC Documents →
+            </a>
+        </div>
+        <p style="font-size: 13px; color: #94a3b8; text-align: center; margin-bottom: 0;">This is an automated notification from Shrawello Admin System.</p>
+    `);
+    return await sendEmail({ type: 'general', to: ADMIN_EMAIL, subject, html });
+}

@@ -35,8 +35,8 @@ export const PartnerLogin: React.FC = () => {
           <div className="inline-flex items-center justify-center size-16 rounded-2xl bg-gradient-to-br from-violet-500 to-purple-600 shadow-2xl shadow-violet-500/30 mb-5">
             <span className="material-symbols-outlined text-white text-[32px]">handshake</span>
           </div>
-          <h1 className="text-3xl font-black text-white tracking-tight">Partner Portal</h1>
-          <p className="text-white/50 mt-2 text-sm font-medium">Sign in to your Shrawello partner account</p>
+          <h1 className="text-3xl font-black text-white tracking-tight">Travel Associate Portal</h1>
+          <p className="text-white/50 mt-2 text-sm font-medium">Sign in to your SHRAWELLO Travel Associate account</p>
         </div>
 
         <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-8 shadow-2xl">
@@ -75,7 +75,7 @@ export const PartnerLogin: React.FC = () => {
             </button>
           </form>
           <div className="mt-6 pt-6 border-t border-white/10 text-center space-y-3">
-            <p className="text-white/50 text-sm">Don't have an account?{' '}<Link to="/partner/register" className="text-violet-400 hover:text-violet-300 font-bold transition-colors">Register as Partner</Link></p>
+            <p className="text-white/50 text-sm">Don't have an account?{' '}<Link to="/partner/register" className="text-violet-400 hover:text-violet-300 font-bold transition-colors">Register as Travel Associate</Link></p>
             <p className="text-white/30 text-xs"><Link to="/login" className="hover:text-white/50 transition-colors">Staff Login →</Link></p>
           </div>
         </div>

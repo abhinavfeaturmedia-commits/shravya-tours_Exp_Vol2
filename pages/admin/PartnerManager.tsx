@@ -34,7 +34,7 @@ const PartnerTable: React.FC<{
   const navigate = useNavigate();
   const kycBadgeConfig: Record<string, { label: string; style: string; icon: string }> = {
     Pending: { label: 'Pending', style: 'bg-slate-50 text-slate-500 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700/50', icon: 'hourglass_empty' },
-    Submitted: { label: 'Submitted', style: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-900/30 animate-pulse', icon: 'pending' },
+    Submitted: { label: 'Submitted', style: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-900/30', icon: 'pending' },
     Verified: { label: 'Verified', style: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-900/30', icon: 'verified_user' },
     Rejected: { label: 'Rejected', style: 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/20 dark:text-rose-400 dark:border-rose-900/30', icon: 'cancel' },
   };

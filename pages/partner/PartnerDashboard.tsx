@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { usePartnerAuth } from '../../context/PartnerAuthContext';
 import { api } from '../../src/lib/api';
-import { PartnerKYCModal } from './PartnerKYCModal';
 
 import {
   ResponsiveContainer,
@@ -38,23 +37,12 @@ export const PartnerDashboard: React.FC = () => {
   const [leadsLoading, setLeadsLoading] = useState(true);
   const [analytics, setAnalytics] = useState<{ earnings: any[]; funnel: any[]; destinations: any[] } | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
-  const [showKYCModal, setShowKYCModal] = useState(false);
 
   useEffect(() => {
     refreshPartner();
     fetchRecentLeads();
     fetchAnalytics();
   }, []);
-
-  // Show KYC modal if not submitted/verified or bank incomplete
-  useEffect(() => {
-    if (!partner) return;
-    const kycStatus = (partner as any).kyc_status || 'Pending';
-    const bankComplete = (partner as any).bank_complete || false;
-    // Hard-block: Pending (not yet started) or Rejected (needs resubmission) or bank details missing
-    const hardBlock = (kycStatus === 'Pending' || kycStatus === 'Rejected') || !bankComplete;
-    setShowKYCModal(hardBlock);
-  }, [partner]);
 
 
   const fetchAnalytics = async () => {
@@ -111,28 +99,17 @@ export const PartnerDashboard: React.FC = () => {
 
   return (
     <div className="space-y-8 max-w-6xl mx-auto">
-      {/* KYC Blocking Modal */}
-      {showKYCModal && (
-        <PartnerKYCModal onComplete={async () => { await refreshPartner(); }} />
-      )}
-
-      {/* KYC Alert Banner (non-blocking notice when submitted) */}
-      {kycStatus === 'Submitted' && !showKYCModal && (
+      {/* KYC Status Banners (informational, non-blocking — modal handled sitewide in PartnerLayout) */}
+      {kycStatus === 'Submitted' && (
         <div className="flex items-center gap-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl px-5 py-3">
           <span className="material-symbols-outlined text-amber-400 text-xl shrink-0">hourglass_top</span>
           <p className="text-amber-200 text-sm"><strong>KYC Under Review</strong> — Our team will verify your documents within 1–2 business days. You'll be notified by email.</p>
         </div>
       )}
-      {kycStatus === 'Rejected' && (
-        <div className="flex items-center gap-3 bg-red-500/10 border border-red-500/30 rounded-2xl px-5 py-3 cursor-pointer" onClick={() => setShowKYCModal(true)}>
-          <span className="material-symbols-outlined text-red-400 text-xl shrink-0">error</span>
-          <p className="text-red-200 text-sm"><strong>KYC Rejected</strong> — {(partner as any).kyc_rejection_reason || 'Please resubmit your documents.'} <span className="underline font-semibold">Click to resubmit →</span></p>
-        </div>
-      )}
-      {!bankComplete && kycStatus === 'Verified' && (
-        <div className="flex items-center gap-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl px-5 py-3 cursor-pointer" onClick={() => setShowKYCModal(true)}>
-          <span className="material-symbols-outlined text-amber-400 text-xl shrink-0">account_balance</span>
-          <p className="text-amber-200 text-sm"><strong>Bank Details Incomplete</strong> — Add your bank details to receive commission payouts. <span className="underline font-semibold">Add now →</span></p>
+      {kycStatus === 'Verified' && (
+        <div className="flex items-center gap-3 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl px-5 py-3">
+          <span className="material-symbols-outlined text-emerald-400 text-xl shrink-0">verified_user</span>
+          <p className="text-emerald-200 text-sm"><strong>KYC Verified</strong> — Your account is fully verified and active.</p>
         </div>
       )}
 
@@ -144,7 +121,7 @@ export const PartnerDashboard: React.FC = () => {
             <p className="text-white/60 text-sm font-semibold">Welcome back,</p>
           </div>
           <h1 className="text-2xl lg:text-3xl font-black text-white">{partner.name}</h1>
-          <p className="text-white/50 text-sm mt-1">{partner.companyName || 'Independent Partner'} · {partner.location || 'Location not set'}</p>
+          <p className="text-white/50 text-sm mt-1">{partner.companyName || 'Independent Travel Associate'} · {partner.location || 'Location not set'}</p>
         </div>
         <div className="flex flex-col items-end gap-2 shrink-0">
           <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${
@@ -211,7 +188,7 @@ export const PartnerDashboard: React.FC = () => {
                 </div>
               </>
             ) : (
-              <p className="text-purple-300 font-semibold text-sm">💎 Maximum Tier Achieved! You're a Platinum Partner.</p>
+              <p className="text-purple-300 font-semibold text-sm">💎 Maximum Tier Achieved! You're a Platinum Travel Associate.</p>
             )}
           </div>
           <span className="material-symbols-outlined text-white/20 group-hover:text-violet-400 transition-colors text-xl shrink-0">arrow_forward</span>

@@ -260,6 +260,9 @@ export interface Lead {
   matchedCustomerName?: string;         // Name of the matched customer
   matchedCustomerType?: string;         // 'New' | 'Returning' | 'VIP'
   matchedCustomerBookingsCount?: number; // How many past bookings they have
+
+  // Lead → Booking conversion lock (stored in DB, read back on getLeads)
+  convertedBookingId?: string;          // UUID of the booking this lead was converted into; set on conversion, cleared when booking is deleted
 }
 
 export interface CustomerPreference {

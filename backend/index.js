@@ -13,7 +13,8 @@ import Razorpay from 'razorpay';
 
 import { initEmailService, sendTestEmail, sendAgentIntroductionEmail, sendProposalEmail, sendInvoiceEmail,
     sendOTPEmail, sendPartnerKYCVerifiedEmail, sendPartnerKYCRejectedEmail,
-    sendPartnerCommissionPaidEmail, sendLoyaltyTierUpgradeEmail, sendPartnerApprovedEmail } from './emailService.js';
+    sendPartnerCommissionPaidEmail, sendLoyaltyTierUpgradeEmail, sendPartnerApprovedEmail,
+    sendPartnerKYCSubmittedAdminEmail } from './emailService.js';
 
 dotenv.config();
 
@@ -916,11 +917,29 @@ async function ensureLiveOpsSchema() {
         "ALTER TABLE leads ADD COLUMN IF NOT EXISTS alt_phone VARCHAR(50) DEFAULT NULL",
         // Returning customer linking (Rank 1 + Rank 4 feature)
         "ALTER TABLE leads ADD COLUMN IF NOT EXISTS customer_id VARCHAR(64) DEFAULT NULL",
-        "ALTER TABLE leads ADD COLUMN IF NOT EXISTS is_returning_customer TINYINT(1) DEFAULT 0"
+        "ALTER TABLE leads ADD COLUMN IF NOT EXISTS is_returning_customer TINYINT(1) DEFAULT 0",
+        // Lead → Booking conversion lock: stores the ID of the booking this lead was converted into
+        "ALTER TABLE leads ADD COLUMN IF NOT EXISTS converted_booking_id VARCHAR(64) DEFAULT NULL"
     ];
     for (const sql of leadAlterations) {
         try { await pool.query(sql); }
         catch (err) { if (!err.message?.includes('Duplicate column') && err.code !== 'ER_DUP_FIELDNAME') console.warn('[LiveOps Migration] Leads:', err.message?.split('\n')[0]); }
+    }
+
+    // 1c. Backfill converted_booking_id for historically converted leads (one-time, idempotent)
+    try {
+        const [backfillResult] = await pool.query(`
+            UPDATE leads l
+            JOIN bookings b ON b.lead_id = l.id
+            SET l.converted_booking_id = b.id
+            WHERE l.status = 'Converted'
+              AND (l.converted_booking_id IS NULL OR l.converted_booking_id = '')
+        `);
+        if (backfillResult.affectedRows > 0) {
+            console.log(`[Migration] Backfilled converted_booking_id for ${backfillResult.affectedRows} converted lead(s).`);
+        }
+    } catch (backfillErr) {
+        console.warn('[Migration] converted_booking_id backfill failed (non-fatal):', backfillErr.message?.split('\n')[0]);
     }
 
     // 2. New columns on supplier_bookings table
@@ -1597,6 +1616,7 @@ async function ensurePartnerTables() {
             await pool.query("ALTER TABLE partners ADD COLUMN IF NOT EXISTS kyc_verified_at DATETIME DEFAULT NULL");
             await pool.query("ALTER TABLE partners ADD COLUMN IF NOT EXISTS kyc_verified_by VARCHAR(255) DEFAULT NULL");
             await pool.query("ALTER TABLE partners ADD COLUMN IF NOT EXISTS kyc_rejection_reason TEXT DEFAULT NULL");
+            await pool.query("ALTER TABLE partners ADD COLUMN IF NOT EXISTS kyc_resubmission_count INT DEFAULT 0");
             console.log('[Partner Migration] KYC columns added to partners.');
         } catch(e) { /* already exists */ }
 
@@ -1606,6 +1626,13 @@ async function ensurePartnerTables() {
             await pool.query("ALTER TABLE partners ADD COLUMN IF NOT EXISTS loyalty_override TINYINT(1) DEFAULT 0");
             await pool.query("ALTER TABLE partners ADD COLUMN IF NOT EXISTS milestone_notes TEXT DEFAULT NULL");
             console.log('[Partner Migration] Loyalty columns added to partners.');
+        } catch(e) { /* already exists */ }
+
+        // ─── Terms Agreement columns ───
+        try {
+            await pool.query("ALTER TABLE partners ADD COLUMN IF NOT EXISTS terms_agreed_at DATETIME DEFAULT NULL");
+            await pool.query("ALTER TABLE partners ADD COLUMN IF NOT EXISTS terms_version VARCHAR(20) DEFAULT NULL");
+            console.log('[Partner Migration] Terms agreement columns added to partners.');
         } catch(e) { /* already exists */ }
 
         console.log('[Partner Migration] Partner tables ensured.');
@@ -6097,6 +6124,21 @@ app.delete('/api/crud/:table/:id', authMiddleware, validateTable, permissionGuar
     try {
         // Handle cascading deletes manually to prevent foreign key constraint errors
         if (table === 'bookings') {
+            // ── Lead Conversion Lock: read lead_id BEFORE deleting so we can unlock the lead ──
+            try {
+                const [[bookingRow]] = await pool.query('SELECT lead_id FROM bookings WHERE id = ?', [id]);
+                if (bookingRow?.lead_id) {
+                    await pool.query(
+                        "UPDATE leads SET converted_booking_id = NULL, status = 'Warm' WHERE id = ? AND converted_booking_id = ?",
+                        [bookingRow.lead_id, id]
+                    );
+                    console.log(`[Delete] Unlocked lead ${bookingRow.lead_id} — booking ${id} was deleted.`);
+                }
+            } catch (unlockErr) {
+                // Non-fatal: log and continue with the delete
+                console.warn('[Delete] Lead unlock failed (non-fatal):', unlockErr.message);
+            }
+            // ────────────────────────────────────────────────────────────────────────────────
             await pool.query(`DELETE FROM booking_transactions WHERE booking_id = ?`, [id]);
             await pool.query(`DELETE FROM supplier_bookings WHERE booking_id = ?`, [id]);
             console.log(`[Delete] Cleared transactions and supplier bookings for booking ${id}`);
@@ -7951,9 +7993,29 @@ app.post('/api/partner/auth/change-password', partnerAuthMiddleware, async (req,
     }
 });
 
+// Partner: Accept Terms & Conditions (first-time gate)
+app.post('/api/partner/auth/agree-terms', partnerAuthMiddleware, async (req, res) => {
+    try {
+        const { version = 'v1.0' } = req.body || {};
+        await pool.query(
+            'UPDATE partners SET terms_agreed_at = NOW(), terms_version = ? WHERE id = ?',
+            [version, req.partner.partnerId]
+        );
+        await auditLog('PartnerTermsAccepted', 'Partners',
+            `Travel Associate ${req.partner.email} accepted policy version ${version}.`,
+            req.partner.email
+        );
+        res.json({ ok: true, terms_agreed_at: new Date().toISOString(), terms_version: version });
+    } catch (err) {
+        console.error('Partner agree-terms error:', err);
+        res.status(500).json({ error: 'Failed to record agreement' });
+    }
+});
+
 // ═══════════════════════════════════════════
 // PARTNER LEAD ROUTES
 // ═══════════════════════════════════════════
+
 
 // Partner: Submit a new lead
 // Partner: Submit a new lead
@@ -8279,9 +8341,31 @@ app.post('/api/partner/kyc/upload',
             const { panNumber, aadhaarNumber } = req.body || {};
             const files = req.files || {};
 
+            // ── Validation ──
             if (!panNumber || !aadhaarNumber) return res.status(400).json({ error: 'PAN number and Aadhaar number are required' });
             if (!files.pan_front || !files.pan_back) return res.status(400).json({ error: 'PAN card front and back photos are required' });
             if (!files.aadhaar_front || !files.aadhaar_back) return res.status(400).json({ error: 'Aadhaar card front and back photos are required' });
+
+            // F2 (I2): Verify bank details are complete before accepting KYC documents
+            const [partnerRow] = await pool.query('SELECT bank_details, name, email FROM partners WHERE id = ?', [partnerId]);
+            if (!partnerRow.length) return res.status(404).json({ error: 'Partner not found' });
+            const bd = partnerRow[0].bank_details ? (typeof partnerRow[0].bank_details === 'string' ? JSON.parse(partnerRow[0].bank_details) : partnerRow[0].bank_details) : {};
+            const bankComplete = !!(bd.accountName && bd.accountNumber && bd.bankName && bd.ifsc);
+            if (!bankComplete) return res.status(400).json({ error: 'Please complete your bank details before submitting KYC documents.' });
+
+            // F6 (PAN format validation on server side)
+            const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
+            if (!panRegex.test(panNumber.toUpperCase())) return res.status(400).json({ error: 'Invalid PAN format. Expected format: ABCDE1234F' });
+
+            // S3: PAN deduplication — ensure PAN is not already verified on another account
+            const [panCheck] = await pool.query(
+                "SELECT id FROM partners WHERE kyc_pan_number = ? AND kyc_status = 'Verified' AND id != ?",
+                [panNumber.toUpperCase(), partnerId]
+            );
+            if (panCheck.length > 0) return res.status(409).json({ error: 'This PAN number is already registered and verified with another partner account. Please contact support.' });
+
+            // F6: Mask Aadhaar — store only last 4 digits (privacy compliance)
+            const maskedAadhaar = `XXXX-XXXX-${String(aadhaarNumber).replace(/\D/g, '').slice(-4)}`;
 
             const BASE_URL = process.env.BASE_URL || '';
             const toUrl = (f) => f ? `${BASE_URL}/uploads/kyc/${f[0].filename}` : null;
@@ -8293,21 +8377,41 @@ app.post('/api/partner/kyc/upload',
                 }
             }
 
+            // I4: Increment resubmission count if this is a re-submission (status was Rejected or Pending with existing docs)
+            const [currentKyc] = await pool.query('SELECT kyc_status, kyc_pan_number, kyc_resubmission_count FROM partners WHERE id = ?', [partnerId]);
+            const isResubmission = currentKyc[0]?.kyc_pan_number && ['Rejected', 'Pending'].includes(currentKyc[0]?.kyc_status);
+
             await pool.query(`
                 UPDATE partners SET
                     kyc_pan_number = ?, kyc_pan_front_url = ?, kyc_pan_back_url = ?,
                     kyc_aadhaar_number = ?, kyc_aadhaar_front_url = ?, kyc_aadhaar_back_url = ?,
                     kyc_passport_url = ?, kyc_dl_url = ?,
-                    kyc_status = 'Submitted', kyc_submitted_at = NOW()
+                    kyc_status = 'Submitted', kyc_submitted_at = NOW(),
+                    kyc_resubmission_count = kyc_resubmission_count + ?
                 WHERE id = ?`,
                 [
-                    panNumber, toUrl(files.pan_front), toUrl(files.pan_back),
-                    aadhaarNumber, toUrl(files.aadhaar_front), toUrl(files.aadhaar_back),
+                    panNumber.toUpperCase(), toUrl(files.pan_front), toUrl(files.pan_back),
+                    maskedAadhaar, toUrl(files.aadhaar_front), toUrl(files.aadhaar_back),
                     toUrl(files.passport), toUrl(files.driving_licence),
+                    isResubmission ? 1 : 0,
                     partnerId
                 ]
             );
-            await auditLog('PartnerKYCSubmit', 'Partners', `Partner ${partnerId} submitted KYC documents.`, req.partner.email);
+
+            await auditLog(
+                isResubmission ? 'PartnerKYCResubmit' : 'PartnerKYCSubmit',
+                'Partners',
+                `Partner ${partnerId} ${isResubmission ? 'resubmitted' : 'submitted'} KYC documents.`,
+                req.partner.email
+            );
+
+            // S5: Notify admin team about new KYC submission
+            sendPartnerKYCSubmittedAdminEmail({
+                partnerName: partnerRow[0].name,
+                partnerEmail: partnerRow[0].email,
+                isResubmission
+            }).catch(e => console.error('[Email] Admin KYC notification failed:', e.message));
+
             res.json({ message: 'KYC submitted successfully. Awaiting admin verification.' });
         } catch (err) {
             console.error('KYC upload error:', err);
@@ -8315,6 +8419,27 @@ app.post('/api/partner/kyc/upload',
         }
     }
 );
+
+// F1: Partner KYC Reset — allow rejected partners to resubmit by resetting status to Pending
+app.post('/api/partner/kyc/reset', partnerAuthMiddleware, async (req, res) => {
+    try {
+        const partnerId = req.partner.partnerId;
+        const [rows] = await pool.query('SELECT kyc_status FROM partners WHERE id = ?', [partnerId]);
+        if (!rows.length) return res.status(404).json({ error: 'Partner not found' });
+        if (rows[0].kyc_status !== 'Rejected') {
+            return res.status(400).json({ error: 'KYC can only be reset when status is Rejected' });
+        }
+        await pool.query(
+            "UPDATE partners SET kyc_status = 'Pending', kyc_rejection_reason = NULL WHERE id = ?",
+            [partnerId]
+        );
+        await auditLog('PartnerKYCReset', 'Partners', `Partner ${partnerId} reset KYC for resubmission.`, req.partner.email);
+        res.json({ message: 'KYC reset. You can now resubmit your documents.' });
+    } catch (err) {
+        console.error('KYC reset error:', err);
+        res.status(500).json({ error: 'Failed to reset KYC status' });
+    }
+});
 
 // ═══════════════════════════════════════════
 // FORGOT PASSWORD / OTP ROUTES
@@ -8678,9 +8803,19 @@ app.patch('/api/admin/partners/:id/approve', authMiddleware, requirePartnerAdmin
 app.patch('/api/admin/partners/:id/kyc', authMiddleware, requirePartnerAdmin, async (req, res) => {
     try {
         const { action, reason } = req.body || {};
-        if (!action || !['verify','reject'].includes(action)) return res.status(400).json({ error: 'action must be verify or reject' });
-        const [p] = await pool.query('SELECT name, email FROM partners WHERE id = ?', [req.params.id]);
+        if (!action || !['verify','reject','revoke'].includes(action)) return res.status(400).json({ error: 'action must be verify, reject, or revoke' });
+        const [p] = await pool.query('SELECT name, email, kyc_status, kyc_pan_front_url FROM partners WHERE id = ?', [req.params.id]);
         if (!p.length) return res.status(404).json({ error: 'Partner not found' });
+
+        // I3: Guard — only allow Verify if documents have actually been submitted
+        if (action === 'verify' && p[0].kyc_status !== 'Submitted') {
+            return res.status(400).json({ error: `Cannot verify KYC: partner status is '${p[0].kyc_status}'. KYC can only be verified when status is 'Submitted'.` });
+        }
+        // Guard — Revoke only on Verified partners
+        if (action === 'revoke' && p[0].kyc_status !== 'Verified') {
+            return res.status(400).json({ error: `Cannot revoke KYC: partner status is '${p[0].kyc_status}'.` });
+        }
+
         if (action === 'verify') {
             await pool.query(
                 `UPDATE partners SET kyc_status = 'Verified', kyc_verified_at = NOW(), kyc_verified_by = ?, kyc_rejection_reason = NULL WHERE id = ?`,
@@ -8689,7 +8824,7 @@ app.patch('/api/admin/partners/:id/kyc', authMiddleware, requirePartnerAdmin, as
             sendPartnerKYCVerifiedEmail({ to: p[0].email, name: p[0].name }).catch(e => console.error('[Email] KYC verified email failed:', e.message));
             await auditLog('PartnerKYCVerify', 'Partners', `KYC verified for partner ${req.params.id} by ${req.user.email}`, req.user.email);
             res.json({ message: 'KYC verified successfully' });
-        } else {
+        } else if (action === 'reject') {
             await pool.query(
                 `UPDATE partners SET kyc_status = 'Rejected', kyc_rejection_reason = ? WHERE id = ?`,
                 [reason || 'Documents could not be verified', req.params.id]
@@ -8697,6 +8832,14 @@ app.patch('/api/admin/partners/:id/kyc', authMiddleware, requirePartnerAdmin, as
             sendPartnerKYCRejectedEmail({ to: p[0].email, name: p[0].name, reason: reason || 'Documents could not be verified' }).catch(e => console.error('[Email] KYC rejected email failed:', e.message));
             await auditLog('PartnerKYCReject', 'Partners', `KYC rejected for partner ${req.params.id}. Reason: ${reason}`, req.user.email);
             res.json({ message: 'KYC rejected' });
+        } else if (action === 'revoke') {
+            // I5: Revoke — admin can reset a verified partner back to Pending for re-review
+            await pool.query(
+                `UPDATE partners SET kyc_status = 'Pending', kyc_verified_at = NULL, kyc_verified_by = NULL, kyc_rejection_reason = ? WHERE id = ?`,
+                [reason || 'KYC revoked by admin for re-review', req.params.id]
+            );
+            await auditLog('PartnerKYCRevoke', 'Partners', `KYC revoked for partner ${req.params.id} by ${req.user.email}. Reason: ${reason}`, req.user.email);
+            res.json({ message: 'KYC revoked and reset to Pending' });
         }
     } catch (err) {
         console.error('Admin KYC action error:', err);
@@ -8704,8 +8847,8 @@ app.patch('/api/admin/partners/:id/kyc', authMiddleware, requirePartnerAdmin, as
     }
 });
 
-// Admin: Get all KYC submissions
-app.get('/api/admin/kyc', authMiddleware, async (req, res) => {
+// Admin: Get all KYC submissions — F5: restricted to admin/partner-admin only
+app.get('/api/admin/kyc', authMiddleware, requirePartnerAdmin, async (req, res) => {
     try {
         const { status } = req.query;
         let whereClause = '';
@@ -8720,7 +8863,7 @@ app.get('/api/admin/kyc', authMiddleware, async (req, res) => {
                    p.kyc_aadhaar_number, p.kyc_aadhaar_front_url, p.kyc_aadhaar_back_url,
                    p.kyc_passport_url, p.kyc_dl_url, p.kyc_submitted_at, p.kyc_verified_at,
                    p.kyc_verified_by, p.kyc_rejection_reason, p.bank_details,
-                   p.joined_date, p.created_at
+                   p.kyc_resubmission_count, p.joined_date, p.created_at
             FROM partners p ${whereClause}
             ORDER BY FIELD(p.kyc_status,'Submitted','Pending','Rejected','Verified'), p.kyc_submitted_at DESC
         `, params);

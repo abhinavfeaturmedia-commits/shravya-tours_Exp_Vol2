@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { usePartnerAuth } from '../../context/PartnerAuthContext';
+import { PartnerKYCModal } from '../../pages/partner/PartnerKYCModal';
+import { PartnerAgreementModal } from '../../pages/partner/PartnerAgreementModal';
 
 const NAV_ITEMS = [
   { name: 'Dashboard', path: '/partner/dashboard', icon: 'dashboard' },
@@ -39,7 +41,7 @@ export const PartnerLayout: React.FC = () => {
           <div className="size-14 rounded-2xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center text-white shadow-xl animate-pulse">
             <span className="material-symbols-outlined text-[28px]">handshake</span>
           </div>
-          <p className="text-white/60 font-semibold text-sm animate-pulse">Loading Partner Portal…</p>
+          <p className="text-white/60 font-semibold text-sm animate-pulse">Loading Travel Associate Portal…</p>
         </div>
       </div>
     );
@@ -75,7 +77,7 @@ export const PartnerLayout: React.FC = () => {
             </div>
             <div>
               <span className="font-black text-lg text-white tracking-tight leading-none block">SHRAWELLO</span>
-              <span className="text-[10px] font-bold text-violet-400 uppercase tracking-[0.2em]">Partner Portal</span>
+              <span className="text-[10px] font-bold text-violet-400 uppercase tracking-[0.2em]">Travel Associate Portal</span>
             </div>
           </Link>
           <button className="lg:hidden text-white/60 hover:text-white" onClick={() => setIsSidebarOpen(false)}>
@@ -102,6 +104,25 @@ export const PartnerLayout: React.FC = () => {
                 {partner.commissionType === 'Percentage' ? `${partner.commissionValue}% commission` : `₹${partner.commissionValue} flat`}
               </span>
             </div>
+            {/* U5: KYC status badge in sidebar */}
+            {(() => {
+              const ks = (partner as any).kyc_status || 'Pending';
+              const kycStyle: Record<string, string> = {
+                Pending:   'bg-slate-500/20 text-slate-300 border-slate-500/30',
+                Submitted: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
+                Verified:  'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+                Rejected:  'bg-red-500/20 text-red-300 border-red-500/30',
+              };
+              const kycIcon: Record<string, string> = {
+                Pending: 'hourglass_empty', Submitted: 'pending', Verified: 'verified_user', Rejected: 'cancel',
+              };
+              return (
+                <div className={`mt-2 flex items-center gap-1.5 border rounded-lg px-2 py-1 text-[10px] font-bold ${kycStyle[ks] || kycStyle.Pending}`}>
+                  <span className="material-symbols-outlined text-[12px]">{kycIcon[ks] || 'hourglass_empty'}</span>
+                  KYC: {ks}
+                </div>
+              );
+            })()}
           </div>
         </div>
 
@@ -152,13 +173,13 @@ export const PartnerLayout: React.FC = () => {
           </button>
           <div className="flex items-center gap-2 lg:hidden">
             <span className="font-black text-white">SHRAWELLO</span>
-            <span className="text-[10px] text-violet-400 font-bold">Partner</span>
+            <span className="text-[10px] text-violet-400 font-bold">Associate</span>
           </div>
           <div className="hidden lg:block" />
           <div className="flex items-center gap-3">
             <div className="text-right hidden sm:block">
               <p className="text-sm font-bold text-white">{partner.name}</p>
-              <p className="text-[10px] text-white/50">Partner Account</p>
+              <p className="text-[10px] text-white/50">Travel Associate</p>
             </div>
             <div className="size-9 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center font-bold text-white text-sm">
               {initials}
@@ -171,6 +192,12 @@ export const PartnerLayout: React.FC = () => {
           <Outlet />
         </main>
       </div>
+
+      {/* I1: Sitewide KYC Gate — renders on ALL partner pages via PartnerLayout */}
+      <PartnerKYCModal />
+
+      {/* Terms Agreement Gate — renders until Travel Associate accepts policy */}
+      {!(partner as any).terms_agreed_at && <PartnerAgreementModal />}
     </div>
   );
 };

@@ -788,6 +788,9 @@ export const api = {
             matchedCustomerBookingsCount: row.matched_customer_bookings_count != null
                 ? Number(row.matched_customer_bookings_count)
                 : undefined,
+
+            // Conversion lock: the booking ID this lead was converted into (null when booking is deleted)
+            convertedBookingId: row.converted_booking_id || undefined,
         }));
     },
 
@@ -861,6 +864,9 @@ export const api = {
         if (updates.residentialAddress !== undefined) dbUpdates.residential_address = updates.residentialAddress;
         if (updates.officeAddress !== undefined) dbUpdates.office_address = updates.officeAddress;
         if (updates.altPhone !== undefined) dbUpdates.alt_phone = updates.altPhone || null;
+        // Conversion lock: write the booking back-reference (or clear it on unlock)
+        if (updates.convertedBookingId !== undefined)
+            dbUpdates.converted_booking_id = updates.convertedBookingId || null;
         await crud.update('leads', id, dbUpdates);
     },
 

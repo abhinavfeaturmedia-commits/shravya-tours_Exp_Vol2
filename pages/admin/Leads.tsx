@@ -435,7 +435,7 @@ export const Leads: React.FC = () => {
             }
 
         try {
-            await addBooking({
+            const newBooking = await addBooking({
                 id: '', // Will be set by DB (UUID auto-generated)
                 type: (selectedLead.type && ['Tour', 'Hotel', 'Car', 'Bus', 'Train', 'Flight'].includes(selectedLead.type) ? selectedLead.type : 'Tour') as BookingType,
                 customer: selectedLead.name,
@@ -466,12 +466,19 @@ export const Leads: React.FC = () => {
                 officeAddress: selectedLead.officeAddress
             });
 
+            // Capture the DB-generated booking UUID from the response
+            const newBookingId: string | undefined = newBooking?.id || newBooking?.data?.id || undefined;
+
             // Only mark lead as converted AFTER booking is saved successfully
-            updateLead(selectedLead.id, { status: 'Converted' });
+            // Also store the booking ID so the Convert button locks and won't re-fire
+            updateLead(selectedLead.id, {
+                status: 'Converted',
+                convertedBookingId: newBookingId
+            });
             addLeadLog(selectedLead.id, {
                 id: `lg-conv-${Date.now()}`,
                 type: 'System',
-                content: `Lead converted to Booking. Customer profile ${existingCustomer ? 'linked and synced' : 'created and synced'}.`,
+                content: `Lead converted to Booking${newBookingId ? ` (ID: ${newBookingId})` : ''}. Customer profile ${existingCustomer ? 'linked and synced' : 'created and synced'}.`,
                 timestamp: new Date().toISOString()
             });
             toast.success('Lead converted to Booking! Now visible in Pending bookings.');
@@ -1821,12 +1828,28 @@ export const Leads: React.FC = () => {
                             </div>
                             {hasPermission('leads', 'manage') && (
                                 <>
-                                    <button
-                                        onClick={handleConvertToBooking}
-                                        className="w-full py-3 rounded-xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-bold text-sm hover:opacity-90 flex items-center justify-center gap-2 transition-all shadow-lg btn-glow"
-                                    >
-                                        <CheckCircle2 size={16} /> Convert to Booking
-                                    </button>
+                                    {/* ── Conversion Lock Guard ── */}
+                                    {selectedLead.status === 'Converted' && selectedLead.convertedBookingId ? (
+                                        // LOCKED: this lead is already tied to a booking
+                                        <div className="flex flex-col gap-2">
+                                            <div className="w-full py-3 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border-2 border-emerald-200 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400 font-bold text-sm flex items-center justify-center gap-2 cursor-not-allowed select-none">
+                                                <CheckCircle2 size={16} className="text-emerald-500" />
+                                                Lead Already Converted to Booking
+                                            </div>
+                                            <p className="text-[10px] text-center text-slate-400 dark:text-slate-500">
+                                                Delete the linked booking to re-enable conversion.
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        // ACTIVE: ready to convert
+                                        <button
+                                            onClick={handleConvertToBooking}
+                                            className="w-full py-3 rounded-xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-bold text-sm hover:opacity-90 flex items-center justify-center gap-2 transition-all shadow-lg btn-glow"
+                                        >
+                                            <CheckCircle2 size={16} /> Convert to Booking
+                                        </button>
+                                    )}
+                                    {/* ─────────────────────────── */}
                                     <button onClick={handleCreateQuotation} className="w-full py-3 mt-3 rounded-xl bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200 font-bold text-sm hover:bg-slate-200 dark:hover:bg-slate-700 flex items-center justify-center gap-2 transition-all border border-slate-200 dark:border-slate-700"><FileText size={16} /> Create Quotation</button>
                                 </>
                             )}</div>

@@ -309,7 +309,7 @@ export const Login: React.FC = () => {
                                 href="#/partner/login"
                                 className="text-slate-400 hover:text-violet-500 text-xs font-medium flex items-center gap-2 transition-colors mt-2"
                             >
-                                Partner Portal Login →
+                                Travel Associate Portal →
                             </a>
                         </div>
                     </form>

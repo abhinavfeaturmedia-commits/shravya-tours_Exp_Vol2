@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -46,6 +46,7 @@ const AVATAR_COLORS = [
 
 export const AdminKYCManager: React.FC = () => {
   const location = useLocation();
+  const navigate = useNavigate();
   const [allRecords, setAllRecords] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('All');
@@ -54,6 +55,7 @@ export const AdminKYCManager: React.FC = () => {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [selected, setSelected] = useState<any | null>(null);
   const [rejectReason, setRejectReason] = useState('');
+  const [revokeReason, setRevokeReason] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
   const [lightbox, setLightbox] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
@@ -125,9 +127,18 @@ export const AdminKYCManager: React.FC = () => {
     });
   }, [allRecords, filter, search, sortKey, sortOrder]);
 
-  const handleAction = async (partnerId: string, action: 'verify' | 'reject') => {
+  const handleAction = async (partnerId: string, action: 'verify' | 'reject' | 'revoke') => {
     if (action === 'reject' && !rejectReason.trim()) {
       setToast({ msg: 'Please provide a reason for rejection.', type: 'error' });
+      return;
+    }
+    if (action === 'revoke' && !revokeReason.trim()) {
+      setToast({ msg: 'Please provide a reason for revoking KYC.', type: 'error' });
+      return;
+    }
+    // I3: Guard — verify only on Submitted
+    if (action === 'verify' && selected?.kyc_status !== 'Submitted') {
+      setToast({ msg: `Cannot verify: partner KYC status is '${selected?.kyc_status}'. Only Submitted documents can be verified.`, type: 'error' });
       return;
     }
     setActionLoading(true);
@@ -135,13 +146,14 @@ export const AdminKYCManager: React.FC = () => {
       const res = await fetch(`${API_BASE}/api/admin/partners/${partnerId}/kyc`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ action, reason: rejectReason }),
+        body: JSON.stringify({ action, reason: action === 'reject' ? rejectReason : action === 'revoke' ? revokeReason : undefined }),
       });
       const data = await res.json();
       if (res.ok) {
-        setToast({ msg: action === 'verify' ? 'KYC verified successfully.' : 'KYC submission rejected.', type: 'success' });
+        setToast({ msg: action === 'verify' ? 'KYC verified successfully.' : action === 'reject' ? 'KYC submission rejected.' : 'KYC revoked and reset to Pending.', type: 'success' });
         setSelected(null);
         setRejectReason('');
+        setRevokeReason('');
         fetchKYC();
       } else {
         throw new Error(data.error || 'Action failed');
@@ -213,10 +225,20 @@ export const AdminKYCManager: React.FC = () => {
 
       {/* Sticky Top Header */}
       <div className="px-6 py-5 md:px-8 bg-white dark:bg-[#1A2633] border-b border-slate-200 dark:border-slate-800 shrink-0 shadow-sm transition-all duration-200">
-        <div>
-          <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">KYC Management</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">Review, verify, and manage partner onboarding documents.</p>
+        <div className="flex items-center gap-3 mb-1">
+          {/* U6: Back navigation to Partner Manager */}
+          <button
+            onClick={() => navigate('/admin/partners')}
+            className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-violet-600 dark:text-slate-400 dark:hover:text-violet-400 transition-colors"
+          >
+            <span className="material-symbols-outlined text-[16px]">arrow_back</span>
+            Partner Manager
+          </button>
+          <span className="text-slate-300 dark:text-slate-700">/</span>
+          <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">KYC Management</span>
         </div>
+        <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">KYC Management</h1>
+        <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">Review, verify, and manage partner onboarding documents.</p>
       </div>
 
       {/* Main Body Content */}
@@ -597,14 +619,14 @@ export const AdminKYCManager: React.FC = () => {
 
             {/* Drawer Actions Footer */}
             <div className="sticky bottom-0 bg-slate-50 dark:bg-[#151F2A] border-t border-slate-200 dark:border-slate-800 p-5 shrink-0 z-10">
-              {selected.kyc_status !== 'Verified' ? (
+              {selected.kyc_status === 'Submitted' && (
                 <div className="space-y-4">
                   <div>
                     <label className="text-[10px] font-black text-slate-400 dark:text-slate-550 uppercase tracking-widest block mb-1.5 ml-1">
                       Rejection Reason (Required for Reject only)
                     </label>
-                    <textarea 
-                      value={rejectReason} 
+                    <textarea
+                      value={rejectReason}
                       onChange={e => setRejectReason(e.target.value)}
                       placeholder="Specify the reason why these documents are being rejected..."
                       rows={3}
@@ -612,15 +634,15 @@ export const AdminKYCManager: React.FC = () => {
                     />
                   </div>
                   <div className="flex gap-4">
-                    <button 
-                      onClick={() => handleAction(selected.id, 'reject')} 
+                    <button
+                      onClick={() => handleAction(selected.id, 'reject')}
                       disabled={actionLoading || !rejectReason.trim()}
                       className="flex-1 h-11 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/20 dark:hover:bg-rose-950/40 border border-rose-200 dark:border-rose-800/80 text-rose-700 dark:text-rose-400 font-bold rounded-xl transition-all disabled:opacity-45 flex items-center justify-center gap-1.5 uppercase text-xs tracking-wider"
                     >
                       {actionLoading ? <div className="size-4 border-2 border-rose-500/30 border-t-rose-600 rounded-full animate-spin" /> : <>✕ Reject KYC</>}
                     </button>
-                    <button 
-                      onClick={() => handleAction(selected.id, 'verify')} 
+                    <button
+                      onClick={() => handleAction(selected.id, 'verify')}
                       disabled={actionLoading}
                       className="flex-1 h-11 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-lg shadow-emerald-600/10 transition-all disabled:opacity-60 flex items-center justify-center gap-1.5 uppercase text-xs tracking-wider"
                     >
@@ -628,17 +650,55 @@ export const AdminKYCManager: React.FC = () => {
                     </button>
                   </div>
                 </div>
-              ) : (
-                <div className="bg-emerald-50 dark:bg-emerald-950/10 border border-emerald-200 dark:border-emerald-900/30 rounded-2xl p-4 flex items-center gap-3">
-                  <span className="material-symbols-outlined text-emerald-600 dark:text-emerald-400 text-2xl">check_circle</span>
-                  <div className="text-left">
-                    <p className="text-emerald-800 dark:text-emerald-400 font-black text-sm">KYC Documents Verified</p>
-                    <p className="text-slate-450 dark:text-slate-505 text-[10px] font-semibold mt-0.5">
-                      Approved by {selected.kyc_verified_by || 'Admin'} on {selected.kyc_verified_at ? new Date(selected.kyc_verified_at).toLocaleDateString('en-IN', {
-                        day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
-                      }) : '—'}
-                    </p>
+              )}
+              {/* I5: Revoke action for Verified partners */}
+              {selected.kyc_status === 'Verified' && (
+                <div className="space-y-3">
+                  <div className="bg-emerald-50 dark:bg-emerald-950/10 border border-emerald-200 dark:border-emerald-900/30 rounded-2xl p-4 flex items-center gap-3">
+                    <span className="material-symbols-outlined text-emerald-600 dark:text-emerald-400 text-2xl">check_circle</span>
+                    <div className="text-left flex-1">
+                      <p className="text-emerald-800 dark:text-emerald-400 font-black text-sm">KYC Documents Verified</p>
+                      <p className="text-slate-450 dark:text-slate-505 text-[10px] font-semibold mt-0.5">
+                        Approved by {selected.kyc_verified_by || 'Admin'} on {selected.kyc_verified_at ? new Date(selected.kyc_verified_at).toLocaleDateString('en-IN', {
+                          day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+                        }) : '—'}
+                      </p>
+                    </div>
                   </div>
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1.5">Revoke Reason (Required)</label>
+                    <textarea
+                      value={revokeReason}
+                      onChange={e => setRevokeReason(e.target.value)}
+                      placeholder="Reason for revoking KYC verification (e.g. fraud, document mismatch)..."
+                      rows={2}
+                      className="w-full px-4 py-3 bg-white dark:bg-[#1A2633] border border-slate-250 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-amber-500/20 resize-none transition-all"
+                    />
+                  </div>
+                  <button
+                    onClick={() => handleAction(selected.id, 'revoke')}
+                    disabled={actionLoading || !revokeReason.trim()}
+                    className="w-full h-10 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/20 border border-amber-300 dark:border-amber-800 text-amber-700 dark:text-amber-400 font-bold rounded-xl text-xs tracking-wider uppercase transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  >
+                    {actionLoading ? <div className="size-4 border-2 border-amber-500/30 border-t-amber-500 rounded-full animate-spin" /> : <>⚠ Revoke KYC Verification</>}
+                  </button>
+                </div>
+              )}
+              {/* Pending / Rejected — no actions available */}
+              {(selected.kyc_status === 'Pending' || selected.kyc_status === 'Rejected') && (
+                <div className="bg-slate-50 dark:bg-slate-800/20 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 text-center">
+                  <span className="material-symbols-outlined text-slate-400 text-2xl mb-2 block">
+                    {selected.kyc_status === 'Pending' ? 'hourglass_empty' : 'cancel'}
+                  </span>
+                  <p className="text-slate-500 dark:text-slate-400 text-sm font-semibold">
+                    {selected.kyc_status === 'Pending'
+                      ? 'Partner has not yet submitted documents.'
+                      : `KYC Rejected — Reason: ${selected.kyc_rejection_reason || '—'}`
+                    }
+                  </p>
+                  {selected.kyc_resubmission_count > 0 && (
+                    <p className="text-amber-500 text-xs mt-1 font-bold">🔄 {selected.kyc_resubmission_count} resubmission(s)</p>
+                  )}
                 </div>
               )}
             </div>

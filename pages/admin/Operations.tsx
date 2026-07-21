@@ -1,4 +1,4 @@
-﻿import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { useData } from '../../context/DataContext';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -70,11 +70,13 @@ export const Operations: React.FC = () => {
     const [activeTab, setActiveTab] = useState<'Tours' | 'Attendance'>('Tours');
     const [isRefreshing, setIsRefreshing] = useState(false);
 
-    // ─── Fix B: Upcoming window toggle (7 / 14 / 30 days) ───────────────────
+    // ─── Upcoming window toggle (7 / 14 / 30 days) ─────────────────────────
     const [upcomingDays, setUpcomingDays] = useState<7 | 14 | 30>(7);
 
-    // ─── Deliverables Checklist States ───
-    // Fix E: deliverables are fetched per-booking (lazy) — not globally on tab switch
+    // ─── Recently Completed — Show More toggle ───────────────────────────────
+    const [showAllCompleted, setShowAllCompleted] = useState(false);
+
+    // ─── Deliverables Checklist States ────────────────────────────────────────
     const [deliverables, setDeliverables] = useState<Record<string, BookingDailyDeliverable[]>>({});
     const [loadingDeliverables, setLoadingDeliverables] = useState<Record<string, boolean>>({});
     const [expandedChecklists, setExpandedChecklists] = useState<Record<string, boolean>>({});
@@ -253,14 +255,11 @@ export const Operations: React.FC = () => {
         }
     };
 
-    // ─── Tour Classification Logic ─────────────────────────────────────────────
-    // Fix A: Track whether duration is estimated (no durationDays in DB + no package match)
-    // Fix B: Use upcomingDays state instead of hard-coded 7
+    // ─── Tour Classification Logic ────────────────────────────────────────────
     const tourStats = useMemo(() => {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
-        // Fix B: upcoming window driven by upcomingDays state (7 / 14 / 30)
         const upcomingCutoff = new Date(today);
         upcomingCutoff.setDate(today.getDate() + upcomingDays);
         upcomingCutoff.setHours(23, 59, 59, 999);
@@ -268,6 +267,8 @@ export const Operations: React.FC = () => {
         const live: (Booking & { paxCount: number; duration: number; liveEndDate: Date; durationEstimated: boolean })[] = [];
         const upcoming: (Booking & { paxCount: number; paxUnknown: boolean })[] = [];
         const completed: Booking[] = [];
+        // Track IDs placed into completed to prevent double-counting
+        const completedIds = new Set<string>();
 
         bookings.forEach((b: Booking) => {
             // Only process Tour-type bookings (null type is treated as Tour for legacy rows)
@@ -276,19 +277,18 @@ export const Operations: React.FC = () => {
             const start = parseLocalDate(b.date);
             if (!start) return;
 
-            // Fix A: Resolve duration with explicit flag when it's estimated
+            // Resolve duration — prefer explicit DB value, then package lookup, fallback to 1
             let duration: number;
             let durationEstimated = false;
             if (b.durationDays && b.durationDays > 0) {
                 duration = b.durationDays;
             } else {
-                // Try exact packageId match first, then loose title match
                 const pkg = packages.find((p: any) => p.id === b.packageId)
                     || packages.find((p: any) => b.packageId && p.title === b.title);
                 if (pkg?.days && pkg.days > 0) {
                     duration = pkg.days;
                 } else {
-                    duration = 1; // true fallback — flag as estimated
+                    duration = 1;
                     durationEstimated = true;
                 }
             }
@@ -297,27 +297,64 @@ export const Operations: React.FC = () => {
             end.setDate(start.getDate() + (duration - 1));
             end.setHours(23, 59, 59, 999);
 
-            // Fix H: paxCount — distinguish genuine 1 from missing data
-            const rawPax = b.paxCount ?? (b.paxAdult !== undefined ? (b.paxAdult + (b.paxChild ?? 0) + (b.paxInfant ?? 0)) : null);
+            // Pax count — prefer explicit paxCount field, then adult+child+infant, then parse guests string
+            const rawPax = b.paxCount != null
+                ? b.paxCount
+                : (b.paxAdult != null ? (b.paxAdult + (b.paxChild ?? 0) + (b.paxInfant ?? 0)) : null);
             const paxCount = rawPax ?? extractPaxCount(b.guests);
-            const paxUnknown = rawPax === null && !b.guests;
+            const paxUnknown = rawPax == null && !b.guests;
 
-            const statusLower = b.status?.toLowerCase() || 'pending';
-            const liveStatusLower = b.liveStatus?.toLowerCase() || 'live';
+            const statusLower = (b.status ?? 'pending').toLowerCase();
+            const liveStatusLower = (b.liveStatus ?? 'live').toLowerCase();
 
-            if (start <= today && end >= today && statusLower === 'confirmed' && liveStatusLower !== 'completed' && liveStatusLower !== 'cancelled') {
-                live.push({ ...b, paxCount, duration, liveEndDate: end, durationEstimated });
-            } else if (start > today && start <= upcomingCutoff && statusLower === 'confirmed') {
-                upcoming.push({ ...b, paxCount, paxUnknown });
-            } else if ((end < today && statusLower !== 'cancelled' && liveStatusLower !== 'cancelled') || statusLower === 'completed' || liveStatusLower === 'completed') {
-                completed.push(b);
+            const isCancelledBooking = statusLower === 'cancelled' || liveStatusLower === 'cancelled';
+            if (isCancelledBooking) return; // Cancelled → never show in any section
+
+            // ── Priority 1: Explicitly completed (manual override via liveStatus or booking status) ──
+            // These always go to Recently Completed regardless of date range
+            if (statusLower === 'completed' || liveStatusLower === 'completed') {
+                if (!completedIds.has(b.id)) {
+                    completed.push(b);
+                    completedIds.add(b.id);
+                }
+                return;
+            }
+
+            // ── Priority 2: LIVE — today falls within the tour date window ──
+            // Include both confirmed AND pending (pending can be on-tour for legacy bookings)
+            if (start <= today && end >= today) {
+                if (statusLower === 'confirmed' || statusLower === 'pending') {
+                    live.push({ ...b, paxCount, duration, liveEndDate: end, durationEstimated });
+                    return;
+                }
+            }
+
+            // ── Priority 3: UPCOMING — start date is in the future within the window ──
+            // Include confirmed AND pending bookings so ops team can prepare
+            if (start > today && start <= upcomingCutoff) {
+                if (statusLower === 'confirmed' || statusLower === 'pending') {
+                    upcoming.push({ ...b, paxCount, paxUnknown });
+                    return;
+                }
+            }
+
+            // ── Priority 4: COMPLETED — end date is in the past (date-based auto-completion) ──
+            // Exclude pending-status past bookings (likely abandoned leads, not real tours)
+            if (end < today && statusLower !== 'pending') {
+                if (!completedIds.has(b.id)) {
+                    completed.push(b);
+                    completedIds.add(b.id);
+                }
             }
         });
 
-        const byDate = (a: Booking, b: Booking) => (parseLocalDate(a.date)?.getTime() ?? 0) - (parseLocalDate(b.date)?.getTime() ?? 0);
+        const byDate = (a: Booking, b: Booking) =>
+            (parseLocalDate(a.date)?.getTime() ?? 0) - (parseLocalDate(b.date)?.getTime() ?? 0);
         live.sort(byDate);
         upcoming.sort(byDate);
-        completed.sort((a, b) => (parseLocalDate(b.date)?.getTime() ?? 0) - (parseLocalDate(a.date)?.getTime() ?? 0));
+        // Most-recent completed first
+        completed.sort((a, b) =>
+            (parseLocalDate(b.date)?.getTime() ?? 0) - (parseLocalDate(a.date)?.getTime() ?? 0));
 
         return { live, upcoming, completed };
     }, [bookings, packages, upcomingDays]);
@@ -398,25 +435,24 @@ export const Operations: React.FC = () => {
         }
     };
 
-    // Fix C: liveStatus changes now also sync booking.status in MySQL
-    // Ensures Bookings page reflects operational reality (Completed / Cancelled)
+    // liveStatus changes sync booking.status in MySQL for Completed/Cancelled
     const handleLiveStatusChange = async (bookingId: string, liveStatus: string) => {
         if (liveStatus === 'Cancelled') {
-            const ok = window.confirm('Are you sure you want to cancel this live tour? This action will also mark the booking as Cancelled in the Bookings page.');
+            const ok = window.confirm('Are you sure you want to cancel this live tour? This will also mark the booking as Cancelled.');
             if (!ok) return;
         }
         try {
-            // Build the update payload — sync live_status AND status for Completed/Cancelled
+            // Build the update payload — sync live_status AND booking status for Completed/Cancelled
             const updatePayload: any = { liveStatus };
             if (liveStatus === 'Completed') {
                 updatePayload.status = 'Completed'; // syncs bookings.status → 'completed'
             } else if (liveStatus === 'Cancelled') {
                 updatePayload.status = 'Cancelled'; // syncs bookings.status → 'cancelled'
             }
+            // NOTE: updateBooking (DataContext) fires its own toast.success internally.
+            // Do NOT add a second toast here — that would produce a duplicate notification.
             await updateBooking(bookingId, updatePayload);
-            // Notify other pages (e.g. Bookings) of the change
             window.dispatchEvent(new CustomEvent('bookings-changed'));
-            toast.success('Tour status updated');
         } catch { toast.error('Failed to update tour status'); }
     };
 
@@ -1093,14 +1129,24 @@ export const Operations: React.FC = () => {
                             </div>
                         </div>
 
-                        {/* #13 — Completed Tours Section (previously dead code, now rendered) */}
+                        {/* Recently Completed Tours */}
                         {tourStats.completed.length > 0 && (
                             <div>
-                                <h3 className="text-lg font-black text-slate-900 dark:text-white mb-4 flex items-center gap-2">
-                                    <CheckCircle className="text-slate-400" size={20} />
-                                    Recently Completed
-                                    <span className="text-sm font-normal text-slate-400">({tourStats.completed.length})</span>
-                                </h3>
+                                <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+                                    <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
+                                        <CheckCircle className="text-slate-400" size={20} />
+                                        Recently Completed
+                                        <span className="text-sm font-normal text-slate-400">({tourStats.completed.length})</span>
+                                    </h3>
+                                    {tourStats.completed.length > 10 && (
+                                        <button
+                                            onClick={() => setShowAllCompleted(v => !v)}
+                                            className="text-xs font-bold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/20 dark:hover:bg-blue-900/40 px-3 py-1.5 rounded-lg transition-colors"
+                                        >
+                                            {showAllCompleted ? 'Show Less ▲' : `Show All ${tourStats.completed.length} ▼`}
+                                        </button>
+                                    )}
+                                </div>
                                 <div className="bg-white dark:bg-[#1A2633] rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden">
                                     <table className="w-full text-left">
                                         <thead className="bg-slate-50 dark:bg-slate-900/50 text-xs uppercase font-bold text-slate-400">
@@ -1108,27 +1154,49 @@ export const Operations: React.FC = () => {
                                                 <th className="px-6 py-4">Date</th>
                                                 <th className="px-6 py-4">Customer</th>
                                                 <th className="px-6 py-4">Package</th>
+                                                <th className="px-4 py-4 text-xs">Status</th>
                                                 <th className="px-6 py-4 text-right">Booking</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                            {tourStats.completed.slice(0, 10).map(tour => (
-                                                <tr key={tour.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 opacity-70">
-                                                    <td className="px-6 py-4 text-sm text-slate-500">{formatLocalDate(tour.date)}</td>
-                                                    <td className="px-6 py-4 font-medium text-slate-700 dark:text-slate-300">{tour.customer}</td>
-                                                    <td className="px-6 py-4 text-sm text-slate-500">{tour.title}</td>
-                                                    <td className="px-6 py-4 text-right">
-                                                        <button
-                                                            onClick={() => navigate(`/admin/bookings?search=${tour.id}`)}
-                                                            className="text-slate-500 hover:text-blue-600 bg-slate-50 hover:bg-blue-50 px-3 py-1.5 rounded-lg font-bold text-xs transition-colors"
-                                                        >
-                                                            View
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                            ))}
+                                            {(showAllCompleted ? tourStats.completed : tourStats.completed.slice(0, 10)).map(tour => {
+                                                const isManuallyCompleted = tour.liveStatus === 'Completed' || (tour.status as string)?.toLowerCase() === 'completed';
+                                                return (
+                                                    <tr key={tour.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 opacity-80">
+                                                        <td className="px-6 py-4 text-sm text-slate-500">{formatLocalDate(tour.date)}</td>
+                                                        <td className="px-6 py-4 font-medium text-slate-700 dark:text-slate-300">{tour.customer}</td>
+                                                        <td className="px-6 py-4 text-sm text-slate-500">{tour.title}</td>
+                                                        <td className="px-4 py-4">
+                                                            {isManuallyCompleted ? (
+                                                                <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">
+                                                                    <CheckCircle size={10} /> Completed
+                                                                </span>
+                                                            ) : (
+                                                                <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500">
+                                                                    Past
+                                                                </span>
+                                                            )}
+                                                        </td>
+                                                        <td className="px-6 py-4 text-right">
+                                                            <button
+                                                                onClick={() => navigate(`/admin/bookings?search=${tour.id}`)}
+                                                                className="text-slate-500 hover:text-blue-600 bg-slate-50 hover:bg-blue-50 dark:bg-slate-800 dark:hover:bg-blue-900/20 px-3 py-1.5 rounded-lg font-bold text-xs transition-colors"
+                                                            >
+                                                                View
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
                                         </tbody>
                                     </table>
+                                    {!showAllCompleted && tourStats.completed.length > 10 && (
+                                        <div className="px-6 py-3 bg-slate-50 dark:bg-slate-900/30 border-t border-slate-100 dark:border-slate-800 text-center">
+                                            <span className="text-xs text-slate-400">
+                                                Showing 10 of {tourStats.completed.length} — use "Show All" above to view more
+                                            </span>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         )}

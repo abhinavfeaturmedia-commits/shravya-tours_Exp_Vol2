@@ -147,6 +147,9 @@ export const useBookings = () => {
         onSuccess: () => {
             toast.success('Booking deleted');
             queryClient.invalidateQueries({ queryKey: ['bookings'] });
+            // If this booking was linked to a lead (converted from), the backend will have
+            // unlocked that lead. Dispatch leads-changed so the Leads page refetches immediately.
+            window.dispatchEvent(new CustomEvent('leads-changed'));
         },
     });
 

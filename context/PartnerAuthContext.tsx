@@ -11,6 +11,7 @@ interface PartnerAuthContextType {
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
   refreshPartner: () => Promise<void>;
+  agreeToTerms: () => Promise<void>;
 }
 
 const PartnerAuthContext = createContext<PartnerAuthContextType | undefined>(undefined);
@@ -77,6 +78,9 @@ function mapPartner(raw: any): Partner & Record<string, any> {
     loyalty_progress_pct: raw.loyalty_progress_pct || 0,
     loyalty_next_threshold: raw.loyalty_next_threshold || null,
     total_bookings_converted: Number(raw.total_bookings_converted) || 0,
+    // Terms agreement
+    terms_agreed_at: raw.terms_agreed_at || null,
+    terms_version: raw.terms_version || null,
   };
 }
 
@@ -141,6 +145,15 @@ export const PartnerAuthProvider: React.FC<{ children: React.ReactNode }> = ({ c
     }
   }, [fetchPartnerProfile]);
 
+  const agreeToTerms = useCallback(async () => {
+    const data = await fetchWithPartnerToken('/api/partner/auth/agree-terms', {
+      method: 'POST',
+      body: JSON.stringify({ version: 'v1.0' }),
+    });
+    // Optimistically update partner state so UI gate lifts immediately
+    setPartner(prev => prev ? { ...prev, terms_agreed_at: data.terms_agreed_at, terms_version: data.terms_version } : prev);
+  }, []);
+
   const value = useMemo(() => ({
     partner,
     isAuthenticated: !!partner,
@@ -148,7 +161,8 @@ export const PartnerAuthProvider: React.FC<{ children: React.ReactNode }> = ({ c
     login,
     logout,
     refreshPartner,
-  }), [partner, loading, login, logout, refreshPartner]);
+    agreeToTerms,
+  }), [partner, loading, login, logout, refreshPartner, agreeToTerms]);
 
   return <PartnerAuthContext.Provider value={value}>{children}</PartnerAuthContext.Provider>;
 };
