@@ -76,6 +76,7 @@ const PartnerSubmitLead = lazy(() => import('./pages/partner/PartnerSubmitLead')
 const PartnerEarnings = lazy(() => import('./pages/partner/PartnerEarnings').then(m => ({ default: m.PartnerEarnings })));
 const PartnerProfile = lazy(() => import('./pages/partner/PartnerProfile').then(m => ({ default: m.PartnerProfile })));
 const PartnerMilestones = lazy(() => import('./pages/partner/PartnerMilestones').then(m => ({ default: m.PartnerMilestones })));
+const PartnerAgreement = lazy(() => import('./pages/partner/PartnerAgreement').then(m => ({ default: m.PartnerAgreement })));
 
 // Customer Portal Pages
 const CustomerLogin = lazy(() => import('./pages/customer/CustomerLogin').then(m => ({ default: m.CustomerLogin })));
@@ -177,6 +178,7 @@ const App: React.FC = () => {
                   <Route path="earnings" element={<PartnerEarnings />} />
                   <Route path="profile" element={<PartnerProfile />} />
                   <Route path="milestones" element={<PartnerMilestones />} />
+                  <Route path="agreement" element={<PartnerAgreement />} />
                 </Route>
 
                 {/* Customer Portal Routes */}

@@ -87,6 +87,13 @@ export const Bookings: React.FC = () => {
     const [loadingDeliverables, setLoadingDeliverables] = useState(false);
     const [selectedDay, setSelectedDay] = useState<number>(1);
 
+    // Deep Link from Inventory or other pages
+    useEffect(() => {
+        if (location.state?.search) {
+            setSearch(location.state.search);
+        }
+    }, [location.state]);
+
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.key === 'Escape') {

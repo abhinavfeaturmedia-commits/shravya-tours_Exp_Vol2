@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { name: 'My Leads', path: '/partner/leads', icon: 'groups' },
   { name: 'Earnings', path: '/partner/earnings', icon: 'payments' },
   { name: 'Milestones & Plans', path: '/partner/milestones', icon: 'emoji_events' },
+  { name: 'Policy & Agreement', path: '/partner/agreement', icon: 'gavel' },
   { name: 'Profile', path: '/partner/profile', icon: 'manage_accounts' },
 ];
 

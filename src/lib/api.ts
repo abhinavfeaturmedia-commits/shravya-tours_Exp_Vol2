@@ -1,5 +1,5 @@
 import imageCompression from 'browser-image-compression';
-import { Package, Booking, Lead, LeadLog, BookingStatus, StaffMember, Customer, MasterRoomType, MasterMealPlan, MasterActivity, MasterTransport, MasterPlan, MasterLeadSource, MasterTermsTemplate, CMSBanner, CMSTestimonial, CMSGalleryImage, CMSPost, FollowUp, Proposal, DailyTarget, TimeSession, AssignmentRule, UserActivity, Campaign, MasterHotel, Task, AuditLog, Expense, AttendanceLog, Coupon, DailyMarketingLog, MarketingTarget, LogComment, LogReaction, InAppNotification, BookingDailyDeliverable } from '../../types';
+import { Package, Booking, Lead, LeadLog, BookingStatus, StaffMember, Customer, MasterRoomType, MasterMealPlan, MasterActivity, MasterTransport, MasterPlan, MasterLeadSource, MasterTermsTemplate, CMSBanner, CMSTestimonial, CMSGalleryImage, CMSPost, FollowUp, Proposal, DailyTarget, TimeSession, AssignmentRule, UserActivity, Campaign, MasterHotel, Task, AuditLog, Expense, AttendanceLog, Coupon, DailyMarketingLog, MarketingTarget, LogComment, LogReaction, InAppNotification, BookingDailyDeliverable, DailySlot } from '../../types';
 
 // ─── BASE API URL ───
 // In dev mode, use Vite proxy (empty string) so request goes to the same origin.
@@ -911,38 +911,30 @@ export const api = {
     },
 
     // --- INVENTORY ---
-    getInventory: async (): Promise<Record<string, any>> => {
-        const { data } = await crud.getAll('daily_inventory');
-        const inventoryMap: Record<string, any> = {};
-        (data || []).forEach((slot: any) => {
-            const key = `${slot.date}_${slot.asset_id}`;
-            inventoryMap[key] = {
-                id: slot.id,
-                date: slot.date,
-                assetId: slot.asset_id,
-                assetType: slot.asset_type,
-                capacity: slot.capacity,
-                booked: slot.booked,
-                price: slot.price,
-                isBlocked: slot.is_blocked
-            };
-        });
-        return inventoryMap;
+    getInventory: async (): Promise<Record<string, DailySlot>> => {
+        try {
+            const res = await fetchApi('/api/inventory');
+            return res.data || {};
+        } catch (e) {
+            console.warn('Failed to fetch inventory from server:', e);
+            return {};
+        }
     },
 
-    updateInventory: async (dateStr: string, assetId: string, assetType: string, updates: any) => {
-        // Build a clean snake_case payload — only include columns that exist in the DB schema.
-        // Do NOT spread the full DailySlot object (it contains camelCase keys that break MySQL INSERT).
-        // Do NOT include `booked` — that is a derived/live count from actual bookings, not a stored value.
-        const payload: Record<string, any> = {
-            date: dateStr,
-            asset_id: assetId,
-            asset_type: assetType,
-            capacity: updates.capacity ?? 0,
-            price: updates.price ?? 0,
-            is_blocked: updates.isBlocked ?? updates.is_blocked ?? false,
-        };
-        await crud.upsert('daily_inventory', payload);
+    updateInventory: async (dateStr: string, assetId: string, assetType: string, updates: any): Promise<any> => {
+        return fetchApi('/api/inventory/upsert', {
+            method: 'POST',
+            body: JSON.stringify({
+                date: dateStr,
+                assetId: assetId || 'all',
+                assetType: assetType || 'Tour',
+                isBlocked: updates.isBlocked || updates.is_blocked || false,
+                price: updates.price || 0,
+                capacity: updates.capacity || 0,
+                booked: updates.booked || 0,
+                notes: updates.notes || null
+            })
+        });
     },
 
     // --- VENDORS ---
@@ -2941,3 +2933,4 @@ export const api = {
     getCarReviews: () => crud.getAll('car_reviews'),
     createCarReview: (r: any) => crud.create('car_reviews', r),
 };
+

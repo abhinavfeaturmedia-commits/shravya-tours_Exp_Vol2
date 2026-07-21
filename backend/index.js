@@ -274,12 +274,85 @@ async function runMigration() {
         `);
         console.log('[Migration] Car rental management tables verified/created');
 
+        // Create table for inventory availability and stop-sell slots
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS inventory_slots (
+                id VARCHAR(128) PRIMARY KEY,
+                date VARCHAR(20) NOT NULL,
+                asset_id VARCHAR(64) NOT NULL DEFAULT 'all',
+                asset_type VARCHAR(20) NOT NULL DEFAULT 'Tour',
+                is_blocked TINYINT(1) NOT NULL DEFAULT 0,
+                price DECIMAL(10, 2) NOT NULL DEFAULT 0,
+                capacity INT NOT NULL DEFAULT 0,
+                booked INT NOT NULL DEFAULT 0,
+                notes TEXT DEFAULT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_date_asset (date, asset_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+        console.log('[Migration] inventory_slots table verified/created');
+
         // Clean up expired OTPs
         await pool.query(`DELETE FROM otp_tokens WHERE expires_at < NOW() - INTERVAL 1 HOUR`).catch(() => {});
     } catch (err) {
         console.error('[Migration Error]', err.message);
     }
 }
+
+// ─── Inventory API Endpoints ───
+app.get('/api/inventory', async (req, res) => {
+    try {
+        const [rows] = await pool.query('SELECT * FROM inventory_slots');
+        const inventoryMap = {};
+        if (Array.isArray(rows)) {
+            rows.forEach(r => {
+                const key = `${r.date}_${r.asset_id}`;
+                inventoryMap[key] = {
+                    date: r.date,
+                    assetId: r.asset_id,
+                    assetType: r.asset_type,
+                    isBlocked: Boolean(r.is_blocked),
+                    price: Number(r.price || 0),
+                    capacity: Number(r.capacity || 0),
+                    booked: Number(r.booked || 0),
+                    notes: r.notes
+                };
+            });
+        }
+        res.json({ data: inventoryMap });
+    } catch (err) {
+        console.error('Failed to fetch inventory slots:', err);
+        res.status(500).json({ error: 'Database error fetching inventory slots' });
+    }
+});
+
+app.post('/api/inventory/upsert', async (req, res) => {
+    try {
+        const { date, assetId, assetType, isBlocked, price, capacity, booked, notes } = req.body;
+        if (!date) return res.status(400).json({ error: 'Date is required' });
+        const cleanAssetId = assetId || 'all';
+        const cleanAssetType = assetType || 'Tour';
+        const id = `${date}_${cleanAssetId}`;
+
+        await pool.query(`
+            INSERT INTO inventory_slots (id, date, asset_id, asset_type, is_blocked, price, capacity, booked, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+                is_blocked = VALUES(is_blocked),
+                price = VALUES(price),
+                capacity = VALUES(capacity),
+                booked = VALUES(booked),
+                notes = VALUES(notes),
+                asset_type = VALUES(asset_type)
+        `, [id, date, cleanAssetId, cleanAssetType, isBlocked ? 1 : 0, price || 0, capacity || 0, booked || 0, notes || null]);
+
+        res.json({ success: true, id, date, assetId: cleanAssetId, isBlocked });
+    } catch (err) {
+        console.error('Failed to upsert inventory slot:', err);
+        res.status(500).json({ error: 'Database error updating inventory slot' });
+    }
+});
+
 
 // Helper to save uploaded file to database
 async function saveUploadedFileToDb(file) {

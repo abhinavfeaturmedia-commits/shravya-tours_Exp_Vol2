@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { usePartnerAuth } from '../../context/PartnerAuthContext';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -252,6 +253,28 @@ export const PartnerProfile: React.FC = () => {
           </div>
         );
       })()}
+
+      {/* Policy & Agreement Shortcut Card */}
+      <div className="bg-gradient-to-r from-violet-900/30 to-purple-900/20 border border-violet-500/30 rounded-2xl p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <div className="size-12 rounded-xl bg-violet-600/30 border border-violet-500/40 flex items-center justify-center shrink-0">
+            <span className="material-symbols-outlined text-violet-300 text-2xl">gavel</span>
+          </div>
+          <div>
+            <h3 className="font-bold text-white text-base">Travel Associate Policy & Terms</h3>
+            <p className="text-white/50 text-xs mt-0.5">
+              View your accepted policy document, agreement timestamp ({ (partner as any).terms_agreed_at ? new Date((partner as any).terms_agreed_at).toLocaleDateString('en-IN') : 'Active' }), and print a copy.
+            </p>
+          </div>
+        </div>
+        <Link
+          to="/partner/agreement"
+          className="flex items-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-500 text-white rounded-xl text-xs font-bold shrink-0 transition-colors shadow-lg shadow-violet-500/20"
+        >
+          View Agreement
+          <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
+        </Link>
+      </div>
 
       {/* Change Password */}
       <div className="bg-white/5 border border-white/10 rounded-2xl p-6">
