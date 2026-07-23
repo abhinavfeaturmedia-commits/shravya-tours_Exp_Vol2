@@ -20,6 +20,7 @@ import { TravelerSelector } from '../../components/ui/TravelerSelector';
 import { formatPrice, formatPriceCompact } from '../../utils/packageUtils';
 import { exportToExcel, ExportColumn } from '../../src/lib/exportUtils';
 import { DataImportModal, ColumnMapping } from '../../src/components/admin/DataImportModal';
+import { normalisePhone } from '../../utils/phoneUtils';
 // import { BulkImportLeadsModal } from '../../components/admin/BulkImportLeadsModal'; // Commented out unused
 
 // Status Badge Component
@@ -100,6 +101,12 @@ export const Leads: React.FC = () => {
             }
         }
     }, [location.search, leads]);
+
+    useEffect(() => {
+        const handleSync = () => refetchLeads();
+        window.addEventListener('leads-bookings-synced', handleSync);
+        return () => window.removeEventListener('leads-bookings-synced', handleSync);
+    }, [refetchLeads]);
 
     // Forms
     const [noteContent, setNoteContent] = useState('');
@@ -309,20 +316,25 @@ export const Leads: React.FC = () => {
         // 2. Duplicate Detection (Only for new leads)
         if (modalMode === 'add') {
             const isIntentionalNewInquiry = location.state?.fromCustomer?.id === leadForm.customerId;
-            const duplicateLead = !isIntentionalNewInquiry && leads.find(l => 
-                (leadForm.email && l.email?.toLowerCase() === leadForm.email.toLowerCase()) || 
-                (leadForm.phone && l.phone === leadForm.phone)
-            );
+            const formNormPhone = normalisePhone(leadForm.phone);
+            const duplicateLead = !isIntentionalNewInquiry && leads.find(l => {
+                const eMatch = leadForm.email && l.email?.toLowerCase() === leadForm.email.toLowerCase();
+                const lNormPhone = normalisePhone(l.phone);
+                const pMatch = formNormPhone && lNormPhone && (lNormPhone === formNormPhone || (formNormPhone.length >= 10 && lNormPhone.length >= 10 && formNormPhone.slice(-10) === lNormPhone.slice(-10)));
+                return eMatch || pMatch;
+            });
 
             if (duplicateLead) {
                 const leadRef = duplicateLead.leadNumber 
                     ? "LD-" + String(duplicateLead.leadNumber).padStart(4, '0') 
                     : duplicateLead.name;
                 
-                const relatedCustomer = customers?.find((c: Customer) => 
-                    c.email?.toLowerCase() === duplicateLead.email?.toLowerCase() || 
-                    c.phone === duplicateLead.phone
-                );
+                const relatedCustomer = customers?.find((c: Customer) => {
+                    const eMatch = c.email?.toLowerCase() === duplicateLead.email?.toLowerCase();
+                    const cNormPhone = normalisePhone(c.phone);
+                    const pMatch = formNormPhone && cNormPhone && (cNormPhone === formNormPhone || (formNormPhone.length >= 10 && cNormPhone.length >= 10 && cNormPhone.slice(-10) === formNormPhone.slice(-10)));
+                    return eMatch || pMatch;
+                });
 
                 const tip = relatedCustomer 
                     ? "\n\n💡 Tip: Open \"" + relatedCustomer.name + "\" in the Customers tab and use \"New Inquiry\" to keep their full history linked."
@@ -377,6 +389,13 @@ export const Leads: React.FC = () => {
     const handleConvertToBooking = async () => {
         if (!selectedLead) return;
 
+        // Guard against accidental double conversion
+        if (selectedLead.status === 'Converted' || selectedLead.convertedBookingId) {
+            if (!confirm(`⚠️ This lead was already converted to a booking${selectedLead.convertedBookingId ? ` (ID: ${selectedLead.convertedBookingId})` : ''}.\n\nAre you sure you want to create ANOTHER booking for it?`)) {
+                return;
+            }
+        }
+
         // Validation: require budget and start date
         if (!selectedLead.potentialValue || selectedLead.potentialValue <= 0) {
             toast.error('Please set a budget before converting this lead to a booking.');
@@ -387,23 +406,71 @@ export const Leads: React.FC = () => {
             return;
         }
 
-        // 1. Deep Logic: Check for existing Customer
+        // 1. Deep Logic: Check for existing Customer using normalized phone/email
         let targetCustomerId: string | undefined;
-        const existingCustomer = customers?.find((c: Customer) =>
-            (c.email?.toLowerCase() === selectedLead.email?.toLowerCase()) ||
-            (c.phone === selectedLead.phone)
-        );
+        const leadNormPhone = normalisePhone(selectedLead.phone);
+        const existingCustomer = customers?.find((c: Customer) => {
+            const eMatch = c.email?.toLowerCase() === selectedLead.email?.toLowerCase() && c.email?.trim() !== '';
+            const cNormPhone = normalisePhone(c.phone);
+            const pMatch = leadNormPhone && cNormPhone && (cNormPhone === leadNormPhone || (leadNormPhone.length >= 10 && cNormPhone.length >= 10 && cNormPhone.slice(-10) === leadNormPhone.slice(-10)));
+            return eMatch || pMatch;
+        });
+
+        // Transform Lead logs into initial Booking Notes & Customer Notes
+        const inheritedBookingNotes: any[] = (selectedLead.logs || []).map(l => ({
+            id: `NOTE-LD-${l.id}`,
+            text: `[Lead Log - ${l.type}]: ${l.content}`,
+            author: l.sender || 'System',
+            date: l.timestamp || new Date().toISOString()
+        }));
+        
+        inheritedBookingNotes.unshift({
+            id: `NOTE-CONV-${Date.now()}`,
+            text: `Converted from Lead (Destination: ${selectedLead.destination}, Budget: ${formatPrice(selectedLead.potentialValue || 0)}). Travelers: ${selectedLead.travelers || 'N/A'}.`,
+            author: currentUser?.name || 'System',
+            date: new Date().toISOString()
+        });
+
+        const inheritedCustomerNotes: any[] = (selectedLead.logs || []).map(l => ({
+            id: `NOTE-CUST-LD-${l.id}`,
+            text: `[From Lead]: ${l.content}`,
+            author: l.sender || 'System',
+            date: l.timestamp || new Date().toISOString()
+        }));
+
+        let parsedLeadPrefs: any = {};
+        if (typeof selectedLead.preferences === 'string') {
+            try { parsedLeadPrefs = JSON.parse(selectedLead.preferences); } catch {
+                parsedLeadPrefs = { dietary: [], flight: [], accommodation: [], note: selectedLead.preferences };
+            }
+        } else if (typeof selectedLead.preferences === 'object' && selectedLead.preferences !== null) {
+            parsedLeadPrefs = selectedLead.preferences;
+        }
 
         if (existingCustomer) {
             targetCustomerId = existingCustomer.id;
             
-            // Proactively backfill missing customer fields if they are available in the lead
+            // Proactively backfill missing customer fields & carry forward notes/preferences
             try {
                 const updates: Partial<Customer> = {};
                 if (!existingCustomer.address && selectedLead.residentialAddress) updates.address = selectedLead.residentialAddress;
                 if (!existingCustomer.officeAddress && selectedLead.officeAddress) updates.officeAddress = selectedLead.officeAddress;
                 if (!existingCustomer.altPhone && selectedLead.altPhone) updates.altPhone = selectedLead.altPhone;
                 if (!existingCustomer.whatsapp && selectedLead.whatsapp) updates.whatsapp = selectedLead.whatsapp;
+                
+                const existingNoteIds = new Set((existingCustomer.notes || []).map(n => n.id));
+                const newNotesToAppend = inheritedCustomerNotes.filter(n => !existingNoteIds.has(n.id));
+                if (newNotesToAppend.length > 0) {
+                    updates.notes = [...newNotesToAppend, ...(existingCustomer.notes || [])];
+                }
+
+                if (Object.keys(parsedLeadPrefs).length > 0) {
+                    updates.preferences = {
+                        ...(existingCustomer.preferences || {}),
+                        ...parsedLeadPrefs
+                    };
+                }
+
                 if (Object.keys(updates).length > 0) {
                     await api.updateCustomer(existingCustomer.id, updates);
                 }
@@ -411,28 +478,29 @@ export const Leads: React.FC = () => {
                 console.warn('Customer backfill failed:', err);
             }
         } else {
-            // Create new customer
-                const newCustomerId = `CU-${Date.now()}`;
-                const newCustomer: Customer = {
-                    id: newCustomerId,
-                    name: selectedLead.name,
-                    email: selectedLead.email,
-                    phone: selectedLead.phone || '',
-                    type: 'New',
-                    status: 'Active',
-                    joinedDate: new Date().toISOString(),
-                    bookingsCount: 0,
-                    totalSpent: 0,
-                    // Carry forward lead CRM details to Customer CRM
-                    address: selectedLead.residentialAddress || '',
-                    officeAddress: selectedLead.officeAddress || '',
-                    altPhone: selectedLead.altPhone || '',
-                    whatsapp: selectedLead.whatsapp || '',
-                    isWhatsappSame: selectedLead.isWhatsappSame !== undefined ? selectedLead.isWhatsappSame : true
-                };
-                addCustomer?.(newCustomer);
-                targetCustomerId = newCustomerId;
-            }
+            // Create new customer with carried forward notes and preferences
+            const newCustomerId = `CU-${Date.now()}`;
+            const newCustomer: Customer = {
+                id: newCustomerId,
+                name: selectedLead.name,
+                email: selectedLead.email,
+                phone: selectedLead.phone || '',
+                type: 'New',
+                status: 'Active',
+                joinedDate: new Date().toISOString(),
+                bookingsCount: 0,
+                totalSpent: 0,
+                address: selectedLead.residentialAddress || '',
+                officeAddress: selectedLead.officeAddress || '',
+                altPhone: selectedLead.altPhone || '',
+                whatsapp: selectedLead.whatsapp || '',
+                isWhatsappSame: selectedLead.isWhatsappSame !== undefined ? selectedLead.isWhatsappSame : true,
+                notes: inheritedCustomerNotes,
+                preferences: parsedLeadPrefs
+            };
+            addCustomer?.(newCustomer);
+            targetCustomerId = newCustomerId;
+        }
 
         try {
             const newBooking = await addBooking({
@@ -450,6 +518,7 @@ export const Leads: React.FC = () => {
                 payment: 'Unpaid',
                 guests: selectedLead.travelers,
                 details: `Converted from Lead. Destination: ${selectedLead.destination}. Budget: ${formatPrice(selectedLead.potentialValue || 0)}.`,
+                notes: inheritedBookingNotes,
                 assignedTo: selectedLead.assignedTo || staff?.id || currentUser?.id,
                 partnerId: selectedLead.partnerId,
                 leadId: selectedLead.id,

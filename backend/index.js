@@ -6032,6 +6032,39 @@ app.post('/api/crud/:table', authMiddleware, validateTable, writeGuard, permissi
     }
 });
 
+// Helper: Cascade lead assignment changes to all converted/linked bookings
+async function cascadeLeadAssigneeToBookings(leadId, newAssignee) {
+    if (!leadId || !newAssignee) return;
+    try {
+        // 1. Update bookings linked by lead_id or by leads.converted_booking_id
+        await pool.query(`
+            UPDATE bookings 
+            SET assigned_to = ? 
+            WHERE lead_id = ? 
+               OR id = (SELECT converted_booking_id FROM leads WHERE id = ? AND converted_booking_id IS NOT NULL AND converted_booking_id != '')
+        `, [newAssignee, leadId, leadId]);
+
+        // 2. Fallback for legacy unlinked bookings: match by email/phone
+        const [[lead]] = await pool.query("SELECT email, phone FROM leads WHERE id = ?", [leadId]);
+        if (lead && (lead.email || lead.phone)) {
+            const cleanEmail = (lead.email || '').trim().toLowerCase();
+            const cleanPhone = (lead.phone || '').replace(/\D/g, '');
+            if (cleanEmail || cleanPhone) {
+                await pool.query(`
+                    UPDATE bookings 
+                    SET assigned_to = ? 
+                    WHERE (customer_email = ? AND customer_email != '') 
+                       OR (customer_phone = ? AND customer_phone != '')
+                       OR (REPLACE(customer_phone, ' ', '') LIKE CONCAT('%', ?, '%') AND customer_phone != '')
+                `, [newAssignee, cleanEmail || null, cleanPhone || null, cleanPhone ? cleanPhone.slice(-10) : 'NOMATCH']);
+            }
+        }
+        console.log(`[CascadeAssignee] Successfully propagated lead ${leadId} assignment to staff ID ${newAssignee}`);
+    } catch (err) {
+        console.warn(`[CascadeAssignee] Failed to propagate lead ${leadId} assignment to bookings:`, err.message);
+    }
+}
+
 // PUT - Update row by ID
 app.put('/api/crud/:table/:id', authMiddleware, validateTable, writeGuard, permissionGuard, async (req, res) => {
     const { table, id } = req.params;
@@ -6094,19 +6127,8 @@ app.put('/api/crud/:table/:id', authMiddleware, validateTable, writeGuard, permi
                     "UPDATE tasks SET assigned_to = ? WHERE related_lead_id = ? AND category = 'checklist' AND status = 'Pending'",
                     [newAssignee, id]
                 );
-                // Propagate assignment to associated bookings
-                await pool.query(
-                    "UPDATE bookings SET assigned_to = ? WHERE lead_id = ?",
-                    [newAssignee, id]
-                );
-                // Fallback for legacy bookings: sync by matching email/phone
-                const [[lead]] = await pool.query("SELECT email, phone FROM leads WHERE id = ?", [id]);
-                if (lead && (lead.email || lead.phone)) {
-                    await pool.query(
-                        "UPDATE bookings SET assigned_to = ? WHERE (customer_email = ? AND customer_email != '') OR (customer_phone = ? AND customer_phone != '')",
-                        [newAssignee, lead.email || null, lead.phone || null]
-                    );
-                }
+                // Propagate assignment to all associated converted bookings
+                await cascadeLeadAssigneeToBookings(id, newAssignee);
             }
             
             // Fallback: if no checklist tasks exist, generate them
@@ -6544,6 +6566,9 @@ app.post('/api/transfer-requests', authMiddleware, async (req, res) => {
                     [to_staff_id, item_id]
                 );
                 
+                // Cascade assignment to converted bookings
+                await cascadeLeadAssigneeToBookings(item_id, to_staff_id);
+
                 // Add system log entry to lead logs
                 const logId = `lg-tr-${Date.now()}`;
                 const logContent = `Ownership transferred from ${fromName} to ${toName} (Transferred Directly by Admin).`;
@@ -6634,6 +6659,9 @@ app.post('/api/transfer-requests/:id/approve', authMiddleware, async (req, res) 
                 "UPDATE tasks SET assigned_to = ? WHERE related_lead_id = ? AND category = 'checklist' AND status = 'Pending'",
                 [request.to_staff_id, request.item_id]
             );
+
+            // Cascade assignment to converted bookings
+            await cascadeLeadAssigneeToBookings(request.item_id, request.to_staff_id);
             
             // Add system log entry to lead logs
             const logId = `lg-tr-${Date.now()}`;
@@ -6794,6 +6822,10 @@ app.delete('/api/customers/:id', authMiddleware, async (req, res) => {
     }
 
     try {
+        // Nullify customer_id references on leads and bookings before deleting customer
+        await pool.query('UPDATE leads SET customer_id = NULL WHERE customer_id = ?', [id]).catch(() => {});
+        await pool.query('UPDATE bookings SET customer_id = NULL WHERE customer_id = ?', [id]).catch(() => {});
+
         const [result] = await pool.query('DELETE FROM customers WHERE id = ?', [id]);
         console.log(`[Customer Delete] Deleted ${result.affectedRows} customer record(s)`);
 

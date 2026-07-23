@@ -482,6 +482,7 @@ export const Home: React.FC = () => {
 
   const [destFilter, setDestFilter] = useState('All');
   const [isHovered, setIsHovered] = useState(false);
+  const [fanTouchStartX, setFanTouchStartX] = useState(0);
   const fanTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const filteredDests = destFilter === 'All'
@@ -801,14 +802,14 @@ export const Home: React.FC = () => {
       {/* ═══════════════════════════════════════════════════════════ */}
       {/* HERO SECTION — WonderKids-inspired bright airy layout       */}
       {/* ═══════════════════════════════════════════════════════════ */}
-      <section className="relative w-full overflow-hidden bg-[#FBF7F0] dark:bg-[#0D1710]" style={{ minHeight: '92vh' }}>
+      <section className="relative w-full overflow-hidden bg-[#FBF7F0] dark:bg-[#0D1710]">
         {/* Decorative blob backgrounds */}
         <div className="absolute top-[-80px] right-[-80px] w-[420px] h-[420px] rounded-full bg-primary/10 dark:bg-primary/15 blur-[100px] pointer-events-none" />
         <div className="absolute bottom-[-60px] left-[-60px] w-[340px] h-[340px] rounded-full bg-accent/10 dark:bg-accent/15 blur-[90px] pointer-events-none" />
         <div className="absolute top-1/2 left-1/3 w-[200px] h-[200px] rounded-full bg-amber-400/8 blur-[70px] pointer-events-none" />
 
         <div className="container mx-auto px-4 md:px-10 relative z-10">
-          <div className="flex flex-col lg:flex-row items-center gap-12 pt-24 pb-16 lg:pt-28 lg:pb-20 min-h-[92vh]">
+          <div className="flex flex-col lg:flex-row items-center gap-8 lg:gap-12 pt-20 pb-10 lg:pt-28 lg:pb-20 lg:min-h-[92vh]">
 
             {/* LEFT — Text + CTAs + Stats */}
             <div className="flex-1 flex flex-col gap-8 text-center lg:text-left max-w-xl mx-auto lg:mx-0">
@@ -823,7 +824,7 @@ export const Home: React.FC = () => {
               {/* Headline */}
               <div className="reveal">
                 <h1 className="font-display text-slate-900 dark:text-white leading-[1.07] tracking-tight">
-                  <span className="text-5xl md:text-6xl xl:text-7xl font-black block">
+                  <span className="text-4xl sm:text-5xl md:text-6xl xl:text-7xl font-black block">
                     {heroBanner?.title
                       ? heroBanner.title.split(' ').map((word: string, i: number) =>
                           i === 1 || i === 2
@@ -847,7 +848,7 @@ export const Home: React.FC = () => {
               <div className="flex flex-wrap gap-4 justify-center lg:justify-start reveal reveal-delay-2">
                 <Link
                   to="/packages"
-                  className="inline-flex items-center gap-2.5 px-8 py-4 rounded-full text-white font-bold text-sm shadow-lg transition-all duration-300 hover:scale-105 hover:shadow-xl active:scale-100"
+                  className="inline-flex items-center gap-2.5 px-5 py-3.5 sm:px-8 sm:py-4 rounded-full text-white font-bold text-sm shadow-lg transition-all duration-300 hover:scale-105 hover:shadow-xl active:scale-100"
                   style={{ backgroundColor: '#C9732A', boxShadow: '0 8px 30px rgba(201,115,42,0.35)' }}
                 >
                   <span className="material-symbols-outlined text-[18px]">explore</span>
@@ -855,15 +856,24 @@ export const Home: React.FC = () => {
                 </Link>
                 <a
                   href="#booking-widget"
-                  className="inline-flex items-center gap-2.5 px-8 py-4 rounded-full text-slate-800 dark:text-white font-bold text-sm bg-white dark:bg-white/10 border border-slate-200 dark:border-white/15 shadow-sm transition-all duration-300 hover:scale-105 hover:shadow-md active:scale-100"
+                  className="inline-flex items-center gap-2.5 px-5 py-3.5 sm:px-8 sm:py-4 rounded-full text-slate-800 dark:text-white font-bold text-sm bg-white dark:bg-white/10 border border-slate-200 dark:border-white/15 shadow-sm transition-all duration-300 hover:scale-105 hover:shadow-md active:scale-100"
                 >
                   Book Now
                   <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
                 </a>
               </div>
 
+              {/* Mobile hero image strip — only on mobile */}
+              <div className="flex lg:hidden gap-3 overflow-x-auto pb-1 snap-x snap-mandatory [-ms-scrollbar-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden reveal reveal-delay-2">
+                {heroFloatingImages.map((src, i) => (
+                  <div key={i} className="flex-shrink-0 snap-center w-36 h-24 sm:w-44 sm:h-28 rounded-2xl overflow-hidden shadow-md border-2 border-white/80 dark:border-white/10">
+                    <img src={src} alt={`Travel destination ${i + 1}`} className="w-full h-full object-cover" />
+                  </div>
+                ))}
+              </div>
+
               {/* Stats row */}
-              <div className="flex items-center gap-8 justify-center lg:justify-start reveal reveal-delay-4">
+              <div className="flex items-center gap-5 sm:gap-8 justify-center lg:justify-start flex-wrap reveal reveal-delay-4">
                 {[
                   { value: '50K+', label: 'Happy Travelers' },
                   { value: '200+', label: 'Destinations' },
@@ -1019,14 +1029,14 @@ export const Home: React.FC = () => {
                     key={tab.id}
                     ref={(el) => { tabRefs.current[tab.id] = el; }}
                     onClick={() => setActiveTab(tab.id)}
-                    className={`px-4 md:px-6 py-3 rounded-full flex items-center gap-2.5 text-sm font-bold transition-all duration-300 whitespace-nowrap relative z-10 group ${
+                    className={`px-3 sm:px-4 md:px-6 py-3 rounded-full flex items-center gap-1.5 sm:gap-2.5 text-sm font-bold transition-all duration-300 whitespace-nowrap relative z-10 group ${
                       activeTab === tab.id
                         ? 'text-white scale-105'
                         : 'text-slate-600 dark:text-white/70 hover:bg-slate-100/50 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-white'
                     }`}
                   >
                     <span className="material-symbols-outlined text-[20px] transition-transform duration-300 group-hover:-translate-y-0.5 group-hover:scale-110">{tab.icon}</span>
-                    <span>{tab.label}</span>
+                    <span className="hidden sm:inline">{tab.label}</span>
                   </button>
                 ))}
               </div>
@@ -1071,7 +1081,7 @@ export const Home: React.FC = () => {
               <span className="material-symbols-outlined text-[14px]">auto_awesome</span>
               The SHRAWELLO Advantage
             </span>
-            <h2 className="font-display text-slate-900 dark:text-white text-4xl md:text-5xl font-bold leading-tight">
+          <h2 className="font-display text-slate-900 dark:text-white text-3xl sm:text-4xl md:text-5xl font-bold leading-tight">
               Our <em className="not-italic" style={{ fontFamily: 'Georgia, serif', fontStyle: 'italic' }}>exceptional</em>{' '}
               <br className="hidden md:block" />features
             </h2>
@@ -1081,7 +1091,7 @@ export const Home: React.FC = () => {
           </div>
 
           {/* Feature Cards Grid — WonderKids style */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
             {[
               {
                 icon: 'verified_user',
@@ -1120,7 +1130,7 @@ export const Home: React.FC = () => {
             ].map((card, i) => (
               <div
                 key={i}
-                className={`reveal ${card.delay} relative group ${card.bg} rounded-[2rem] p-8 overflow-hidden border transition-all duration-500 hover:-translate-y-2 hover:shadow-2xl ${
+                className={`reveal ${card.delay} relative group ${card.bg} rounded-[2rem] p-6 sm:p-8 overflow-hidden border transition-all duration-500 hover:-translate-y-2 hover:shadow-2xl active:scale-[0.98] ${
                   card.dark
                     ? 'border-white/10 text-white'
                     : 'border-slate-100 dark:border-white/10 text-slate-900 dark:text-white'
@@ -1193,18 +1203,18 @@ export const Home: React.FC = () => {
 
         <div className="container mx-auto px-4 md:px-10 relative z-10">
           {/* Section Header */}
-          <div className="flex flex-col md:flex-row items-end justify-between mb-12 gap-6 reveal">
+          <div className="flex flex-col md:flex-row items-start md:items-end justify-between mb-10 md:mb-12 gap-4 reveal">
             <div>
               <span className="inline-flex items-center gap-1.5 text-xs font-black uppercase tracking-[0.25em] mb-3 block"
                 style={{ color: '#C9732A' }}>
                 <span className="size-2 rounded-full animate-ping inline-block" style={{ backgroundColor: '#C9732A' }} />
                 ✦ Verified Reviews
               </span>
-              <h2 className="font-display text-slate-900 dark:text-white text-4xl md:text-5xl font-bold leading-tight">
+              <h2 className="font-display text-slate-900 dark:text-white text-3xl sm:text-4xl md:text-5xl font-bold leading-tight">
                 Read our <em className="not-italic" style={{ fontFamily: 'Georgia, serif', fontStyle: 'italic' }}>traveler</em> stories
               </h2>
             </div>
-            <div className="flex items-center gap-3 shrink-0">
+            <div className="hidden sm:flex items-center gap-3 shrink-0">
               <div className="flex -space-x-3">
                 {[
                   "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=80&fit=crop&crop=faces&q=80",
@@ -1226,7 +1236,7 @@ export const Home: React.FC = () => {
             {displayReviews.map((t, idx) => (
               <div
                 key={t.id}
-                className="snap-center shrink-0 w-[85vw] sm:w-[340px] md:w-[380px] bg-white dark:bg-white/5 p-7 rounded-[1.75rem] shadow-lg border border-slate-100 dark:border-white/10 relative flex flex-col justify-between group hover:-translate-y-1 transition-all duration-300 hover:shadow-xl"
+                className="snap-center shrink-0 w-[88vw] sm:w-[340px] md:w-[380px] bg-white dark:bg-white/5 p-5 sm:p-7 rounded-[1.75rem] shadow-lg border border-slate-100 dark:border-white/10 relative flex flex-col justify-between group hover:-translate-y-1 transition-all duration-300 hover:shadow-xl"
               >
                 {/* Left accent bar */}
                 <div className="absolute left-0 top-6 bottom-6 w-1 rounded-r-full" style={{ backgroundColor: idx % 3 === 0 ? '#C9732A' : idx % 3 === 1 ? '#2D6A4F' : '#f59e0b' }} />
@@ -1275,9 +1285,9 @@ export const Home: React.FC = () => {
 
           {/* Swipe hint (mobile) */}
           <div className="flex justify-center mt-4 md:hidden">
-            <div className="flex items-center gap-2 text-slate-400 text-sm animate-pulse">
-              <span className="material-symbols-outlined text-[18px]">swipe</span>
-              <span>Swipe to read more</span>
+            <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/60 dark:bg-white/5 border border-slate-200/50 dark:border-white/10 text-slate-500 dark:text-slate-400 text-xs font-medium shadow-sm animate-pulse">
+              <span className="material-symbols-outlined text-[16px]">swipe</span>
+              <span>Swipe to read more reviews</span>
             </div>
           </div>
         </div>
@@ -1304,7 +1314,7 @@ export const Home: React.FC = () => {
               <span className="inline-block size-2 rounded-full bg-primary animate-ping" />
               ✦ TRENDING NOW
             </span>
-            <h2 className="font-display text-slate-900 dark:text-white text-4xl md:text-5xl font-bold leading-tight tracking-tight mb-3">
+            <h2 className="font-display text-slate-900 dark:text-white text-3xl sm:text-4xl md:text-5xl font-bold leading-tight tracking-tight mb-3">
               Trending <em className="not-italic" style={{ fontFamily: 'Georgia, serif', fontStyle: 'italic' }}>Destinations</em>
             </h2>
             <p className="text-slate-500 dark:text-slate-400 text-base font-light max-w-xl mx-auto">
@@ -1313,7 +1323,7 @@ export const Home: React.FC = () => {
           </div>
 
           {/* Pill filter tabs — matching reference image */}
-          <div className="flex flex-wrap justify-center gap-2 mb-10 reveal">
+          <div className="flex flex-wrap justify-center gap-1.5 sm:gap-2 mb-8 sm:mb-10 reveal">
             {destRegions.slice(0, 9).map((region) => (
               <button
                 key={region}
@@ -1340,15 +1350,30 @@ export const Home: React.FC = () => {
               {/* Fan / Stack Carousel */}
               <div
                 className="relative flex justify-center items-center reveal"
-                style={{ height: windowWidth >= 768 ? '520px' : '360px' }}
+                style={{ height: windowWidth >= 768 ? '520px' : '310px' }}
+                onTouchStart={(e) => setFanTouchStartX(e.touches[0].clientX)}
+                onTouchEnd={(e) => {
+                  const diff = fanTouchStartX - e.changedTouches[0].clientX;
+                  if (Math.abs(diff) > 40) {
+                    if (fanTimerRef.current) { clearInterval(fanTimerRef.current); fanTimerRef.current = null; }
+                    if (diff > 0) goNext(); else goPrev();
+                  }
+                }}
               >
-                {(filteredDests.length <= 5 ? filteredDests : [
-                  filteredDests[(fanIndex - 2 + filteredDests.length) % filteredDests.length],
-                  filteredDests[(fanIndex - 1 + filteredDests.length) % filteredDests.length],
-                  filteredDests[fanIndex % filteredDests.length],
-                  filteredDests[(fanIndex + 1) % filteredDests.length],
-                  filteredDests[(fanIndex + 2) % filteredDests.length],
-                ]).map((dest, i, arr) => {
+                {(windowWidth < 768
+                  ? (filteredDests.length <= 3 ? filteredDests : [
+                      filteredDests[(fanIndex - 1 + filteredDests.length) % filteredDests.length],
+                      filteredDests[fanIndex % filteredDests.length],
+                      filteredDests[(fanIndex + 1) % filteredDests.length],
+                    ])
+                  : (filteredDests.length <= 5 ? filteredDests : [
+                      filteredDests[(fanIndex - 2 + filteredDests.length) % filteredDests.length],
+                      filteredDests[(fanIndex - 1 + filteredDests.length) % filteredDests.length],
+                      filteredDests[fanIndex % filteredDests.length],
+                      filteredDests[(fanIndex + 1) % filteredDests.length],
+                      filteredDests[(fanIndex + 2) % filteredDests.length],
+                    ])
+                ).map((dest, i, arr) => {
                   const total = arr.length;
                   const centerIdx = Math.floor(total / 2);
                   const offset = i - centerIdx;
@@ -1532,7 +1557,7 @@ export const Home: React.FC = () => {
               <div
                 key={idx}
                 onClick={() => navigate('/packages?search=' + encodeURIComponent(trip.title))}
-                className="group cursor-pointer flex-shrink-0 flex items-center gap-4 bg-[#FBF7F0] dark:bg-white/5 hover:bg-white dark:hover:bg-white/10 border border-slate-100 dark:border-white/10 rounded-2xl px-4 py-3 pr-6 shadow-sm hover:shadow-lg transition-all duration-300 hover:-translate-y-0.5 min-w-[200px]"
+                className="group cursor-pointer flex-shrink-0 flex items-center gap-3 sm:gap-4 bg-[#FBF7F0] dark:bg-white/5 hover:bg-white dark:hover:bg-white/10 border border-slate-100 dark:border-white/10 rounded-2xl px-3 py-3 pr-5 sm:px-4 sm:pr-6 shadow-sm hover:shadow-lg transition-all duration-300 hover:-translate-y-0.5 min-w-[175px] sm:min-w-[200px] active:scale-[0.98]"
               >
                 {/* Circular thumbnail */}
                 <div className="relative size-14 rounded-xl overflow-hidden flex-shrink-0 border-2 border-white dark:border-white/10 shadow-md group-hover:scale-105 transition-transform duration-300">
@@ -1553,8 +1578,12 @@ export const Home: React.FC = () => {
             )}
           </div>
 
-          {/* Mobile view all link */}
-          <div className="flex justify-center mt-6 md:hidden">
+          {/* Swipe hint + Mobile view all link */}
+          <div className="flex flex-col items-center gap-3 mt-5 md:hidden">
+            <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-slate-100 dark:bg-white/5 text-slate-400 dark:text-slate-500 text-xs font-medium">
+              <span className="material-symbols-outlined text-[15px]">swipe</span>
+              <span>Swipe to explore</span>
+            </div>
             <Link to="/packages" className="flex items-center gap-2 font-bold text-sm px-6 py-3 rounded-full border transition-all duration-300 hover:text-white hover:border-transparent"
               style={{ color: '#C9732A', borderColor: '#C9732A40' }}
               onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = '#C9732A'; }}
@@ -1595,7 +1624,7 @@ export const Home: React.FC = () => {
                   <span className="material-symbols-outlined text-[14px]">workspace_premium</span>
                   Membership
                 </span>
-                <h2 className="font-display text-slate-900 dark:text-white text-4xl md:text-5xl font-bold tracking-tight leading-tight">
+                <h2 className="font-display text-slate-900 dark:text-white text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight leading-tight">
                   Travel <em className="not-italic" style={{ fontFamily: 'Georgia, serif', fontStyle: 'italic' }}>Membership</em> Plans
                 </h2>
                 <p className="mt-4 text-slate-500 dark:text-slate-400 text-base md:text-lg font-light max-w-xl mx-auto">
@@ -1603,11 +1632,11 @@ export const Home: React.FC = () => {
                 </p>
               </div>
 
-              {/* Plan Cards */}
-              <div className={`grid gap-8 ${
-                visiblePlans.length === 1 ? 'grid-cols-1 max-w-sm mx-auto' :
-                visiblePlans.length === 2 ? 'grid-cols-1 md:grid-cols-2 max-w-3xl mx-auto' :
-                'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'
+              {/* Plan Cards — horizontal scroll on mobile, grid on desktop */}
+              <div className={`flex overflow-x-auto pb-4 gap-5 snap-x snap-mandatory [-ms-scrollbar-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:overflow-visible md:pb-0 md:grid md:gap-8 ${
+                visiblePlans.length === 1 ? 'md:grid-cols-1 md:max-w-sm md:mx-auto' :
+                visiblePlans.length === 2 ? 'md:grid-cols-2 md:max-w-3xl md:mx-auto' :
+                'md:grid-cols-2 lg:grid-cols-3'
               }`}>
                 {visiblePlans.map((plan, idx) => {
                   const isPopular = plan.id === popularPlanId && visiblePlans.length > 1;
@@ -1618,7 +1647,7 @@ export const Home: React.FC = () => {
                   return (
                     <div
                       key={plan.id}
-                      className={`reveal reveal-delay-${idx + 1} relative flex flex-col rounded-3xl overflow-hidden transition-all duration-500 hover:-translate-y-2 hover:shadow-2xl ${
+                      className={`reveal reveal-delay-${idx + 1} snap-center shrink-0 w-[82vw] sm:w-[360px] md:w-auto md:shrink-[unset] relative flex flex-col rounded-3xl overflow-hidden transition-all duration-500 hover:-translate-y-2 hover:shadow-2xl active:scale-[0.99] ${
                         isPopular
                           ? 'shadow-2xl ring-2 ring-offset-2 ring-offset-background-light dark:ring-offset-background-dark'
                           : 'shadow-lg border border-slate-200 dark:border-white/10'
@@ -1638,7 +1667,7 @@ export const Home: React.FC = () => {
                         </div>
                       )}
 
-                      <div className={`bg-gradient-to-br ${tierBg} px-8 pt-8 pb-7 relative overflow-hidden`}>
+                      <div className={`bg-gradient-to-br ${tierBg} px-5 pt-6 pb-5 sm:px-8 sm:pt-8 sm:pb-7 relative overflow-hidden`}>
                         <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full opacity-10" style={{ backgroundColor: plan.color }} />
                         <div className="relative z-10">
                           <span className="inline-flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider px-3 py-1 rounded-full mb-4 border"
@@ -1656,7 +1685,7 @@ export const Home: React.FC = () => {
                           </p>
 
                           <div className="flex items-baseline gap-2 mb-1">
-                            <span className="text-4xl font-black text-slate-900 dark:text-white">
+                            <span className="text-3xl sm:text-4xl font-black text-slate-900 dark:text-white">
                               ₹{plan.pricePerYear.toLocaleString()}
                             </span>
                             <span className="text-slate-500 dark:text-slate-400 text-sm font-medium">/year</span>
@@ -1669,7 +1698,7 @@ export const Home: React.FC = () => {
                         </div>
                       </div>
 
-                      <div className="px-8 py-5 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-white/5 flex flex-col gap-3">
+                      <div className="px-5 py-4 sm:px-8 sm:py-5 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-white/5 flex flex-col gap-3">
                         <Link
                           to={`/contact?plan=${encodeURIComponent(plan.name)}`}
                           className="flex items-center justify-center gap-2 w-full py-3.5 rounded-xl font-bold text-sm text-white transition-all duration-300 hover:opacity-90 hover:scale-[1.02] active:scale-100 shadow-lg"
@@ -1687,7 +1716,7 @@ export const Home: React.FC = () => {
                         </Link>
                       </div>
 
-                      <div className="px-8 py-7 bg-white dark:bg-slate-900 flex-1 flex flex-col">
+                      <div className="px-5 py-5 sm:px-8 sm:py-7 bg-white dark:bg-slate-900 flex-1 flex flex-col">
                         <div className="grid grid-cols-2 gap-3 mb-6">
                           {plan.hotelDiscount > 0 && (
                             <div className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/5">
@@ -1745,7 +1774,15 @@ export const Home: React.FC = () => {
                 })}
               </div>
 
-              <p className="text-center text-sm text-slate-400 dark:text-slate-500 mt-10 font-light">
+              {/* Mobile swipe hint */}
+              <div className="flex justify-center mt-4 mb-2 md:hidden">
+                <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/60 dark:bg-white/5 border border-slate-200/50 dark:border-white/10 text-slate-400 dark:text-slate-500 text-xs font-medium shadow-sm animate-pulse">
+                  <span className="material-symbols-outlined text-[15px]">swipe</span>
+                  <span>Swipe to see all plans</span>
+                </div>
+              </div>
+
+              <p className="text-center text-sm text-slate-400 dark:text-slate-500 mt-6 md:mt-10 font-light">
                 All plans include priority customer support. &nbsp;
                 <Link to="/contact" className="font-semibold hover:underline" style={{ color: '#C9732A' }}>Contact us</Link> to learn more.
               </p>

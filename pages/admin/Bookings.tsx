@@ -519,6 +519,25 @@ export const Bookings: React.FC = () => {
         };
         const existingNotes = booking.notes || [];
         updateBooking(bookingId, { notes: [newNote, ...existingNotes] }, true);
+
+        // Propagate note to linked Customer profile
+        const targetCustomer = customers?.find((c: any) => 
+            (booking.customerId && c.id === booking.customerId) ||
+            (c.email && booking.email && c.email.toLowerCase() === booking.email.toLowerCase()) ||
+            (c.phone && booking.phone && c.phone.trim() === booking.phone.trim())
+        );
+        if (targetCustomer) {
+            const custNote = {
+                id: `NOTE-BK-${Date.now()}`,
+                text: `[Booking Note - ${booking.title || 'Trip'}]: ${noteText}`,
+                author: currentUser?.name || 'System',
+                date: newNote.date
+            };
+            api.updateCustomer(targetCustomer.id, {
+                notes: [custNote, ...(targetCustomer.notes || [])]
+            }).catch(err => console.warn('[NoteSync] Failed to sync booking note to customer profile:', err));
+        }
+
         setNoteText('');
         toast.success('Note added');
     };

@@ -102,7 +102,7 @@ export const PublicLayout: React.FC = () => {
       <WhatsAppModal isOpen={isWhatsAppOpen} onClose={() => setIsWhatsAppOpen(false)} />
 
       {/* Floating Navigation */}
-      <div className="fixed top-6 inset-x-0 z-50 flex justify-center px-4 pointer-events-none">
+      <div className="fixed top-3 sm:top-6 inset-x-0 z-50 flex justify-center px-3 sm:px-4 pointer-events-none">
         <div className="pointer-events-auto w-full flex justify-center">
           <PillNav
             logo={<img src="/logo.png" alt="SHRAWELLO Travel Hub Logo" className="h-[24px] w-auto object-contain" />}

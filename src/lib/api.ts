@@ -1,5 +1,6 @@
 import imageCompression from 'browser-image-compression';
 import { Package, Booking, Lead, LeadLog, BookingStatus, StaffMember, Customer, MasterRoomType, MasterMealPlan, MasterActivity, MasterTransport, MasterPlan, MasterLeadSource, MasterTermsTemplate, CMSBanner, CMSTestimonial, CMSGalleryImage, CMSPost, FollowUp, Proposal, DailyTarget, TimeSession, AssignmentRule, UserActivity, Campaign, MasterHotel, Task, AuditLog, Expense, AttendanceLog, Coupon, DailyMarketingLog, MarketingTarget, LogComment, LogReaction, InAppNotification, BookingDailyDeliverable, DailySlot } from '../../types';
+import { normalisePhone } from '../../utils/phoneUtils';
 
 // ─── BASE API URL ───
 // In dev mode, use Vite proxy (empty string) so request goes to the same origin.
@@ -603,6 +604,7 @@ export const api = {
             status: booking.status === 'Confirmed' ? 'confirmed' : 'pending',
             payment_status: booking.payment === 'Paid' ? 'paid' : 'pending', // Enums: pending, paid, failed, refunded
             notes: booking.details || '',
+            booking_notes: booking.notes ? JSON.stringify(booking.notes) : '[]',
             assigned_to: booking.assignedTo || null,
             partner_id: booking.partnerId || null,
             lead_id: booking.leadId || null,
@@ -727,6 +729,7 @@ export const api = {
         }
         const data = await res.json();
         console.log('[API] deleteBooking success:', data);
+        if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('leads-bookings-synced'));
         return data;
     },
 
@@ -1451,13 +1454,20 @@ export const api = {
             billingAddress: c.billing_address || '',
             gstin: c.gstin || ''
         });
-        if (email) {
-            const { data } = await crud.getAll('customers', { filters: { email } });
+        if (email && email.trim()) {
+            const { data } = await crud.getAll('customers', { filters: { email: email.trim().toLowerCase() } });
             if (data && data.length > 0) return mapRow(data[0]);
         }
-        if (phone) {
-            const { data } = await crud.getAll('customers', { filters: { phone } });
-            if (data && data.length > 0) return mapRow(data[0]);
+        if (phone && phone.trim()) {
+            const norm = normalisePhone(phone);
+            const { data } = await crud.getAll('customers');
+            if (data && data.length > 0) {
+                const match = data.find((c: any) => {
+                    const cNorm = normalisePhone(c.phone);
+                    return cNorm === norm || (norm.length >= 10 && cNorm.length >= 10 && cNorm.slice(-10) === norm.slice(-10));
+                });
+                if (match) return mapRow(match);
+            }
         }
         return null;
     },

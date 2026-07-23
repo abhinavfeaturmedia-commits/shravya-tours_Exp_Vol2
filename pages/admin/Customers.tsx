@@ -11,20 +11,23 @@ import { exportToExcel, ExportColumn } from '../../src/lib/exportUtils';
 import { DataImportModal, ColumnMapping } from '../../src/components/admin/DataImportModal';
 import { ActionMenu } from '../../components/ui/ActionMenu';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { normalisePhone } from '../../utils/phoneUtils';
 
 // ─── Booking Match Helper ─────────────────────────────────────────────────────
 // Matches bookings to a customer using: DB foreign-key → email → phone (priority).
 // Pass includesCancelled=true to include Cancelled bookings (e.g. for timeline).
-const getCustomerBookings = (customer: Customer, bookings: Booking[], includesCancelled = false) =>
-    bookings.filter(b => {
+const getCustomerBookings = (customer: Customer, bookings: Booking[], includesCancelled = false) => {
+    const custNormPhone = normalisePhone(customer.phone);
+    return bookings.filter(b => {
         if (!includesCancelled && b.status === 'Cancelled') return false;
         if (b.customerId && b.customerId === customer.id) return true;
         if (b.email && b.email.trim() !== '' && customer.email && customer.email.trim() !== '' &&
             b.email.toLowerCase() === customer.email.toLowerCase()) return true;
-        if (b.phone && b.phone.trim() !== '' && customer.phone && customer.phone.trim() !== '' &&
-            b.phone.trim() === customer.phone.trim()) return true;
+        const bNormPhone = normalisePhone(b.phone);
+        if (bNormPhone && custNormPhone && (bNormPhone === custNormPhone || (custNormPhone.length >= 10 && bNormPhone.length >= 10 && bNormPhone.slice(-10) === custNormPhone.slice(-10)))) return true;
         return false;
     });
+};
 
 // --- Sort & Filter Types ---
 type SortField = 'name' | 'totalSpent' | 'bookingsCount' | 'joinedDate' | 'lastActive';
@@ -488,19 +491,23 @@ const CustomerDetailsDrawer: React.FC<{
 
     const history = useMemo(() => {
         if (!customer) return [];
+        const custNormPhone = normalisePhone(customer.phone);
         const relatedBookings = bookings.filter(b => {
             if (b.status === 'Cancelled') return false;
             if (b.customerId && b.customerId === customer.id) return true;
             if (b.email && b.email.trim() !== '' && customer.email && customer.email.trim() !== '' &&
                 b.email.toLowerCase() === customer.email.toLowerCase()) return true;
-            if (b.phone && b.phone.trim() !== '' && customer.phone && customer.phone.trim() !== '' && 
-                b.phone.trim() === customer.phone.trim()) return true;
+            const bNormPhone = normalisePhone(b.phone);
+            if (bNormPhone && custNormPhone && (bNormPhone === custNormPhone || (custNormPhone.length >= 10 && bNormPhone.length >= 10 && bNormPhone.slice(-10) === custNormPhone.slice(-10)))) return true;
             return false;
         });
-        const relatedLeads = leads.filter(l =>
-            (l.email && customer.email && l.email.toLowerCase() === customer.email.toLowerCase()) ||
-            (l.phone && customer.phone && l.phone.trim() !== '' && customer.phone.trim() !== '' && l.phone.trim() === customer.phone.trim())
-        );
+        const relatedLeads = leads.filter(l => {
+            if (l.customerId && l.customerId === customer.id) return true;
+            if (l.email && customer.email && customer.email.trim() !== '' && l.email.toLowerCase() === customer.email.toLowerCase()) return true;
+            const lNormPhone = normalisePhone(l.phone);
+            if (lNormPhone && custNormPhone && (lNormPhone === custNormPhone || (custNormPhone.length >= 10 && lNormPhone.length >= 10 && lNormPhone.slice(-10) === custNormPhone.slice(-10)))) return true;
+            return false;
+        });
         return [
             ...relatedBookings.map(b => ({ type: 'Booking', date: b.date, title: b.title, details: `₹${b.amount} • ${b.status}`, id: b.id })),
             ...relatedLeads.map(l => ({ type: 'Lead', date: l.addedOn, title: l.destination, details: l.status, id: l.id }))

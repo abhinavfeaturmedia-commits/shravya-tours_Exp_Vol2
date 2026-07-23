@@ -176,6 +176,16 @@ export const Packages: React.FC = () => {
     return (b.remainingSeats ?? 999) - (a.remainingSeats ?? 999);
   }), [filteredPackages, sortOption]);
 
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (debouncedSearch.trim()) count++;
+    if (priceRange < 200000) count++;
+    if (duration !== null) count++;
+    if (selectedThemes.length > 0) count += selectedThemes.length;
+    if (destinationId) count++;
+    return count;
+  }, [debouncedSearch, priceRange, duration, selectedThemes, destinationId]);
+
   return (
     <>
       <SEO
@@ -187,13 +197,13 @@ export const Packages: React.FC = () => {
 
         <div className="container mx-auto px-4 md:px-8 relative">
           {/* Header Section */}
-          <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-10 md:mb-16 animate-in slide-in-from-bottom-5 duration-700">
+          <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 md:gap-6 mb-8 md:mb-16 animate-in slide-in-from-bottom-5 duration-700">
             <div className="max-w-2xl">
-              <h1 className="font-display text-5xl md:text-7xl font-bold text-slate-900 dark:text-white tracking-tight leading-[1.05] mb-4 italic">
-                Explore the <br />
+              <h1 className="font-display text-3.5xl sm:text-5xl md:text-7xl font-bold text-slate-900 dark:text-white tracking-tight leading-[1.08] mb-3 italic">
+                Explore the <br className="hidden sm:inline" />
                 <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-accent">Unseen World.</span>
               </h1>
-              <p className="text-lg text-slate-500 dark:text-slate-400 font-light">Curated itineraries for the modern traveler. Find your next adventure below.</p>
+              <p className="text-sm sm:text-base md:text-lg text-slate-500 dark:text-slate-400 font-light">Curated itineraries for the modern traveler. Find your next adventure below.</p>
             </div>
 
             {/* Desktop Sort */}
@@ -215,26 +225,87 @@ export const Packages: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex flex-col lg:flex-row gap-8 lg:gap-12">
+          <div className="flex flex-col lg:flex-row gap-6 lg:gap-12">
 
             {/* Mobile Filter & Sort Bar */}
-            <div className="lg:hidden sticky top-[80px] z-30 -mx-4 px-4 py-3 bg-white/80 dark:bg-[#0B1116]/80 backdrop-blur-xl border-b border-slate-200 dark:border-slate-800 flex gap-3 overflow-x-auto no-scrollbar">
-              <button
-                onClick={() => setIsFilterOpen(true)}
-                className="flex items-center gap-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-5 py-2.5 rounded-full text-sm font-bold shadow-lg shadow-slate-900/10 active:scale-95 transition-transform"
-              >
-                <span className="material-symbols-outlined text-[18px]">tune</span> Filters
-              </button>
-              <select
-                value={sortOption}
-                onChange={(e) => setSortOption(e.target.value)}
-                className="appearance-none bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-sm font-bold rounded-full px-5 py-2.5 focus:ring-0 outline-none shadow-sm"
-              >
-                <option>Recommended</option>
-                <option>Price: Low to High</option>
-                <option>Price: High to Low</option>
-                <option>Duration</option>
-              </select>
+            <div className="lg:hidden sticky top-[72px] z-30 -mx-4 px-4 py-2.5 bg-white/90 dark:bg-[#0B1116]/90 backdrop-blur-xl border-b border-slate-200 dark:border-slate-800 flex flex-col gap-2 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <button
+                  onClick={() => setIsFilterOpen(true)}
+                  className="flex items-center gap-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-4 py-2.5 rounded-full text-xs sm:text-sm font-bold shadow-md active:scale-95 transition-transform shrink-0"
+                >
+                  <span className="material-symbols-outlined text-[18px]">tune</span>
+                  <span>Filters</span>
+                  {activeFilterCount > 0 && (
+                    <span className="size-5 rounded-full bg-primary text-white font-black text-[10px] flex items-center justify-center">
+                      {activeFilterCount}
+                    </span>
+                  )}
+                </button>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider hidden sm:inline">Sort:</span>
+                  <select
+                    value={sortOption}
+                    onChange={(e) => setSortOption(e.target.value)}
+                    className="appearance-none bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-xs sm:text-sm font-bold rounded-full px-4 py-2.5 focus:ring-0 outline-none shadow-sm cursor-pointer"
+                  >
+                    <option>Recommended</option>
+                    <option>Price: Low to High</option>
+                    <option>Price: High to Low</option>
+                    <option>Duration</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Active Filters Chips Bar on Mobile */}
+              {activeFilterCount > 0 && (
+                <div className="flex items-center gap-1.5 overflow-x-auto py-1 [-ms-scrollbar-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  <span className="text-[10px] font-bold text-slate-400 shrink-0 uppercase">Active:</span>
+                  {priceRange < 200000 && (
+                    <button
+                      onClick={() => setPriceRange(200000)}
+                      className="inline-flex items-center gap-1 bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 rounded-full font-semibold text-[11px] shrink-0"
+                    >
+                      <span>Max {formatPriceCompact(priceRange)}</span>
+                      <span className="material-symbols-outlined text-[13px]">close</span>
+                    </button>
+                  )}
+                  {duration !== null && (
+                    <button
+                      onClick={() => setDuration(null)}
+                      className="inline-flex items-center gap-1 bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 rounded-full font-semibold text-[11px] shrink-0"
+                    >
+                      <span>Max {duration}D</span>
+                      <span className="material-symbols-outlined text-[13px]">close</span>
+                    </button>
+                  )}
+                  {selectedThemes.map(t => (
+                    <button
+                      key={t}
+                      onClick={() => toggleTheme(t)}
+                      className="inline-flex items-center gap-1 bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 rounded-full font-semibold text-[11px] shrink-0"
+                    >
+                      <span>{t}</span>
+                      <span className="material-symbols-outlined text-[13px]">close</span>
+                    </button>
+                  ))}
+                  {debouncedSearch && (
+                    <button
+                      onClick={() => { setSearchQuery(''); setDebouncedSearch(''); }}
+                      className="inline-flex items-center gap-1 bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 rounded-full font-semibold text-[11px] shrink-0"
+                    >
+                      <span>"{debouncedSearch}"</span>
+                      <span className="material-symbols-outlined text-[13px]">close</span>
+                    </button>
+                  )}
+                  <button
+                    onClick={handleReset}
+                    className="text-slate-500 underline font-bold shrink-0 text-[10px] ml-1"
+                  >
+                    Clear all
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Sidebar Filters (Desktop & Mobile Slide-over) */}
@@ -335,15 +406,28 @@ export const Packages: React.FC = () => {
                     </div>
                   </div>
 
-                  <button onClick={handleReset} className="w-full py-3 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-500 font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
-                    Reset All Filters
-                  </button>
-
-                  <div className="lg:hidden pt-4">
-                    <button onClick={() => setIsFilterOpen(false)} className="w-full bg-primary text-white font-black py-4 rounded-2xl shadow-xl shadow-primary/30">
-                      View {filteredPackages.length} Results
+                  <div className="hidden lg:block">
+                    <button onClick={handleReset} className="w-full py-3 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-500 font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                      Reset All Filters
                     </button>
                   </div>
+                </div>
+
+                {/* Sticky Bottom Actions inside Mobile Drawer */}
+                <div className="lg:hidden sticky bottom-0 left-0 right-0 pt-3 pb-2 bg-white dark:bg-[#151d29] border-t border-slate-100 dark:border-slate-800 flex items-center gap-3 mt-auto">
+                  <button
+                    onClick={handleReset}
+                    className="w-1/3 py-3 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold text-xs hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                  >
+                    Reset
+                  </button>
+                  <button
+                    onClick={() => setIsFilterOpen(false)}
+                    className="w-2/3 bg-primary text-white font-black py-3 rounded-xl shadow-lg shadow-primary/30 text-xs tracking-wide active:scale-95 transition-transform flex items-center justify-center gap-1.5"
+                  >
+                    <span>View {filteredPackages.length} Packages</span>
+                    <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
+                  </button>
                 </div>
               </div>
             </aside>
@@ -383,10 +467,10 @@ export const Packages: React.FC = () => {
                     <div key={pkg.id} className="animate-in fade-in slide-in-from-bottom-3 duration-500" style={{ animationDelay: `${pkgIdx * 60}ms`, animationFillMode: 'both' }}>
                       <Link
                         to={`/packages/${pkg.id}`}
-                        className="group relative flex flex-col rounded-[2rem] overflow-hidden shadow-md hover:shadow-2xl transition-all duration-500 transform hover:-translate-y-2 hover:scale-[1.015] cursor-pointer"
+                        className="group relative flex flex-col rounded-[1.75rem] sm:rounded-[2rem] overflow-hidden shadow-md hover:shadow-2xl transition-all duration-500 transform hover:-translate-y-2 hover:scale-[1.015] cursor-pointer"
                       >
                         {/* ── FULL-BLEED IMAGE HERO ── */}
-                        <div className="relative h-[340px] w-full overflow-hidden">
+                        <div className="relative h-[280px] sm:h-[340px] w-full overflow-hidden">
 
                           {/* Background image */}
                           <OptimizedImage
