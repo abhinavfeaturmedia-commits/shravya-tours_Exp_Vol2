@@ -2961,5 +2961,29 @@ export const api = {
             body: JSON.stringify(params)
         });
     },
+
+    // --- TRANSACTIONAL LEAD → BOOKING CONVERSION ---
+    // Uses a single backend transaction to atomically create booking + update lead.
+    // Prevents orphaned bookings if the lead update fails.
+    convertLeadToBooking: async (leadId: string, bookingData: Partial<Booking>): Promise<{ status: string; booking: Booking; leadId: string }> => {
+        return await fetchApi(`/api/leads/${encodeURIComponent(leadId)}/convert`, {
+            method: 'POST',
+            body: JSON.stringify(bookingData)
+        });
+    },
+
+    // --- SERVER-SIDE COMMISSION VALIDATION ---
+    // Returns the server-calculated expected commission for a booking+partner pair.
+    validatePartnerCommission: async (params: {
+        booking_id: string;
+        partner_id: string;
+        commission_type?: string;
+        commission_value?: number;
+    }) => {
+        return await fetchApi('/api/partner-commissions/validate', {
+            method: 'POST',
+            body: JSON.stringify(params)
+        });
+    },
 };
 

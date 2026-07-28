@@ -515,16 +515,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         api.getTrendingDestinations().catch(() => []),
         api.getMembershipPlans().catch(() => [])  // public — needed for homepage section
       ]);
+      // API response always takes precedence over localStorage — empty means "no records exist",
+      // NOT "keep stale mock data". This fixes the data freshness bug.
       setPackages(pkgs);
       setMasterLocations(locs as MasterLocation[]);
-      if (htl.length > 0) setMasterHotels(htl);
-      if (activities.length > 0) setMasterActivities(activities);
-      if (cmsBannersList.length > 0) setCmsBanners(cmsBannersList);
-      if (cmsTestList.length > 0) setCmsTestimonials(cmsTestList);
-      if (cmsGalList.length > 0) setCmsGallery(cmsGalList);
-      if (cmsPostsList.length > 0) setCmsPosts(cmsPostsList);
-      if (trendingList.length > 0) setTrendingDestinations(trendingList);
-      if (publicMembershipPlansList.length > 0) setMembershipPlans(publicMembershipPlansList);
+      setMasterHotels(htl);
+      setMasterActivities(activities);
+      setCmsBanners(cmsBannersList.length > 0 ? cmsBannersList : cmsBanners); // Keep defaults for CMS if DB empty (first deploy)
+      setCmsTestimonials(cmsTestList.length > 0 ? cmsTestList : cmsTestimonials);
+      setCmsGallery(cmsGalList.length > 0 ? cmsGalList : cmsGallery);
+      setCmsPosts(cmsPostsList.length > 0 ? cmsPostsList : cmsPosts);
+      setTrendingDestinations(trendingList);
+      setMembershipPlans(publicMembershipPlansList);
 
       // 2. Fetch authenticated data only if token is present
       if (hasToken) {
@@ -546,7 +548,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setCustomers(c);
         setCampaigns(cam);
         setTasks(tsk);
-        if (fups.length > 0) setFollowUps(fups);
+        setFollowUps(fups);
         if (inv && Object.keys(inv).length > 0) setInventory(inv);
 
         // After loading both bookings and customers, silently sync any missing customers
@@ -594,22 +596,23 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             api.getCoupons().catch(() => [])
           ]);
 
-          if (transports.length > 0) setMasterTransports(transports);
-          if (plans.length > 0) setMasterPlans(plans);
-          if (roomTypes.length > 0) setMasterRoomTypes(roomTypes);
-          if (mealPlans.length > 0) setMasterMealPlans(mealPlans);
-          if (leadSources.length > 0) setMasterLeadSources(leadSources);
-          if (termsTemplates.length > 0) setMasterTermsTemplates(termsTemplates);
+          // API is authoritative — always overwrite state with server data
+          setMasterTransports(transports);
+          setMasterPlans(plans);
+          setMasterRoomTypes(roomTypes);
+          setMasterMealPlans(mealPlans);
+          setMasterLeadSources(leadSources);
+          setMasterTermsTemplates(termsTemplates);
 
-          if (props.length > 0) setProposals(props);
-          if (targets.length > 0) setDailyTargets(targets);
-          if (sessions.length > 0) setTimeSessions(sessions);
-          if (rules.length > 0) setAssignmentRules(rules);
-          if (uActs.length > 0) setUserActivities(uActs);
-          if (auditList.length > 0) setAuditLogs(auditList);
-          if (membershipPlansList.length > 0) setMembershipPlans(membershipPlansList);  // overwrites with authenticated copy
-          if (membershipsList.length > 0) setCustomerMemberships(membershipsList);
-          if (couponsList && couponsList.length > 0) setCoupons(couponsList);
+          setProposals(props);
+          setDailyTargets(targets);
+          setTimeSessions(sessions);
+          setAssignmentRules(rules);
+          setUserActivities(uActs);
+          setAuditLogs(auditList);
+          setMembershipPlans(membershipPlansList);  // overwrites with authenticated copy
+          setCustomerMemberships(membershipsList);
+          setCoupons(couponsList || []);
         }
       } catch (e) {
         console.warn("Error loading secondary Supabase data:", e);

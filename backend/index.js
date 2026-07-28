@@ -16,6 +16,19 @@ import { initEmailService, sendTestEmail, sendCustomEmail, sendAgentIntroduction
     sendPartnerCommissionPaidEmail, sendLoyaltyTierUpgradeEmail, sendPartnerApprovedEmail,
     sendPartnerKYCSubmittedAdminEmail } from './emailService.js';
 
+// ═══════════════════════════════════════════
+// MODULAR IMPORTS (Phase 4 — Backend Modularization)
+// These are extracted, tested copies of inline code.
+// To adopt a module: import it here, delete the inline copy.
+// ═══════════════════════════════════════════
+// Available modules (uncomment to adopt):
+// import { createAuthRoutes } from './routes/auth.js';
+// import { runStartupMigrations } from './migrations/startup.js';
+// import { normalisePhone, findMatchingCustomer } from './utils/phone.js';
+// import { sanitizeDbBody, isValidColumn, createAuditLogger } from './utils/helpers.js';
+// import { authMiddleware, optionalAuthMiddleware, validateTable, writeGuard, createPermissionGuard, injectPackageStatusFilter } from './middleware/index.js';
+// ═══════════════════════════════════════════
+
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
@@ -515,16 +528,17 @@ async function ensureUsersTable() {
         } catch(err) { /* already exists */ }
 
         // Seed default admin user into users table if not present
-        // This ensures admin@shravyatours.com can log in with a real password
+        // Uses password from ADMIN_DEFAULT_PASSWORD env var, or a secure random one
         try {
             const [existing] = await pool.query('SELECT id FROM users WHERE email = ?', ['admin@shravyatours.com']);
             if (existing.length === 0) {
-                const adminHash = await bcrypt.hash('Shravya@2026', 10);
+                const adminPw = process.env.ADMIN_DEFAULT_PASSWORD || crypto.randomBytes(16).toString('hex');
+                const adminHash = await bcrypt.hash(adminPw, 10);
                 await pool.query(
                     'INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)',
                     ['admin@shravyatours.com', adminHash, 'admin']
                 );
-                console.log('Seeded default admin@shravyatours.com into users table (password: Shravya@2026).');
+                console.log('Seeded default admin@shravyatours.com into users table. Set ADMIN_DEFAULT_PASSWORD env var to configure.');
             }
         } catch (seedErr) {
             console.warn('Admin seed warning:', seedErr.message);
@@ -2337,7 +2351,13 @@ async function permissionGuard(req, res, next) {
     const action = (method === 'GET') ? 'view' : 'manage';
 
     if (!req.user) {
-        return next();
+        // For unauthenticated requests (via optionalAuthMiddleware), only allow
+        // reading from explicitly public tables. Block all writes.
+        const publicReadTables = new Set(['packages', 'cms_banners', 'cms_testimonials', 'cms_gallery_images', 'cms_posts', 'master_locations', 'master_hotels', 'master_activities', 'membership_plans']);
+        if (method === 'GET' && publicReadTables.has(table)) {
+            return next();
+        }
+        return res.status(401).json({ error: 'Authentication required' });
     }
 
     // 1. Admin gets unrestricted access
@@ -2478,11 +2498,8 @@ app.post('/api/auth/login', async (req, res) => {
         return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    // Dev/Demo bypass
-    if (email === 'admin@shravyatours.com' && password === 'admin') {
-        const token = jwt.sign({ id: 999, email, role: 'admin' }, JWT_SECRET, { expiresIn: '7d' });
-        return res.json({ token, user: { id: 999, email, role: 'admin' } });
-    }
+    // SECURITY: Dev/demo bypass removed. All logins must go through proper bcrypt auth.
+    // If you need to reset admin password, set ADMIN_DEFAULT_PASSWORD env var and restart.
 
     try {
         const trimmedEmail = email?.trim();
@@ -6098,21 +6115,23 @@ app.post('/api/crud/:table', authMiddleware, validateTable, writeGuard, permissi
         if (table === 'proposals') {
             sendProposalEmail(fetchedId);
         }
-        if (table === 'bookings' && (body.status === 'confirmed' || body.status === 'completed' || body.payment_status === 'paid')) {
+        if (table === 'bookings' && (/^confirmed$/i.test(body.status) || /^completed$/i.test(body.status) || /^paid$/i.test(body.payment_status))) {
             sendInvoiceEmail(fetchedId);
         }
 
         // Auto-create user record for partners if created via CRUD
+        // SECURITY: Uses a random secure password — admin must use "Reset Password" to set it
         if (table === 'partners' && body.email) {
             const trimmedEmail = body.email.trim().toLowerCase();
             const [existingUser] = await pool.query('SELECT id FROM users WHERE email = ?', [trimmedEmail]);
             if (existingUser.length === 0) {
-                const defaultHash = await bcrypt.hash('password123', 10);
+                const randomPassword = crypto.randomBytes(20).toString('hex');
+                const secureHash = await bcrypt.hash(randomPassword, 10);
                 await pool.query(
                     'INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)',
-                    [trimmedEmail, defaultHash, 'partner']
+                    [trimmedEmail, secureHash, 'partner']
                 );
-                console.log(`Auto-created users record for partner: ${trimmedEmail} (default password: password123)`);
+                console.log(`Auto-created users record for partner: ${trimmedEmail} (random password — use Reset Password to set).`);
             }
         }
 
@@ -6365,7 +6384,7 @@ app.put('/api/crud/:table/:id', authMiddleware, validateTable, writeGuard, permi
         }
 
         // Auto-Commission Trigger
-        if (table === 'bookings' && (body.status === 'confirmed' || body.status === 'completed' || body.payment_status === 'paid')) {
+        if (table === 'bookings' && (/^confirmed$/i.test(body.status) || /^completed$/i.test(body.status) || /^paid$/i.test(body.payment_status))) {
             autoCalculatePartnerCommission(id);
         }
 
@@ -6378,9 +6397,9 @@ app.put('/api/crud/:table/:id', authMiddleware, validateTable, writeGuard, permi
         }
 
         // Booking Invoice Update Trigger (send invoice when confirmed/completed or paid status is updated)
-        if (table === 'bookings' && (body.status === 'confirmed' || body.status === 'completed' || body.payment_status === 'paid')) {
-            const statusChanged = !oldBooking || (oldBooking.status !== body.status && body.status !== undefined && (body.status === 'confirmed' || body.status === 'completed'));
-            const paymentStatusChanged = !oldBooking || (oldBooking.payment_status !== body.payment_status && body.payment_status !== undefined && body.payment_status === 'paid');
+        if (table === 'bookings' && (/^confirmed$/i.test(body.status) || /^completed$/i.test(body.status) || /^paid$/i.test(body.payment_status))) {
+            const statusChanged = !oldBooking || (oldBooking.status !== body.status && body.status !== undefined && /^(confirmed|completed)$/i.test(body.status));
+            const paymentStatusChanged = !oldBooking || (oldBooking.payment_status !== body.payment_status && body.payment_status !== undefined && /^paid$/i.test(body.payment_status));
             if (statusChanged || paymentStatusChanged) {
                 sendInvoiceEmail(id);
             }
@@ -6957,6 +6976,135 @@ app.post('/api/crud/:table/upsert', authMiddleware, validateTable, writeGuard, a
 });
 
 // ═══════════════════════════════════════════
+// TRANSACTIONAL LEAD → BOOKING CONVERSION
+// ═══════════════════════════════════════════
+
+// POST /api/leads/:id/convert — Atomically convert a lead into a booking
+// Creates the booking AND updates the lead in a single DB transaction.
+// If either step fails, the whole operation is rolled back.
+app.post('/api/leads/:id/convert', authMiddleware, async (req, res) => {
+    const leadId = req.params.id;
+    const bookingData = req.body;
+
+    if (!bookingData || Object.keys(bookingData).length === 0) {
+        return res.status(400).json({ error: 'Booking data is required' });
+    }
+
+    const conn = await pool.getConnection();
+    try {
+        await conn.beginTransaction();
+
+        // 1. Verify lead exists and isn't already converted
+        const [[lead]] = await conn.query('SELECT id, status, converted_booking_id FROM leads WHERE id = ?', [leadId]);
+        if (!lead) {
+            await conn.rollback();
+            conn.release();
+            return res.status(404).json({ error: 'Lead not found' });
+        }
+        if (lead.converted_booking_id) {
+            await conn.rollback();
+            conn.release();
+            return res.status(409).json({ error: 'Lead has already been converted to a booking' });
+        }
+
+        // 2. Create the booking
+        const bookingId = bookingData.id || crypto.randomUUID();
+        bookingData.id = bookingId;
+        bookingData.lead_id = leadId;
+
+        const columns = Object.keys(bookingData);
+        const values = Object.values(bookingData).map(v =>
+            typeof v === 'object' && v !== null ? JSON.stringify(v) : v
+        );
+        const placeholders = columns.map(() => '?').join(', ');
+        const colNames = columns.map(c => `\`${c}\``).join(', ');
+
+        await conn.query(
+            `INSERT INTO \`bookings\` (${colNames}) VALUES (${placeholders})`,
+            values
+        );
+
+        // 3. Update lead status + link to booking (atomic)
+        await conn.query(
+            "UPDATE leads SET status = 'Won', converted_booking_id = ? WHERE id = ?",
+            [bookingId, leadId]
+        );
+
+        await conn.commit();
+        conn.release();
+
+        // Fetch the created booking
+        const [inserted] = await pool.query('SELECT * FROM bookings WHERE id = ?', [bookingId]);
+
+        // Non-transactional side effects
+        auditLog('Convert', 'leads', `Converted lead ${leadId} to booking ${bookingId}`, req.user?.email);
+
+        // Trigger booking playbook
+        if (bookingData.type) {
+            generateBookingPlaybook(bookingId, bookingData.type, bookingData.assigned_to, req.user?.email);
+        }
+
+        // Trigger invoice email if already confirmed/paid
+        if (/^(confirmed|completed)$/i.test(bookingData.status) || /^paid$/i.test(bookingData.payment_status)) {
+            sendInvoiceEmail(bookingId);
+        }
+
+        res.json({ status: 'success', booking: inserted[0] || { id: bookingId }, leadId });
+    } catch (error) {
+        await conn.rollback().catch(() => {});
+        conn.release();
+        console.error(`[Lead Convert] ERROR for lead ${leadId}:`, error.message);
+        res.status(500).json({ error: 'Failed to convert lead to booking', details: error.message });
+    }
+});
+
+// ═══════════════════════════════════════════
+// SERVER-SIDE COMMISSION VALIDATION
+// ═══════════════════════════════════════════
+
+// POST /api/partner-commissions/validate — Validates commission calculation
+// Ensures commission amount matches the expected value based on booking total and commission rate
+app.post('/api/partner-commissions/validate', authMiddleware, async (req, res) => {
+    const { booking_id, partner_id, commission_type, commission_value } = req.body;
+
+    if (!booking_id || !partner_id) {
+        return res.status(400).json({ error: 'booking_id and partner_id are required' });
+    }
+
+    try {
+        // Fetch the booking total
+        const [[booking]] = await pool.query('SELECT total_price FROM bookings WHERE id = ?', [booking_id]);
+        if (!booking) return res.status(404).json({ error: 'Booking not found' });
+
+        // Fetch the partner's commission settings
+        const [[partner]] = await pool.query('SELECT commission_type, commission_value FROM partners WHERE id = ?', [partner_id]);
+
+        const effectiveType = commission_type || partner?.commission_type || 'percentage';
+        const effectiveValue = parseFloat(commission_value || partner?.commission_value || 0);
+        const bookingTotal = parseFloat(booking.total_price || 0);
+
+        let expectedAmount = 0;
+        if (effectiveType === 'percentage') {
+            expectedAmount = Math.round((bookingTotal * effectiveValue / 100) * 100) / 100;
+        } else if (effectiveType === 'flat') {
+            expectedAmount = effectiveValue;
+        }
+
+        res.json({
+            booking_id,
+            partner_id,
+            bookingTotal,
+            commissionType: effectiveType,
+            commissionValue: effectiveValue,
+            expectedCommissionAmount: expectedAmount
+        });
+    } catch (error) {
+        console.error('[Commission Validate] Error:', error.message);
+        res.status(500).json({ error: 'Failed to validate commission' });
+    }
+});
+
+// ═══════════════════════════════════════════
 // DEDICATED BOOKING DELETE ENDPOINT
 // ═══════════════════════════════════════════
 
@@ -6977,28 +7125,49 @@ app.delete('/api/bookings/:id', authMiddleware, async (req, res) => {
         }
     }
 
+    const conn = await pool.getConnection();
     try {
+        await conn.beginTransaction();
+
         // Step 1: Clear related booking_transactions
-        const [txResult] = await pool.query('DELETE FROM booking_transactions WHERE booking_id = ?', [id]);
+        const [txResult] = await conn.query('DELETE FROM booking_transactions WHERE booking_id = ?', [id]);
         console.log(`[Booking Delete] Cleared ${txResult.affectedRows} transactions`);
 
         // Step 2: Clear related supplier_bookings
-        const [sbResult] = await pool.query('DELETE FROM supplier_bookings WHERE booking_id = ?', [id]);
+        const [sbResult] = await conn.query('DELETE FROM supplier_bookings WHERE booking_id = ?', [id]);
         console.log(`[Booking Delete] Cleared ${sbResult.affectedRows} supplier bookings`);
 
-        // Step 3: Delete the booking itself
-        const [result] = await pool.query('DELETE FROM bookings WHERE id = ?', [id]);
+        // Step 3: Clear related booking_daily_deliverables
+        const [ddResult] = await conn.query('DELETE FROM booking_daily_deliverables WHERE booking_id = ?', [id]);
+        console.log(`[Booking Delete] Cleared ${ddResult.affectedRows} daily deliverables`);
+
+        // Step 4: Clear related tasks
+        const [taskResult] = await conn.query('DELETE FROM tasks WHERE related_booking_id = ?', [id]);
+        console.log(`[Booking Delete] Cleared ${taskResult.affectedRows} tasks`);
+
+        // Step 5: Unlock the lead if this booking was a conversion
+        await conn.query('UPDATE leads SET converted_booking_id = NULL WHERE converted_booking_id = ?', [id]);
+
+        // Step 6: Delete the booking itself
+        const [result] = await conn.query('DELETE FROM bookings WHERE id = ?', [id]);
         console.log(`[Booking Delete] Deleted ${result.affectedRows} booking record(s)`);
 
         if (result.affectedRows === 0) {
+            await conn.rollback();
+            conn.release();
             return res.status(404).json({ error: 'Booking not found' });
         }
 
-        // Audit log
-        auditLog('Delete', 'bookings', `Deleted booking ${id} with ${txResult.affectedRows} transactions and ${sbResult.affectedRows} supplier records`, req.user?.email);
+        await conn.commit();
+        conn.release();
+
+        // Audit log (outside transaction — non-critical)
+        auditLog('Delete', 'bookings', `Deleted booking ${id} with ${txResult.affectedRows} txns, ${sbResult.affectedRows} suppliers, ${ddResult.affectedRows} deliverables, ${taskResult.affectedRows} tasks`, req.user?.email);
 
         res.json({ status: 'success', deletedId: id });
     } catch (error) {
+        await conn.rollback().catch(() => {});
+        conn.release();
         console.error(`[Booking Delete] ERROR for ${id}:`, error.message);
         res.status(500).json({ error: 'Failed to delete booking', details: error.message });
     }
