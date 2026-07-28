@@ -495,132 +495,97 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return {};
   });
 
-  // Load Real Data
+  // Load Real Data (Optimized via Bulk Fetch: 35+ HTTP calls reduced to 1 bulk call + parallel endpoints)
   const refreshData = useCallback(async () => {
     const hasToken = !!(localStorage.getItem('shravya_jwt') || localStorage.getItem('shrawello_partner_jwt'));
 
     try {
-      // 1. Fetch public data immediately (including all critical homepage tables)
-      const [
-        pkgs, locs, htl, activities, cmsBannersList, cmsTestList, cmsGalList, cmsPostsList, trendingList, publicMembershipPlansList
-      ] = await Promise.all([
-        api.getPackages().catch(() => []),
-        api.getLocations().catch(() => []),
-        api.getMasterHotels().catch(() => []),
-        api.getMasterActivities().catch(() => []),
-        api.getCMSBanners().catch(() => []),
-        api.getCMSTestimonials().catch(() => []),
-        api.getCMSGalleryImages().catch(() => []),
-        api.getCMSPosts().catch(() => []),
-        api.getTrendingDestinations().catch(() => []),
-        api.getMembershipPlans().catch(() => [])  // public — needed for homepage section
-      ]);
-      // API response always takes precedence over localStorage — empty means "no records exist",
-      // NOT "keep stale mock data". This fixes the data freshness bug.
-      setPackages(pkgs);
-      setMasterLocations(locs as MasterLocation[]);
-      setMasterHotels(htl);
-      setMasterActivities(activities);
-      setCmsBanners(cmsBannersList.length > 0 ? cmsBannersList : cmsBanners); // Keep defaults for CMS if DB empty (first deploy)
-      setCmsTestimonials(cmsTestList.length > 0 ? cmsTestList : cmsTestimonials);
-      setCmsGallery(cmsGalList.length > 0 ? cmsGalList : cmsGallery);
-      setCmsPosts(cmsPostsList.length > 0 ? cmsPostsList : cmsPosts);
-      setTrendingDestinations(trendingList);
-      setMembershipPlans(publicMembershipPlansList);
+      // Build list of generic tables to bulk fetch in a single HTTP request
+      const publicTables = [
+        'master_locations', 'master_hotels', 'master_activities',
+        'cms_banners', 'cms_testimonials', 'cms_gallery_images', 'cms_posts',
+        'membership_plans'
+      ];
+      const authTables = hasToken ? [
+        'vendors', 'accounts', 'campaigns', 'tasks',
+        'master_transports', 'master_plans', 'master_room_types', 'master_meal_plans',
+        'master_lead_sources', 'master_terms_templates', 'proposals', 'daily_targets',
+        'time_sessions', 'assignment_rules', 'user_activities', 'audit_logs',
+        'customer_memberships', 'coupons'
+      ] : [];
 
-      // 2. Fetch authenticated data only if token is present
-      if (hasToken) {
-        const [b, l, v, a, c, cam, tsk, fups, inv] = await Promise.all([
+      const targetTables = [...publicTables, ...authTables];
+
+      // Execute 1 batched bulkFetch call + specialized endpoints concurrently
+      const [bulkDataRaw, pkgs, trendingList, specializedAuthData] = await Promise.all([
+        api.bulkFetch(targetTables).catch(() => ({})),
+        api.getPackages().catch(() => []),
+        api.getTrendingDestinations().catch(() => []),
+        hasToken ? Promise.all([
           api.getBookings().catch(() => []),
           api.getLeads().catch(() => []),
-          api.getVendors().catch(() => []),
-          api.getAccounts().catch(() => []),
           api.getCustomers().catch(() => []),
-          api.getCampaigns().catch(() => []),
-          api.getTasks().catch(() => []),
           api.getFollowUps().catch(() => []),
           api.getInventory().catch(() => ({}))
-        ]);
+        ]) : Promise.resolve([[], [], [], [], {}])
+      ]);
+
+      const bulkRes: Record<string, any[]> = (bulkDataRaw || {}) as Record<string, any[]>;
+
+      // 1. Populate Public State
+      setPackages(pkgs);
+      setTrendingDestinations(trendingList);
+
+      if (bulkRes.master_locations) setMasterLocations(bulkRes.master_locations as MasterLocation[]);
+      if (bulkRes.master_hotels) setMasterHotels(bulkRes.master_hotels.map(api.mapMasterHotel));
+      if (bulkRes.master_activities) setMasterActivities(bulkRes.master_activities);
+      if (bulkRes.cms_banners) setCmsBanners(bulkRes.cms_banners.length > 0 ? bulkRes.cms_banners.map(api.mapCMSBanner) : cmsBanners);
+      if (bulkRes.cms_testimonials) setCmsTestimonials(bulkRes.cms_testimonials.length > 0 ? bulkRes.cms_testimonials.map(api.mapCMSTestimonial) : cmsTestimonials);
+      if (bulkRes.cms_gallery_images) setCmsGallery(bulkRes.cms_gallery_images.length > 0 ? bulkRes.cms_gallery_images.map(api.mapCMSGalleryImage) : cmsGallery);
+      if (bulkRes.cms_posts) setCmsPosts(bulkRes.cms_posts.length > 0 ? bulkRes.cms_posts.map(api.mapCMSPost) : cmsPosts);
+      if (bulkRes.membership_plans) setMembershipPlans(bulkRes.membership_plans.map(api.mapMembershipPlan));
+
+      // 2. Populate Authenticated State
+      if (hasToken) {
+        const [b, l, c, fups, inv] = specializedAuthData;
         setBookings(b);
         setLeads(l);
-        setVendors(v as Vendor[]);
-        setAccounts(a as Account[]);
         setCustomers(c);
-        setCampaigns(cam);
-        setTasks(tsk);
         setFollowUps(fups);
         if (inv && Object.keys(inv).length > 0) setInventory(inv);
 
-        // After loading both bookings and customers, silently sync any missing customers
-        // from bookings (non-blocking — runs in background, re-fetches customers on success)
+        if (bulkRes.vendors) setVendors(bulkRes.vendors as Vendor[]);
+        if (bulkRes.accounts) setAccounts(bulkRes.accounts as Account[]);
+        if (bulkRes.campaigns) setCampaigns(bulkRes.campaigns);
+        if (bulkRes.tasks) setTasks(bulkRes.tasks.map(api.mapTask));
+        if (bulkRes.master_transports) setMasterTransports(bulkRes.master_transports.map(api.mapMasterTransport));
+        if (bulkRes.master_plans) setMasterPlans(bulkRes.master_plans);
+        if (bulkRes.master_room_types) setMasterRoomTypes(bulkRes.master_room_types);
+        if (bulkRes.master_meal_plans) setMasterMealPlans(bulkRes.master_meal_plans);
+        if (bulkRes.master_lead_sources) setMasterLeadSources(bulkRes.master_lead_sources);
+        if (bulkRes.master_terms_templates) setMasterTermsTemplates(bulkRes.master_terms_templates.map(api.mapMasterTermsTemplate));
+        if (bulkRes.proposals) setProposals(bulkRes.proposals);
+        if (bulkRes.daily_targets) setDailyTargets(bulkRes.daily_targets.map(api.mapDailyTarget));
+        if (bulkRes.time_sessions) setTimeSessions(bulkRes.time_sessions);
+        if (bulkRes.assignment_rules) setAssignmentRules(bulkRes.assignment_rules);
+        if (bulkRes.user_activities) setUserActivities(bulkRes.user_activities);
+        if (bulkRes.audit_logs) setAuditLogs(bulkRes.audit_logs);
+        if (bulkRes.customer_memberships) setCustomerMemberships(bulkRes.customer_memberships);
+        if (bulkRes.coupons) setCoupons(bulkRes.coupons);
+
+        // Background non-blocking sync
         api.syncCustomersFromBookings()
           .then(async (result) => {
             if (result.created > 0) {
-              console.log(`[DataContext] Customer sync: created=${result.created}, updated=${result.updated}`);
-              // Re-fetch the updated customers list
               const updatedCustomers = await api.getCustomers().catch(() => null);
               if (updatedCustomers) setCustomers(updatedCustomers);
             }
           })
-          .catch((e) => {
-            // Silently ignore — sync will be retried on next page load
-            console.warn('[DataContext] Background customer sync skipped:', e?.message);
-          });
+          .catch((e) => console.warn('[DataContext] Background customer sync skipped:', e?.message));
       }
     } catch (e) {
-      console.warn("Auth required or network error for some data");
+      console.warn("Error refreshing data:", e);
     }
-
-    const loadPhase3Data = async () => {
-      try {
-        // Authenticated secondary tables
-        if (hasToken) {
-          const [
-            transports, plans, roomTypes, mealPlans, leadSources, termsTemplates,
-            props, targets, sessions, rules, uActs, auditList, membershipPlansList, membershipsList, couponsList
-          ] = await Promise.all([
-            api.getMasterTransports().catch(() => []),
-            api.getMasterPlans().catch(() => []),
-            api.getMasterRoomTypes().catch(() => []),
-            api.getMasterMealPlans().catch(() => []),
-            api.getMasterLeadSources().catch(() => []),
-            api.getMasterTermsTemplates().catch(() => []),
-            api.getProposals().catch(() => []),
-            api.getDailyTargets().catch(() => []),
-            api.getTimeSessions().catch(() => []),
-            api.getAssignmentRules().catch(() => []),
-            api.getUserActivities().catch(() => []),
-            api.getAuditLogs().catch(() => []),
-            api.getMembershipPlans().catch(() => []),  // re-fetch to get latest for admin
-            api.getCustomerMemberships().catch(() => []),
-            api.getCoupons().catch(() => [])
-          ]);
-
-          // API is authoritative — always overwrite state with server data
-          setMasterTransports(transports);
-          setMasterPlans(plans);
-          setMasterRoomTypes(roomTypes);
-          setMasterMealPlans(mealPlans);
-          setMasterLeadSources(leadSources);
-          setMasterTermsTemplates(termsTemplates);
-
-          setProposals(props);
-          setDailyTargets(targets);
-          setTimeSessions(sessions);
-          setAssignmentRules(rules);
-          setUserActivities(uActs);
-          setAuditLogs(auditList);
-          setMembershipPlans(membershipPlansList);  // overwrites with authenticated copy
-          setCustomerMemberships(membershipsList);
-          setCoupons(couponsList || []);
-        }
-      } catch (e) {
-        console.warn("Error loading secondary Supabase data:", e);
-      }
-    };
-    
-    // Defer Phase 3
-    setTimeout(loadPhase3Data, 1500);
   }, []);
 
   useEffect(() => {

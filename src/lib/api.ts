@@ -1,5 +1,5 @@
 import imageCompression from 'browser-image-compression';
-import { Package, Booking, Lead, LeadLog, BookingStatus, StaffMember, Customer, MasterRoomType, MasterMealPlan, MasterActivity, MasterTransport, MasterPlan, MasterLeadSource, MasterTermsTemplate, CMSBanner, CMSTestimonial, CMSGalleryImage, CMSPost, FollowUp, Proposal, DailyTarget, TimeSession, AssignmentRule, UserActivity, Campaign, MasterHotel, Task, AuditLog, Expense, AttendanceLog, Coupon, DailyMarketingLog, MarketingTarget, LogComment, LogReaction, InAppNotification, BookingDailyDeliverable, DailySlot } from '../../types';
+import { Package, Booking, Lead, LeadLog, BookingStatus, StaffMember, Customer, MasterRoomType, MasterMealPlan, MasterActivity, MasterTransport, MasterPlan, MasterLeadSource, MasterTermsTemplate, CMSBanner, CMSTestimonial, CMSGalleryImage, CMSPost, FollowUp, Proposal, DailyTarget, TimeSession, AssignmentRule, UserActivity, Campaign, MasterHotel, Task, AuditLog, Expense, AttendanceLog, Coupon, DailyMarketingLog, MarketingTarget, LogComment, LogReaction, InAppNotification, BookingDailyDeliverable, DailySlot, MembershipPlan } from '../../types';
 import { normalisePhone } from '../../utils/phoneUtils';
 
 // ─── BASE API URL ───
@@ -181,6 +181,61 @@ const mapPackage = (row: any): Package => {
 };
 
 export const api = {
+    // --- BULK FETCH (Performance: replaces 35+ calls with 1-2) ---
+    bulkFetch: async (tables: string[]): Promise<Record<string, any[]>> => {
+        return fetchApi('/api/bulk-fetch', {
+            method: 'POST',
+            body: JSON.stringify({ tables })
+        });
+    },
+
+    // Mappers for bulkFetch results
+    mapCMSBanner: (r: any): CMSBanner => ({ ...r, imageUrl: r.image_url, ctaText: r.cta_text, ctaLink: r.cta_link, isActive: r.is_active }),
+    mapCMSTestimonial: (r: any): CMSTestimonial => ({
+        id: r.id, customerName: r.customer_name || '', location: r.location || '',
+        rating: Number(r.rating) || 5, text: r.content || '', avatarUrl: r.avatar_url || '',
+        isActive: r.is_active === undefined ? true : Boolean(r.is_active)
+    }),
+    mapCMSGalleryImage: (r: any): CMSGalleryImage => ({
+        id: r.id, title: r.title || r.caption || '', imageUrl: r.image_url || r.url || '',
+        category: r.category || 'Other', tag: r.tag || undefined, linkUrl: r.link_url || undefined,
+        featured: Boolean(r.featured), sortOrder: r.sort_order || 0, isActive: r.is_active !== false
+    }),
+    mapCMSPost: (r: any): CMSPost => ({ ...r, coverImage: r.cover_image, publishedDate: r.published_date }),
+    mapMasterHotel: (h: any): MasterHotel => ({
+        id: h.id, name: h.name, locationId: h.location_id, rating: h.rating,
+        amenities: typeof h.amenities === 'string' ? (() => { try { return JSON.parse(h.amenities); } catch { return []; } })() : (h.amenities || []),
+        pricePerNight: h.price_per_night, image: h.image, address: h.address, status: h.status
+    }),
+    mapMasterTransport: (r: any): MasterTransport => ({ ...r, baseRate: Number(r.base_rate) || 0 }),
+    mapMasterTermsTemplate: (r: any): MasterTermsTemplate => ({
+        ...r, title: r.title || r.name || (r.category ? `${r.category} Terms` : 'Untitled Template'),
+        isDefault: Boolean(r.is_default)
+    }),
+    mapTask: (t: any): Task => ({
+        id: t.id, title: t.title, description: t.description, assignedTo: t.assigned_to, assignedBy: t.assigned_by,
+        status: t.status, priority: t.priority, dueDate: t.due_date, createdAt: t.created_at, completedAt: t.completed_at,
+        completedBy: t.completed_by || undefined, completionNote: t.completion_note || undefined,
+        relatedLeadId: t.related_lead_id, relatedBookingId: t.related_booking_id, category: t.category,
+        source: (t.source as 'playbook' | 'manual') || 'playbook'
+    }),
+    mapDailyTarget: (r: any): DailyTarget => ({
+        ...r, staffId: r.staff_id, targetLeads: r.target_leads, targetCalls: r.target_calls,
+        targetConversions: r.target_conversions, targetBookings: r.target_bookings, actualLeads: r.actual_leads,
+        actualCalls: r.actual_calls, actualConversions: r.actual_conversions, actualBookings: r.actual_bookings
+    }),
+    mapMembershipPlan: (r: any): MembershipPlan => ({
+        id: r.id, name: r.name, tier: r.tier,
+        pricePerMonth: Number(r.price_per_month || 0), pricePerQuarter: Number(r.price_per_quarter || 0),
+        pricePerHalfYear: Number(r.price_per_half_year || 0), pricePerYear: Number(r.price_per_year || 0),
+        discountType: r.discount_type || 'Percentage', discountPercent: Number(r.discount_percent || 0),
+        discountFlat: Number(r.discount_flat || 0), hotelDiscount: Number(r.hotel_discount || 0),
+        tourDiscount: Number(r.tour_discount || 0), flightDiscount: Number(r.flight_discount || 0),
+        cabDiscount: Number(r.cab_discount || 0),
+        perks: typeof r.perks === 'string' ? (() => { try { return JSON.parse(r.perks); } catch { return []; } })() : (r.perks || []),
+        color: r.color || '#CD7F32', isActive: Boolean(r.is_active), showOnHomepage: Boolean(r.show_on_homepage)
+    }),
+
     // --- PACKAGES ---
     // List call: excludes the heavy builder_data blob (~90% smaller payload, fixes ECONNRESET on large responses)
     getPackages: async (): Promise<Package[]> => {

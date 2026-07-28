@@ -10,6 +10,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 import Razorpay from 'razorpay';
+import compression from 'compression';
 
 import { initEmailService, sendTestEmail, sendCustomEmail, sendAgentIntroductionEmail, sendProposalEmail, sendInvoiceEmail,
     sendOTPEmail, sendPartnerKYCVerifiedEmail, sendPartnerKYCRejectedEmail,
@@ -46,6 +47,7 @@ app.use((req, res, next) => {
 });
 
 app.use(cors());
+app.use(compression({ threshold: 1024 })); // Gzip responses > 1KB — reduces JSON payloads by 70-90%
 app.use(express.json({ limit: '10mb' }));
 
 // ─── File Upload Setup (Multer) ───
@@ -2325,11 +2327,25 @@ const TABLE_TO_MODULE = {
     'car_reviews': 'operations'
 };
 
+// ─── Permission Cache (60s TTL) ─────────────────────────────────────────────
+// Eliminates ~34 redundant DB queries per page load. Each staff member's
+// permissions are cached for 60 seconds after first lookup.
+const _permissionsCache = new Map(); // email → { data, expiresAt }
+
 async function getStaffPermissionsAndScope(email) {
     if (!email) return { permissions: {}, queryScope: 'Show Assigned Query Only', isAdmin: false };
+
+    // Check cache first
+    const cached = _permissionsCache.get(email);
+    if (cached && cached.expiresAt > Date.now()) {
+        return cached.data;
+    }
+
     const [rows] = await pool.query('SELECT permissions, query_scope, user_type FROM staff_members WHERE email = ?', [email]);
     if (rows.length === 0) {
-        return { permissions: {}, queryScope: 'Show Assigned Query Only', isAdmin: false };
+        const empty = { permissions: {}, queryScope: 'Show Assigned Query Only', isAdmin: false };
+        _permissionsCache.set(email, { data: empty, expiresAt: Date.now() + 60000 });
+        return empty;
     }
     const row = rows[0];
     let permissions = {};
@@ -2338,11 +2354,13 @@ async function getStaffPermissionsAndScope(email) {
     } catch (e) {
         permissions = {};
     }
-    return {
+    const result = {
         permissions,
         queryScope: row.query_scope || 'Show Assigned Query Only',
         isAdmin: row.user_type === 'Admin'
     };
+    _permissionsCache.set(email, { data: result, expiresAt: Date.now() + 60000 });
+    return result;
 }
 
 async function permissionGuard(req, res, next) {
@@ -5738,13 +5756,138 @@ app.post('/api/admin/memberships/:id/reject', authMiddleware, async (req, res) =
 });
 
 // ═══════════════════════════════════════════
-// UNIVERSAL CRUD ROUTES
+// BULK FETCH ENDPOINT (Performance Optimization)
+// Replaces 35+ individual API calls with a single batched request.
 // ═══════════════════════════════════════════
 
 const PUBLIC_READ_TABLES = new Set([
     'packages', 'cms_banners', 'cms_testimonials', 'cms_gallery_images', 
     'cms_posts', 'master_locations', 'master_hotels', 'master_activities'
 ]);
+
+app.post('/api/bulk-fetch', async (req, res) => {
+    const { tables } = req.body || {};
+    if (!Array.isArray(tables) || tables.length === 0) {
+        return res.status(400).json({ error: 'Request body must include a non-empty "tables" array.' });
+    }
+
+    // Cap at 40 tables per request to prevent abuse
+    if (tables.length > 40) {
+        return res.status(400).json({ error: 'Maximum 40 tables per bulk-fetch request.' });
+    }
+
+    // Validate all table names against whitelist
+    const invalidTables = tables.filter(t => !ALLOWED_TABLES.has(t));
+    if (invalidTables.length > 0) {
+        return res.status(400).json({ error: `Invalid table(s): ${invalidTables.join(', ')}` });
+    }
+
+    // Try to decode JWT (optional — public tables work without auth)
+    let user = null;
+    const header = req.headers.authorization;
+    if (header && header.startsWith('Bearer ')) {
+        try {
+            user = jwt.verify(header.split(' ')[1], JWT_SECRET);
+        } catch {
+            // Invalid token — treat as unauthenticated (public tables only)
+        }
+    }
+
+    // Resolve RBAC scoping once (cached — no extra DB hit in most cases)
+    let staffPermissions = null;
+    let isAdmin = false;
+    let staffId = null;
+    if (user) {
+        staffId = user.staffId;
+        const permData = await getStaffPermissionsAndScope(user.email);
+        staffPermissions = permData.permissions;
+        isAdmin = permData.isAdmin || user.role === 'admin' || user.role === 'Admin';
+    }
+
+    // Build queries for each requested table
+    const fetchPromises = tables.map(async (table) => {
+        // Auth gate: non-public tables require a valid JWT
+        if (!PUBLIC_READ_TABLES.has(table) && !user) {
+            return { table, data: [], skipped: true };
+        }
+
+        // Permission check: verify module-level view access for authenticated users
+        if (user && !isAdmin) {
+            const module = TABLE_TO_MODULE[table];
+            if (module && staffPermissions) {
+                const allowed = staffPermissions[module]?.view ?? false;
+                // Self-access bypass for staff_members
+                if (!allowed && table !== 'staff_members') {
+                    return { table, data: [], denied: true };
+                }
+            }
+        }
+
+        try {
+            let query = `SELECT * FROM \`${table}\``;
+            const params = [];
+            const whereClauses = [];
+
+            // RBAC ownership scoping for non-admin users
+            if (user && !isAdmin && staffId) {
+                const myDataTables = ['leads', 'bookings', 'follow_ups', 'tasks'];
+                if (myDataTables.includes(table)) {
+                    whereClauses.push('`assigned_to` = ?');
+                    params.push(staffId);
+                } else if (table === 'proposals' || table === 'lead_logs') {
+                    whereClauses.push('`lead_id` IN (SELECT `id` FROM `leads` WHERE `assigned_to` = ?)');
+                    params.push(staffId);
+                } else if (table === 'booking_transactions' || table === 'supplier_bookings') {
+                    whereClauses.push('`booking_id` IN (SELECT `id` FROM `bookings` WHERE `assigned_to` = ?)');
+                    params.push(staffId);
+                }
+            }
+
+            // For public (unauthenticated) package reads, only show Active
+            if (table === 'packages' && !user) {
+                whereClauses.push('`status` = ?');
+                params.push('Active');
+            }
+
+            if (whereClauses.length > 0) {
+                query += ' WHERE ' + whereClauses.join(' AND ');
+            }
+
+            query += ' ORDER BY `created_at` DESC';
+
+            const [rows] = await pool.query(query, params);
+            return { table, data: rows };
+        } catch (err) {
+            console.error(`[Bulk Fetch] Error fetching ${table}:`, err.message);
+            return { table, data: [], error: err.message };
+        }
+    });
+
+    try {
+        const results = await Promise.allSettled(fetchPromises);
+        const response = {};
+
+        results.forEach((result) => {
+            if (result.status === 'fulfilled') {
+                const { table, data } = result.value;
+                response[table] = data;
+            } else {
+                // Promise rejected — shouldn't happen with our try/catch, but safety net
+                console.error('[Bulk Fetch] Unexpected rejection:', result.reason);
+            }
+        });
+
+        res.json(response);
+    } catch (err) {
+        console.error('[Bulk Fetch] Fatal error:', err.message);
+        res.status(500).json({ error: 'Bulk fetch failed' });
+    }
+});
+
+
+// ═══════════════════════════════════════════
+// UNIVERSAL CRUD ROUTES
+// ═══════════════════════════════════════════
 
 function optionalAuthMiddleware(req, res, next) {
     const table = req.params.table;
@@ -9932,10 +10075,22 @@ app.post('/api/upload', authMiddleware, upload.single('file'), async (req, res) 
     res.json({ url: fileUrl });
 });
 
-// Serve static files from the React build (includes /uploads/)
-app.use(express.static(path.join(__dirname, 'public')));
-// Explicitly serve uploads directory too
-app.use('/uploads', express.static(uploadsDir));
+// Serve static files with cache headers for performance
+app.use(express.static(path.join(__dirname, 'public'), {
+    maxAge: '1d',
+    setHeaders: (res, filePath) => {
+        // Cache JS/CSS bundles for 1 day (Vite adds content hashes so stale is impossible)
+        if (filePath.endsWith('.js') || filePath.endsWith('.css')) {
+            res.setHeader('Cache-Control', 'public, max-age=86400, immutable');
+        }
+        // Cache images/fonts for 7 days
+        if (/\.(png|jpe?g|gif|webp|svg|woff2?|ttf|eot|ico)$/i.test(filePath)) {
+            res.setHeader('Cache-Control', 'public, max-age=604800');
+        }
+    }
+}));
+// Serve uploads with 7-day cache (filenames include timestamps so stale is impossible)
+app.use('/uploads', express.static(uploadsDir, { maxAge: '7d' }));
 
 // Fallback auto-healing route to restore deleted KYC images from DB
 app.get('/uploads/kyc/:filename', async (req, res) => {
