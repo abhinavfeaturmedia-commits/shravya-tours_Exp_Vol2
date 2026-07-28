@@ -195,6 +195,19 @@ function wrapTemplate(title, bodyContent) {
     `;
 }
 
+// ─── CUSTOM MANUAL EMAIL ───
+export async function sendCustomEmail({ type = 'general', to, subject, message }) {
+    const formattedMessage = (message || '').replace(/\n/g, '<br>');
+    const html = wrapTemplate(subject, `
+        <h2 style="margin-top: 0; color: #1e1b4b; font-size: 20px; font-weight: 700;">${subject}</h2>
+        <div style="font-size: 15px; line-height: 1.6; color: #334155; margin: 20px 0;">
+            ${formattedMessage}
+        </div>
+        <p style="font-size: 15px; line-height: 1.6; color: #334155; margin-bottom: 0;">Warm regards,<br><strong>Shrawello Travel Hub Team</strong></p>
+    `);
+    return await sendEmail({ type, to, subject, html });
+}
+
 // ─── WORKFLOW EMAILS ───
 
 /**
@@ -206,7 +219,7 @@ export async function sendAgentIntroductionEmail(leadId) {
         const [rows] = await dbPool.query(`
             SELECT l.name AS lead_name, l.email AS lead_email, sm.name AS staff_name, sm.email AS staff_email, sm.phone AS staff_phone 
             FROM leads l 
-            LEFT JOIN staff_members sm ON l.assigned_to = sm.id 
+            LEFT JOIN staff_members sm ON (l.assigned_to = sm.id OR l.assigned_to = sm.name) 
             WHERE l.id = ?
         `, [leadId]);
 
@@ -272,7 +285,7 @@ export async function sendProposalEmail(proposalId) {
             SELECT p.id AS proposal_id, p.title AS proposal_title, l.name AS lead_name, l.email AS lead_email, sm.name AS staff_name 
             FROM proposals p 
             JOIN leads l ON p.lead_id = l.id 
-            LEFT JOIN staff_members sm ON l.assigned_to = sm.id 
+            LEFT JOIN staff_members sm ON (l.assigned_to = sm.id OR l.assigned_to = sm.name) 
             WHERE p.id = ?
         `, [proposalId]);
 

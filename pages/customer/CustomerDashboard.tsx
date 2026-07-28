@@ -1077,6 +1077,12 @@ export const CustomerDashboard: React.FC = () => {
       };
 
       const rzp = new (window as any).Razorpay(options);
+      rzp.on('payment.failed', function (response: any) {
+        setRazorpayLoading(false);
+        const failReason = response?.error?.description || 'Payment failed. Please try again.';
+        setMembershipMsg({ type: 'error', text: failReason });
+        showToast('error', failReason);
+      });
       rzp.open();
     } catch (err: any) {
       setMembershipMsg({ type: 'error', text: err.message });

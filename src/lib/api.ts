@@ -799,7 +799,9 @@ export const api = {
 
     createLead: async (lead: Partial<Lead>) => {
         const token = localStorage.getItem('shravya_jwt') || localStorage.getItem('shrawello_partner_jwt');
+        const partnerRef = lead.partnerId || sessionStorage.getItem('shravya_partner_ref') || localStorage.getItem('shravya_ref_partner') || null;
         const payload = {
+            id: lead.id,
             name: lead.name,
             email: lead.email,
             phone: lead.phone,
@@ -826,17 +828,19 @@ export const api = {
             residential_address: lead.residentialAddress,
             office_address: lead.officeAddress,
             package_id: lead.packageId || null,          // Link back to source package
+            partner_id: partnerRef,
             alt_phone: lead.altPhone || null
         };
         
         if (!token) {
-            await fetchApi('/api/public/leads', {
+            return await fetchApi('/api/public/leads', {
                 method: 'POST',
                 body: JSON.stringify(payload)
             });
         } else {
             // Note: Do NOT pass `id` — backend auto-generates UUID + lead_number
-            await crud.create('leads', payload);
+            delete payload.id;
+            return await crud.create('leads', payload);
         }
     },
 
@@ -2942,5 +2946,20 @@ export const api = {
 
     getCarReviews: () => crud.getAll('car_reviews'),
     createCarReview: (r: any) => crud.create('car_reviews', r),
+
+    // --- MANUAL EMAIL DISPATCH ---
+    sendManualEmail: async (params: {
+        smtpType?: 'general' | 'billing';
+        to: string;
+        subject?: string;
+        message?: string;
+        templateType?: 'custom' | 'agent_intro' | 'proposal' | 'invoice';
+        refId?: string;
+    }) => {
+        return await fetchApi('/api/email/send', {
+            method: 'POST',
+            body: JSON.stringify(params)
+        });
+    },
 };
 

@@ -277,11 +277,13 @@ export const AdminPackages: React.FC = () => {
         } else if (search === 'Hidden') {
             return packages.filter(p => p.status === 'Inactive');
         }
-        const q = search.toLowerCase();
+        const q = (search || '').toLowerCase();
         return packages.filter(p =>
-            p.title.toLowerCase().includes(q) ||
-            getLocationName(p.location, masterLocations).toLowerCase().includes(q) ||
-            p.location.toLowerCase().includes(q)
+            p && (
+                (p.title || '').toLowerCase().includes(q) ||
+                getLocationName(p.location || '', masterLocations).toLowerCase().includes(q) ||
+                (p.location || '').toLowerCase().includes(q)
+            )
         );
     }, [packages, search, bookings, masterLocations]);
 

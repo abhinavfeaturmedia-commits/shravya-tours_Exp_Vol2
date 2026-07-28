@@ -1,14 +1,15 @@
-﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
     FileText, Plus, Search,
     Edit, Trash2, Download, CheckCircle2,
-    AlertCircle, Clock, Wallet, ChevronLeft, ChevronRight, Loader2, X
+    AlertCircle, Clock, Wallet, ChevronLeft, ChevronRight, Loader2, X, Mail
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSettings } from '../../context/SettingsContext';
 import { generateTrueInvoicePDF } from '../../utils/pdfGenerator';
 import { ActionMenu } from '../../components/ui/ActionMenu';
+import { SendEmailModal } from '../../components/admin/SendEmailModal';
 
 const ConfirmModal: React.FC<{
     open: boolean; title: string; message: string;
@@ -64,6 +65,7 @@ export const InvoicesDashboard: React.FC = () => {
     const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
     const [deleting, setDeleting] = useState(false);
     const [statusChangingId, setStatusChangingId] = useState<string | null>(null);
+    const [emailModalInvoice, setEmailModalInvoice] = useState<any | null>(null);
     const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const tableRef = useRef<HTMLDivElement>(null);
 
@@ -349,6 +351,10 @@ export const InvoicesDashboard: React.FC = () => {
                                                         {downloadingId===inv.id ? <Loader2 size={16} className="animate-spin text-blue-600"/> : <Download size={16} className="text-slate-400"/>}
                                                         <span>Download PDF</span>
                                                     </button>
+                                                    <button onClick={() => setEmailModalInvoice(inv)}
+                                                        className="w-full text-left px-4 py-2 text-sm text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 flex items-center gap-2 transition-colors">
+                                                        <Mail size={16} className="text-indigo-500"/><span>Email Invoice</span>
+                                                    </button>
                                                     <button onClick={() => navigate(`/admin/invoices/edit/${inv.id}`)}
                                                         className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60 flex items-center gap-2 transition-colors">
                                                         <Edit size={16} className="text-slate-400"/><span>Edit Invoice</span>
@@ -382,6 +388,16 @@ export const InvoicesDashboard: React.FC = () => {
                     </div>
                 </div>
             </div>
+            {emailModalInvoice && (
+                <SendEmailModal
+                    isOpen={!!emailModalInvoice}
+                    onClose={() => setEmailModalInvoice(null)}
+                    defaultEmail={emailModalInvoice.client_email || ''}
+                    refId={emailModalInvoice.booking_id || emailModalInvoice.id}
+                    templateType="invoice"
+                    title={`Email Invoice: #${(emailModalInvoice.id || '').substring(0, 8).toUpperCase()}`}
+                />
+            )}
         </div>
     );
 };

@@ -1074,30 +1074,53 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Lead
   const addLead = useCallback(async (lead: Lead) => {
+    const token = localStorage.getItem('shravya_jwt') || localStorage.getItem('shrawello_partner_jwt');
+    let finalLead = { ...lead };
+    
+    // Attach affiliate referral partner if present in storage
+    if (!finalLead.partnerId) {
+      const storedPartner = sessionStorage.getItem('shravya_partner_ref') || localStorage.getItem('shravya_ref_partner');
+      if (storedPartner) {
+        finalLead.partnerId = storedPartner;
+        console.log(`[Affiliate] Attaching partner referral to lead: ${storedPartner}`);
+      }
+    }
+
+    // Public website visitor (Unauthenticated)
+    if (!token) {
+      try {
+        setLeads(l => [finalLead, ...l]);
+        const res: any = await api.createLead(finalLead);
+        if (res && res.customerId) {
+          finalLead.customerId = res.customerId;
+        }
+        if (res && res.leadId) {
+          finalLead.id = res.leadId;
+        }
+        toast.success("Inquiry submitted successfully!");
+        window.dispatchEvent(new CustomEvent('leads-changed'));
+        return res;
+      } catch (e: any) {
+        setLeads(l => l.filter(x => x.id !== lead.id));
+        toast.error(e.message || "Failed to submit inquiry");
+        throw e;
+      }
+    }
+
+    // Authenticated Staff/Admin Lead Creation
     try {
       // Deduplication: Match by email or phone
       const existingCustomer = customers.find(c => 
         (lead.email && c.email?.toLowerCase() === lead.email.toLowerCase()) ||
         (!lead.email && lead.phone && c.phone === lead.phone)
       );
-
-      let finalLead = { ...lead };
-      if (!finalLead.partnerId) {
-        const storedPartner = localStorage.getItem('shravya_ref_partner');
-        if (storedPartner) {
-          finalLead.partnerId = storedPartner;
-          console.log(`[Affiliate] Attaching partner referral to lead: ${storedPartner}`);
-        }
-      }
       
       if (existingCustomer) {
         finalLead.customerId = existingCustomer.id;
-        // Update customer lastActive
         setCustomers(p => p.map(c => c.id === existingCustomer.id ? { ...c, lastActive: new Date().toISOString() } : c));
         await api.updateCustomer(existingCustomer.id, { lastActive: new Date().toISOString() });
         logAction('Update', 'Customers', `Updated lastActive for ${existingCustomer.name} from new Lead`);
       } else {
-        // Create new customer
         const newCustomer: Customer = {
           id: `CUST-${Date.now()}`,
           name: lead.name,
@@ -1125,6 +1148,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (e: any) {
       setLeads(l => l.filter(x => x.id !== lead.id));
       toast.error(e.message || "Failed to create lead");
+      throw e;
     }
   }, [customers, logAction]);
 

@@ -158,14 +158,16 @@ export const PackageDetail: React.FC = () => {
   });
 
   useEffect(() => {
-    if (bookingModal && isAuthenticated && customer) {
+    if (bookingModal) {
+      const todayStr = new Date().toISOString().split('T')[0];
       setBookingData(prev => ({
         ...prev,
-        name: customer.name || prev.name,
-        email: customer.email || prev.email,
-        phone: customer.phone || prev.phone,
-        whatsapp: customer.whatsapp || customer.phone || prev.whatsapp,
-        isWhatsappSame: customer.whatsapp ? customer.whatsapp === customer.phone : true
+        date: (prev.date && prev.date >= todayStr) ? prev.date : todayStr,
+        name: (isAuthenticated && customer?.name) ? customer.name : prev.name,
+        email: (isAuthenticated && customer?.email) ? customer.email : prev.email,
+        phone: (isAuthenticated && customer?.phone) ? customer.phone : prev.phone,
+        whatsapp: (isAuthenticated && customer?.whatsapp) ? customer.whatsapp : (customer?.phone || prev.whatsapp),
+        isWhatsappSame: (isAuthenticated && customer?.whatsapp) ? customer.whatsapp === customer.phone : prev.isWhatsappSame
       }));
     }
   }, [bookingModal, isAuthenticated, customer]);
@@ -836,12 +838,14 @@ export const PackageDetail: React.FC = () => {
         packageId: tour.id
       };
 
-      await addLead(newLead as Lead);
+      const res: any = await addLead(newLead as Lead);
       setBookingModal(false);
+
+      const displayRefId = res?.formattedLeadNumber || (res?.leadNumber ? `LD-${String(res.leadNumber).padStart(4, '0')}` : (res?.leadId || referenceId));
 
       navigate('/booking-confirmation', {
         state: {
-          referenceId,
+          referenceId: displayRefId,
           customerName: bookingData.name,
           packageTitle: tour.title,
           date: bookingData.date,
@@ -1227,24 +1231,24 @@ export const PackageDetail: React.FC = () => {
         {bookingModal && (
           <div 
             onClick={() => setBookingModal(false)}
-            className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in duration-300 cursor-pointer"
+            className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-4 md:p-6 bg-black/75 backdrop-blur-md animate-in fade-in duration-300 cursor-pointer overflow-y-auto"
           >
             <div 
               onClick={(e) => e.stopPropagation()}
-              className="bg-white dark:bg-[#151d29] w-full max-w-md rounded-3xl shadow-2xl p-8 animate-in zoom-in-95 ring-1 ring-white/10 cursor-default"
+              className="bg-white dark:bg-[#151d29] w-full max-w-md rounded-3xl shadow-2xl p-5 sm:p-7 animate-in zoom-in-95 ring-1 ring-white/10 cursor-default max-h-[90vh] flex flex-col overflow-hidden my-auto"
             >
-              <div className="flex justify-between items-center mb-8">
-                <h3 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">Secure Your Spot</h3>
-                <button onClick={() => setBookingModal(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-white transition-colors" aria-label="Close Booking Modal"><span className="material-symbols-outlined">close</span></button>
+              <div className="flex justify-between items-center pb-4 mb-3 border-b border-slate-100 dark:border-slate-800 shrink-0">
+                <h3 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">Secure Your Spot</h3>
+                <button onClick={() => setBookingModal(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-white transition-colors p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800" aria-label="Close Booking Modal"><span className="material-symbols-outlined text-xl">close</span></button>
               </div>
-              <form onSubmit={confirmBooking} className="space-y-5">
+              <form onSubmit={confirmBooking} className="space-y-3.5 overflow-y-auto pr-1 flex-1 min-h-0 custom-scrollbar pb-1">
                 <div className="space-y-1">
                   <label htmlFor="booking-name" className="block text-xs font-bold uppercase text-slate-500 pl-1">Full Name</label>
-                  <input required id="booking-name" type="text" className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white" placeholder="John Doe" value={bookingData.name} onChange={e => setBookingData({ ...bookingData, name: e.target.value })} />
+                  <input required id="booking-name" type="text" className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3 text-sm font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white" placeholder="John Doe" value={bookingData.name} onChange={e => setBookingData({ ...bookingData, name: e.target.value })} />
                 </div>
                 <div className="space-y-1">
                   <label htmlFor="booking-email" className="block text-xs font-bold uppercase text-slate-500 pl-1">Email</label>
-                  <input required id="booking-email" type="email" className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white" placeholder="john@example.com" value={bookingData.email} onChange={e => setBookingData({ ...bookingData, email: e.target.value })} />
+                  <input required id="booking-email" type="email" className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3 text-sm font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white" placeholder="john@example.com" value={bookingData.email} onChange={e => setBookingData({ ...bookingData, email: e.target.value })} />
                 </div>
                 <div className="space-y-1">
                   <label htmlFor="booking-phone" className="block text-xs font-bold uppercase text-slate-500 pl-1">Mobile Number</label>
@@ -1257,7 +1261,7 @@ export const PackageDetail: React.FC = () => {
                   />
                 </div>
 
-                <div className="space-y-3">
+                <div className="space-y-2">
                   <div className="flex items-center gap-2 pl-1">
                     <input
                       type="checkbox"
@@ -1287,32 +1291,49 @@ export const PackageDetail: React.FC = () => {
 
                 <div className="space-y-1">
                   <label htmlFor="booking-date" className="block text-xs font-bold uppercase text-slate-500 pl-1">Travel Date</label>
-                  <input required id="booking-date" min={new Date().toISOString().split('T')[0]} max={tour.validity_date || (tour as any).validityDate ? new Date(tour.validity_date || (tour as any).validityDate).toISOString().split('T')[0] : undefined} type="date" className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white" value={bookingData.date} onChange={e => setBookingData({ ...bookingData, date: e.target.value })} />
+                  <input 
+                    required 
+                    id="booking-date" 
+                    min={new Date().toISOString().split('T')[0]} 
+                    max={(() => {
+                      const todayStr = new Date().toISOString().split('T')[0];
+                      const rawValidity = tour.validity_date || (tour as any).validityDate;
+                      if (!rawValidity) return undefined;
+                      const parsed = new Date(rawValidity);
+                      if (isNaN(parsed.getTime())) return undefined;
+                      const formatted = parsed.toISOString().split('T')[0];
+                      return formatted >= todayStr ? formatted : undefined;
+                    })()} 
+                    type="date" 
+                    className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3 text-sm font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white" 
+                    value={bookingData.date || new Date().toISOString().split('T')[0]} 
+                    onChange={e => setBookingData({ ...bookingData, date: e.target.value })} 
+                  />
                 </div>
-                <div className="p-4 bg-primary/5 rounded-2xl border border-primary/10 mt-2 space-y-2">
+                <div className="p-3.5 bg-primary/5 rounded-2xl border border-primary/10 space-y-1.5">
                   <div className="flex justify-between items-center text-xs font-bold text-slate-500">
                     <span>{tour.pricingMode === 'group' ? 'Package Base Rate' : 'Price Per Person'}</span>
                     <span>{formatPrice(tour.pricingMode === 'group' ? activeOccupancy.price : perPersonPrice)}</span>
                   </div>
-                  <div className="flex justify-between items-center text-sm font-black text-slate-900 dark:text-white border-t border-slate-200/50 dark:border-slate-700/50 pt-2">
+                  <div className="flex justify-between items-center text-sm font-black text-slate-900 dark:text-white border-t border-slate-200/50 dark:border-slate-700/50 pt-1.5">
                     <span>Estimated Total ({activeOccupancy.label})</span>
-                    <span className="text-lg">{formatPrice(calculateTotal())}</span>
+                    <span className="text-base sm:text-lg">{formatPrice(calculateTotal())}</span>
                   </div>
-                  <p className="text-xs text-slate-500 mt-1 font-medium opacity-80">Based on {guests} and {selectedAddons.length} add-ons.</p>
-                  <p className="text-[10px] text-green-600 dark:text-green-400 mt-1 font-bold flex items-center gap-1">
+                  <p className="text-xs text-slate-500 mt-0.5 font-medium opacity-80">Based on {guests} and {selectedAddons.length} add-ons.</p>
+                  <p className="text-[10px] text-green-600 dark:text-green-400 mt-0.5 font-bold flex items-center gap-1">
                     <span className="material-symbols-outlined text-[12px]">check_circle</span>
                     All taxes & GST included • No hidden charges
                   </p>
                 </div>
 
-                <div className="p-3 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/30 rounded-xl mt-3">
-                  <p className="text-xs text-amber-700 dark:text-amber-400 font-medium flex items-start gap-2">
+                <div className="p-2.5 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/30 rounded-xl">
+                  <p className="text-xs text-amber-700 dark:text-amber-400 font-medium flex items-start gap-1.5">
                     <span className="material-symbols-outlined text-[14px] mt-0.5 flex-shrink-0">info</span>
                     <span><strong>Free cancellation</strong> up to 30 days before travel. Partial refunds apply afterwards.</span>
                   </p>
                 </div>
 
-                <button type="submit" className="w-full bg-primary text-white py-4 rounded-xl font-bold shadow-xl shadow-primary/20 hover:bg-primary-dark transition-all active:scale-95 mt-4">Send Request</button>
+                <button type="submit" className="w-full bg-primary text-white py-3.5 rounded-xl font-bold text-base shadow-xl shadow-primary/20 hover:bg-primary-dark transition-all active:scale-95 mt-2 shrink-0">Send Request</button>
               </form>
             </div>
           </div>

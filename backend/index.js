@@ -11,7 +11,7 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 import Razorpay from 'razorpay';
 
-import { initEmailService, sendTestEmail, sendAgentIntroductionEmail, sendProposalEmail, sendInvoiceEmail,
+import { initEmailService, sendTestEmail, sendCustomEmail, sendAgentIntroductionEmail, sendProposalEmail, sendInvoiceEmail,
     sendOTPEmail, sendPartnerKYCVerifiedEmail, sendPartnerKYCRejectedEmail,
     sendPartnerCommissionPaidEmail, sendLoyaltyTierUpgradeEmail, sendPartnerApprovedEmail,
     sendPartnerKYCSubmittedAdminEmail } from './emailService.js';
@@ -694,19 +694,32 @@ ensureSettingsTable();
 
 // ─── Dedicated Settings Upsert (bypasses generic CRUD to avoid UNIQUE key update issues) ───
 app.post('/api/settings/upsert', authMiddleware, async (req, res) => {
-    if (req.user?.role !== 'admin') {
+    const role = (req.user?.role || '').toLowerCase();
+    if (role !== 'admin' && role !== 'owner') {
         return res.status(403).json({ error: 'Admin access required' });
     }
-    const { setting_key, setting_value } = req.body;
+    const { setting_key, setting_value } = req.body || {};
     if (!setting_key) return res.status(400).json({ error: 'setting_key is required' });
     try {
+        let val;
+        try {
+            if (typeof setting_value === 'string') {
+                JSON.parse(setting_value);
+                val = setting_value;
+            } else {
+                val = JSON.stringify(setting_value ?? '');
+            }
+        } catch {
+            val = JSON.stringify(setting_value ?? '');
+        }
+
         await pool.query(
             'INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)',
-            [setting_key, setting_value]
+            [setting_key, val]
         );
         res.json({ status: 'success' });
     } catch (error) {
-        console.error('[Settings Upsert] Error:', error.message, '| Key:', setting_key, '| Value:', setting_value);
+        console.error('[Settings Upsert] Error:', error.message, '| Key:', setting_key);
         res.status(500).json({ error: 'Failed to save setting: ' + error.message });
     }
 });
@@ -727,6 +740,43 @@ app.post('/api/email/test', authMiddleware, async (req, res) => {
     } catch (error) {
         console.error(`[Email Test] ${type} SMTP test error:`, error.message);
         res.status(500).json({ error: 'SMTP connection failed: ' + error.message });
+    }
+});
+
+// ─── Manual Email Dispatch Endpoint ───
+app.post('/api/email/send', authMiddleware, async (req, res) => {
+    const { smtpType = 'general', to, subject, message, templateType, refId } = req.body;
+    if (!to) {
+        return res.status(400).json({ error: 'Recipient email address ("to") is required.' });
+    }
+    try {
+        let success = false;
+        if (templateType === 'agent_intro' && refId) {
+            await sendAgentIntroductionEmail(refId);
+            success = true;
+        } else if (templateType === 'proposal' && refId) {
+            await sendProposalEmail(refId);
+            success = true;
+        } else if (templateType === 'invoice' && refId) {
+            await sendInvoiceEmail(refId);
+            success = true;
+        } else {
+            if (!subject || !message) {
+                return res.status(400).json({ error: 'Subject and message are required for custom emails.' });
+            }
+            success = await sendCustomEmail({ type: smtpType, to, subject, message });
+        }
+
+        if (success) {
+            // Audit log
+            auditLog('EmailSend', 'email', `Manual email sent to ${to} (${templateType || 'custom'})`, req.user?.email);
+            res.json({ status: 'success', message: `Email successfully sent to ${to}` });
+        } else {
+            res.status(500).json({ error: 'Failed to send email. Please verify active SMTP configuration in Settings.' });
+        }
+    } catch (error) {
+        console.error('[Manual Email Send] Error:', error.message);
+        res.status(500).json({ error: 'Email delivery failed: ' + error.message });
     }
 });
 
@@ -4573,44 +4623,184 @@ Be helpful and try to close them with special discounts or packages.`;
     }
 });
 
-// Public Lead submission API (for public forms & chatbot)
-app.post('/api/public/leads', async (req, res) => {
-    const { name, email, phone, destination, budget, preferences, source, travelers, whatsapp, isWhatsappSame } = req.body || {};
-    if (!name) return res.status(400).json({ error: 'Name is required.' });
-    
-    const leadId = crypto.randomBytes(16).toString('hex');
-    try {
-        const normPhone = normalisePhone(phone);
-        const matchedCustomer = await findMatchingCustomer(normPhone);
-        const leadSource = matchedCustomer ? 'Returning Customer' : (source || 'Website Contact');
-        const leadPriority = matchedCustomer ? 'High' : 'Medium';
-        const linkedCustomerId = matchedCustomer ? matchedCustomer.id : null;
-        const isReturning = matchedCustomer ? 1 : 0;
+// Helper to normalize phone numbers for deduplication & customer matching
+const normalizePhoneDigits = (p) => {
+    if (!p) return '';
+    const digits = String(p).replace(/\D/g, '');
+    if (digits.length >= 10) return digits.slice(-10);
+    return digits;
+};
 
+// Helper to find existing matching customer by phone or email
+const findMatchingCustomerInDb = async (phone, email) => {
+    try {
+        const cleanPhone = normalizePhoneDigits(phone);
+        const cleanEmail = email ? String(email).trim().toLowerCase() : '';
+        
+        if (cleanPhone || cleanEmail) {
+            let sql = 'SELECT id, name, email, phone FROM customers WHERE 1=0';
+            const params = [];
+            if (cleanEmail) {
+                sql += ' OR LOWER(TRIM(email)) = ?';
+                params.push(cleanEmail);
+            }
+            if (cleanPhone) {
+                sql += ' OR (phone IS NOT NULL AND RIGHT(REGEXP_REPLACE(phone, "[^0-9]", ""), 10) = ?)';
+                params.push(cleanPhone);
+            }
+            const [rows] = await pool.query(sql, params);
+            if (rows && rows.length > 0) {
+                return rows[0];
+            }
+        }
+    } catch (e) {
+        console.error('[Public Leads] findMatchingCustomerInDb error:', e.message);
+    }
+    return null;
+};
+
+// Public Lead submission API (for website forms, package inquiry, quick booking & chatbot)
+app.post('/api/public/leads', async (req, res) => {
+    const { 
+        name, email, phone, location, destination, 
+        start_date, end_date, travelers, budget, type, 
+        status, priority, potential_value, source, preferences, 
+        avatar_color, assigned_to, whatsapp, is_whatsapp_same, 
+        service_type, pax_adult, pax_child, pax_infant, 
+        residential_address, office_address, package_id, partner_id, alt_phone 
+    } = req.body || {};
+    
+    if (!name || !name.trim()) {
+        return res.status(400).json({ error: 'Name is required.' });
+    }
+    
+    const leadId = req.body.id || `LD-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+    
+    try {
+        const matchedCustomer = await findMatchingCustomerInDb(phone, email);
+        let linkedCustomerId = null;
+        let isReturning = 0;
+        let leadSource = source || 'Website Contact';
+        let leadPriority = priority || 'Medium';
+
+        if (matchedCustomer) {
+            linkedCustomerId = matchedCustomer.id;
+            isReturning = 1;
+            leadPriority = priority || 'High';
+            leadSource = source ? source : 'Returning Customer';
+        } else {
+            // Auto-create new customer in database
+            const newCustId = `CUST-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+            await pool.query(`
+                INSERT INTO customers (
+                    id, name, email, phone, location, type, status, 
+                    total_spent, bookings_count, whatsapp, is_whatsapp_same, 
+                    alt_phone, address, office_address, preferences
+                ) VALUES (?, ?, ?, ?, ?, 'New', 'Active', 0.00, 0, ?, ?, ?, ?, ?, ?)
+            `, [
+                newCustId,
+                name.trim(),
+                email ? email.trim() : null,
+                phone ? phone.trim() : null,
+                location || null,
+                whatsapp || phone || null,
+                is_whatsapp_same ? 1 : 0,
+                alt_phone || null,
+                residential_address || null,
+                office_address || null,
+                preferences || null
+            ]);
+            linkedCustomerId = newCustId;
+        }
+
+        // Format dates safely
+        const formattedStartDate = start_date && !isNaN(new Date(start_date).getTime()) ? new Date(start_date).toISOString().split('T')[0] : null;
+        const formattedEndDate = end_date && !isNaN(new Date(end_date).getTime()) ? new Date(end_date).toISOString().split('T')[0] : null;
+
+        // Insert lead into leads table
         await pool.query(`
-            INSERT INTO leads (id, name, email, phone, destination, budget, preferences, source, status, priority, travelers, whatsapp, is_whatsapp_same, customer_id, is_returning_customer)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'New', ?, ?, ?, ?, ?, ?)
+            INSERT INTO leads (
+                id, name, email, phone, location, destination, 
+                start_date, end_date, travelers, budget, type, 
+                status, priority, potential_value, source, preferences, 
+                avatar_color, assigned_to, whatsapp, is_whatsapp_same, 
+                service_type, pax_adult, pax_child, pax_infant, 
+                residential_address, office_address, package_id, partner_id, 
+                alt_phone, customer_id, is_returning_customer
+            ) VALUES (
+                ?, ?, ?, ?, ?, ?, 
+                ?, ?, ?, ?, ?, 
+                ?, ?, ?, ?, ?, 
+                ?, ?, ?, ?, 
+                ?, ?, ?, ?, 
+                ?, ?, ?, ?, 
+                ?, ?, ?
+            )
         `, [
-            leadId, 
-            name, 
-            email || null, 
-            phone || null, 
-            destination || 'General Inquiry', 
-            budget || 'N/A', 
-            preferences || null, 
-            leadSource, 
-            leadPriority, 
-            travelers || 'N/A', 
-            whatsapp || phone || null, 
-            isWhatsappSame ? 1 : 0, 
-            linkedCustomerId, 
+            leadId,
+            name.trim(),
+            email ? email.trim() : null,
+            phone ? phone.trim() : null,
+            location || null,
+            destination || 'General Inquiry',
+            formattedStartDate,
+            formattedEndDate,
+            travelers || '2 Adults',
+            budget || 'N/A',
+            type || 'Tour',
+            status || 'New',
+            leadPriority,
+            Number(potential_value) || 0,
+            leadSource,
+            preferences || null,
+            avatar_color || 'bg-green-100 text-green-600',
+            assigned_to || null,
+            whatsapp || phone || null,
+            is_whatsapp_same ? 1 : 0,
+            service_type || null,
+            Number(pax_adult) || 0,
+            Number(pax_child) || 0,
+            Number(pax_infant) || 0,
+            residential_address || null,
+            office_address || null,
+            package_id || null,
+            partner_id || null,
+            alt_phone || null,
+            linkedCustomerId,
             isReturning
         ]);
 
-        return res.json({ success: true, leadId, isReturningCustomer: !!matchedCustomer });
+        // Get assigned lead_number from database
+        const [[insertedLead]] = await pool.query(
+            'SELECT lead_number FROM leads WHERE id = ?',
+            [leadId]
+        );
+
+        const leadNum = insertedLead?.lead_number || null;
+        const formattedRef = leadNum ? `LD-${String(leadNum).padStart(4, '0')}` : leadId;
+
+        // Auto-create initial log entry in lead_logs table
+        await pool.query(`
+            INSERT INTO lead_logs (lead_id, type, content, timestamp)
+            VALUES (?, 'System', ?, NOW())
+        `, [
+            leadId,
+            `Inquiry received from ${leadSource} for ${destination || 'General Inquiry'}. Reference: ${formattedRef}`
+        ]).catch((e) => console.error('[Public Leads] Failed to insert initial log:', e.message));
+
+        console.log(`[Public Leads] Successfully created lead ${formattedRef} (${leadId}) for customer ${linkedCustomerId}`);
+
+        return res.json({
+            success: true,
+            leadId,
+            leadNumber: leadNum,
+            formattedLeadNumber: formattedRef,
+            customerId: linkedCustomerId,
+            isReturningCustomer: !!isReturning
+        });
     } catch (err) {
-        console.error('[Public Leads] Create error:', err.message);
-        return res.status(500).json({ error: 'Failed to create lead.' });
+        console.error('[Public Leads] Create error:', err.stack || err.message);
+        return res.status(500).json({ error: err.message || 'Failed to create lead.' });
     }
 });
 
@@ -6070,15 +6260,19 @@ app.put('/api/crud/:table/:id', authMiddleware, validateTable, writeGuard, permi
     const { table, id } = req.params;
     const body = sanitizeDbBody(req.body);
     try {
-        // Lead & Booking Playbook Triggers on Update (fetch old record before update)
+        // Lead, Booking & Proposal Playbook / Email Triggers on Update (fetch old record before update)
         let oldLead = null;
         let oldBooking = null;
+        let oldProposal = null;
         if (table === 'leads') {
             const [[row]] = await pool.query('SELECT status, assigned_to FROM leads WHERE id = ?', [id]);
             oldLead = row;
         } else if (table === 'bookings') {
             const [[row]] = await pool.query('SELECT type, assigned_to, status, payment_status FROM bookings WHERE id = ?', [id]);
             oldBooking = row;
+        } else if (table === 'proposals') {
+            const [[row]] = await pool.query('SELECT status FROM proposals WHERE id = ?', [id]);
+            oldProposal = row;
         }
 
         // Enforce that regular staff cannot assign their own records to others unless they have global scope
@@ -6117,11 +6311,13 @@ app.put('/api/crud/:table/:id', authMiddleware, validateTable, writeGuard, permi
             const newAssignee = body.assigned_to !== undefined ? body.assigned_to : (oldLead ? oldLead.assigned_to : null);
             
             const statusChanged = oldLead && oldLead.status !== body.status && body.status !== undefined;
-            const assigneeChanged = oldLead && oldLead.assigned_to !== body.assigned_to && body.assigned_to !== undefined;
+            const assigneeChanged = (oldLead && String(oldLead.assigned_to || '') !== String(body.assigned_to || '') && body.assigned_to !== undefined) || (!oldLead?.assigned_to && body.assigned_to !== undefined && body.assigned_to !== null);
             
             if (statusChanged) {
                 await generateLeadPlaybook(id, newStatus, newAssignee, req.user?.email);
-            } else if (assigneeChanged) {
+            }
+            
+            if (assigneeChanged) {
                 sendAgentIntroductionEmail(id);
                 await pool.query(
                     "UPDATE tasks SET assigned_to = ? WHERE related_lead_id = ? AND category = 'checklist' AND status = 'Pending'",
@@ -6174,17 +6370,17 @@ app.put('/api/crud/:table/:id', authMiddleware, validateTable, writeGuard, permi
         }
 
         // Proposal Update Trigger (send email when status changes to 'Sent')
-        if (table === 'proposals' && body.status === 'Sent') {
-            const [[oldProp]] = await pool.query('SELECT status FROM proposals WHERE id = ?', [id]);
-            if (oldProp && oldProp.status !== 'Sent') {
+        if (table === 'proposals' && (body.status === 'Sent' || body.status === 'sent')) {
+            const isNewlySent = !oldProposal || oldProposal.status !== body.status;
+            if (isNewlySent) {
                 sendProposalEmail(id);
             }
         }
 
         // Booking Invoice Update Trigger (send invoice when confirmed/completed or paid status is updated)
         if (table === 'bookings' && (body.status === 'confirmed' || body.status === 'completed' || body.payment_status === 'paid')) {
-            const statusChanged = oldBooking && oldBooking.status !== body.status && body.status !== undefined && (body.status === 'confirmed' || body.status === 'completed');
-            const paymentStatusChanged = oldBooking && oldBooking.payment_status !== body.payment_status && body.payment_status !== undefined && body.payment_status === 'paid';
+            const statusChanged = !oldBooking || (oldBooking.status !== body.status && body.status !== undefined && (body.status === 'confirmed' || body.status === 'completed'));
+            const paymentStatusChanged = !oldBooking || (oldBooking.payment_status !== body.payment_status && body.payment_status !== undefined && body.payment_status === 'paid');
             if (statusChanged || paymentStatusChanged) {
                 sendInvoiceEmail(id);
             }
@@ -9660,6 +9856,83 @@ async function getRazorpayCredentials() {
     }
     return { keyId, keySecret };
 }
+
+// Standard POST Create Razorpay Order
+app.post('/api/create-order', async (req, res) => {
+    const { amount, currency, receipt } = req.body || {};
+
+    if (amount === undefined || amount === null || isNaN(Number(amount))) {
+        return res.status(400).json({ error: 'amount is required and must be a number' });
+    }
+
+    const amountInPaise = Math.round(Number(amount));
+    if (amountInPaise < 100) {
+        return res.status(400).json({ error: 'amount must be at least 100 paise (₹1)' });
+    }
+
+    try {
+        const { keyId, keySecret } = await getRazorpayCredentials();
+        if (!keyId || !keySecret) {
+            return res.status(500).json({ error: 'Razorpay API credentials not configured' });
+        }
+
+        const rzp = new Razorpay({
+            key_id: keyId,
+            key_secret: keySecret
+        });
+
+        const order = await rzp.orders.create({
+            amount: amountInPaise,
+            currency: currency || 'INR',
+            receipt: receipt || `rcpt_${Date.now()}`
+        });
+
+        return res.json({
+            order_id: order.id,
+            amount: order.amount,
+            currency: order.currency
+        });
+    } catch (err) {
+        console.error('[Razorpay Create Order Error]:', err.message);
+        return res.status(500).json({ error: 'Failed to create Razorpay order: ' + err.message });
+    }
+});
+
+// Standard POST Verify Razorpay Signature
+app.post('/api/verify-payment', async (req, res) => {
+    const { razorpay_payment_id, razorpay_order_id, razorpay_signature } = req.body || {};
+
+    if (!razorpay_payment_id || !razorpay_order_id || !razorpay_signature) {
+        return res.status(400).json({ error: 'Missing required parameters: razorpay_payment_id, razorpay_order_id, and razorpay_signature are required' });
+    }
+
+    try {
+        const { keySecret } = await getRazorpayCredentials();
+        if (!keySecret) {
+            return res.status(500).json({ error: 'Razorpay API credentials not configured' });
+        }
+
+        const generated_signature = crypto
+            .createHmac('sha256', keySecret)
+            .update(razorpay_order_id + '|' + razorpay_payment_id)
+            .digest('hex');
+
+        if (generated_signature !== razorpay_signature) {
+            return res.status(400).json({ success: false, error: 'Payment signature verification failed' });
+        }
+
+        return res.json({
+            success: true,
+            message: 'Payment verified successfully',
+            payment_id: razorpay_payment_id,
+            order_id: razorpay_order_id
+        });
+    } catch (err) {
+        console.error('[Razorpay Verify Payment Error]:', err.message);
+        return res.status(500).json({ error: 'Payment verification failed: ' + err.message });
+    }
+});
+
 
 // POST Create Razorpay Order
 app.post('/api/customer/razorpay/create-order', customerAuthMiddleware, async (req, res) => {

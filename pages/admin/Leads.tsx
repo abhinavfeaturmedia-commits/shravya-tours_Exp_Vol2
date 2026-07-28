@@ -20,6 +20,7 @@ import { TravelerSelector } from '../../components/ui/TravelerSelector';
 import { formatPrice, formatPriceCompact } from '../../utils/packageUtils';
 import { exportToExcel, ExportColumn } from '../../src/lib/exportUtils';
 import { DataImportModal, ColumnMapping } from '../../src/components/admin/DataImportModal';
+import { SendEmailModal } from '../../components/admin/SendEmailModal';
 import { normalisePhone } from '../../utils/phoneUtils';
 // import { BulkImportLeadsModal } from '../../components/admin/BulkImportLeadsModal'; // Commented out unused
 
@@ -57,6 +58,7 @@ export const Leads: React.FC = () => {
     const [activeTab, setActiveTab] = useState<'All' | 'New' | 'Warm' | 'Hot' | 'Offer Sent' | 'Converted' | 'Cold'>('All');
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const [isAgendaExpanded, setIsAgendaExpanded] = useState(false);
+    const [emailModalLead, setEmailModalLead] = useState<Lead | null>(null);
 
     const location = useLocation();
     useEffect(() => {
@@ -1165,6 +1167,13 @@ export const Leads: React.FC = () => {
                                 </div>
                             </div>
                             <div className="flex items-center gap-1">
+                                <button 
+                                    onClick={() => setEmailModalLead(selectedLead)} 
+                                    title="Send Email to Client"
+                                    className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-colors"
+                                >
+                                    <Mail size={18} />
+                                </button>
                                 {hasPermission('leads', 'manage') && (
                                     <button onClick={openEditModal} className="p-2 text-slate-400 hover:text-primary hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">
                                         <Edit2 size={18} />
@@ -2233,6 +2242,17 @@ export const Leads: React.FC = () => {
                         refetchTransfers();
                         refetchLeads();
                     }}
+                />
+            )}
+
+            {emailModalLead && (
+                <SendEmailModal
+                    isOpen={!!emailModalLead}
+                    onClose={() => setEmailModalLead(null)}
+                    defaultEmail={emailModalLead.email}
+                    refId={emailModalLead.id}
+                    templateType="custom"
+                    title={`Send Email: ${emailModalLead.name}`}
                 />
             )}
         </div>

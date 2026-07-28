@@ -169,9 +169,10 @@ export const Vendors: React.FC = () => {
                 );
                 if (usedVendorIds.has(v.id)) return false;
             } else {
-                const matchesSearch = v.name.toLowerCase().includes(search.toLowerCase()) ||
-                    v.location.toLowerCase().includes(search.toLowerCase()) ||
-                    v.contactName.toLowerCase().includes(search.toLowerCase());
+                const q = (search || '').toLowerCase();
+                const matchesSearch = (v?.name || '').toLowerCase().includes(q) ||
+                    (v?.location || '').toLowerCase().includes(q) ||
+                    (v?.contactName || '').toLowerCase().includes(q);
                 if (!matchesSearch) return false;
             }
 

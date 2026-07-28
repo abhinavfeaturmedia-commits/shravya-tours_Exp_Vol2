@@ -353,7 +353,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }
       };
       flatten('integrations', updates as Record<string, any>);
-      await Promise.all(flatPairs.map(([k, v]) => api.upsertSetting(k, JSON.stringify(v))));
+      await Promise.all(flatPairs.map(([k, v]) => api.upsertSetting(k, JSON.stringify(v ?? ''))));
     } finally {
       setIsSaving(false);
     }
