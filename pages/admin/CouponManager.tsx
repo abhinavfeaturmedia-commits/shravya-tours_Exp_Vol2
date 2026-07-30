@@ -5,6 +5,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { Link } from 'react-router-dom';
+import { downloadCouponAsImage, downloadCouponAsPDF } from '../../utils/couponDownloader';
+
 const safeFormatDate = (dateVal: any, fmtStr: string = 'MMM dd, yyyy', fallback: string = 'No Limit'): string => {
   if (!dateVal) return fallback;
   const d = new Date(dateVal);
