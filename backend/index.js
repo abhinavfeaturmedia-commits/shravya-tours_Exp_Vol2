@@ -49,6 +49,8 @@ app.use((req, res, next) => {
 app.use(cors());
 app.use(compression({ threshold: 1024 })); // Gzip responses > 1KB — reduces JSON payloads by 70-90%
 app.use(express.json({ limit: '10mb' }));
+app.use(express.static(path.join(__dirname, 'public')));
+
 
 // ─── File Upload Setup (Multer) ───
 const uploadsDir = path.join(__dirname, 'public', 'uploads');
@@ -306,6 +308,25 @@ async function runMigration() {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `);
         console.log('[Migration] inventory_slots table verified/created');
+
+        // ─── Expenses Table ───
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS expenses (
+                id VARCHAR(64) PRIMARY KEY,
+                title VARCHAR(255) NOT NULL,
+                category VARCHAR(100) NOT NULL DEFAULT 'Other',
+                amount DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+                date DATE NOT NULL,
+                paymentMethod VARCHAR(50) NOT NULL DEFAULT 'UPI',
+                status VARCHAR(20) NOT NULL DEFAULT 'Pending',
+                notes TEXT DEFAULT NULL,
+                receiptUrl TEXT DEFAULT NULL,
+                created_by VARCHAR(255) DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+        console.log('[Migration] expenses table verified/created');
 
         // Clean up expired OTPs
         await pool.query(`DELETE FROM otp_tokens WHERE expires_at < NOW() - INTERVAL 1 HOUR`).catch(() => {});
@@ -4743,7 +4764,7 @@ app.post('/api/public/leads', async (req, res) => {
                 alt_phone || null,
                 residential_address || null,
                 office_address || null,
-                preferences || null
+                typeof preferences === 'string' ? (preferences.trim().startsWith('{') ? preferences : JSON.stringify({ note: preferences })) : (preferences ? JSON.stringify(preferences) : null)
             ]);
             linkedCustomerId = newCustId;
         }

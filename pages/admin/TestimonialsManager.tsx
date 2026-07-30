@@ -73,8 +73,8 @@ export const TestimonialsManager: React.FC = () => {
   };
 
   const filteredItems = cmsTestimonials.filter(t => 
-    t.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    t.text.toLowerCase().includes(searchTerm.toLowerCase())
+    (t.customerName || '').toLowerCase().includes((searchTerm || '').toLowerCase()) ||
+    (t.text || '').toLowerCase().includes((searchTerm || '').toLowerCase())
   );
 
   return (

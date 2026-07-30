@@ -5,7 +5,16 @@ import { v4 as uuidv4 } from 'uuid';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { Link } from 'react-router-dom';
-import { downloadCouponAsImage, downloadCouponAsPDF } from '../../utils/couponDownloader';
+const safeFormatDate = (dateVal: any, fmtStr: string = 'MMM dd, yyyy', fallback: string = 'No Limit'): string => {
+  if (!dateVal) return fallback;
+  const d = new Date(dateVal);
+  if (isNaN(d.getTime())) return fallback;
+  try {
+    return format(d, fmtStr);
+  } catch {
+    return fallback;
+  }
+};
 
 export const CouponManager: React.FC = () => {
   const { coupons, bookings, addCoupon, updateCoupon, deleteCoupon, applyCoupon } = useData();
@@ -72,7 +81,7 @@ export const CouponManager: React.FC = () => {
       generatedCode = `${prefix}${suffix}`;
       
       // Check for uniqueness in existing state
-      const isDuplicate = coupons.some(c => c.code.toLowerCase() === generatedCode.toLowerCase());
+      const isDuplicate = coupons.some(c => (c.code || '').toLowerCase() === generatedCode.toLowerCase());
       if (!isDuplicate) {
         break;
       }
@@ -86,7 +95,7 @@ export const CouponManager: React.FC = () => {
   // --- Filter Logic ---
   const filteredCoupons = useMemo(() => {
     return coupons.filter(c => {
-      const matchSearch = c.code.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchSearch = (c.code || '').toLowerCase().includes((searchQuery || '').toLowerCase());
       const matchType = typeFilter === 'All' || c.type === typeFilter;
       const matchStatus = statusFilter === 'All' || c.status === statusFilter;
       
@@ -113,7 +122,7 @@ export const CouponManager: React.FC = () => {
 
     // Check duplicate manually for inserts
     if (!isEditing) {
-      const isDuplicate = coupons.some(c => c.code.toLowerCase() === form.code?.toLowerCase());
+      const isDuplicate = coupons.some(c => (c.code || '').toLowerCase() === (form.code || '').toLowerCase());
       if (isDuplicate) {
         toast.error(`Coupon code ${form.code} already exists! Use the generate button for unique codes.`);
         return;
@@ -742,7 +751,7 @@ export const CouponManager: React.FC = () => {
                           <line x1="8" y1="2" x2="8" y2="6" />
                           <line x1="3" y1="10" x2="21" y2="10" />
                         </svg>
-                        <span style={{ whiteSpace: 'nowrap', lineHeight: 1 }}>VALID TILL: {form.validTo ? format(new Date(form.validTo), 'dd MMM yyyy').toUpperCase() : '31 DEC 2026'}</span>
+                        <span style={{ whiteSpace: 'nowrap', lineHeight: 1 }}>VALID TILL: {safeFormatDate(form.validTo, 'dd MMM yyyy', '31 DEC 2026').toUpperCase()}</span>
                       </div>
                     </div>
                   </>
@@ -880,7 +889,7 @@ export const CouponManager: React.FC = () => {
                           <line x1="8" y1="2" x2="8" y2="6" />
                           <line x1="3" y1="10" x2="21" y2="10" />
                         </svg>
-                        <span style={{ whiteSpace: 'nowrap', lineHeight: 1 }}>VALID TILL: {form.validTo ? format(new Date(form.validTo), 'dd MMM yyyy').toUpperCase() : '31 DEC 2026'}</span>
+                        <span style={{ whiteSpace: 'nowrap', lineHeight: 1 }}>VALID TILL: {safeFormatDate(form.validTo, 'dd MMM yyyy', '31 DEC 2026').toUpperCase()}</span>
                       </div>
                     </div>
                   </>
@@ -1097,7 +1106,7 @@ export const CouponManager: React.FC = () => {
                     <td className="p-4">
                       <div className="flex flex-col">
                         <span className="text-sm font-extrabold text-slate-900 dark:text-white">
-                          {c.discountType === 'Percentage' ? `${c.discountValue}% OFF` : `₹${c.discountValue.toLocaleString()} Flat`}
+                          {c.discountType === 'Percentage' ? `${c.discountValue}% OFF` : `₹${(c.discountValue || 0).toLocaleString()} Flat`}
                         </span>
                         <span className="text-[10px] text-slate-400 font-medium">Applied on subtotal</span>
                       </div>
@@ -1114,8 +1123,8 @@ export const CouponManager: React.FC = () => {
                     {/* Validity dates */}
                     <td className="p-4 text-slate-600 dark:text-slate-300 font-semibold text-xs">
                       <div className="flex flex-col gap-0.5 leading-none">
-                        <span>From: {c.validFrom ? format(new Date(c.validFrom), 'MMM dd, yyyy') : 'No Limit'}</span>
-                        <span className="text-slate-400 text-[10px] mt-0.5">Until: {c.validTo ? format(new Date(c.validTo), 'MMM dd, yyyy') : 'No Limit'}</span>
+                        <span>From: {safeFormatDate(c.validFrom, 'MMM dd, yyyy', 'No Limit')}</span>
+                        <span className="text-slate-400 text-[10px] mt-0.5">Until: {safeFormatDate(c.validTo, 'MMM dd, yyyy', 'No Limit')}</span>
                       </div>
                     </td>
 

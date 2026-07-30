@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { ErrorBoundary } from '../ui/ErrorBoundary';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
@@ -864,7 +865,9 @@ export const AdminLayout: React.FC = () => {
 
         {/* Content Area */}
         <div className="flex-1 print:overflow-visible scroll-smooth pb-24 lg:pb-0 overflow-x-hidden min-w-0">
-          <Outlet />
+          <ErrorBoundary fallbackTitle="Page failed to load">
+            <Outlet />
+          </ErrorBoundary>
         </div>
 
         {/* ── Vendor Payment Due – Floating Alert (bottom-left) ── */}

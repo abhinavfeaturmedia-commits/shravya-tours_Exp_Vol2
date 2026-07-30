@@ -6,11 +6,26 @@ import { v4 as uuidv4 } from 'uuid';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-const getDaysLeft = (expiresOn: string): number =>
-  Math.ceil((new Date(expiresOn).getTime() - Date.now()) / 86_400_000);
+const safeFormatDate = (dateVal: any, fmtStr: string = 'MMM dd, yyyy'): string => {
+  if (!dateVal) return 'N/A';
+  const d = new Date(dateVal);
+  if (isNaN(d.getTime())) return 'N/A';
+  try {
+    return format(d, fmtStr);
+  } catch {
+    return 'N/A';
+  }
+};
+
+const getDaysLeft = (expiresOn: string): number => {
+  if (!expiresOn) return 0;
+  const t = new Date(expiresOn).getTime();
+  if (isNaN(t)) return 0;
+  return Math.ceil((t - Date.now()) / 86_400_000);
+};
 
 const getExpiryPill = (expiresOn: string, status: string) => {
-  if (status !== 'Active') return null;
+  if (status !== 'Active' || !expiresOn) return null;
   const d = getDaysLeft(expiresOn);
   if (d < 0) return { label: 'Expired', cls: 'bg-rose-100 text-rose-600 dark:bg-rose-900/30 dark:text-rose-400' };
   if (d <= 30) return { label: `${d}d left`, cls: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' };
@@ -81,8 +96,8 @@ export const MembershipManager: React.FC = () => {
 
   const filteredMembers = useMemo(() =>
     customerMemberships.filter(m => {
-      const matchSearch = m.customerName.toLowerCase().includes(memberSearch.toLowerCase()) ||
-        m.customerEmail.toLowerCase().includes(memberSearch.toLowerCase());
+      const matchSearch = (m.customerName || '').toLowerCase().includes((memberSearch || '').toLowerCase()) ||
+        (m.customerEmail || '').toLowerCase().includes((memberSearch || '').toLowerCase());
       const matchTier = tierFilter === 'All' || m.tier === tierFilter;
       const matchStatus = statusFilter === 'All' || m.status === statusFilter;
       return matchSearch && matchTier && matchStatus;
@@ -362,16 +377,16 @@ export const MembershipManager: React.FC = () => {
                               className="w-10 h-10 rounded-full flex items-center justify-center font-black text-white text-sm flex-shrink-0 shadow-sm"
                               style={{ background: `linear-gradient(135deg, ${tierColor}cc, ${tierColor})` }}
                             >
-                              {m.customerName.charAt(0).toUpperCase()}
+                              {(m.customerName || 'U').charAt(0).toUpperCase()}
                             </div>
                             <div>
                               <div className="font-bold text-slate-900 dark:text-white leading-tight flex items-center gap-1.5">
-                                {m.customerName}
+                                {m.customerName || 'Unnamed Member'}
                                 {m.status === 'Pending' && (
                                   <span className="inline-block w-2 h-2 rounded-full bg-amber-500 animate-ping" />
                                 )}
                               </div>
-                              <div className="text-slate-400 dark:text-slate-500 text-xs mt-0.5">{m.customerEmail}</div>
+                              <div className="text-slate-400 dark:text-slate-500 text-xs mt-0.5">{m.customerEmail || ''}</div>
                             </div>
                           </div>
                         </td>
@@ -396,13 +411,13 @@ export const MembershipManager: React.FC = () => {
                         </td>
                         {/* Enrolled */}
                         <td className="p-4 text-slate-600 dark:text-slate-300 font-medium text-sm">
-                          {format(new Date(m.enrolledOn), 'MMM dd, yyyy')}
+                          {safeFormatDate(m.enrolledOn)}
                         </td>
                         {/* Expires + Countdown */}
                         <td className="p-4">
                           <div className="flex flex-col gap-1">
                             <span className="text-slate-600 dark:text-slate-300 font-medium text-sm">
-                              {format(new Date(m.expiresOn), 'MMM dd, yyyy')}
+                              {safeFormatDate(m.expiresOn)}
                             </span>
                             {expiryPill && (
                               <span className={`inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full w-fit ${expiryPill.cls}`}>
@@ -624,11 +639,11 @@ export const MembershipManager: React.FC = () => {
                       </div>
                       <h3 className="text-xl font-black text-slate-900 dark:text-white mb-2" style={{ color: plan.color }}>{plan.name}</h3>
                       <div className="flex items-baseline gap-1">
-                        <span className="text-3xl font-black text-slate-900 dark:text-white">₹{plan.pricePerYear.toLocaleString()}</span>
+                        <span className="text-3xl font-black text-slate-900 dark:text-white">₹{(plan.pricePerYear || 0).toLocaleString()}</span>
                         <span className="text-sm font-bold text-slate-400">/year</span>
                       </div>
-                      {plan.pricePerMonth > 0 && (
-                        <p className="text-[11px] text-slate-400 mt-0.5">or ₹{plan.pricePerMonth.toLocaleString()}/mo</p>
+                      {(plan.pricePerMonth || 0) > 0 && (
+                        <p className="text-[11px] text-slate-400 mt-0.5">or ₹{(plan.pricePerMonth || 0).toLocaleString()}/mo</p>
                       )}
                     </div>
                   </div>
@@ -638,7 +653,7 @@ export const MembershipManager: React.FC = () => {
                     <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50">
                       <span className="text-sm font-bold text-slate-700 dark:text-slate-300">Global Discount</span>
                       <span className="text-lg font-black" style={{ color: plan.color }}>
-                        {plan.discountType === 'Flat_Amount' ? `₹${plan.discountFlat?.toLocaleString()}` : `${plan.discountPercent}%`}
+                        {plan.discountType === 'Flat_Amount' ? `₹${(plan.discountFlat || 0).toLocaleString()}` : `${plan.discountPercent || 0}%`}
                       </span>
                     </div>
 
@@ -1141,11 +1156,11 @@ export const MembershipManager: React.FC = () => {
                       </select>
                     </div>
                     <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 text-xs font-semibold space-y-2">
-                      <div className="flex justify-between"><span className="text-slate-500">Price to Pay:</span><span className="text-slate-900 dark:text-white font-black text-sm">₹{price.toLocaleString()}</span></div>
-                      <div className="flex justify-between"><span className="text-slate-500">Active Until:</span><span className="text-primary font-bold">{format(expDate, 'MMM dd, yyyy')}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-500">Price to Pay:</span><span className="text-slate-900 dark:text-white font-black text-sm">₹{(Number(price) || 0).toLocaleString()}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-500">Active Until:</span><span className="text-primary font-bold">{safeFormatDate(expDate)}</span></div>
                       <div className="border-t border-slate-200 dark:border-slate-700/50 pt-2 flex justify-between">
                         <span className="text-slate-500">Membership Discount:</span>
-                        <span className="text-emerald-600 dark:text-emerald-400 font-bold">{plan.discountType === 'Flat_Amount' ? `₹${plan.discountFlat?.toLocaleString()} Flat Off` : `${plan.discountPercent}% Flat Off`}</span>
+                        <span className="text-emerald-600 dark:text-emerald-400 font-bold">{plan.discountType === 'Flat_Amount' ? `₹${(plan.discountFlat || 0).toLocaleString()} Flat Off` : `${plan.discountPercent || 0}% Flat Off`}</span>
                       </div>
                     </div>
                   </>

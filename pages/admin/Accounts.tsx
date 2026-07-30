@@ -35,10 +35,12 @@ export const Accounts: React.FC = () => {
     // Derived Stats
     const accountStats = useMemo(() => {
         if (!selectedAccount) return { tour: 0, car: 0, bus: 0, total: 0 };
-        const accountBookings = bookings.filter(b =>
-            b.customer.toLowerCase().includes(selectedAccount.companyName.toLowerCase()) ||
-            b.customer.toLowerCase().includes(selectedAccount.name.toLowerCase())
-        );
+        const accountBookings = bookings.filter(b => {
+            const customerStr = (b.customer || '').toLowerCase();
+            const compName = (selectedAccount.companyName || '').toLowerCase();
+            const nameStr = (selectedAccount.name || '').toLowerCase();
+            return (compName && customerStr.includes(compName)) || (nameStr && customerStr.includes(nameStr));
+        });
 
         return {
             tour: accountBookings.filter(b => b.type === 'Tour').length,
@@ -56,7 +58,7 @@ export const Accounts: React.FC = () => {
     }, [accounts]);
 
     const filteredAccounts = accounts.filter(acc => {
-        const matchesSearch = acc.companyName.toLowerCase().includes(search.toLowerCase()) || acc.name.toLowerCase().includes(search.toLowerCase());
+        const matchesSearch = (acc.companyName || '').toLowerCase().includes((search || '').toLowerCase()) || (acc.name || '').toLowerCase().includes((search || '').toLowerCase());
         const matchesType = filterType === 'All' || acc.type === filterType;
         return matchesSearch && matchesType;
     });
@@ -135,11 +137,11 @@ export const Accounts: React.FC = () => {
         doc.text(`Type: ${selectedAccount.type} Partner`, 14, 57);
 
         // Table
-        const tableData = selectedAccount.transactions.map(tx => [
+        const tableData = (selectedAccount.transactions || []).map(tx => [
             tx.date,
             tx.description,
             tx.reference || '-',
-            `${tx.type === 'Credit' ? '+' : '-'} Rs. ${tx.amount.toLocaleString()}`
+            `${tx.type === 'Credit' ? '+' : '-'} Rs. ${(tx.amount || 0).toLocaleString()}`
         ]);
 
         autoTable(doc, {
@@ -158,7 +160,7 @@ export const Accounts: React.FC = () => {
         // Balance
         doc.setFontSize(12);
         doc.setFont('helvetica', 'bold');
-        doc.text(`Net Balance: Rs. ${selectedAccount.currentBalance.toLocaleString()}`, 140, finalY + 15);
+        doc.text(`Net Balance: Rs. ${(selectedAccount.currentBalance || 0).toLocaleString()}`, 140, finalY + 15);
 
         // Footer
         doc.setFontSize(9);
@@ -264,11 +266,11 @@ export const Accounts: React.FC = () => {
                                 <div className="flex justify-between items-start mb-2">
                                     <div className="flex items-center gap-3">
                                         <div className={`size-10 rounded-full flex items-center justify-center font-black text-sm bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700`}>
-                                            {acc.companyName.charAt(0)}
+                                            {(acc.companyName || '?').charAt(0)}
                                         </div>
                                         <div>
-                                            <h3 className={`text-sm font-bold ${selectedAccountId === acc.id ? 'text-primary' : 'text-slate-900 dark:text-white'}`}>{acc.companyName}</h3>
-                                            <p className="text-xs text-slate-500 font-medium truncate max-w-[120px]">{acc.name}</p>
+                                            <h3 className={`text-sm font-bold ${selectedAccountId === acc.id ? 'text-primary' : 'text-slate-900 dark:text-white'}`}>{acc.companyName || 'Unnamed Account'}</h3>
+                                            <p className="text-xs text-slate-500 font-medium truncate max-w-[120px]">{acc.name || ''}</p>
                                         </div>
                                     </div>
                                     <span className={`text-[10px] px-2 py-0.5 rounded border font-bold uppercase tracking-wide ${acc.status === 'Active' ? 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-400 dark:border-green-800' : 'bg-red-50 text-red-700 border-red-200'}`}>
@@ -278,7 +280,7 @@ export const Accounts: React.FC = () => {
                                 <div className="flex items-center justify-between pl-[52px]">
                                     <div className="flex flex-col">
                                         <span className="text-[10px] text-slate-400 font-bold uppercase">Balance</span>
-                                        <span className={`text-sm font-black ${acc.currentBalance < 0 ? 'text-red-500' : 'text-slate-900 dark:text-white'}`}>₹{(acc.currentBalance / 1000).toFixed(1)}k</span>
+                                        <span className={`text-sm font-black ${(acc.currentBalance || 0) < 0 ? 'text-red-500' : 'text-slate-900 dark:text-white'}`}>₹{((acc.currentBalance || 0) / 1000).toFixed(1)}k</span>
                                     </div>
                                     <div className="flex flex-col text-right">
                                         <span className="text-[10px] text-slate-400 font-bold uppercase">Type</span>
@@ -299,14 +301,14 @@ export const Accounts: React.FC = () => {
                                 <div className="flex items-center gap-4">
                                     <button onClick={() => setSelectedAccountId(null)} className="lg:hidden p-2 -ml-2 text-slate-500 hover:bg-slate-100 rounded-full"><span className="material-symbols-outlined">arrow_back</span></button>
                                     <div className="size-16 rounded-xl bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-700 flex items-center justify-center font-black text-2xl text-slate-500 dark:text-slate-300 shadow-inner">
-                                        {selectedAccount.companyName.charAt(0)}
+                                        {(selectedAccount.companyName || '?').charAt(0)}
                                     </div>
                                     <div>
-                                        <h2 className="text-2xl font-black text-slate-900 dark:text-white leading-none">{selectedAccount.companyName}</h2>
+                                        <h2 className="text-2xl font-black text-slate-900 dark:text-white leading-none">{selectedAccount.companyName || 'Unnamed Account'}</h2>
                                         <div className="flex items-center gap-3 mt-1.5 text-sm font-medium text-slate-500">
-                                            <span className="flex items-center gap-1"><span className="material-symbols-outlined text-[16px]">person</span> {selectedAccount.name}</span>
+                                            <span className="flex items-center gap-1"><span className="material-symbols-outlined text-[16px]">person</span> {selectedAccount.name || ''}</span>
                                             <span className="w-1 h-1 bg-slate-300 rounded-full"></span>
-                                            <span className="flex items-center gap-1"><span className="material-symbols-outlined text-[16px]">location_on</span> {selectedAccount.location}</span>
+                                            <span className="flex items-center gap-1"><span className="material-symbols-outlined text-[16px]">location_on</span> {selectedAccount.location || ''}</span>
                                         </div>
                                     </div>
                                 </div>
@@ -336,8 +338,8 @@ export const Accounts: React.FC = () => {
                                                 </div>
                                                 <div className="text-right">
                                                     <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Wallet Balance</p>
-                                                    <p className={`text-2xl font-black ${selectedAccount.currentBalance >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                                                        ₹{selectedAccount.currentBalance.toLocaleString()}
+                                                    <p className={`text-2xl font-black ${(selectedAccount.currentBalance || 0) >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                                                        ₹{(selectedAccount.currentBalance || 0).toLocaleString()}
                                                     </p>
                                                 </div>
                                             </div>
@@ -470,7 +472,7 @@ export const Accounts: React.FC = () => {
                                                                 </td>
                                                                 <td className="px-6 py-4 text-xs font-mono text-slate-500">{tx.reference || '-'}</td>
                                                                 <td className={`px-6 py-4 text-right font-black text-sm ${tx.type === 'Credit' ? 'text-green-600' : 'text-red-500'}`}>
-                                                                    {tx.type === 'Credit' ? '+' : '-'} ₹{tx.amount.toLocaleString()}
+                                                                    {tx.type === 'Credit' ? '+' : '-'} ₹{(tx.amount || 0).toLocaleString()}
                                                                 </td>
                                                                 <td className="px-6 py-4 text-center">
                                                                     {(tx.status === 'Pending' || !tx.status) && (

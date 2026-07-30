@@ -4,6 +4,17 @@ import { useAuth } from '../../context/AuthContext';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 
+const safeFormatDate = (dateVal: any, fmtStr: string = 'MMM dd, yyyy', fallback: string = 'N/A'): string => {
+  if (!dateVal) return fallback;
+  const d = new Date(dateVal);
+  if (isNaN(d.getTime())) return fallback;
+  try {
+    return format(d, fmtStr);
+  } catch {
+    return fallback;
+  }
+};
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Conversation {
@@ -488,7 +499,7 @@ export const SupportInbox: React.FC = () => {
                       ) : null}
                     </h4>
                     <span className="text-[9px] text-slate-400 font-bold whitespace-nowrap pl-2">
-                      {format(new Date(conv.last_message_at), 'HH:mm')}
+                      {safeFormatDate(conv.last_message_at, 'HH:mm')}
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-400 truncate mt-1 leading-snug">{conv.last_message || 'No messages yet.'}</p>
@@ -662,7 +673,7 @@ export const SupportInbox: React.FC = () => {
                           </button>
                         )}
                         <span className="block text-[8px] font-bold text-right ml-auto text-slate-400">
-                          {format(new Date(msg.created_at), 'MMM dd, HH:mm')}
+                          {safeFormatDate(msg.created_at, 'MMM dd, HH:mm')}
                         </span>
                       </div>
                     </div>
@@ -877,7 +888,7 @@ export const SupportInbox: React.FC = () => {
                       </span>
                     </div>
                     <div className="flex justify-between items-center text-[9px] text-slate-400 font-bold">
-                      <span>Travel Date: {(b as any).travel_date ? format(new Date((b as any).travel_date), 'MMM dd, yyyy') : 'Pending'}</span>
+                      <span>Travel Date: {safeFormatDate((b as any).travel_date, 'MMM dd, yyyy', 'Pending')}</span>
                       <span className="text-slate-700 dark:text-slate-300">₹{(b as any).total_price?.toLocaleString()}</span>
                     </div>
                   </div>
@@ -897,7 +908,7 @@ export const SupportInbox: React.FC = () => {
                   {timeline.map((t, i) => (
                     <div key={i} className="relative">
                       <span className="absolute -left-[21px] top-0.5 size-2.5 rounded-full bg-primary border-2 border-white dark:border-slate-950" />
-                      <div className="text-[9px] font-black text-slate-400">{format(new Date(t.date), 'MMM dd, yyyy')}</div>
+                      <div className="text-[9px] font-black text-slate-400">{safeFormatDate(t.date, 'MMM dd, yyyy')}</div>
                       <div className="font-bold text-slate-800 dark:text-slate-200 mt-0.5 text-[11px]">{t.title}</div>
                       <p className="text-[10px] text-slate-500 leading-snug mt-0.5">{t.description}</p>
                     </div>
@@ -961,11 +972,11 @@ export const SupportInbox: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <span className="text-[10px] text-slate-400 uppercase tracking-wider block mb-1">Travel Date</span>
-                  <p className="text-slate-800 dark:text-slate-200">{bookingDetailModal.travel_date ? format(new Date(bookingDetailModal.travel_date), 'MMM dd, yyyy') : 'Pending'}</p>
+                  <p className="text-slate-800 dark:text-slate-200">{safeFormatDate(bookingDetailModal.travel_date, 'MMM dd, yyyy', 'Pending')}</p>
                 </div>
                 <div>
                   <span className="text-[10px] text-slate-400 uppercase tracking-wider block mb-1">Return Date</span>
-                  <p className="text-slate-800 dark:text-slate-200">{bookingDetailModal.end_date ? format(new Date(bookingDetailModal.end_date), 'MMM dd, yyyy') : 'N/A'}</p>
+                  <p className="text-slate-800 dark:text-slate-200">{safeFormatDate(bookingDetailModal.end_date, 'MMM dd, yyyy', 'N/A')}</p>
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-2">
@@ -1021,7 +1032,7 @@ export const SupportInbox: React.FC = () => {
                 <div key={log.id} className="p-3.5 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl text-xs space-y-1.5">
                   <div className="flex justify-between items-center text-[10px] text-slate-400 font-black">
                     <span className="px-2 py-0.5 bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded font-black uppercase">{log.action}</span>
-                    <span>{format(new Date(log.performed_at), 'yyyy-MM-dd HH:mm:ss')}</span>
+                    <span>{safeFormatDate(log.performed_at, 'yyyy-MM-dd HH:mm:ss')}</span>
                   </div>
                   <p className="text-slate-800 dark:text-slate-200 font-semibold">{log.details}</p>
                   <div className="text-[10px] text-slate-400 font-bold">Performed By: {log.performed_by}</div>

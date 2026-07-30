@@ -62,9 +62,9 @@ export const TrendingDestinationsManager: React.FC = () => {
     if (!pkgSearch) return activePkgs;
     const q = pkgSearch.toLowerCase();
     return activePkgs.filter(p => 
-      p.title.toLowerCase().includes(q) || 
-      getLocationName(p.location, masterLocations).toLowerCase().includes(q) ||
-      p.location.toLowerCase().includes(q)
+      (p.title || '').toLowerCase().includes(q) || 
+      getLocationName(p.location || '', masterLocations).toLowerCase().includes(q) ||
+      (p.location || '').toLowerCase().includes(q)
     );
   }, [packages, pkgSearch, masterLocations]);
 

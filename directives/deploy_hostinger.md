@@ -41,3 +41,5 @@ This is a manual step. The user uploads the zip via Hostinger File Manager.
 ## Learned
 - Do NOT auto-create deployment zips — user must explicitly request it.
 - Always verify the frontend `.env.local` or build-time env vars point to production URLs before building.
+- Exclude heavy files in `backend/public/uploads/` while retaining empty folder structure to keep zip size under 2MB (e.g. 1.66 MB).
+

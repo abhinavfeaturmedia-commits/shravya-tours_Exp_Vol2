@@ -1,5 +1,5 @@
 import imageCompression from 'browser-image-compression';
-import { Package, Booking, Lead, LeadLog, BookingStatus, StaffMember, Customer, MasterRoomType, MasterMealPlan, MasterActivity, MasterTransport, MasterPlan, MasterLeadSource, MasterTermsTemplate, CMSBanner, CMSTestimonial, CMSGalleryImage, CMSPost, FollowUp, Proposal, DailyTarget, TimeSession, AssignmentRule, UserActivity, Campaign, MasterHotel, Task, AuditLog, Expense, AttendanceLog, Coupon, DailyMarketingLog, MarketingTarget, LogComment, LogReaction, InAppNotification, BookingDailyDeliverable, DailySlot, MembershipPlan } from '../../types';
+import { Package, Booking, Lead, LeadLog, BookingStatus, StaffMember, Customer, MasterRoomType, MasterMealPlan, MasterActivity, MasterTransport, MasterPlan, MasterLeadSource, MasterTermsTemplate, CMSBanner, CMSTestimonial, CMSGalleryImage, CMSPost, FollowUp, Proposal, DailyTarget, TimeSession, AssignmentRule, UserActivity, Campaign, MasterHotel, Task, AuditLog, Expense, AttendanceLog, Coupon, DailyMarketingLog, MarketingTarget, LogComment, LogReaction, InAppNotification, BookingDailyDeliverable, DailySlot, MembershipPlan, Account, AccountTransaction } from '../../types';
 import { normalisePhone } from '../../utils/phoneUtils';
 
 // ─── BASE API URL ───
@@ -80,7 +80,13 @@ async function compressImageFile(file: File): Promise<File> {
 
 const parseJsonFieldSafe = (field: any, defaultValue: any) => {
     if (typeof field === 'string') {
-        try { return JSON.parse(field); } catch { return defaultValue; }
+        if (!field.trim()) return defaultValue;
+        try { return JSON.parse(field); } catch {
+            if (defaultValue && typeof defaultValue === 'object' && !Array.isArray(defaultValue)) {
+                return { note: field };
+            }
+            return defaultValue;
+        }
     }
     return field || defaultValue;
 };
@@ -234,6 +240,29 @@ export const api = {
         cabDiscount: Number(r.cab_discount || 0),
         perks: typeof r.perks === 'string' ? (() => { try { return JSON.parse(r.perks); } catch { return []; } })() : (r.perks || []),
         color: r.color || '#CD7F32', isActive: Boolean(r.is_active), showOnHomepage: Boolean(r.show_on_homepage)
+    }),
+    mapAccount: (a: any): Account => ({
+        id: a.id,
+        name: a.name || 'Unknown',
+        companyName: a.company_name || a.companyName || 'Unnamed Account',
+        type: a.type || 'Agent',
+        email: a.email || '',
+        phone: a.phone || '',
+        location: a.location || 'Unknown',
+        currentBalance: Number(a.current_balance || a.currentBalance || 0),
+        status: a.status || 'Active',
+        logo: a.logo || `https://placehold.co/100x100/purple/white?text=${(a.name || 'A').charAt(0)}`,
+        transactions: (a.account_transactions || a.transactions || [])
+            .sort((x: any, y: any) => new Date(y.created_at || y.date).getTime() - new Date(x.created_at || x.date).getTime())
+            .map((t: any) => ({
+                id: t.id,
+                date: t.date || t.created_at?.split('T')[0],
+                amount: Number(t.amount || 0),
+                type: t.type,
+                status: t.status || 'Pending',
+                description: t.description || '',
+                reference: t.reference || ''
+            }))
     }),
 
     // --- PACKAGES ---
@@ -1472,9 +1501,9 @@ export const api = {
             bookingsCount: c.computed_bookings_count ?? c.bookings_count ?? 0,
             joinedDate: c.created_at,
             lastActive: c.computed_last_active || undefined,
-            notes: typeof c.notes === 'string' ? JSON.parse(c.notes) : (c.notes || []),
-            tags: typeof c.tags === 'string' ? JSON.parse(c.tags) : (c.tags || []),
-            preferences: typeof c.preferences === 'string' ? JSON.parse(c.preferences) : (c.preferences || {}),
+            notes: parseJsonFieldSafe(c.notes, []),
+            tags: parseJsonFieldSafe(c.tags, []),
+            preferences: parseJsonFieldSafe(c.preferences, {}),
             prefix: c.prefix || '',
             dob: c.dob || '',
             altPhone: c.alt_phone || '',

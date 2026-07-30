@@ -555,7 +555,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (inv && Object.keys(inv).length > 0) setInventory(inv);
 
         if (bulkRes.vendors) setVendors(bulkRes.vendors as Vendor[]);
-        if (bulkRes.accounts) setAccounts(bulkRes.accounts as Account[]);
+        if (bulkRes.accounts) setAccounts((bulkRes.accounts as any[]).map(api.mapAccount));
         if (bulkRes.campaigns) setCampaigns(bulkRes.campaigns);
         if (bulkRes.tasks) setTasks(bulkRes.tasks.map(api.mapTask));
         if (bulkRes.master_transports) setMasterTransports(bulkRes.master_transports.map(api.mapMasterTransport));
