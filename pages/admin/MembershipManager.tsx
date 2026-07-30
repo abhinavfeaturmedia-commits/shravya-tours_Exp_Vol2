@@ -96,13 +96,16 @@ export const MembershipManager: React.FC = () => {
 
   const filteredMembers = useMemo(() =>
     customerMemberships.filter(m => {
-      const matchSearch = (m.customerName || '').toLowerCase().includes((memberSearch || '').toLowerCase()) ||
-        (m.customerEmail || '').toLowerCase().includes((memberSearch || '').toLowerCase());
+      const cust = customers.find(c => c.id === m.customerId);
+      const name = m.customerName || cust?.name || '';
+      const email = m.customerEmail || cust?.email || '';
+      const matchSearch = name.toLowerCase().includes((memberSearch || '').toLowerCase()) ||
+        email.toLowerCase().includes((memberSearch || '').toLowerCase());
       const matchTier = tierFilter === 'All' || m.tier === tierFilter;
       const matchStatus = statusFilter === 'All' || m.status === statusFilter;
       return matchSearch && matchTier && matchStatus;
     }),
-    [customerMemberships, memberSearch, tierFilter, statusFilter]
+    [customerMemberships, customers, memberSearch, tierFilter, statusFilter]
   );
 
   // ── Handlers ──
@@ -365,6 +368,9 @@ export const MembershipManager: React.FC = () => {
                     const planDef = membershipPlans.find(p => p.id === m.planId);
                     const tierColor = planDef?.color || '#CD7F32';
                     const expiryPill = getExpiryPill(m.expiresOn, m.status);
+                    const cust = customers.find(c => c.id === m.customerId);
+                    const name = m.customerName || cust?.name || 'Unnamed Member';
+                    const email = m.customerEmail || cust?.email || '';
                     return (
                       <tr key={m.id} className={`hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors ${
                         m.status === 'Pending' ? 'bg-amber-500/5 dark:bg-amber-500/5 border-l-4 border-l-amber-500' : ''
@@ -377,16 +383,16 @@ export const MembershipManager: React.FC = () => {
                               className="w-10 h-10 rounded-full flex items-center justify-center font-black text-white text-sm flex-shrink-0 shadow-sm"
                               style={{ background: `linear-gradient(135deg, ${tierColor}cc, ${tierColor})` }}
                             >
-                              {(m.customerName || 'U').charAt(0).toUpperCase()}
+                              {name.charAt(0).toUpperCase()}
                             </div>
                             <div>
                               <div className="font-bold text-slate-900 dark:text-white leading-tight flex items-center gap-1.5">
-                                {m.customerName || 'Unnamed Member'}
+                                {name}
                                 {m.status === 'Pending' && (
                                   <span className="inline-block w-2 h-2 rounded-full bg-amber-500 animate-ping" />
                                 )}
                               </div>
-                              <div className="text-slate-400 dark:text-slate-500 text-xs mt-0.5">{m.customerEmail || ''}</div>
+                              <div className="text-slate-400 dark:text-slate-500 text-xs mt-0.5">{email}</div>
                             </div>
                           </div>
                         </td>

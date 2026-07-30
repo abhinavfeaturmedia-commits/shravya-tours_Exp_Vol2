@@ -570,7 +570,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (bulkRes.assignment_rules) setAssignmentRules(bulkRes.assignment_rules);
         if (bulkRes.user_activities) setUserActivities(bulkRes.user_activities);
         if (bulkRes.audit_logs) setAuditLogs(bulkRes.audit_logs);
-        if (bulkRes.customer_memberships) setCustomerMemberships(bulkRes.customer_memberships);
+        if (bulkRes.customer_memberships) setCustomerMemberships(bulkRes.customer_memberships.map(api.mapCustomerMembership));
         if (bulkRes.coupons) setCoupons(bulkRes.coupons);
 
         // Background non-blocking sync

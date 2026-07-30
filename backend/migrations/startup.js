@@ -229,6 +229,16 @@ export async function runStartupMigrations(pool) {
         // Clean up expired OTPs
         await pool.query(`DELETE FROM otp_tokens WHERE expires_at < NOW() - INTERVAL 1 HOUR`).catch(() => {});
 
+        // Backfill missing customer names/emails in customer_memberships table from customers table
+        await pool.query(`
+            UPDATE customer_memberships cm
+            JOIN customers c ON cm.customer_id = c.id
+            SET 
+                cm.customer_name = COALESCE(NULLIF(cm.customer_name, ''), c.name),
+                cm.customer_email = COALESCE(NULLIF(cm.customer_email, ''), c.email)
+            WHERE (cm.customer_name IS NULL OR cm.customer_name = '' OR cm.customer_email IS NULL OR cm.customer_email = '')
+        `).catch(() => {});
+
         console.log('[Migration] All startup migrations completed successfully.');
     } catch (err) {
         console.error('[Migration Error]', err.message);

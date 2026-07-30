@@ -241,6 +241,29 @@ export const api = {
         perks: typeof r.perks === 'string' ? (() => { try { return JSON.parse(r.perks); } catch { return []; } })() : (r.perks || []),
         color: r.color || '#CD7F32', isActive: Boolean(r.is_active), showOnHomepage: Boolean(r.show_on_homepage)
     }),
+    mapCustomerMembership: (r: any) => ({
+        id: r.id,
+        customerId: r.customer_id || r.customerId,
+        customerName: r.customer_name || r.customerName,
+        customerEmail: r.customer_email || r.customerEmail,
+        planId: r.plan_id || r.planId,
+        planName: r.plan_name || r.planName,
+        tier: r.tier,
+        status: r.status,
+        billingCycle: r.billing_cycle || r.billingCycle || 'Yearly',
+        pricePaid: Number(r.price_paid !== undefined ? r.price_paid : (r.pricePaid || 0)),
+        enrolledOn: r.enrolled_on || r.enrolledOn,
+        expiresOn: r.expires_on || r.expiresOn,
+        discountType: r.discount_type || r.discountType || 'Percentage',
+        discountPercent: Number(r.discount_percent !== undefined ? r.discount_percent : (r.discountPercent || 0)),
+        discountFlat: Number(r.discount_flat !== undefined ? r.discount_flat : (r.discountFlat || 0)),
+        hotelDiscount: Number(r.hotel_discount !== undefined ? r.hotel_discount : (r.hotelDiscount || 0)),
+        tourDiscount: Number(r.tour_discount !== undefined ? r.tour_discount : (r.tourDiscount || 0)),
+        flightDiscount: Number(r.flight_discount !== undefined ? r.flight_discount : (r.flightDiscount || 0)),
+        cabDiscount: Number(r.cab_discount !== undefined ? r.cab_discount : (r.cabDiscount || 0)),
+        notes: r.notes,
+        enrolledBy: r.enrolled_by || r.enrolledBy,
+    }),
     mapAccount: (a: any): Account => ({
         id: a.id,
         name: a.name || 'Unknown',
@@ -2417,29 +2440,7 @@ export const api = {
     // ─── CUSTOMER MEMBERSHIPS ───
     getCustomerMemberships: () =>
         crud.getAll('customer_memberships', { order: 'created_at', asc: false }).then((res: any) =>
-            (res.data || []).map((r: any) => ({
-                id: r.id,
-                customerId: r.customer_id,
-                customerName: r.customer_name,
-                customerEmail: r.customer_email,
-                planId: r.plan_id,
-                planName: r.plan_name,
-                tier: r.tier,
-                status: r.status,
-                billingCycle: r.billing_cycle || 'Yearly',
-                pricePaid: Number(r.price_paid || 0),
-                enrolledOn: r.enrolled_on,
-                expiresOn: r.expires_on,
-                discountType: r.discount_type || 'Percentage',
-                discountPercent: Number(r.discount_percent || 0),
-                discountFlat: Number(r.discount_flat || 0),
-                hotelDiscount: Number(r.hotel_discount || 0),
-                tourDiscount: Number(r.tour_discount || 0),
-                flightDiscount: Number(r.flight_discount || 0),
-                cabDiscount: Number(r.cab_discount || 0),
-                notes: r.notes,
-                enrolledBy: r.enrolled_by,
-            }))
+            (res.data || []).map(api.mapCustomerMembership)
         ),
 
     enrollCustomer: (m: any) =>
