@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { name: 'Earnings', path: '/partner/earnings', icon: 'payments' },
   { name: 'Milestones & Plans', path: '/partner/milestones', icon: 'emoji_events' },
   { name: 'Policy & Agreement', path: '/partner/agreement', icon: 'gavel' },
+  { name: 'Video Training', path: '/partner/training', icon: 'smart_display' },
   { name: 'Profile', path: '/partner/profile', icon: 'manage_accounts' },
 ];
 

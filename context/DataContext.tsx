@@ -572,16 +572,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (bulkRes.audit_logs) setAuditLogs(bulkRes.audit_logs);
         if (bulkRes.customer_memberships) setCustomerMemberships(bulkRes.customer_memberships.map(api.mapCustomerMembership));
         if (bulkRes.coupons) setCoupons(bulkRes.coupons);
-
-        // Background non-blocking sync
-        api.syncCustomersFromBookings()
-          .then(async (result) => {
-            if (result.created > 0) {
-              const updatedCustomers = await api.getCustomers().catch(() => null);
-              if (updatedCustomers) setCustomers(updatedCustomers);
-            }
-          })
-          .catch((e) => console.warn('[DataContext] Background customer sync skipped:', e?.message));
       }
     } catch (e) {
       console.warn("Error refreshing data:", e);

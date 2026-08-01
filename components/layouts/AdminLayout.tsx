@@ -58,6 +58,8 @@ const NAV_GROUPS = [
       { name: 'Packages', path: '/admin/packages', icon: 'inventory_2', module: 'inventory' },
       { name: 'Testimonials', path: '/admin/testimonials', icon: 'rate_review', module: 'testimonials' },
       { name: 'Trending Destinations', path: '/admin/trending', icon: 'trending_up', module: 'cms' },
+      { name: 'Video Training Manager', path: '/admin/training', icon: 'video_library', module: 'staff' },
+      { name: 'Staff Training Hub', path: '/admin/staff-training', icon: 'school', module: 'staff' },
     ]
   },
   {

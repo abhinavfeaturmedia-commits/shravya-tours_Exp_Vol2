@@ -65,6 +65,8 @@ const CouponManager = lazy(() => import('./pages/admin/CouponManager').then(modu
 const MarketingLogs = lazy(() => import('./pages/admin/MarketingLogs').then(module => ({ default: module.MarketingLogs })));
 const TrendingDestinationsManager = lazy(() => import('./pages/admin/TrendingDestinationsManager').then(module => ({ default: module.TrendingDestinationsManager })));
 const AdminKYCManager = lazy(() => import('./pages/admin/AdminKYCManager').then(module => ({ default: module.AdminKYCManager })));
+const TrainingManager = lazy(() => import('./pages/admin/TrainingManager').then(module => ({ default: module.TrainingManager })));
+const StaffTraining = lazy(() => import('./pages/admin/StaffTraining').then(module => ({ default: module.StaffTraining })));
 
 // Partner Portal Pages
 const PartnerLogin = lazy(() => import('./pages/partner/PartnerLogin').then(m => ({ default: m.PartnerLogin })));
@@ -77,6 +79,7 @@ const PartnerEarnings = lazy(() => import('./pages/partner/PartnerEarnings').the
 const PartnerProfile = lazy(() => import('./pages/partner/PartnerProfile').then(m => ({ default: m.PartnerProfile })));
 const PartnerMilestones = lazy(() => import('./pages/partner/PartnerMilestones').then(m => ({ default: m.PartnerMilestones })));
 const PartnerAgreement = lazy(() => import('./pages/partner/PartnerAgreement').then(m => ({ default: m.PartnerAgreement })));
+const PartnerTraining = lazy(() => import('./pages/partner/PartnerTraining').then(m => ({ default: m.PartnerTraining })));
 
 // Customer Portal Pages
 const CustomerLogin = lazy(() => import('./pages/customer/CustomerLogin').then(m => ({ default: m.CustomerLogin })));
@@ -163,6 +166,8 @@ const App: React.FC = () => {
                   <Route path="coupons" element={<CouponManager />} />
                   <Route path="marketing-logs" element={<MarketingLogs />} />
                   <Route path="trending" element={<TrendingDestinationsManager />} />
+                  <Route path="training" element={<TrainingManager />} />
+                  <Route path="staff-training" element={<StaffTraining />} />
                   <Route path="*" element={<div className="p-10">Page Under Construction</div>} />
                 </Route>
 
@@ -179,6 +184,7 @@ const App: React.FC = () => {
                   <Route path="profile" element={<PartnerProfile />} />
                   <Route path="milestones" element={<PartnerMilestones />} />
                   <Route path="agreement" element={<PartnerAgreement />} />
+                  <Route path="training" element={<PartnerTraining />} />
                 </Route>
 
                 {/* Customer Portal Routes */}

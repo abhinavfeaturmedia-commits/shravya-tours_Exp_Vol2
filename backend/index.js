@@ -30,6 +30,8 @@ import { initEmailService, sendTestEmail, sendCustomEmail, sendAgentIntroduction
 // import { authMiddleware, optionalAuthMiddleware, validateTable, writeGuard, createPermissionGuard, injectPackageStatusFilter } from './middleware/index.js';
 // ═══════════════════════════════════════════
 
+import { createTrainingRoutes } from './routes/training.js';
+
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
@@ -1516,7 +1518,32 @@ async function ensureMissingTables() {
             mime_type VARCHAR(100) NOT NULL,
             data LONGBLOB NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )`
+        )`,
+        `CREATE TABLE IF NOT EXISTS training_videos (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            title VARCHAR(255) NOT NULL,
+            description TEXT,
+            youtube_url VARCHAR(500) NOT NULL,
+            youtube_id VARCHAR(50) NOT NULL,
+            category VARCHAR(100) DEFAULT 'General',
+            target_audience ENUM('staff', 'partner', 'all') DEFAULT 'all',
+            thumbnail_url VARCHAR(500),
+            duration VARCHAR(20),
+            pdf_attachment_url VARCHAR(500),
+            display_order INT DEFAULT 0,
+            is_featured BOOLEAN DEFAULT FALSE,
+            is_published BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+        `CREATE TABLE IF NOT EXISTS training_video_views (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            video_id INT NOT NULL,
+            user_identifier VARCHAR(255) NOT NULL,
+            user_type ENUM('staff', 'partner') NOT NULL,
+            completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY unique_user_video (video_id, user_identifier, user_type)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
     ];
 
     for (const sql of tables) {
@@ -1534,6 +1561,9 @@ async function ensureMissingTables() {
     await syncDbUploadsToLocal();
 }
 ensureMissingTables();
+
+// Register Video Training Module Routes
+createTrainingRoutes(app, pool);
 
 // Migrate/Alter cms_testimonials columns if they are using the old schema
 async function migrateCMSTestimonials() {
@@ -2240,7 +2270,8 @@ const ALLOWED_TABLES = new Set([
     'marketing_targets', 'marketing_log_comments', 'marketing_log_reactions',
     'marketing_log_leads', 'marketing_log_bookings', 'in_app_notifications',
     'booking_daily_deliverables',
-    'vehicle_categories', 'vehicles', 'drivers', 'car_bookings', 'car_booking_payments', 'car_reviews'
+    'vehicle_categories', 'vehicles', 'drivers', 'car_bookings', 'car_booking_payments', 'car_reviews',
+    'training_videos', 'training_video_views'
 ]);
 
 // ─── Auth Middleware ───
@@ -5783,8 +5814,30 @@ app.post('/api/admin/memberships/:id/reject', authMiddleware, async (req, res) =
 
 const PUBLIC_READ_TABLES = new Set([
     'packages', 'cms_banners', 'cms_testimonials', 'cms_gallery_images', 
-    'cms_posts', 'master_locations', 'master_hotels', 'master_activities'
+    'cms_posts', 'master_locations', 'master_hotels', 'master_activities',
+    'training_videos'
 ]);
+
+const TABLE_SORT_COLUMNS = {
+    'audit_logs': 'timestamp',
+    'user_activities': 'timestamp',
+    'attendance_logs': 'timestamp',
+    'time_sessions': 'start_time',
+    'daily_inventory': 'date',
+    'master_locations': 'id',
+    'master_hotels': 'id',
+    'master_activities': 'id',
+    'master_transports': 'id',
+    'master_plans': 'id',
+    'master_room_types': 'id',
+    'master_meal_plans': 'id',
+    'master_lead_sources': 'id',
+    'master_terms_templates': 'id',
+    'settings': 'id',
+    'assignment_rules': 'priority',
+    'invoice_items': 'id',
+    'invoice_custom_fields': 'id'
+};
 
 app.post('/api/bulk-fetch', async (req, res) => {
     const { tables } = req.body || {};
@@ -5825,83 +5878,115 @@ app.post('/api/bulk-fetch', async (req, res) => {
         isAdmin = permData.isAdmin || user.role === 'admin' || user.role === 'Admin';
     }
 
-    // Build queries for each requested table
-    const fetchPromises = tables.map(async (table) => {
-        // Auth gate: non-public tables require a valid JWT
-        if (!PUBLIC_READ_TABLES.has(table) && !user) {
-            return { table, data: [], skipped: true };
-        }
-
-        // Permission check: verify module-level view access for authenticated users
-        if (user && !isAdmin) {
-            const module = TABLE_TO_MODULE[table];
-            if (module && staffPermissions) {
-                const allowed = staffPermissions[module]?.view ?? false;
-                // Self-access bypass for staff_members
-                if (!allowed && table !== 'staff_members') {
-                    return { table, data: [], denied: true };
-                }
-            }
-        }
-
-        try {
-            let query = `SELECT * FROM \`${table}\``;
-            const params = [];
-            const whereClauses = [];
-
-            // RBAC ownership scoping for non-admin users
-            if (user && !isAdmin && staffId) {
-                const myDataTables = ['leads', 'bookings', 'follow_ups', 'tasks'];
-                if (myDataTables.includes(table)) {
-                    whereClauses.push('`assigned_to` = ?');
-                    params.push(staffId);
-                } else if (table === 'proposals' || table === 'lead_logs') {
-                    whereClauses.push('`lead_id` IN (SELECT `id` FROM `leads` WHERE `assigned_to` = ?)');
-                    params.push(staffId);
-                } else if (table === 'booking_transactions' || table === 'supplier_bookings') {
-                    whereClauses.push('`booking_id` IN (SELECT `id` FROM `bookings` WHERE `assigned_to` = ?)');
-                    params.push(staffId);
-                }
-            }
-
-            // For public (unauthenticated) package reads, only show Active
-            if (table === 'packages' && !user) {
-                whereClauses.push('`status` = ?');
-                params.push('Active');
-            }
-
-            if (whereClauses.length > 0) {
-                query += ' WHERE ' + whereClauses.join(' AND ');
-            }
-
-            query += ' ORDER BY `created_at` DESC';
-
-            const [rows] = await pool.query(query, params);
-            return { table, data: rows };
-        } catch (err) {
-            console.error(`[Bulk Fetch] Error fetching ${table}:`, err.message);
-            return { table, data: [], error: err.message };
-        }
-    });
-
+    let conn;
     try {
-        const results = await Promise.allSettled(fetchPromises);
+        conn = await pool.getConnection();
         const response = {};
 
-        results.forEach((result) => {
-            if (result.status === 'fulfilled') {
-                const { table, data } = result.value;
-                response[table] = data;
-            } else {
-                // Promise rejected — shouldn't happen with our try/catch, but safety net
-                console.error('[Bulk Fetch] Unexpected rejection:', result.reason);
+        for (const table of tables) {
+            // Auth gate: non-public tables require a valid JWT
+            if (!PUBLIC_READ_TABLES.has(table) && !user) {
+                response[table] = [];
+                continue;
             }
-        });
+
+            // Permission check: verify module-level view access for authenticated users
+            if (user && !isAdmin) {
+                const module = TABLE_TO_MODULE[table];
+                if (module && staffPermissions) {
+                    const allowed = staffPermissions[module]?.view ?? false;
+                    // Self-access bypass for staff_members
+                    if (!allowed && table !== 'staff_members') {
+                        response[table] = [];
+                        continue;
+                    }
+                }
+            }
+
+            try {
+                let query = `SELECT * FROM \`${table}\``;
+                const params = [];
+                const whereClauses = [];
+
+                // RBAC ownership scoping for non-admin users
+                if (user && !isAdmin && staffId) {
+                    const myDataTables = ['leads', 'bookings', 'follow_ups', 'tasks'];
+                    if (myDataTables.includes(table)) {
+                        whereClauses.push('`assigned_to` = ?');
+                        params.push(staffId);
+                    } else if (table === 'proposals' || table === 'lead_logs') {
+                        whereClauses.push('`lead_id` IN (SELECT `id` FROM `leads` WHERE `assigned_to` = ?)');
+                        params.push(staffId);
+                    } else if (table === 'booking_transactions' || table === 'supplier_bookings') {
+                        whereClauses.push('`booking_id` IN (SELECT `id` FROM `bookings` WHERE `assigned_to` = ?)');
+                        params.push(staffId);
+                    }
+                }
+
+                // For public (unauthenticated) package reads, only show Active
+                if (table === 'packages' && !user) {
+                    whereClauses.push('`status` = ?');
+                    params.push('Active');
+                }
+
+                if (whereClauses.length > 0) {
+                    query += ' WHERE ' + whereClauses.join(' AND ');
+                }
+
+                const sortCol = TABLE_SORT_COLUMNS[table] || 'created_at';
+                query += ` ORDER BY \`${sortCol}\` DESC`;
+
+                const [rows] = await conn.query(query, params);
+                response[table] = rows;
+            } catch (err) {
+                // If sorting failed due to missing column (ER_BAD_FIELD_ERROR), retry without ORDER BY
+                if (err.code === 'ER_BAD_FIELD_ERROR') {
+                    try {
+                        let fallbackQuery = `SELECT * FROM \`${table}\``;
+                        const params = [];
+                        const whereClauses = [];
+
+                        if (user && !isAdmin && staffId) {
+                            const myDataTables = ['leads', 'bookings', 'follow_ups', 'tasks'];
+                            if (myDataTables.includes(table)) {
+                                whereClauses.push('`assigned_to` = ?');
+                                params.push(staffId);
+                            } else if (table === 'proposals' || table === 'lead_logs') {
+                                whereClauses.push('`lead_id` IN (SELECT `id` FROM `leads` WHERE `assigned_to` = ?)');
+                                params.push(staffId);
+                            } else if (table === 'booking_transactions' || table === 'supplier_bookings') {
+                                whereClauses.push('`booking_id` IN (SELECT `id` FROM `bookings` WHERE `assigned_to` = ?)');
+                                params.push(staffId);
+                            }
+                        }
+
+                        if (table === 'packages' && !user) {
+                            whereClauses.push('`status` = ?');
+                            params.push('Active');
+                        }
+
+                        if (whereClauses.length > 0) {
+                            fallbackQuery += ' WHERE ' + whereClauses.join(' AND ');
+                        }
+
+                        const [rows] = await conn.query(fallbackQuery, params);
+                        response[table] = rows;
+                        continue;
+                    } catch (fallbackErr) {
+                        console.error(`[Bulk Fetch Fallback] Error fetching ${table}:`, fallbackErr.message);
+                    }
+                }
+                console.error(`[Bulk Fetch] Error fetching ${table}:`, err.message);
+                response[table] = [];
+            }
+        }
 
         res.json(response);
     } catch (err) {
         console.error('[Bulk Fetch] Fatal error:', err.message);
         res.status(500).json({ error: 'Bulk fetch failed' });
+    } finally {
+        if (conn) conn.release();
     }
 });
 
@@ -7609,14 +7694,20 @@ app.get('/api/bookings-with-package', authMiddleware, async (req, res) => {
             return res.json({ data: [] });
         }
 
-        const [transactions] = await pool.query(
-            `SELECT * FROM booking_transactions WHERE booking_id IN (${bookingIds.map(() => '?').join(',')}) ORDER BY date DESC, created_at DESC`,
-            bookingIds
-        );
-        const [supplierBookings] = await pool.query(
-            `SELECT * FROM supplier_bookings WHERE booking_id IN (${bookingIds.map(() => '?').join(',')}) ORDER BY created_at DESC`,
-            bookingIds
-        );
+        let txQuery = `SELECT * FROM booking_transactions ORDER BY date DESC, created_at DESC`;
+        let sbQuery = `SELECT * FROM supplier_bookings ORDER BY created_at DESC`;
+        let txParams = [];
+        let sbParams = [];
+
+        if (req.user?.role !== 'admin' && req.user?.role !== 'Admin' && !isAdmin) {
+            txQuery = `SELECT t.* FROM booking_transactions t JOIN bookings b ON t.booking_id = b.id WHERE b.assigned_to = ? ORDER BY t.date DESC, t.created_at DESC`;
+            sbQuery = `SELECT sb.* FROM supplier_bookings sb JOIN bookings b ON sb.booking_id = b.id WHERE b.assigned_to = ? ORDER BY sb.created_at DESC`;
+            txParams = [req.user.staffId];
+            sbParams = [req.user.staffId];
+        }
+
+        const [transactions] = await pool.query(txQuery, txParams);
+        const [supplierBookings] = await pool.query(sbQuery, sbParams);
 
         // Group transactions by booking_id
         const txByBooking = {};
