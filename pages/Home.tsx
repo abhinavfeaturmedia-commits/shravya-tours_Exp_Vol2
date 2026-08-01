@@ -349,6 +349,17 @@ export const Home: React.FC = () => {
   const navigate = useNavigate();
 
   const carouselRef = useRef<HTMLDivElement>(null);
+  const heroVideoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    if (heroVideoRef.current) {
+      heroVideoRef.current.defaultMuted = true;
+      heroVideoRef.current.muted = true;
+      heroVideoRef.current.play().catch(err => {
+        console.warn("Video play error:", err);
+      });
+    }
+  }, []);
 
   // Tab Active Pill sliding refs and effect
   const tabRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({});
@@ -800,176 +811,112 @@ export const Home: React.FC = () => {
       />
 
       {/* ═══════════════════════════════════════════════════════════ */}
-      {/* HERO SECTION — WonderKids-inspired bright airy layout       */}
+      {/* HERO SECTION — Full-Screen Video Background (travel01.mp4)  */}
       {/* ═══════════════════════════════════════════════════════════ */}
-      <section className="relative w-full overflow-hidden bg-[#FBF7F0] dark:bg-[#0D1710]">
-        {/* Decorative blob backgrounds */}
-        <div className="absolute top-[-80px] right-[-80px] w-[420px] h-[420px] rounded-full bg-primary/10 dark:bg-primary/15 blur-[100px] pointer-events-none" />
-        <div className="absolute bottom-[-60px] left-[-60px] w-[340px] h-[340px] rounded-full bg-accent/10 dark:bg-accent/15 blur-[90px] pointer-events-none" />
-        <div className="absolute top-1/2 left-1/3 w-[200px] h-[200px] rounded-full bg-amber-400/8 blur-[70px] pointer-events-none" />
+      <section
+        id="hero"
+        style={{ position: 'relative', width: '100%', minHeight: '100vh', overflow: 'hidden', backgroundColor: '#090d12' }}
+        className="flex items-center"
+      >
+        {/* ── Background Video Layer ── */}
+        <video
+          ref={heroVideoRef}
+          autoPlay
+          loop
+          muted
+          playsInline
+          preload="auto"
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            zIndex: 0,
+            opacity: 1,
+          }}
+        >
+          <source src="/travel01.mp4" type="video/mp4" />
+        </video>
 
-        <div className="container mx-auto px-4 md:px-10 relative z-10">
-          <div className="flex flex-col lg:flex-row items-center gap-8 lg:gap-12 pt-20 pb-10 lg:pt-28 lg:pb-20 lg:min-h-[92vh]">
+        {/* ── Cinematic Contrast Vignette Overlays ── */}
+        <div style={{ position: 'absolute', inset: 0, zIndex: 1, background: 'linear-gradient(to bottom, rgba(0,0,0,0.65) 0%, rgba(0,0,0,0.30) 45%, rgba(9,13,18,0.95) 100%)' }} />
+        <div style={{ position: 'absolute', inset: 0, zIndex: 1, background: 'radial-gradient(circle at center, transparent 30%, rgba(0,0,0,0.45) 100%)' }} />
 
-            {/* LEFT — Text + CTAs + Stats */}
-            <div className="flex-1 flex flex-col gap-8 text-center lg:text-left max-w-xl mx-auto lg:mx-0">
-              {/* Eyebrow badge */}
-              <div className="flex justify-center lg:justify-start">
-                <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 dark:bg-primary/20 text-primary text-xs font-black uppercase tracking-[0.2em] border border-primary/20">
-                  <span className="size-2 rounded-full bg-primary animate-ping inline-block" />
-                  ✦ India's Most Loved Travel Hub
-                </span>
-              </div>
+        {/* ── Hero Content ── */}
+        <div className="container mx-auto px-4 md:px-10" style={{ position: 'relative', zIndex: 2 }}>
+          <div className="flex flex-col items-center justify-center text-center pt-36 pb-28 sm:pt-40 sm:pb-32 lg:pt-48 lg:pb-40 lg:min-h-[88vh] max-w-4xl mx-auto">
 
-              {/* Headline */}
-              <div className="reveal">
-                <h1 className="font-display text-slate-900 dark:text-white leading-[1.07] tracking-tight">
-                  <span className="text-4xl sm:text-5xl md:text-6xl xl:text-7xl font-black block">
-                    {heroBanner?.title
-                      ? heroBanner.title.split(' ').map((word: string, i: number) =>
-                          i === 1 || i === 2
-                            ? <span key={i} className="italic" style={{ color: '#C9732A', fontFamily: 'Outfit, sans-serif' }}>{word}{' '}</span>
-                            : <span key={i}>{word}{' '}</span>
-                        )
-                      : <>
-                          Your Journey{' '}
-                          <span className="italic" style={{ color: '#C9732A', fontFamily: 'Outfit, sans-serif' }}>Starts&nbsp;</span>
-                          Here
-                        </>
-                    }
-                  </span>
-                </h1>
-                <p className="mt-5 text-slate-600 dark:text-slate-400 text-base md:text-lg font-light leading-relaxed max-w-lg mx-auto lg:mx-0 reveal reveal-delay-2">
-                  {heroBanner?.subtitle || "Premium tours, transparent pricing, and 24/7 expert support — crafted for every kind of traveler."}
-                </p>
-              </div>
-
-              {/* CTA Buttons */}
-              <div className="flex flex-wrap gap-4 justify-center lg:justify-start reveal reveal-delay-2">
-                <Link
-                  to="/packages"
-                  className="inline-flex items-center gap-2.5 px-5 py-3.5 sm:px-8 sm:py-4 rounded-full text-white font-bold text-sm shadow-lg transition-all duration-300 hover:scale-105 hover:shadow-xl active:scale-100"
-                  style={{ backgroundColor: '#C9732A', boxShadow: '0 8px 30px rgba(201,115,42,0.35)' }}
-                >
-                  <span className="material-symbols-outlined text-[18px]">explore</span>
-                  Explore Tours
-                </Link>
-                <a
-                  href="#booking-widget"
-                  className="inline-flex items-center gap-2.5 px-5 py-3.5 sm:px-8 sm:py-4 rounded-full text-slate-800 dark:text-white font-bold text-sm bg-white dark:bg-white/10 border border-slate-200 dark:border-white/15 shadow-sm transition-all duration-300 hover:scale-105 hover:shadow-md active:scale-100"
-                >
-                  Book Now
-                  <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
-                </a>
-              </div>
-
-              {/* Mobile hero image strip — only on mobile */}
-              <div className="flex lg:hidden gap-3 overflow-x-auto pb-1 snap-x snap-mandatory [-ms-scrollbar-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden reveal reveal-delay-2">
-                {heroFloatingImages.map((src, i) => (
-                  <div key={i} className="flex-shrink-0 snap-center w-36 h-24 sm:w-44 sm:h-28 rounded-2xl overflow-hidden shadow-md border-2 border-white/80 dark:border-white/10">
-                    <img src={src} alt={`Travel destination ${i + 1}`} className="w-full h-full object-cover" />
-                  </div>
-                ))}
-              </div>
-
-              {/* Stats row */}
-              <div className="flex items-center gap-5 sm:gap-8 justify-center lg:justify-start flex-wrap reveal reveal-delay-4">
-                {[
-                  { value: '50K+', label: 'Happy Travelers' },
-                  { value: '200+', label: 'Destinations' },
-                  { value: '4.9★', label: 'Avg. Rating' },
-                ].map((stat, i) => (
-                  <div key={i} className="flex flex-col items-center lg:items-start">
-                    <span className="font-display text-2xl font-black text-slate-900 dark:text-white">{stat.value}</span>
-                    <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">{stat.label}</span>
-                  </div>
-                ))}
-              </div>
+            {/* Eyebrow badge */}
+            <div className="mb-6 reveal">
+              <span className="inline-flex items-center gap-2 px-5 py-2 rounded-full bg-white/10 backdrop-blur-md text-amber-300 text-xs font-black uppercase tracking-[0.25em] border border-white/20 shadow-lg">
+                <span className="size-2 rounded-full bg-amber-400 animate-ping inline-block" />
+                ✦ India's Most Loved Travel Hub
+              </span>
             </div>
 
-            {/* RIGHT — Floating photo collage */}
-            <div className="flex-1 relative hidden lg:flex items-center justify-center" style={{ minHeight: '480px' }}>
-              {/* Blob shape behind */}
-              <div
-                className="absolute inset-0 rounded-[60%_40%_30%_70%/60%_30%_70%_40%] opacity-30 dark:opacity-20"
-                style={{ background: 'linear-gradient(135deg, #C9732A33 0%, #2D6A4F33 100%)', top: '5%', left: '5%', right: '5%', bottom: '5%' }}
-              />
+            {/* Main Headline */}
+            <div className="reveal">
+              <h1 className="font-display text-white leading-[1.08] tracking-tight drop-shadow-md">
+                <span className="text-4xl sm:text-6xl md:text-7xl xl:text-8xl font-black block">
+                  {heroBanner?.title
+                    ? heroBanner.title.split(' ').map((word: string, i: number) =>
+                        i === 1 || i === 2
+                          ? <span key={i} className="italic text-[#F4A261]" style={{ fontFamily: 'Outfit, sans-serif' }}>{word}{' '}</span>
+                          : <span key={i}>{word}{' '}</span>
+                      )
+                    : <>
+                        Experience <span className="italic text-[#F4A261]" style={{ fontFamily: 'Outfit, sans-serif' }}>the World</span>, Worry-Free.
+                      </>
+                  }
+                </span>
+              </h1>
+              <p className="mt-6 text-slate-200 text-base sm:text-lg md:text-xl font-light leading-relaxed max-w-2xl mx-auto drop-shadow reveal reveal-delay-2">
+                {heroBanner?.subtitle || "Premium tours, transparent pricing, and 24/7 expert support — crafted for every kind of traveler."}
+              </p>
+            </div>
 
-              {/* Main large image */}
-              <div
-                className="absolute rounded-[2.5rem] overflow-hidden shadow-2xl border-4 border-white dark:border-white/10 transition-transform duration-700 hover:scale-[1.02]"
-                style={{ width: '260px', height: '340px', top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }}
+            {/* CTAs */}
+            <div className="mt-10 flex flex-wrap gap-4 justify-center items-center reveal reveal-delay-2">
+              <Link
+                to="/packages"
+                className="inline-flex items-center gap-2.5 px-8 py-4 rounded-full text-white font-bold text-sm sm:text-base shadow-xl transition-all duration-300 hover:scale-105 hover:shadow-2xl active:scale-100"
+                style={{ backgroundColor: '#C9732A', boxShadow: '0 10px 35px rgba(201,115,42,0.45)' }}
               >
-                <img
-                  src={heroFloatingImages[0]}
-                  alt="Featured destination"
-                  className="w-full h-full object-cover"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
-                <div className="absolute bottom-4 left-4 text-white">
-                  <p className="font-bold text-sm leading-tight">Discover India</p>
-                  <p className="text-xs text-white/70 mt-0.5">200+ Packages</p>
+                <span className="material-symbols-outlined text-[20px]">explore</span>
+                Explore Tours
+              </Link>
+              <a
+                href="#booking-widget"
+                className="inline-flex items-center gap-2.5 px-8 py-4 rounded-full text-white font-bold text-sm sm:text-base bg-white/15 backdrop-blur-md border border-white/30 shadow-lg transition-all duration-300 hover:bg-white/25 hover:scale-105 hover:shadow-xl active:scale-100"
+              >
+                Book Now
+                <span className="material-symbols-outlined text-[20px]">arrow_downward</span>
+              </a>
+            </div>
+
+            {/* Minimalist Glass Stats Strip */}
+            <div className="mt-12 sm:mt-14 inline-flex items-center gap-6 sm:gap-12 px-6 sm:px-10 py-3.5 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-white shadow-xl flex-wrap justify-center reveal reveal-delay-4">
+              {[
+                { value: '50K+', label: 'Happy Travelers' },
+                { value: '200+', label: 'Destinations' },
+                { value: '4.9★', label: 'Avg. Rating' },
+                { value: '100%', label: 'Verified Tours' },
+              ].map((stat, i) => (
+                <div key={i} className="flex items-center gap-2.5">
+                  {i > 0 && <span className="text-white/30 text-xs hidden sm:inline">•</span>}
+                  <span className="font-display font-black text-lg sm:text-xl text-amber-300">{stat.value}</span>
+                  <span className="text-xs text-slate-200 font-medium">{stat.label}</span>
                 </div>
-              </div>
-
-              {/* Top-right floating image */}
-              <div
-                className="absolute rounded-[1.5rem] overflow-hidden shadow-xl border-3 border-white dark:border-white/10 hover:scale-105 transition-transform duration-500"
-                style={{ width: '150px', height: '190px', top: '2%', right: '6%' }}
-              >
-                <img src={heroFloatingImages[1]} alt="Travel" className="w-full h-full object-cover" />
-              </div>
-
-              {/* Bottom-left floating image */}
-              <div
-                className="absolute rounded-[1.5rem] overflow-hidden shadow-xl border-3 border-white dark:border-white/10 hover:scale-105 transition-transform duration-500"
-                style={{ width: '140px', height: '170px', bottom: '4%', left: '4%' }}
-              >
-                <img src={heroFloatingImages[2]} alt="Adventure" className="w-full h-full object-cover" />
-              </div>
-
-              {/* Floating stat badge */}
-              <div
-                className="absolute flex items-center gap-3 bg-white dark:bg-slate-800 rounded-2xl px-4 py-3 shadow-xl border border-white dark:border-white/10"
-                style={{ bottom: '20%', right: '2%' }}
-              >
-                <div className="size-10 rounded-full flex items-center justify-center text-white text-lg" style={{ backgroundColor: '#C9732A' }}>
-                  <span className="material-symbols-outlined text-[20px]">verified</span>
-                </div>
-                <div>
-                  <p className="font-black text-sm text-slate-900 dark:text-white">Book Risk-Free</p>
-                  <p className="text-[10px] text-slate-500 dark:text-slate-400">Free cancellation</p>
-                </div>
-              </div>
-
-              {/* Floating hashtag tags — WonderKids style */}
-              <div className="absolute top-[8%] left-[0%] flex flex-col gap-2">
-                {['#adventure', '#comfort', '#memories'].map((tag, i) => (
-                  <span
-                    key={i}
-                    className="px-3 py-1.5 rounded-full text-[11px] font-black border shadow-sm"
-                    style={{
-                      backgroundColor: i === 0 ? '#C9732A18' : i === 1 ? '#2D6A4F18' : '#f59e0b18',
-                      color: i === 0 ? '#C9732A' : i === 1 ? '#2D6A4F' : '#d97706',
-                      borderColor: i === 0 ? '#C9732A30' : i === 1 ? '#2D6A4F30' : '#f59e0b30',
-                    }}
-                  >
-                    {tag}
-                  </span>
-                ))}
-              </div>
-
-              {/* Animated ping dot */}
-              <div className="absolute top-[18%] right-[28%]">
-                <div className="size-3 rounded-full bg-primary animate-ping opacity-60" />
-              </div>
+              ))}
             </div>
           </div>
         </div>
       </section>
 
       {/* ═══════════════════════════════════════════════════════════ */}
-      {/* BOOKING WIDGET — Elevated card anchored below hero          */}
+      {/* BOOKING WIDGET — Elevated floating card anchored smoothly    */}
       {/* ═══════════════════════════════════════════════════════════ */}
       <section
         id="booking-widget"
@@ -980,7 +927,7 @@ export const Home: React.FC = () => {
           activeTab === 'train-booking' ? 'from-[#FDFDFB] via-[#FAF6EE] to-[#F2EADA] dark:from-[#0C100C] dark:via-[#141A13] dark:to-[#1C251C]' :
           activeTab === 'car-booking' ? 'from-[#FAFDF9] via-[#F1FAF2] to-[#E5F5E7] dark:from-[#08100C] dark:via-[#0E1F15] dark:to-[#142B1E]' :
           'from-[#FCFAF7] via-[#FAF4E9] to-[#F1E8D5] dark:from-[#0E100D] dark:via-[#171E14] dark:to-[#212B1E]'
-        } pb-16 overflow-hidden xl:overflow-visible transition-all duration-700`}
+        } pb-16 pt-4 overflow-hidden xl:overflow-visible transition-all duration-700`}
       >
         {/* Ambient paper planes */}
         <div className="absolute top-10 left-[15%] w-8 h-8 opacity-25 dark:opacity-20 hidden xl:block animate-drift-plane-1 pointer-events-none">
@@ -996,26 +943,36 @@ export const Home: React.FC = () => {
           </svg>
         </div>
 
-        <div className="container mx-auto px-4 md:px-10 relative z-10">
-          <div className="w-full max-w-5xl mx-auto -mt-2 animate-in slide-in-from-bottom-8 duration-700 relative">
-            {/* Section label */}
-            <div className="flex justify-center mb-6">
-              <h2 className="font-display text-slate-900 dark:text-white text-2xl md:text-3xl font-bold text-center">
-                Our <em className="not-italic" style={{ fontFamily: 'Georgia, serif', fontStyle: 'italic' }}>booking</em> services
-              </h2>
-            </div>
+        <div className="container mx-auto px-4 md:px-10 relative z-20">
+          <div className="w-full max-w-5xl mx-auto -mt-20 sm:-mt-28 md:-mt-32 animate-in slide-in-from-bottom-8 duration-700 relative z-30">
+            
+            {/* Elevated Floating Header Card */}
+            <div className="bg-white/95 dark:bg-[#15202B]/95 backdrop-blur-xl p-6 sm:p-8 rounded-[2.5rem] shadow-[0_20px_50px_-10px_rgba(0,0,0,0.18)] border border-white/80 dark:border-white/10 mb-6">
+              {/* Section Eyebrow */}
+              <div className="flex justify-center mb-3">
+                <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-[#C9732A]/10 text-[#C9732A] dark:bg-white/10 dark:text-amber-300 text-[11px] font-black uppercase tracking-[0.2em]">
+                  ✦ Quick Travel Booking
+                </span>
+              </div>
 
-            {/* Tabs */}
-            <div className="flex justify-center mb-5 px-4 w-full overflow-hidden">
-              <div className="bg-white dark:bg-white/5 backdrop-blur-md p-1.5 rounded-full inline-flex flex-nowrap max-w-full overflow-x-auto [-ms-scrollbar-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden border border-slate-200 dark:border-white/10 shadow-md touch-pan-x snap-x snap-mandatory relative z-0">
-                {/* Sliding active tab pill background */}
-                <div
-                  className="absolute top-1.5 bottom-1.5 bg-[#C9732A] rounded-full transition-all duration-300 ease-out shadow-lg z-0 pointer-events-none"
-                  style={{
-                    left: pillStyle.left !== undefined ? `${pillStyle.left}px` : 'auto',
-                    width: pillStyle.width !== undefined ? `${pillStyle.width}px` : 'auto',
-                  }}
-                />
+              {/* Section Title */}
+              <div className="flex justify-center mb-6">
+                <h2 className="font-display text-slate-900 dark:text-white text-2xl sm:text-3xl md:text-4xl font-bold text-center tracking-tight">
+                  Our <em className="not-italic text-[#C9732A]" style={{ fontFamily: 'Georgia, serif', fontStyle: 'italic' }}>booking</em> services
+                </h2>
+              </div>
+
+              {/* Service Tabs */}
+              <div className="flex justify-center px-2 w-full overflow-hidden">
+                <div className="bg-slate-100 dark:bg-white/5 backdrop-blur-md p-1.5 rounded-full inline-flex flex-nowrap max-w-full overflow-x-auto [-ms-scrollbar-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden border border-slate-200/80 dark:border-white/10 shadow-inner touch-pan-x snap-x snap-mandatory relative z-0">
+                  {/* Sliding active tab pill background */}
+                  <div
+                    className="absolute top-1.5 bottom-1.5 bg-[#C9732A] rounded-full transition-all duration-300 ease-out shadow-lg z-0 pointer-events-none"
+                    style={{
+                      left: pillStyle.left !== undefined ? `${pillStyle.left}px` : 'auto',
+                      width: pillStyle.width !== undefined ? `${pillStyle.width}px` : 'auto',
+                    }}
+                  />
 
                 {[
                   { id: 'hotel-booking', icon: 'hotel', label: 'Hotels' },
@@ -1041,6 +998,7 @@ export const Home: React.FC = () => {
                 ))}
               </div>
             </div>
+          </div>
 
             {/* Form Container */}
             <div className="bg-white dark:bg-slate-900 rounded-[2rem] shadow-2xl p-4 md:p-6 text-left border border-slate-100 dark:border-white/10 relative overflow-visible transition-all duration-500">
