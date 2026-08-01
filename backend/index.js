@@ -330,6 +330,36 @@ async function runMigration() {
         `);
         console.log('[Migration] expenses table verified/created');
 
+        // ─── Offer Banners Table ───
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS offer_banners (
+                id VARCHAR(255) PRIMARY KEY,
+                title VARCHAR(255) NOT NULL,
+                subtitle VARCHAR(500),
+                imageUrl LONGTEXT NOT NULL,
+                linkUrl VARCHAR(500) DEFAULT '/packages',
+                badgeText VARCHAR(100),
+                tagList VARCHAR(255),
+                sortOrder INT DEFAULT 0,
+                isActive TINYINT(1) DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+        console.log('[Migration] offer_banners table verified/created');
+
+        // Seed initial default offer banners if empty
+        const [existingBanners] = await pool.query('SELECT COUNT(*) as count FROM offer_banners');
+        if (existingBanners[0]?.count === 0) {
+            await pool.query(`
+                INSERT INTO offer_banners (id, title, subtitle, imageUrl, linkUrl, badgeText, tagList, sortOrder, isActive)
+                VALUES 
+                ('banner_1', 'INTERNATIONAL TOUR PACKAGES', 'Value Add-ons Up to ₹5000* | Visa & Flight Assistance, Complimentary Upgrades', 'https://images.unsplash.com/photo-1537996194471-e657df975ab4?w=1600&auto=format&fit=crop&q=80', '/packages?category=International', 'BUCKET LIST SALE', 'BALI | THAILAND | VIETNAM | SINGAPORE | MALAYSIA | MALDIVES | BHUTAN', 1, 1),
+                ('banner_2', 'FLAT 25% OFF ON HIMALAYAN EXPEDITIONS', 'Book Your Adventure Early | Expert Guides, Premium Stays, All Meals Included', 'https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=1600&auto=format&fit=crop&q=80', '/packages?search=Himalaya', 'EARLY BIRD OFFER', 'MANALI | KASOL | LEH LADAKH | SPITI VALLEY | MEGHALAYA', 2, 1)
+            `);
+            console.log('[Migration] Seeded initial offer_banners data');
+        }
+
         // Clean up expired OTPs
         await pool.query(`DELETE FROM otp_tokens WHERE expires_at < NOW() - INTERVAL 1 HOUR`).catch(() => {});
     } catch (err) {
@@ -388,6 +418,83 @@ app.post('/api/inventory/upsert', async (req, res) => {
     } catch (err) {
         console.error('Failed to upsert inventory slot:', err);
         res.status(500).json({ error: 'Database error updating inventory slot' });
+    }
+});
+
+// ─── Offer Banners API Endpoints ───
+app.get('/api/offer-banners', async (req, res) => {
+    try {
+        const [rows] = await pool.query('SELECT * FROM offer_banners WHERE isActive = 1 ORDER BY sortOrder ASC, created_at DESC');
+        res.json({ data: rows || [] });
+    } catch (err) {
+        console.error('Failed to fetch offer banners:', err);
+        res.status(500).json({ error: 'Database error fetching offer banners' });
+    }
+});
+
+app.get('/api/admin/offer-banners', async (req, res) => {
+    try {
+        const [rows] = await pool.query('SELECT * FROM offer_banners ORDER BY sortOrder ASC, created_at DESC');
+        res.json({ data: rows || [] });
+    } catch (err) {
+        console.error('Failed to fetch admin offer banners:', err);
+        res.status(500).json({ error: 'Database error fetching offer banners' });
+    }
+});
+
+app.post('/api/offer-banners', async (req, res) => {
+    try {
+        const { title, subtitle, imageUrl, linkUrl, badgeText, tagList, sortOrder, isActive } = req.body;
+        if (!title || !imageUrl) {
+            return res.status(400).json({ error: 'Title and image URL are required' });
+        }
+        const id = `offer_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+        await pool.query(
+            `INSERT INTO offer_banners (id, title, subtitle, imageUrl, linkUrl, badgeText, tagList, sortOrder, isActive)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [id, title, subtitle || '', imageUrl, linkUrl || '/packages', badgeText || '', tagList || '', Number(sortOrder || 0), isActive !== false ? 1 : 0]
+        );
+        const [inserted] = await pool.query('SELECT * FROM offer_banners WHERE id = ?', [id]);
+        res.status(201).json({ success: true, data: inserted[0] });
+    } catch (err) {
+        console.error('Failed to create offer banner:', err);
+        res.status(500).json({ error: 'Database error creating offer banner: ' + err.message });
+    }
+});
+
+app.put('/api/offer-banners/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { title, subtitle, imageUrl, linkUrl, badgeText, tagList, sortOrder, isActive } = req.body;
+        await pool.query(
+            `UPDATE offer_banners 
+             SET title = COALESCE(?, title),
+                 subtitle = COALESCE(?, subtitle),
+                 imageUrl = COALESCE(?, imageUrl),
+                 linkUrl = COALESCE(?, linkUrl),
+                 badgeText = COALESCE(?, badgeText),
+                 tagList = COALESCE(?, tagList),
+                 sortOrder = COALESCE(?, sortOrder),
+                 isActive = COALESCE(?, isActive)
+             WHERE id = ?`,
+            [title, subtitle, imageUrl, linkUrl, badgeText, tagList, sortOrder, isActive !== undefined ? (isActive ? 1 : 0) : undefined, id]
+        );
+        const [updated] = await pool.query('SELECT * FROM offer_banners WHERE id = ?', [id]);
+        res.json({ success: true, data: updated[0] });
+    } catch (err) {
+        console.error('Failed to update offer banner:', err);
+        res.status(500).json({ error: 'Database error updating offer banner' });
+    }
+});
+
+app.delete('/api/offer-banners/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        await pool.query('DELETE FROM offer_banners WHERE id = ?', [id]);
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Failed to delete offer banner:', err);
+        res.status(500).json({ error: 'Database error deleting offer banner' });
     }
 });
 

@@ -7,7 +7,7 @@ import {
   Package, Booking, BookingStatus, DailySlot, Lead, LeadLog, Vendor, VendorDocument, VendorTransaction, VendorNote, Account, AccountTransaction, Campaign,
   MasterLocation, MasterHotel, MasterActivity, MasterTransport, MasterPlan, AuditLog, Customer,
   FollowUp, MasterRoomType, MasterMealPlan, MasterLeadSource, MasterTermsTemplate, SupplierBooking, BookingTransaction, Proposal,
-  CMSBanner, CMSTestimonial, CMSGalleryImage, CMSPost, TrendingDestination,
+  CMSBanner, CMSTestimonial, CMSGalleryImage, CMSPost, TrendingDestination, OfferBanner,
   Task, DailyTarget, UserActivity, TimeSession, AssignmentRule,
   MembershipPlan, CustomerMembership, Coupon
 } from '../types';
@@ -415,6 +415,12 @@ interface DataContextType {
   addTrendingDestination: (dest: TrendingDestination) => Promise<void>;
   updateTrendingDestination: (id: string, updates: Partial<TrendingDestination>) => Promise<void>;
   deleteTrendingDestination: (id: string) => Promise<void>;
+
+  // Offer Banners
+  offerBanners: OfferBanner[];
+  addOfferBanner: (banner: Partial<OfferBanner>) => Promise<void>;
+  updateOfferBanner: (id: string, updates: Partial<OfferBanner>) => Promise<void>;
+  deleteOfferBanner: (id: string) => Promise<void>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -488,6 +494,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Trending Destinations State
   const [trendingDestinations, setTrendingDestinations] = useState<TrendingDestination[]>([]);
 
+  // Offer Banners State
+  const [offerBanners, setOfferBanners] = useState<OfferBanner[]>([]);
+
   // Inventory
   const [inventory, setInventory] = useState<Record<string, DailySlot>>(() => {
     const saved = loadFromStorage<Record<string, DailySlot> | null>(`${STORAGE_KEY}_inventory_v2`, null);
@@ -517,10 +526,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const targetTables = [...publicTables, ...authTables];
 
       // Execute 1 batched bulkFetch call + specialized endpoints concurrently
-      const [bulkDataRaw, pkgs, trendingList, specializedAuthData] = await Promise.all([
+      const [bulkDataRaw, pkgs, trendingList, offersList, specializedAuthData] = await Promise.all([
         api.bulkFetch(targetTables).catch(() => ({})),
         api.getPackages().catch(() => []),
         api.getTrendingDestinations().catch(() => []),
+        api.getOfferBanners().catch(() => []),
         hasToken ? Promise.all([
           api.getBookings().catch(() => []),
           api.getLeads().catch(() => []),
@@ -535,6 +545,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // 1. Populate Public State
       setPackages(pkgs);
       setTrendingDestinations(trendingList);
+      setOfferBanners(offersList);
 
       if (bulkRes.master_locations) setMasterLocations(bulkRes.master_locations as MasterLocation[]);
       if (bulkRes.master_hotels) setMasterHotels(bulkRes.master_hotels.map(api.mapMasterHotel));
@@ -2077,6 +2088,29 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         toast.success('Destination deleted');
       } catch (e: any) { toast.error(e.message || 'Failed to delete destination'); throw e; }
     },
+    // Offer Banners
+    offerBanners,
+    addOfferBanner: async (banner: Partial<OfferBanner>) => {
+      try {
+        const saved = await api.createOfferBanner(banner);
+        setOfferBanners(prev => [saved || (banner as OfferBanner), ...prev]);
+        toast.success('Offer banner created');
+      } catch (e: any) { toast.error(e.message || 'Failed to create offer banner'); throw e; }
+    },
+    updateOfferBanner: async (id: string, updates: Partial<OfferBanner>) => {
+      try {
+        await api.updateOfferBanner(id, updates);
+        setOfferBanners(prev => prev.map(b => b.id === id ? { ...b, ...updates } : b));
+        toast.success('Offer banner updated');
+      } catch (e: any) { toast.error(e.message || 'Failed to update offer banner'); throw e; }
+    },
+    deleteOfferBanner: async (id: string) => {
+      try {
+        await api.deleteOfferBanner(id);
+        setOfferBanners(prev => prev.filter(b => b.id !== id));
+        toast.success('Offer banner deleted');
+      } catch (e: any) { toast.error(e.message || 'Failed to delete offer banner'); throw e; }
+    },
     refreshData
   }), [
     packages, bookings, leads, inventory, vendors, accounts, campaigns, customers,
@@ -2104,7 +2138,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     addMasterLeadSource, updateMasterLeadSource, deleteMasterLeadSource,
     addMasterTermsTemplate, updateMasterTermsTemplate, deleteMasterTermsTemplate,
     proposals, addProposal, updateProposal, deleteProposal,
-    cmsBanners, cmsTestimonials, cmsGallery, cmsPosts,
+    cmsBanners, cmsTestimonials, cmsGallery, cmsPosts, offerBanners,
     updateCMSBanner, addTestimonial, updateTestimonial, deleteTestimonial,
     addGalleryImage, deleteGalleryImage,
     addPost, updatePost, deletePost,

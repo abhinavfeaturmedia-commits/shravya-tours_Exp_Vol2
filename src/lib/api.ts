@@ -3057,8 +3057,6 @@ export const api = {
         });
     },
 
-    // --- SERVER-SIDE COMMISSION VALIDATION ---
-    // Returns the server-calculated expected commission for a booking+partner pair.
     validatePartnerCommission: async (params: {
         booking_id: string;
         partner_id: string;
@@ -3068,6 +3066,47 @@ export const api = {
         return await fetchApi('/api/partner-commissions/validate', {
             method: 'POST',
             body: JSON.stringify(params)
+        });
+    },
+
+    // --- OFFER BANNERS API ---
+    getOfferBanners: async (): Promise<any[]> => {
+        try {
+            const { data } = await fetchApi('/api/offer-banners');
+            return data || [];
+        } catch {
+            return [];
+        }
+    },
+
+    getOfferBannersAdmin: async (): Promise<any[]> => {
+        try {
+            const { data } = await fetchApi('/api/admin/offer-banners');
+            return data || [];
+        } catch {
+            return [];
+        }
+    },
+
+    createOfferBanner: async (banner: any): Promise<any> => {
+        const { data } = await fetchApi('/api/offer-banners', {
+            method: 'POST',
+            body: JSON.stringify(banner)
+        });
+        return data;
+    },
+
+    updateOfferBanner: async (id: string, updates: any): Promise<any> => {
+        const { data } = await fetchApi(`/api/offer-banners/${encodeURIComponent(id)}`, {
+            method: 'PUT',
+            body: JSON.stringify(updates)
+        });
+        return data;
+    },
+
+    deleteOfferBanner: async (id: string): Promise<void> => {
+        await fetchApi(`/api/offer-banners/${encodeURIComponent(id)}`, {
+            method: 'DELETE'
         });
     },
 };

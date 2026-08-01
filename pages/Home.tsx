@@ -1,8 +1,9 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import { SEO } from '../components/ui/SEO';
 import { OptimizedImage } from '../components/ui/OptimizedImage';
+import { LeadCaptureModal } from '../components/ui/LeadCaptureModal';
 import { formatPrice } from '../utils/packageUtils';
 import {
   HotelBookingForm,
@@ -344,12 +345,64 @@ const BookingSideAnimations: React.FC<{ activeTab: string; side: 'left' | 'right
 };
 
 export const Home: React.FC = () => {
-  const { packages, cmsBanners, cmsTestimonials, cmsGallery, trendingDestinations, membershipPlans } = useData();
+  const { packages, cmsBanners, cmsTestimonials, cmsGallery, trendingDestinations, membershipPlans, offerBanners } = useData();
   const [activeTab, setActiveTab] = useState('tour-packages');
+  const [isLeadModalOpen, setIsLeadModalOpen] = useState(false);
   const navigate = useNavigate();
 
   const carouselRef = useRef<HTMLDivElement>(null);
   const heroVideoRef = useRef<HTMLVideoElement>(null);
+
+  // Auto-trigger Lead Capture Modal after 5s on first visit
+  useEffect(() => {
+    const shown = sessionStorage.getItem('lead_popup_shown');
+    if (!shown) {
+      const timer = setTimeout(() => {
+        setIsLeadModalOpen(true);
+        sessionStorage.setItem('lead_popup_shown', 'true');
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, []);
+
+  // Promotional Offer Banners state & timer
+  const activeOfferBanners = useMemo(() => {
+    const active = (offerBanners || []).filter(b => b.isActive !== false);
+    return active.length > 0 ? active : [
+      {
+        id: 'b1',
+        title: 'INTERNATIONAL TOUR PACKAGES',
+        subtitle: 'Value Add-ons Up to ₹5000* | Visa & Flight Assistance, Complimentary Upgrades',
+        imageUrl: 'https://images.unsplash.com/photo-1537996194471-e657df975ab4?w=1600&auto=format&fit=crop&q=80',
+        linkUrl: '/packages?category=International',
+        badgeText: 'THE BUCKET LIST SALE',
+        tagList: 'BALI | THAILAND | VIETNAM | SINGAPORE | MALAYSIA | MALDIVES | BHUTAN',
+        sortOrder: 1,
+        isActive: true,
+      },
+      {
+        id: 'b2',
+        title: 'FLAT 25% OFF ON HIMALAYAN EXPEDITIONS',
+        subtitle: 'Book Your Adventure Early | Expert Guides, Premium Stays, All Meals Included',
+        imageUrl: 'https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=1600&auto=format&fit=crop&q=80',
+        linkUrl: '/packages?search=Himalaya',
+        badgeText: 'EARLY BIRD OFFER',
+        tagList: 'MANALI | KASOL | LEH LADAKH | SPITI VALLEY | MEGHALAYA',
+        sortOrder: 2,
+        isActive: true,
+      }
+    ];
+  }, [offerBanners]);
+
+  const [currentOfferIdx, setCurrentOfferIdx] = useState(0);
+
+  useEffect(() => {
+    if (activeOfferBanners.length <= 1) return;
+    const timer = setInterval(() => {
+      setCurrentOfferIdx(prev => (prev + 1) % activeOfferBanners.length);
+    }, 6000);
+    return () => clearInterval(timer);
+  }, [activeOfferBanners.length]);
 
   useEffect(() => {
     if (heroVideoRef.current) {
@@ -1023,40 +1076,166 @@ export const Home: React.FC = () => {
       </section>
 
       {/* ═══════════════════════════════════════════════════════════ */}
+      {/* PROMOTIONAL SALE BANNERS CAROUSEL (Ultra-Wide Horizontal)   */}
+      {/* ═══════════════════════════════════════════════════════════ */}
+      <section className="py-4 sm:py-6 bg-[#FAFDFB] dark:bg-[#0B1116] relative overflow-hidden border-t border-slate-100 dark:border-white/5">
+        <div className="container mx-auto px-4 md:px-8">
+          <div className="max-w-7xl mx-auto relative group">
+            {/* Carousel Main Container — Compact Height (~200px) & Wide Banner Ratio */}
+            <div className="relative rounded-2xl sm:rounded-3xl overflow-hidden shadow-xl border border-slate-200/80 dark:border-white/10 h-48 sm:h-52 md:h-56 flex items-center bg-slate-900 transition-all duration-500">
+              {activeOfferBanners.map((banner, index) => {
+                const isActive = index === currentOfferIdx;
+                const tags = (banner.tagList || '').split('|').map(t => t.trim()).filter(Boolean);
+
+                return (
+                  <div
+                    key={banner.id || index}
+                    className={`absolute inset-0 transition-all duration-700 ease-in-out flex items-center ${
+                      isActive ? 'opacity-100 scale-100 z-10' : 'opacity-0 scale-105 pointer-events-none z-0'
+                    }`}
+                  >
+                    {/* Background Image */}
+                    <img
+                      src={banner.imageUrl}
+                      alt={banner.title}
+                      className="absolute inset-0 w-full h-full object-cover object-center opacity-75"
+                    />
+
+                    {/* Rich Vignette Gradient Overlay */}
+                    <div className="absolute inset-0 bg-gradient-to-r from-slate-950/95 via-slate-900/85 to-slate-950/40 dark:from-black/95 dark:via-black/80 dark:to-black/30" />
+
+                    {/* Compact Horizontal Banner Layout */}
+                    <div className="relative z-20 w-full h-full px-5 sm:px-8 md:px-10 py-4 sm:py-5 flex flex-col md:flex-row md:items-center justify-between gap-4 text-white">
+                      
+                      {/* Left Column: Badge, Headline & Discount Subtitle */}
+                      <div className="flex-1 space-y-1.5 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          {banner.badgeText && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-[#C9732A] text-white text-[10px] font-black uppercase tracking-wider shadow">
+                              <span className="material-symbols-outlined text-[12px]">local_offer</span>
+                              {banner.badgeText}
+                            </span>
+                          )}
+                          <span className="text-[10px] sm:text-xs font-black uppercase tracking-[0.2em] text-cyan-300">
+                            FROM WISHLIST TO WINDOW SEAT
+                          </span>
+                        </div>
+
+                        <h3 className="font-display text-xl sm:text-3xl md:text-4xl font-black text-white tracking-tight uppercase leading-tight truncate">
+                          {banner.title}
+                        </h3>
+
+                        {banner.subtitle && (
+                          <p className="text-xs sm:text-sm font-bold text-amber-300 tracking-wide truncate">
+                            {banner.subtitle}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Right Column: Destination Tags & CTA Button */}
+                      <div className="flex flex-col md:items-end justify-between gap-3 shrink-0">
+                        {tags.length > 0 && (
+                          <div className="hidden lg:flex flex-wrap items-center gap-1.5 text-[10px] font-black tracking-wider uppercase text-slate-300 bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10">
+                            {tags.slice(0, 6).map((tag, tIdx) => (
+                              <React.Fragment key={tIdx}>
+                                <span className="hover:text-amber-300 cursor-pointer transition-colors" onClick={() => navigate(banner.linkUrl || '/packages')}>
+                                  {tag}
+                                </span>
+                                {tIdx < Math.min(tags.length, 6) - 1 && <span className="text-amber-400/60">•</span>}
+                              </React.Fragment>
+                            ))}
+                          </div>
+                        )}
+
+                        <button
+                          onClick={() => navigate(banner.linkUrl || '/packages')}
+                          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white hover:bg-amber-400 text-slate-900 font-black text-xs uppercase tracking-wider transition-all duration-300 shadow-xl hover:scale-105 active:scale-95 shrink-0"
+                        >
+                          View All Packages
+                          <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
+                        </button>
+                      </div>
+
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Left / Right Arrow Controls */}
+              {activeOfferBanners.length > 1 && (
+                <>
+                  <button
+                    onClick={() => setCurrentOfferIdx(prev => (prev - 1 + activeOfferBanners.length) % activeOfferBanners.length)}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 z-30 size-9 rounded-full bg-black/50 hover:bg-[#C9732A] backdrop-blur-md text-white border border-white/20 flex items-center justify-center transition-all duration-300 opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95"
+                    aria-label="Previous Banner"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">chevron_left</span>
+                  </button>
+
+                  <button
+                    onClick={() => setCurrentOfferIdx(prev => (prev + 1) % activeOfferBanners.length)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 z-30 size-9 rounded-full bg-black/50 hover:bg-[#C9732A] backdrop-blur-md text-white border border-white/20 flex items-center justify-center transition-all duration-300 opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95"
+                    aria-label="Next Banner"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">chevron_right</span>
+                  </button>
+                </>
+              )}
+            </div>
+
+            {/* Compact Pagination Dot Indicators */}
+            {activeOfferBanners.length > 1 && (
+              <div className="flex justify-center items-center gap-1.5 mt-2.5">
+                {activeOfferBanners.map((_, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => setCurrentOfferIdx(idx)}
+                    className={`h-2 rounded-full transition-all duration-300 ${
+                      idx === currentOfferIdx
+                        ? 'w-6 bg-[#C9732A] shadow'
+                        : 'w-2 bg-slate-300 dark:bg-white/20 hover:bg-slate-400'
+                    }`}
+                    aria-label={`Go to slide ${idx + 1}`}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* ═══════════════════════════════════════════════════════════ */}
       {/* WHY SHRAWELLO — WonderKids bold colored feature cards       */}
       {/* ═══════════════════════════════════════════════════════════ */}
-      <section className="py-20 bg-white dark:bg-slate-950 relative overflow-hidden">
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {/* WHY SHRAWELLO — Compact Feature Highlights                   */}
+      {/* ═══════════════════════════════════════════════════════════ */}
+      <section className="py-10 md:py-14 bg-white dark:bg-slate-950 relative overflow-hidden border-t border-slate-100 dark:border-white/5">
         {/* Decorative dots grid */}
         <div
-          className="absolute inset-0 pointer-events-none opacity-[0.04] dark:opacity-[0.06]"
-          style={{ backgroundImage: 'radial-gradient(#C9732A 1px, transparent 1px)', backgroundSize: '28px 28px' }}
+          className="absolute inset-0 pointer-events-none opacity-[0.03] dark:opacity-[0.05]"
+          style={{ backgroundImage: 'radial-gradient(#C9732A 1px, transparent 1px)', backgroundSize: '24px 24px' }}
         />
 
         <div className="container mx-auto px-4 md:px-10 relative z-10">
-          {/* Section Header */}
-          <div className="text-center mb-14 reveal">
-            <span className="inline-flex items-center gap-2 px-4 py-1.5 mb-4 rounded-full bg-primary/10 dark:bg-primary/15 text-primary text-xs font-bold uppercase tracking-widest border border-primary/20">
-              <span className="material-symbols-outlined text-[14px]">auto_awesome</span>
+          {/* Section Header — Compact */}
+          <div className="text-center mb-8 reveal">
+            <span className="inline-flex items-center gap-1.5 px-3.5 py-1 mb-2.5 rounded-full bg-[#C9732A]/10 text-[#C9732A] dark:bg-white/10 dark:text-amber-300 text-[11px] font-black uppercase tracking-[0.2em] border border-[#C9732A]/20 dark:border-white/20">
+              <span className="material-symbols-outlined text-[13px]">auto_awesome</span>
               The SHRAWELLO Advantage
             </span>
-          <h2 className="font-display text-slate-900 dark:text-white text-3xl sm:text-4xl md:text-5xl font-bold leading-tight">
-              Our <em className="not-italic" style={{ fontFamily: 'Georgia, serif', fontStyle: 'italic' }}>exceptional</em>{' '}
-              <br className="hidden md:block" />features
+            <h2 className="font-display text-slate-900 dark:text-white text-2xl sm:text-3xl font-bold tracking-tight">
+              Our <em className="not-italic text-[#C9732A]" style={{ fontFamily: 'Georgia, serif', fontStyle: 'italic' }}>exceptional</em> features
             </h2>
-            <p className="mt-4 text-slate-500 dark:text-slate-400 text-base font-light max-w-lg mx-auto">
-              Everything you need for a seamless, memorable journey — all in one place.
-            </p>
           </div>
 
-          {/* Feature Cards Grid — WonderKids style */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
+          {/* Feature Cards Grid — Compact & Sleek */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-5 max-w-5xl mx-auto">
             {[
               {
                 icon: 'verified_user',
-                title: 'Book',
-                titleAccent: 'Risk-Free',
-                desc: 'Flexible cancellations and full refunds on eligible bookings. Travel with complete peace of mind.',
-                bg: 'bg-[#FBF7F0] dark:bg-white/5',
+                title: 'Book Risk-Free',
+                desc: 'Flexible cancellations & full refunds on eligible bookings. Travel with peace of mind.',
                 iconBg: '#C9732A',
                 accentColor: '#C9732A',
                 delay: '',
@@ -1064,23 +1243,18 @@ export const Home: React.FC = () => {
               },
               {
                 icon: 'support_agent',
-                title: '24/7 Expert',
-                titleAccent: 'Support',
-                desc: 'Real humans, always ready to help. Our team is available around the clock for every traveler.',
-                bg: 'bg-[#C9732A] dark:bg-[#C9732A]',
-                iconBg: '#fff',
-                accentColor: '#fff',
+                title: '24/7 Expert Support',
+                desc: 'Real humans ready to help around the clock for every traveler.',
+                iconBg: '#2D6A4F',
+                accentColor: '#2D6A4F',
                 delay: 'reveal-delay-2',
                 tag: '#reliable',
-                dark: true,
               },
               {
                 icon: 'diamond',
-                title: 'Handpicked',
-                titleAccent: 'Quality',
-                desc: 'Every tour, hotel, and experience is personally vetted by our travel experts for excellence.',
-                bg: 'bg-amber-50 dark:bg-amber-950/20',
-                iconBg: '#f59e0b',
+                title: 'Handpicked Quality',
+                desc: 'Every tour & hotel is personally vetted by our travel experts for excellence.',
+                iconBg: '#d97706',
                 accentColor: '#d97706',
                 delay: 'reveal-delay-4',
                 tag: '#premium',
@@ -1088,61 +1262,48 @@ export const Home: React.FC = () => {
             ].map((card, i) => (
               <div
                 key={i}
-                className={`reveal ${card.delay} relative group ${card.bg} rounded-[2rem] p-6 sm:p-8 overflow-hidden border transition-all duration-500 hover:-translate-y-2 hover:shadow-2xl active:scale-[0.98] ${
-                  card.dark
-                    ? 'border-white/10 text-white'
-                    : 'border-slate-100 dark:border-white/10 text-slate-900 dark:text-white'
-                }`}
+                className={`reveal ${card.delay} group bg-slate-50/80 dark:bg-white/5 rounded-2xl p-5 border border-slate-200/70 dark:border-white/10 transition-all duration-300 hover:-translate-y-1 hover:shadow-lg hover:border-[#C9732A]/40 flex flex-col justify-between`}
               >
-                {/* Background blob */}
-                <div
-                  className="absolute -top-12 -right-12 w-40 h-40 rounded-full opacity-20 transition-transform duration-700 group-hover:scale-150"
-                  style={{ backgroundColor: card.dark ? '#fff' : card.iconBg }}
-                />
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <div
+                      className="size-10 rounded-xl flex items-center justify-center shadow-sm"
+                      style={{ backgroundColor: `${card.iconBg}18` }}
+                    >
+                      <span
+                        className="material-symbols-outlined text-[20px]"
+                        style={{ color: card.iconBg }}
+                      >
+                        {card.icon}
+                      </span>
+                    </div>
+                    <span
+                      className="px-2.5 py-0.5 rounded-full text-[10px] font-black border uppercase tracking-wider"
+                      style={{
+                        backgroundColor: `${card.iconBg}12`,
+                        color: card.accentColor,
+                        borderColor: `${card.iconBg}25`,
+                      }}
+                    >
+                      {card.tag}
+                    </span>
+                  </div>
 
-                {/* Tag pill */}
-                <span
-                  className="inline-block px-3 py-1 rounded-full text-[11px] font-black mb-5 border"
-                  style={{
-                    backgroundColor: card.dark ? 'rgba(255,255,255,0.15)' : `${card.iconBg}18`,
-                    color: card.dark ? '#fff' : card.accentColor,
-                    borderColor: card.dark ? 'rgba(255,255,255,0.25)' : `${card.iconBg}30`,
-                  }}
-                >
-                  {card.tag}
-                </span>
-
-                {/* Icon */}
-                <div
-                  className="size-14 rounded-2xl flex items-center justify-center mb-5 shadow-lg"
-                  style={{ backgroundColor: card.dark ? 'rgba(255,255,255,0.2)' : `${card.iconBg}20` }}
-                >
-                  <span
-                    className="material-symbols-outlined text-[28px]"
-                    style={{ color: card.dark ? '#fff' : card.iconBg }}
-                  >
-                    {card.icon}
-                  </span>
+                  <h3 className="font-display text-base font-bold text-slate-900 dark:text-white leading-snug">
+                    {card.title}
+                  </h3>
+                  <p className="text-xs text-slate-600 dark:text-slate-400 mt-1.5 leading-relaxed font-light">
+                    {card.desc}
+                  </p>
                 </div>
 
-                <h3 className={`font-display text-2xl font-black leading-tight mb-3 ${card.dark ? 'text-white' : 'text-slate-900 dark:text-white'}`}>
-                  {card.title}{' '}
-                  <span className="italic block" style={{ color: card.dark ? '#ffe0b2' : card.accentColor }}>
-                    {card.titleAccent}
-                  </span>
-                </h3>
-                <p className={`text-sm leading-relaxed font-light ${card.dark ? 'text-white/80' : 'text-slate-500 dark:text-slate-400'}`}>
-                  {card.desc}
-                </p>
-
-                {/* Arrow link */}
                 <Link
                   to="/about"
-                  className="inline-flex items-center gap-1.5 mt-5 text-[13px] font-bold transition-all duration-300"
-                  style={{ color: card.dark ? '#ffe0b2' : card.accentColor }}
+                  className="inline-flex items-center gap-1 mt-4 text-[12px] font-bold transition-colors hover:underline"
+                  style={{ color: card.accentColor }}
                 >
                   Learn more
-                  <span className="material-symbols-outlined text-[15px] transition-transform duration-300 group-hover:translate-x-1">
+                  <span className="material-symbols-outlined text-[14px] transition-transform duration-300 group-hover:translate-x-1">
                     arrow_forward
                   </span>
                 </Link>
@@ -1153,99 +1314,159 @@ export const Home: React.FC = () => {
       </section>
 
       {/* ═══════════════════════════════════════════════════════════ */}
-      {/* TESTIMONIALS — Blog-card style strip                        */}
+      {/* TESTIMONIALS — Elevated Interactive Review Showcase          */}
       {/* ═══════════════════════════════════════════════════════════ */}
-      <section className="py-20 bg-[#FBF7F0] dark:bg-[#0D1710] relative overflow-hidden">
-        {/* Subtle wavy border top */}
+      <section className="py-16 md:py-20 bg-[#FBF7F0] dark:bg-[#0D1710] relative overflow-hidden">
+        {/* Top gradient accent line */}
         <div className="absolute top-0 left-0 right-0 h-1" style={{ background: 'linear-gradient(90deg, #C9732A, #f59e0b, #2D6A4F, #C9732A)' }} />
 
+        {/* Ambient background glow */}
+        <div className="absolute top-1/2 right-[5%] w-80 h-80 rounded-full bg-[#C9732A]/5 blur-3xl pointer-events-none" />
+
         <div className="container mx-auto px-4 md:px-10 relative z-10">
-          {/* Section Header */}
-          <div className="flex flex-col md:flex-row items-start md:items-end justify-between mb-10 md:mb-12 gap-4 reveal">
+          {/* Section Header with Controls */}
+          <div className="flex flex-col md:flex-row items-start md:items-end justify-between mb-8 md:mb-12 gap-6 reveal">
             <div>
-              <span className="inline-flex items-center gap-1.5 text-xs font-black uppercase tracking-[0.25em] mb-3 block"
-                style={{ color: '#C9732A' }}>
-                <span className="size-2 rounded-full animate-ping inline-block" style={{ backgroundColor: '#C9732A' }} />
+              <span className="inline-flex items-center gap-1.5 px-3.5 py-1 mb-3 rounded-full bg-[#C9732A]/10 text-[#C9732A] dark:bg-white/10 dark:text-amber-300 text-[11px] font-black uppercase tracking-[0.2em] border border-[#C9732A]/20 dark:border-white/20">
+                <span className="size-2 rounded-full bg-[#C9732A] animate-ping inline-block" />
                 ✦ Verified Reviews
               </span>
-              <h2 className="font-display text-slate-900 dark:text-white text-3xl sm:text-4xl md:text-5xl font-bold leading-tight">
-                Read our <em className="not-italic" style={{ fontFamily: 'Georgia, serif', fontStyle: 'italic' }}>traveler</em> stories
+              <h2 className="font-display text-slate-900 dark:text-white text-3xl sm:text-4xl md:text-5xl font-bold leading-tight tracking-tight">
+                Read our <em className="not-italic text-[#C9732A]" style={{ fontFamily: 'Georgia, serif', fontStyle: 'italic' }}>traveler</em> stories
               </h2>
             </div>
-            <div className="hidden sm:flex items-center gap-3 shrink-0">
-              <div className="flex -space-x-3">
-                {[
-                  "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=80&fit=crop&crop=faces&q=80",
-                  "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=80&fit=crop&crop=faces&q=80",
-                  "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=80&fit=crop&crop=faces&q=80",
-                ].map((src, i) => (
-                  <img key={i} src={src} alt={`Traveler ${i + 1}`} className="size-10 rounded-full ring-3 ring-white dark:ring-slate-900 object-cover shadow-md" />
-                ))}
+
+            {/* Header Right: Stats + Carousel Navigation Controls */}
+            <div className="flex items-center gap-5 shrink-0 self-end md:self-auto">
+              <div className="hidden sm:flex items-center gap-3 pr-4 border-r border-slate-200 dark:border-white/10">
+                <div className="flex -space-x-3">
+                  {[
+                    "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=80&fit=crop&crop=faces&q=80",
+                    "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=80&fit=crop&crop=faces&q=80",
+                    "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=80&fit=crop&crop=faces&q=80",
+                  ].map((src, i) => (
+                    <img key={i} src={src} alt={`Traveler ${i + 1}`} className="size-9 rounded-full ring-2 ring-white dark:ring-slate-900 object-cover shadow-md" />
+                  ))}
+                </div>
+                <div>
+                  <p className="font-black text-slate-900 dark:text-white text-xs leading-none">50,000+</p>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">happy travelers</p>
+                </div>
               </div>
-              <div>
-                <p className="font-black text-slate-900 dark:text-white text-sm">50,000+</p>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">happy travelers</p>
+
+              {/* Prev / Next Carousel Buttons */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    if (carouselRef.current) {
+                      carouselRef.current.scrollBy({ left: -380, behavior: 'smooth' });
+                    }
+                  }}
+                  className="size-11 rounded-full border border-slate-300 dark:border-white/20 bg-white dark:bg-white/5 text-slate-700 dark:text-white flex items-center justify-center hover:bg-[#C9732A] hover:text-white hover:border-[#C9732A] transition-all duration-300 shadow-sm active:scale-95"
+                  aria-label="Previous review"
+                >
+                  <span className="material-symbols-outlined text-[20px]">arrow_back</span>
+                </button>
+                <button
+                  onClick={() => {
+                    if (carouselRef.current) {
+                      carouselRef.current.scrollBy({ left: 380, behavior: 'smooth' });
+                    }
+                  }}
+                  className="size-11 rounded-full border border-slate-300 dark:border-white/20 bg-white dark:bg-white/5 text-slate-700 dark:text-white flex items-center justify-center hover:bg-[#C9732A] hover:text-white hover:border-[#C9732A] transition-all duration-300 shadow-sm active:scale-95"
+                  aria-label="Next review"
+                >
+                  <span className="material-symbols-outlined text-[20px]">arrow_forward</span>
+                </button>
               </div>
             </div>
           </div>
 
-          {/* Scrollable testimonial cards */}
-          <div ref={carouselRef} className="flex overflow-x-auto pb-8 gap-6 snap-x snap-mandatory [-ms-scrollbar-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden reveal">
+          {/* Elevated Interactive Testimonial Cards Carousel */}
+          <div
+            ref={carouselRef}
+            className="flex overflow-x-auto pb-6 pt-2 gap-6 snap-x snap-mandatory [-ms-scrollbar-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden reveal"
+          >
             {displayReviews.map((t, idx) => (
               <div
                 key={t.id}
-                className="snap-center shrink-0 w-[88vw] sm:w-[340px] md:w-[380px] bg-white dark:bg-white/5 p-5 sm:p-7 rounded-[1.75rem] shadow-lg border border-slate-100 dark:border-white/10 relative flex flex-col justify-between group hover:-translate-y-1 transition-all duration-300 hover:shadow-xl"
+                className="snap-start shrink-0 w-[88vw] sm:w-[340px] md:w-[380px] bg-white/95 dark:bg-[#15202B]/95 backdrop-blur-xl p-6 sm:p-7 rounded-[2.2rem] shadow-[0_12px_40px_-15px_rgba(0,0,0,0.1)] border border-slate-200/80 dark:border-white/10 relative flex flex-col justify-between group hover:-translate-y-1.5 hover:border-[#C9732A]/50 hover:shadow-[0_22px_50px_-15px_rgba(201,115,42,0.2)] transition-all duration-300"
               >
-                {/* Left accent bar */}
-                <div className="absolute left-0 top-6 bottom-6 w-1 rounded-r-full" style={{ backgroundColor: idx % 3 === 0 ? '#C9732A' : idx % 3 === 1 ? '#2D6A4F' : '#f59e0b' }} />
+                {/* Top Accent Gradient Bar */}
+                <div
+                  className="absolute top-0 left-8 right-8 h-1 rounded-b-full transition-all duration-300 group-hover:left-4 group-hover:right-4"
+                  style={{ backgroundColor: idx % 3 === 0 ? '#C9732A' : idx % 3 === 1 ? '#2D6A4F' : '#d97706' }}
+                />
 
                 <div>
-                  {/* Stars + Platform */}
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex text-amber-500">
-                      {[...Array(Math.floor(t.rating))].map((_, i) => (
-                        <span key={i} className="material-symbols-outlined text-lg fill">star</span>
-                      ))}
-                      {t.rating % 1 !== 0 && (
-                        <span className="material-symbols-outlined text-lg fill">star_half</span>
-                      )}
+                  {/* Rating + Location Pill */}
+                  <div className="flex items-center justify-between mb-4 pt-1">
+                    <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-700/30">
+                      <div className="flex text-amber-500">
+                        {[...Array(Math.floor(t.rating))].map((_, i) => (
+                          <span key={i} className="material-symbols-outlined text-[15px] fill">star</span>
+                        ))}
+                        {t.rating % 1 !== 0 && (
+                          <span className="material-symbols-outlined text-[15px] fill">star_half</span>
+                        )}
+                      </div>
+                      <span className="text-[11px] font-black text-amber-800 dark:text-amber-300">{t.rating}</span>
                     </div>
-                    <span className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-md">
-                      {t.platform}
+
+                    <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider bg-slate-100 dark:bg-white/10 px-2.5 py-1 rounded-full border border-slate-200/60 dark:border-white/10 flex items-center gap-1">
+                      <span className="material-symbols-outlined text-[12px] text-[#C9732A]">location_on</span>
+                      {t.platform || 'Verified'}
                     </span>
                   </div>
 
-                  {/* Big quote mark */}
-                  <div className="text-6xl font-display leading-none select-none mb-2 opacity-10" style={{ color: '#C9732A' }}>"</div>
-                  <p className="text-slate-700 dark:text-slate-300 italic mb-6 leading-relaxed font-light line-clamp-5 text-sm">
-                    "{t.text}"
-                  </p>
+                  {/* Quote Body */}
+                  <div className="relative my-3">
+                    <span className="text-4xl font-display leading-none text-[#C9732A]/20 absolute -top-3 -left-1 select-none">“</span>
+                    <p className="text-slate-700 dark:text-slate-300 text-sm leading-relaxed font-light line-clamp-4 relative z-10 pl-3">
+                      {t.text}
+                    </p>
+                  </div>
                 </div>
 
-                {/* Author */}
-                <div className="flex items-center gap-4 mt-auto pt-4 border-t border-slate-100 dark:border-white/10">
-                  {t.avatarUrl ? (
-                    <img src={t.avatarUrl} alt={t.customerName} className="size-11 rounded-full object-cover shadow-inner ring-2" style={{ ringColor: '#C9732A20' }} />
-                  ) : (
-                    <div className="size-11 rounded-full flex items-center justify-center text-white font-black text-base shadow-inner"
-                      style={{ background: 'linear-gradient(135deg, #C9732A, #2D6A4F)' }}>
-                      {t.customerName[0]}
+                {/* Author Footer Row */}
+                <div className="flex items-center justify-between gap-3 mt-6 pt-4 border-t border-slate-100 dark:border-white/10">
+                  <div className="flex items-center gap-3">
+                    {t.avatarUrl ? (
+                      <img src={t.avatarUrl} alt={t.customerName} className="size-10 rounded-full object-cover shadow-sm ring-2 ring-[#C9732A]/20" />
+                    ) : (
+                      <div
+                        className="size-10 rounded-full flex items-center justify-center text-white font-black text-sm shadow-inner"
+                        style={{ background: 'linear-gradient(135deg, #C9732A, #2D6A4F)' }}
+                      >
+                        {t.customerName[0]}
+                      </div>
+                    )}
+                    <div>
+                      <h4 className="font-black text-slate-900 dark:text-white text-sm leading-tight flex items-center gap-1">
+                        {t.customerName}
+                      </h4>
+                      <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-0.5 mt-0.5">
+                        <span className="material-symbols-outlined text-[13px]">check_circle</span>
+                        Verified Traveler
+                      </p>
                     </div>
-                  )}
-                  <div>
-                    <h4 className="font-black text-slate-900 dark:text-white text-[15px] leading-none">{t.customerName}</h4>
-                    {t.date && <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">{t.date}</p>}
                   </div>
+
+                  {t.date && (
+                    <span className="text-[11px] text-slate-400 dark:text-slate-500 font-medium shrink-0">
+                      {t.date}
+                    </span>
+                  )}
                 </div>
               </div>
             ))}
           </div>
 
-          {/* Swipe hint (mobile) */}
-          <div className="flex justify-center mt-4 md:hidden">
-            <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/60 dark:bg-white/5 border border-slate-200/50 dark:border-white/10 text-slate-500 dark:text-slate-400 text-xs font-medium shadow-sm animate-pulse">
-              <span className="material-symbols-outlined text-[16px]">swipe</span>
-              <span>Swipe to read more reviews</span>
+          {/* Swipe Hint (Mobile) */}
+          <div className="flex justify-center mt-3 md:hidden">
+            <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/70 dark:bg-white/5 border border-slate-200/60 dark:border-white/10 text-slate-500 dark:text-slate-400 text-xs font-medium shadow-sm animate-pulse">
+              <span className="material-symbols-outlined text-[15px]">swipe</span>
+              <span>Swipe to explore traveler reviews</span>
             </div>
           </div>
         </div>
@@ -1749,6 +1970,11 @@ export const Home: React.FC = () => {
         );
       })()}
 
+      {/* Lead Capture Modal Popup ("Plan Your Next Trip") */}
+      <LeadCaptureModal
+        isOpen={isLeadModalOpen}
+        onClose={() => setIsLeadModalOpen(false)}
+      />
     </>
   );
 };

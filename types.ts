@@ -791,6 +791,21 @@ export interface TrendingDestination {
   packageIds?: string[];
 }
 
+// --- Offer / Promotional Banners ---
+export interface OfferBanner {
+  id: string;
+  title: string;
+  subtitle?: string;
+  imageUrl: string;
+  linkUrl?: string;
+  badgeText?: string;
+  tagList?: string;
+  sortOrder?: number;
+  isActive?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 // --- Productivity Features Types ---
 
 // User Activity Tracking

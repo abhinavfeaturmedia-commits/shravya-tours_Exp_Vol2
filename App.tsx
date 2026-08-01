@@ -64,6 +64,7 @@ const PartnerManager = lazy(() => import('./pages/admin/PartnerManager').then(mo
 const CouponManager = lazy(() => import('./pages/admin/CouponManager').then(module => ({ default: module.CouponManager })));
 const MarketingLogs = lazy(() => import('./pages/admin/MarketingLogs').then(module => ({ default: module.MarketingLogs })));
 const TrendingDestinationsManager = lazy(() => import('./pages/admin/TrendingDestinationsManager').then(module => ({ default: module.TrendingDestinationsManager })));
+const OfferBannersManager = lazy(() => import('./pages/admin/OfferBannersManager').then(module => ({ default: module.OfferBannersManager })));
 const AdminKYCManager = lazy(() => import('./pages/admin/AdminKYCManager').then(module => ({ default: module.AdminKYCManager })));
 const TrainingManager = lazy(() => import('./pages/admin/TrainingManager').then(module => ({ default: module.TrainingManager })));
 const StaffTraining = lazy(() => import('./pages/admin/StaffTraining').then(module => ({ default: module.StaffTraining })));
@@ -166,6 +167,7 @@ const App: React.FC = () => {
                   <Route path="coupons" element={<CouponManager />} />
                   <Route path="marketing-logs" element={<MarketingLogs />} />
                   <Route path="trending" element={<TrendingDestinationsManager />} />
+                  <Route path="offer-banners" element={<OfferBannersManager />} />
                   <Route path="training" element={<TrainingManager />} />
                   <Route path="staff-training" element={<StaffTraining />} />
                   <Route path="*" element={<div className="p-10">Page Under Construction</div>} />
