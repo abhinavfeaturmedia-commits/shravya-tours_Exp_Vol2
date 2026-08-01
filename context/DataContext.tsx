@@ -135,7 +135,7 @@ const INITIAL_MASTER_ACTIVITIES: MasterActivity[] = [
 const INITIAL_CMS_BANNERS: CMSBanner[] = [
   {
     id: 'BNR-001',
-    title: 'Experience the World, Worry-Free.',
+    title: 'Discover your DREAM destination.',
     subtitle: 'Premium tours, transparent pricing, and 24/7 expert support. Your perfect journey starts here.',
     imageUrl: 'https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?w=1920&q=85&auto=format&fit=crop',
     ctaText: 'Explore Packages',

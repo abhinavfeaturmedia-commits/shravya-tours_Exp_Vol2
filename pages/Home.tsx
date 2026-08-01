@@ -371,24 +371,12 @@ export const Home: React.FC = () => {
     return active.length > 0 ? active : [
       {
         id: 'b1',
-        title: 'INTERNATIONAL TOUR PACKAGES',
-        subtitle: 'Value Add-ons Up to ₹5000* | Visa & Flight Assistance, Complimentary Upgrades',
-        imageUrl: 'https://images.unsplash.com/photo-1537996194471-e657df975ab4?w=1600&auto=format&fit=crop&q=80',
+        title: 'THE BUCKET LIST SALE IS LIVE',
+        subtitle: 'Discount Up To ₹5000*',
+        imageUrl: '/bucket-list-sale-horizontal.png',
         linkUrl: '/packages?category=International',
-        badgeText: 'THE BUCKET LIST SALE',
-        tagList: 'BALI | THAILAND | VIETNAM | SINGAPORE | MALAYSIA | MALDIVES | BHUTAN',
+        badgeText: 'BUCKET LIST SALE',
         sortOrder: 1,
-        isActive: true,
-      },
-      {
-        id: 'b2',
-        title: 'FLAT 25% OFF ON HIMALAYAN EXPEDITIONS',
-        subtitle: 'Book Your Adventure Early | Expert Guides, Premium Stays, All Meals Included',
-        imageUrl: 'https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=1600&auto=format&fit=crop&q=80',
-        linkUrl: '/packages?search=Himalaya',
-        badgeText: 'EARLY BIRD OFFER',
-        tagList: 'MANALI | KASOL | LEH LADAKH | SPITI VALLEY | MEGHALAYA',
-        sortOrder: 2,
         isActive: true,
       }
     ];
@@ -912,17 +900,13 @@ export const Home: React.FC = () => {
             {/* Main Headline */}
             <div className="reveal">
               <h1 className="font-display text-white leading-[1.08] tracking-tight drop-shadow-md">
-                <span className="text-4xl sm:text-6xl md:text-7xl xl:text-8xl font-black block">
-                  {heroBanner?.title
-                    ? heroBanner.title.split(' ').map((word: string, i: number) =>
-                        i === 1 || i === 2
-                          ? <span key={i} className="italic text-[#F4A261]" style={{ fontFamily: 'Outfit, sans-serif' }}>{word}{' '}</span>
-                          : <span key={i}>{word}{' '}</span>
-                      )
-                    : <>
-                        Experience <span className="italic text-[#F4A261]" style={{ fontFamily: 'Outfit, sans-serif' }}>the World</span>, Worry-Free.
-                      </>
-                  }
+                <span className="text-3xl sm:text-5xl md:text-6xl xl:text-7xl font-black block">
+                  <span className="block whitespace-nowrap">
+                    Discover <span className="italic text-[#F4A261]" style={{ fontFamily: 'Outfit, sans-serif' }}>your DREAM</span>
+                  </span>
+                  <span className="block">
+                    destination.
+                  </span>
                 </span>
               </h1>
               <p className="mt-6 text-slate-200 text-base sm:text-lg md:text-xl font-light leading-relaxed max-w-2xl mx-auto drop-shadow reveal reveal-delay-2">
@@ -1076,87 +1060,34 @@ export const Home: React.FC = () => {
       </section>
 
       {/* ═══════════════════════════════════════════════════════════ */}
-      {/* PROMOTIONAL SALE BANNERS CAROUSEL (Ultra-Wide Horizontal)   */}
+      {/* PROMOTIONAL SALE BANNERS CAROUSEL (Compact 2.5:1 Frame)     */}
       {/* ═══════════════════════════════════════════════════════════ */}
-      <section className="py-4 sm:py-6 bg-[#FAFDFB] dark:bg-[#0B1116] relative overflow-hidden border-t border-slate-100 dark:border-white/5">
-        <div className="container mx-auto px-4 md:px-8">
-          <div className="max-w-7xl mx-auto relative group">
-            {/* Carousel Main Container — Compact Height (~200px) & Wide Banner Ratio */}
-            <div className="relative rounded-2xl sm:rounded-3xl overflow-hidden shadow-xl border border-slate-200/80 dark:border-white/10 h-48 sm:h-52 md:h-56 flex items-center bg-slate-900 transition-all duration-500">
+      <section className="py-2 sm:py-3 bg-[#FAFDFB] dark:bg-[#0B1116] relative overflow-hidden border-t border-slate-100 dark:border-white/5">
+        <div className="container mx-auto px-4 md:px-6">
+          <div className="max-w-4xl sm:max-w-5xl mx-auto relative group">
+            {/* Carousel Main Container — Exact Uncropped Aspect Ratio (1024:409) */}
+            <div className="relative rounded-2xl sm:rounded-3xl overflow-hidden shadow-xl border border-slate-200/80 dark:border-white/10 aspect-[1024/409] w-full flex items-center bg-slate-900 transition-all duration-500">
               {activeOfferBanners.map((banner, index) => {
                 const isActive = index === currentOfferIdx;
-                const tags = (banner.tagList || '').split('|').map(t => t.trim()).filter(Boolean);
 
                 return (
                   <div
                     key={banner.id || index}
-                    className={`absolute inset-0 transition-all duration-700 ease-in-out flex items-center ${
+                    className={`absolute inset-0 transition-all duration-700 ease-in-out ${
                       isActive ? 'opacity-100 scale-100 z-10' : 'opacity-0 scale-105 pointer-events-none z-0'
                     }`}
                   >
-                    {/* Background Image */}
-                    <img
-                      src={banner.imageUrl}
-                      alt={banner.title}
-                      className="absolute inset-0 w-full h-full object-cover object-center opacity-75"
-                    />
-
-                    {/* Rich Vignette Gradient Overlay */}
-                    <div className="absolute inset-0 bg-gradient-to-r from-slate-950/95 via-slate-900/85 to-slate-950/40 dark:from-black/95 dark:via-black/80 dark:to-black/30" />
-
-                    {/* Compact Horizontal Banner Layout */}
-                    <div className="relative z-20 w-full h-full px-5 sm:px-8 md:px-10 py-4 sm:py-5 flex flex-col md:flex-row md:items-center justify-between gap-4 text-white">
-                      
-                      {/* Left Column: Badge, Headline & Discount Subtitle */}
-                      <div className="flex-1 space-y-1.5 min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          {banner.badgeText && (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-[#C9732A] text-white text-[10px] font-black uppercase tracking-wider shadow">
-                              <span className="material-symbols-outlined text-[12px]">local_offer</span>
-                              {banner.badgeText}
-                            </span>
-                          )}
-                          <span className="text-[10px] sm:text-xs font-black uppercase tracking-[0.2em] text-cyan-300">
-                            FROM WISHLIST TO WINDOW SEAT
-                          </span>
-                        </div>
-
-                        <h3 className="font-display text-xl sm:text-3xl md:text-4xl font-black text-white tracking-tight uppercase leading-tight truncate">
-                          {banner.title}
-                        </h3>
-
-                        {banner.subtitle && (
-                          <p className="text-xs sm:text-sm font-bold text-amber-300 tracking-wide truncate">
-                            {banner.subtitle}
-                          </p>
-                        )}
-                      </div>
-
-                      {/* Right Column: Destination Tags & CTA Button */}
-                      <div className="flex flex-col md:items-end justify-between gap-3 shrink-0">
-                        {tags.length > 0 && (
-                          <div className="hidden lg:flex flex-wrap items-center gap-1.5 text-[10px] font-black tracking-wider uppercase text-slate-300 bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10">
-                            {tags.slice(0, 6).map((tag, tIdx) => (
-                              <React.Fragment key={tIdx}>
-                                <span className="hover:text-amber-300 cursor-pointer transition-colors" onClick={() => navigate(banner.linkUrl || '/packages')}>
-                                  {tag}
-                                </span>
-                                {tIdx < Math.min(tags.length, 6) - 1 && <span className="text-amber-400/60">•</span>}
-                              </React.Fragment>
-                            ))}
-                          </div>
-                        )}
-
-                        <button
-                          onClick={() => navigate(banner.linkUrl || '/packages')}
-                          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white hover:bg-amber-400 text-slate-900 font-black text-xs uppercase tracking-wider transition-all duration-300 shadow-xl hover:scale-105 active:scale-95 shrink-0"
-                        >
-                          View All Packages
-                          <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
-                        </button>
-                      </div>
-
-                    </div>
+                    {/* Clickable Pure Banner Image (Uncropped 100% Fit) */}
+                    <Link
+                      to={banner.linkUrl || '/packages'}
+                      className="block w-full h-full cursor-pointer overflow-hidden group/img"
+                    >
+                      <img
+                        src={banner.imageUrl}
+                        alt={banner.title || 'Promotional Offer Banner'}
+                        className="w-full h-full object-fill object-center group-hover/img:scale-[1.005] transition-transform duration-500"
+                      />
+                    </Link>
                   </div>
                 );
               })}
@@ -1166,19 +1097,33 @@ export const Home: React.FC = () => {
                 <>
                   <button
                     onClick={() => setCurrentOfferIdx(prev => (prev - 1 + activeOfferBanners.length) % activeOfferBanners.length)}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 z-30 size-9 rounded-full bg-black/50 hover:bg-[#C9732A] backdrop-blur-md text-white border border-white/20 flex items-center justify-center transition-all duration-300 opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95"
+                    className="absolute left-3 top-1/2 -translate-y-1/2 z-30 size-10 rounded-full bg-black/60 hover:bg-[#C9732A] backdrop-blur-md text-white border border-white/20 flex items-center justify-center transition-all duration-300 opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95 shadow-xl"
                     aria-label="Previous Banner"
                   >
-                    <span className="material-symbols-outlined text-[18px]">chevron_left</span>
+                    <span className="material-symbols-outlined text-[20px]">chevron_left</span>
                   </button>
 
                   <button
                     onClick={() => setCurrentOfferIdx(prev => (prev + 1) % activeOfferBanners.length)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 z-30 size-9 rounded-full bg-black/50 hover:bg-[#C9732A] backdrop-blur-md text-white border border-white/20 flex items-center justify-center transition-all duration-300 opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 z-30 size-10 rounded-full bg-black/60 hover:bg-[#C9732A] backdrop-blur-md text-white border border-white/20 flex items-center justify-center transition-all duration-300 opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95 shadow-xl"
                     aria-label="Next Banner"
                   >
-                    <span className="material-symbols-outlined text-[18px]">chevron_right</span>
+                    <span className="material-symbols-outlined text-[20px]">chevron_right</span>
                   </button>
+
+                  {/* Slide Indicators */}
+                  <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-3 py-1 rounded-full bg-black/40 backdrop-blur-md border border-white/10">
+                    {activeOfferBanners.map((_, dotIdx) => (
+                      <button
+                        key={dotIdx}
+                        onClick={() => setCurrentOfferIdx(dotIdx)}
+                        className={`h-2 rounded-full transition-all duration-300 ${
+                          dotIdx === currentOfferIdx ? 'w-6 bg-[#C9732A]' : 'w-2 bg-white/50 hover:bg-white'
+                        }`}
+                        aria-label={`Go to slide ${dotIdx + 1}`}
+                      />
+                    ))}
+                  </div>
                 </>
               )}
             </div>
@@ -1204,114 +1149,7 @@ export const Home: React.FC = () => {
         </div>
       </section>
 
-      {/* ═══════════════════════════════════════════════════════════ */}
-      {/* WHY SHRAWELLO — WonderKids bold colored feature cards       */}
-      {/* ═══════════════════════════════════════════════════════════ */}
-      {/* ═══════════════════════════════════════════════════════════ */}
-      {/* WHY SHRAWELLO — Compact Feature Highlights                   */}
-      {/* ═══════════════════════════════════════════════════════════ */}
-      <section className="py-10 md:py-14 bg-white dark:bg-slate-950 relative overflow-hidden border-t border-slate-100 dark:border-white/5">
-        {/* Decorative dots grid */}
-        <div
-          className="absolute inset-0 pointer-events-none opacity-[0.03] dark:opacity-[0.05]"
-          style={{ backgroundImage: 'radial-gradient(#C9732A 1px, transparent 1px)', backgroundSize: '24px 24px' }}
-        />
 
-        <div className="container mx-auto px-4 md:px-10 relative z-10">
-          {/* Section Header — Compact */}
-          <div className="text-center mb-8 reveal">
-            <span className="inline-flex items-center gap-1.5 px-3.5 py-1 mb-2.5 rounded-full bg-[#C9732A]/10 text-[#C9732A] dark:bg-white/10 dark:text-amber-300 text-[11px] font-black uppercase tracking-[0.2em] border border-[#C9732A]/20 dark:border-white/20">
-              <span className="material-symbols-outlined text-[13px]">auto_awesome</span>
-              The SHRAWELLO Advantage
-            </span>
-            <h2 className="font-display text-slate-900 dark:text-white text-2xl sm:text-3xl font-bold tracking-tight">
-              Our <em className="not-italic text-[#C9732A]" style={{ fontFamily: 'Georgia, serif', fontStyle: 'italic' }}>exceptional</em> features
-            </h2>
-          </div>
-
-          {/* Feature Cards Grid — Compact & Sleek */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-5 max-w-5xl mx-auto">
-            {[
-              {
-                icon: 'verified_user',
-                title: 'Book Risk-Free',
-                desc: 'Flexible cancellations & full refunds on eligible bookings. Travel with peace of mind.',
-                iconBg: '#C9732A',
-                accentColor: '#C9732A',
-                delay: '',
-                tag: '#safe',
-              },
-              {
-                icon: 'support_agent',
-                title: '24/7 Expert Support',
-                desc: 'Real humans ready to help around the clock for every traveler.',
-                iconBg: '#2D6A4F',
-                accentColor: '#2D6A4F',
-                delay: 'reveal-delay-2',
-                tag: '#reliable',
-              },
-              {
-                icon: 'diamond',
-                title: 'Handpicked Quality',
-                desc: 'Every tour & hotel is personally vetted by our travel experts for excellence.',
-                iconBg: '#d97706',
-                accentColor: '#d97706',
-                delay: 'reveal-delay-4',
-                tag: '#premium',
-              },
-            ].map((card, i) => (
-              <div
-                key={i}
-                className={`reveal ${card.delay} group bg-slate-50/80 dark:bg-white/5 rounded-2xl p-5 border border-slate-200/70 dark:border-white/10 transition-all duration-300 hover:-translate-y-1 hover:shadow-lg hover:border-[#C9732A]/40 flex flex-col justify-between`}
-              >
-                <div>
-                  <div className="flex items-center justify-between mb-3">
-                    <div
-                      className="size-10 rounded-xl flex items-center justify-center shadow-sm"
-                      style={{ backgroundColor: `${card.iconBg}18` }}
-                    >
-                      <span
-                        className="material-symbols-outlined text-[20px]"
-                        style={{ color: card.iconBg }}
-                      >
-                        {card.icon}
-                      </span>
-                    </div>
-                    <span
-                      className="px-2.5 py-0.5 rounded-full text-[10px] font-black border uppercase tracking-wider"
-                      style={{
-                        backgroundColor: `${card.iconBg}12`,
-                        color: card.accentColor,
-                        borderColor: `${card.iconBg}25`,
-                      }}
-                    >
-                      {card.tag}
-                    </span>
-                  </div>
-
-                  <h3 className="font-display text-base font-bold text-slate-900 dark:text-white leading-snug">
-                    {card.title}
-                  </h3>
-                  <p className="text-xs text-slate-600 dark:text-slate-400 mt-1.5 leading-relaxed font-light">
-                    {card.desc}
-                  </p>
-                </div>
-
-                <Link
-                  to="/about"
-                  className="inline-flex items-center gap-1 mt-4 text-[12px] font-bold transition-colors hover:underline"
-                  style={{ color: card.accentColor }}
-                >
-                  Learn more
-                  <span className="material-symbols-outlined text-[14px] transition-transform duration-300 group-hover:translate-x-1">
-                    arrow_forward
-                  </span>
-                </Link>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
 
       {/* ═══════════════════════════════════════════════════════════ */}
       {/* TESTIMONIALS — Elevated Interactive Review Showcase          */}
