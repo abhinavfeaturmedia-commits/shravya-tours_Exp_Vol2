@@ -1105,7 +1105,7 @@ export const DocumentEditor: React.FC = () => {
                                     <CreditCard size={16} className="text-violet-600" /> Record Payment
                                 </h4>
                                 <p className="text-xs text-slate-400 mt-0.5">
-                                    Outstanding: ₹{Math.max(0, totalAmount - Number(docData.amount_paid || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                    Outstanding: ₹{Math.round(Math.max(0, totalAmount - Number(docData.amount_paid || 0))).toLocaleString('en-IN')}
                                 </p>
                             </div>
                             <button onClick={() => setShowPaymentModal(false)} className="text-slate-400 hover:text-slate-700 p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">✕</button>
@@ -1153,8 +1153,8 @@ export const DocumentEditor: React.FC = () => {
 
                             {paymentAmount > 0 && (
                                 <div className="bg-violet-50 dark:bg-violet-900/20 rounded-xl p-3 text-xs text-violet-700 dark:text-violet-300 space-y-1">
-                                    <div className="flex justify-between"><span>Amount paid after this:</span><span className="font-bold">₹{(Number(docData.amount_paid || 0) + paymentAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
-                                    <div className="flex justify-between"><span>Remaining balance:</span><span className="font-bold">₹{Math.max(0, totalAmount - Number(docData.amount_paid || 0) - paymentAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
+                                    <div className="flex justify-between"><span>Amount paid after this:</span><span className="font-bold">₹{Math.round(Number(docData.amount_paid || 0) + paymentAmount).toLocaleString('en-IN')}</span></div>
+                                    <div className="flex justify-between"><span>Remaining balance:</span><span className="font-bold">₹{Math.round(Math.max(0, totalAmount - Number(docData.amount_paid || 0) - paymentAmount)).toLocaleString('en-IN')}</span></div>
                                     <div className="flex justify-between"><span>New status:</span><span className="font-bold">{(Number(docData.amount_paid || 0) + paymentAmount) >= totalAmount ? '✅ Paid' : '🔶 Partially Paid'}</span></div>
                                 </div>
                             )}
@@ -1203,7 +1203,7 @@ export const DocumentEditor: React.FC = () => {
                         <div className="flex flex-col items-end">
                             <span className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest leading-none">Live Total</span>
                             <span className="font-extrabold text-sm text-[#F26222] tabular-nums mt-0.5">
-                                ₹{totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                ₹{Math.round(totalAmount).toLocaleString('en-IN')}
                             </span>
                         </div>
                     </div>
@@ -1837,7 +1837,7 @@ export const DocumentEditor: React.FC = () => {
                                                         onChange={e => setDocData({ ...docData, [valueKey]: parseFloat(e.target.value) || 0 })}
                                                         className="w-24 text-right bg-slate-50 dark:bg-slate-800/40 outline-none border border-slate-200/60 dark:border-slate-800 focus:border-orange-500 focus:ring-0 font-bold rounded-lg px-2 py-1 transition-all text-xs focus:bg-white dark:focus:bg-slate-900 print:hidden text-slate-800 dark:text-slate-100"
                                                     />
-                                                    <span className="hidden print:inline-block tabular-nums font-bold">₹{Number((docData as any)[valueKey] || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                                    <span className="hidden print:inline-block tabular-nums font-bold">₹{Math.round(Number((docData as any)[valueKey] || 0)).toLocaleString('en-IN')}</span>
                                                 </div>
                                             </div>
                                         ))}
@@ -1858,7 +1858,7 @@ export const DocumentEditor: React.FC = () => {
                                                     onChange={e => setDocData({ ...docData, advance_received: parseFloat(e.target.value) || 0 })}
                                                     className="w-24 text-right bg-slate-50 dark:bg-slate-800/40 outline-none border border-slate-200/60 dark:border-slate-800 focus:border-orange-500 focus:ring-0 font-bold rounded-lg px-2 py-1 transition-all text-xs focus:bg-white dark:focus:bg-slate-900 print:hidden text-slate-800 dark:text-slate-100"
                                                 />
-                                                <span className="hidden print:inline-block tabular-nums font-bold">₹{Number(docData.advance_received || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                                <span className="hidden print:inline-block tabular-nums font-bold">₹{Math.round(Number(docData.advance_received || 0)).toLocaleString('en-IN')}</span>
                                             </div>
                                         </div>
 
@@ -1878,7 +1878,7 @@ export const DocumentEditor: React.FC = () => {
                                                     onChange={e => setDiscount(parseFloat(e.target.value) || 0)}
                                                     className="w-24 text-right bg-slate-50 dark:bg-slate-800/40 outline-none border border-slate-200/60 dark:border-slate-800 focus:border-orange-500 focus:ring-0 font-bold rounded-lg px-2 py-1 transition-all text-xs focus:bg-white dark:focus:bg-slate-900 print:hidden text-[#2D6A4F] dark:text-emerald-400"
                                                 />
-                                                <span className="hidden print:inline-block tabular-nums text-slate-500 font-bold">(₹{discountAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 })})</span>
+                                                <span className="hidden print:inline-block tabular-nums text-slate-500 font-bold">(₹{Math.round(discountAmt).toLocaleString('en-IN')})</span>
                                             </div>
                                         </div>
 
@@ -1919,7 +1919,7 @@ export const DocumentEditor: React.FC = () => {
                                                 </button>
                                                 {/* Print display */}
                                                 <span className="hidden print:inline-block tabular-nums font-bold text-xs">
-                                                    {cf.is_deduction ? '−' : '+'} ₹{Number(cf.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                                    {cf.is_deduction ? '−' : '+'} ₹{Math.round(Number(cf.amount || 0)).toLocaleString('en-IN')}
                                                 </span>
                                             </div>
                                         ))}
@@ -1934,23 +1934,23 @@ export const DocumentEditor: React.FC = () => {
                                         {/* Subtotal + Tax read-only rows */}
                                         <div className="flex justify-between items-center border-t border-slate-200/50 dark:border-slate-800/80 pt-2 text-[10px] text-slate-400">
                                             <span>Subtotal (Base Items):</span>
-                                            <span className="tabular-nums font-medium">₹{subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                            <span className="tabular-nums font-medium">₹{Math.round(subtotal).toLocaleString('en-IN')}</span>
                                         </div>
                                         {docData.is_gst === 1 && taxTotal > 0 ? (
                                             docData.gst_type === 'IGST' ? (
                                                 <div className="flex justify-between items-center text-[10px] text-slate-400">
                                                     <span>IGST Total{igstRatesStr}:</span>
-                                                    <span className="tabular-nums font-medium">₹{taxTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                                    <span className="tabular-nums font-medium">₹{Math.round(taxTotal).toLocaleString('en-IN')}</span>
                                                 </div>
                                             ) : (
                                                 <>
                                                     <div className="flex justify-between items-center text-[10px] text-slate-400">
                                                         <span>CGST Total{cgstSgstRatesStr}:</span>
-                                                        <span className="tabular-nums font-medium">₹{(taxTotal / 2).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                                        <span className="tabular-nums font-medium">₹{Math.round(taxTotal / 2).toLocaleString('en-IN')}</span>
                                                     </div>
                                                     <div className="flex justify-between items-center text-[10px] text-slate-400">
                                                         <span>SGST Total{cgstSgstRatesStr}:</span>
-                                                        <span className="tabular-nums font-medium">₹{(taxTotal / 2).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                                        <span className="tabular-nums font-medium">₹{Math.round(taxTotal / 2).toLocaleString('en-IN')}</span>
                                                     </div>
                                                 </>
                                             )
@@ -1958,7 +1958,7 @@ export const DocumentEditor: React.FC = () => {
                                             taxTotal > 0 && (
                                                 <div className="flex justify-between items-center text-[10px] text-slate-400">
                                                     <span>Tax Total:</span>
-                                                    <span className="tabular-nums font-medium">₹{taxTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                                    <span className="tabular-nums font-medium">₹{Math.round(taxTotal).toLocaleString('en-IN')}</span>
                                                 </div>
                                             )
                                         )}
@@ -1966,7 +1966,7 @@ export const DocumentEditor: React.FC = () => {
                                     
                                     <div className="border-t border-slate-350 dark:border-slate-700/80 pt-3 flex justify-between items-center mb-4" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
                                         <span className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">Net Amount</span>
-                                        <span className="text-lg font-black text-[#F26222] tabular-nums">₹{totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                        <span className="text-lg font-black text-[#F26222] tabular-nums">₹{Math.round(totalAmount).toLocaleString('en-IN')}</span>
                                     </div>
                                     
                                     {/* Live Payment Progress indicator */}
@@ -1991,7 +1991,7 @@ export const DocumentEditor: React.FC = () => {
                                                     onChange={e => setDocData({...docData, amount_paid: parseFloat(e.target.value) || 0})}
                                                     className="w-full text-right bg-emerald-600/10 dark:bg-emerald-500/10 outline-none border border-emerald-500/20 focus:border-emerald-500 focus:ring-0 font-black rounded-lg px-2.5 py-1.5 transition-all text-xs focus:bg-white dark:focus:bg-slate-900 text-emerald-600 dark:text-emerald-400 print:hidden"
                                                 />
-                                                <span className="hidden print:inline-block tabular-nums font-bold text-emerald-600 dark:text-emerald-400">₹{(docData.amount_paid || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                                <span className="hidden print:inline-block tabular-nums font-bold text-emerald-600 dark:text-emerald-400">₹{Math.round(docData.amount_paid || 0).toLocaleString('en-IN')}</span>
                                             </div>
                                         </div>
 
@@ -2010,7 +2010,7 @@ export const DocumentEditor: React.FC = () => {
                                                             </div>
                                                             <div className="flex justify-between items-center text-[8px] font-extrabold uppercase text-slate-400 dark:text-slate-500 tracking-wider mt-1.5">
                                                                 <span>Paid: {Math.round(percentPaid)}%</span>
-                                                                <span>Due: ₹{Math.max(0, balanceDue).toLocaleString('en-IN')}</span>
+                                                                <span>Due: ₹{Math.round(Math.max(0, balanceDue)).toLocaleString('en-IN')}</span>
                                                             </div>
                                                         </>
                                                     );
@@ -2020,7 +2020,7 @@ export const DocumentEditor: React.FC = () => {
 
                                         <div className="flex justify-between items-center font-bold text-slate-800 dark:text-slate-200 border-t border-slate-200/50 dark:border-slate-800/80 pt-2.5 text-[10px]">
                                             <span className="uppercase tracking-wider">Due Balance</span>
-                                            <span className="tabular-nums font-black text-slate-900 dark:text-white">₹{Math.max(0, balanceDue).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                            <span className="tabular-nums font-black text-slate-900 dark:text-white">₹{Math.round(Math.max(0, balanceDue)).toLocaleString('en-IN')}</span>
                                         </div>
                                     </div>
                                 </div>

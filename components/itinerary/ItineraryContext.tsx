@@ -207,12 +207,12 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
 
     // Currency helpers
     const convertCurrency = useCallback((amountInINR: number): number => {
-        return Math.round(amountInINR * CURRENCY_RATES[currency] * 100) / 100;
+        return Math.round(amountInINR * CURRENCY_RATES[currency]);
     }, [currency]);
 
     const formatCurrency = useCallback((amount: number): string => {
-        const converted = convertCurrency(amount);
-        return `${CURRENCY_SYMBOLS[currency]}${converted.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+        const converted = Math.round(convertCurrency(amount));
+        return `${CURRENCY_SYMBOLS[currency]}${converted.toLocaleString('en-IN')}`;
     }, [currency, convertCurrency]);
 
     // Calculate totals

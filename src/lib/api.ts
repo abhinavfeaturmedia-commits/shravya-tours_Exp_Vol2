@@ -1054,59 +1054,103 @@ export const api = {
     // --- VENDORS ---
     getVendors: async () => {
         const { data } = await fetchApi('/api/vendors-with-stats');
-        // Add robust fallback for JSON parsing
+        // Add robust fallback for JSON parsing with strict array enforcement
         const parseJsonField = (field: any, defaultValue: any) => {
+            let res = field;
             if (typeof field === 'string') {
-                try { return JSON.parse(field); } catch { return defaultValue; }
+                const trimmed = field.trim();
+                if (!trimmed || trimmed === 'null' || trimmed === 'undefined') {
+                    res = defaultValue;
+                } else {
+                    try {
+                        res = JSON.parse(trimmed);
+                    } catch {
+                        res = Array.isArray(defaultValue) ? (trimmed ? [trimmed] : []) : defaultValue;
+                    }
+                }
             }
-            return field || defaultValue;
+            if (Array.isArray(defaultValue)) {
+                if (!Array.isArray(res)) {
+                    if (res && typeof res === 'object') {
+                        res = [res];
+                    } else if (typeof res === 'string' && res.trim()) {
+                        res = [res];
+                    } else {
+                        res = defaultValue;
+                    }
+                }
+            }
+            return res || defaultValue;
         };
 
-        return (data || []).map((v: any) => ({
-            id: v.id,
-            name: v.name,
-            category: v.category,
-            subCategory: v.sub_category,
-            location: v.location,
-            contactName: v.contact_name,
-            contactPhone: v.contact_phone,
-            contactEmail: v.contact_email,
-            rating: Number(v.rating) || 0,
-            balanceDue: Number(v.balance_due) || 0,
-            status: 'Active',
-            contractStatus: v.contract_status || 'Active',
-            contractExpiryDate: v.contract_expiry_date
-                ? (typeof v.contract_expiry_date === 'string'
-                    ? v.contract_expiry_date.split('T')[0]  // ISO → date only
-                    : new Date(v.contract_expiry_date).toISOString().split('T')[0])
-                : undefined,
-            createdAt: v.created_at,
-            logo: v.logo,
-            totalSales: v.total_sales ? Number(v.total_sales) : 0,
-            totalCommission: v.total_commission ? Number(v.total_commission) : 0,
-            // Backend-computed performance metrics (null = no data yet)
-            timeliness: v.timeliness_score !== null && v.timeliness_score !== undefined ? Number(v.timeliness_score) : null,
-            value: v.value_score !== null && v.value_score !== undefined ? Number(v.value_score) : null,
-            expiringSoon: Boolean(v.expiring_soon),
-            linkedBookingIds: Array.isArray(v.linked_booking_ids) ? v.linked_booking_ids : [],
-            bankDetails: parseJsonField(v.bank_details, {}),
-            notes: parseJsonField(v.notes, []),
-            // Use ledger_entries built from real supplier_bookings data (backend join)
-            // Fall back to the stale JSON blob only if no supplier bookings exist
-            transactions: Array.isArray(v.ledger_entries) && v.ledger_entries.length > 0
-                ? v.ledger_entries.map((le: any) => ({
-                    id: le.id,
-                    date: le.date ? new Date(le.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-                    description: le.description,
-                    amount: Number(le.amount) || 0,
-                    type: le.type,
-                    reference: le.reference,
-                    bookingTitle: le.bookingTitle
-                }))
-                : parseJsonField(v.transactions, []),
-            services: parseJsonField(v.services, []),
-            documents: parseJsonField(v.documents, [])
-        }));
+        return (data || []).map((v: any) => {
+            const rawNotes = parseJsonField(v.notes, []);
+            const normalizedNotes = (Array.isArray(rawNotes) ? rawNotes : []).map((n: any, idx: number) => {
+                if (typeof n === 'string') {
+                    return {
+                        id: `n-${idx}`,
+                        text: n,
+                        date: v.created_at ? (typeof v.created_at === 'string' ? v.created_at.split('T')[0] : new Date(v.created_at).toISOString().split('T')[0]) : new Date().toISOString().split('T')[0],
+                        author: 'System'
+                    };
+                }
+                if (n && typeof n === 'object') {
+                    return {
+                        id: n.id || `n-${idx}`,
+                        text: n.text || n.note || n.content || '',
+                        date: n.date || n.createdAt || new Date().toISOString().split('T')[0],
+                        author: n.author || n.createdBy || 'System'
+                    };
+                }
+                return { id: `n-${idx}`, text: String(n || ''), date: new Date().toISOString().split('T')[0], author: 'System' };
+            }).filter((n: any) => Boolean(n.text));
+
+            return {
+                id: v.id,
+                name: v.name,
+                category: v.category,
+                subCategory: v.sub_category,
+                location: v.location,
+                contactName: v.contact_name,
+                contactPhone: v.contact_phone,
+                contactEmail: v.contact_email,
+                rating: Number(v.rating) || 0,
+                balanceDue: Number(v.balance_due) || 0,
+                status: 'Active',
+                contractStatus: v.contract_status || 'Active',
+                contractExpiryDate: v.contract_expiry_date
+                    ? (typeof v.contract_expiry_date === 'string'
+                        ? v.contract_expiry_date.split('T')[0]  // ISO → date only
+                        : new Date(v.contract_expiry_date).toISOString().split('T')[0])
+                    : undefined,
+                createdAt: v.created_at,
+                logo: v.logo,
+                totalSales: v.total_sales ? Number(v.total_sales) : 0,
+                totalCommission: v.total_commission ? Number(v.total_commission) : 0,
+                // Backend-computed performance metrics (null = no data yet)
+                timeliness: v.timeliness_score !== null && v.timeliness_score !== undefined ? Number(v.timeliness_score) : null,
+                value: v.value_score !== null && v.value_score !== undefined ? Number(v.value_score) : null,
+                expiringSoon: Boolean(v.expiring_soon),
+                linkedBookingIds: Array.isArray(v.linked_booking_ids) ? v.linked_booking_ids : [],
+                bankDetails: parseJsonField(v.bank_details, {}),
+                notes: normalizedNotes,
+                // Use ledger_entries built from real supplier_bookings data (backend join)
+                // Fall back to the stale JSON blob only if no supplier bookings exist
+                transactions: Array.isArray(v.ledger_entries) && v.ledger_entries.length > 0
+                    ? v.ledger_entries.map((le: any) => ({
+                        id: le.id,
+                        date: le.date ? new Date(le.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+                        description: le.description,
+                        amount: Number(le.amount) || 0,
+                        type: le.type,
+                        reference: le.reference,
+                        bookingTitle: le.bookingTitle
+                    }))
+                    : parseJsonField(v.transactions, []),
+                services: parseJsonField(v.services, []),
+                documents: parseJsonField(v.documents, [])
+            };
+        });
     },
 
     createVendor: async (vendor: any) => {

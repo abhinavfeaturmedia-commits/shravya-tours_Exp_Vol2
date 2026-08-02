@@ -146,6 +146,11 @@ export const Leads: React.FC = () => {
         bookingTypes: ['Tour','Hotel','Car','Bus','Train','Flight']
     });
 
+    // New Sorting & Multi-select UI State
+    const [sortField, setSortField] = useState<'name' | 'destination' | 'potentialValue' | 'addedOn' | 'nextFollowUp'>('addedOn');
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+    const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
+
     useEffect(() => {
         setLeadModalTab('info');
         setTaskFilter('all');
@@ -231,27 +236,189 @@ export const Leads: React.FC = () => {
         }
     };
 
-    // Stats calculation
-    const tasksDueToday = followUps.filter(f => {
-        if (f.status !== 'Pending' || !f.scheduledAt) return false;
-        const taskDate = new Date(f.scheduledAt);
-        const today = new Date();
-        taskDate.setHours(0, 0, 0, 0);
-        today.setHours(0, 0, 0, 0);
-        return taskDate.getTime() <= today.getTime();
-    }).length;
-
-    const stats = {
-        pending: leads.filter(l => l.status === 'New').length,
-        value: leads.reduce((acc, l) => acc + (l.potentialValue || 0), 0),
-        tasks: tasksDueToday
+    // Helper: Find next pending follow-up task for a lead
+    const getNextFollowUp = (leadId: string) => {
+        const leadFollowUps = followUps
+            .filter(f => f.leadId === leadId && f.status === 'Pending' && f.scheduledAt)
+            .sort((a, b) => new Date(a.scheduledAt!).getTime() - new Date(b.scheduledAt!).getTime());
+        return leadFollowUps[0] || null;
     };
 
-    const filteredLeads = leads.filter(l =>
-        (l.name.toLowerCase().includes(search.toLowerCase()) ||
-            l.destination.toLowerCase().includes(search.toLowerCase())) &&
-        (activeTab === 'All' || l.status === activeTab)
-    );
+    // Advanced Filter & Sort Leads
+    const sortedLeads = useMemo(() => {
+        const result = leads.filter(l =>
+            (l.name.toLowerCase().includes(search.toLowerCase()) ||
+                l.destination.toLowerCase().includes(search.toLowerCase()) ||
+                (l.email && l.email.toLowerCase().includes(search.toLowerCase())) ||
+                (l.leadNumber && String(l.leadNumber).includes(search))) &&
+            (activeTab === 'All' || l.status === activeTab)
+        );
+
+        result.sort((a, b) => {
+            let valA: any = a[sortField as keyof Lead] ?? '';
+            let valB: any = b[sortField as keyof Lead] ?? '';
+
+            if (sortField === 'nextFollowUp') {
+                const fuA = getNextFollowUp(a.id);
+                const fuB = getNextFollowUp(b.id);
+                valA = fuA ? new Date(fuA.scheduledAt!).getTime() : 9999999999999;
+                valB = fuB ? new Date(fuB.scheduledAt!).getTime() : 9999999999999;
+            } else if (sortField === 'potentialValue') {
+                valA = Number(a.potentialValue) || 0;
+                valB = Number(b.potentialValue) || 0;
+            } else if (sortField === 'addedOn') {
+                valA = new Date(a.addedOn || 0).getTime();
+                valB = new Date(b.addedOn || 0).getTime();
+            } else if (typeof valA === 'string') {
+                valA = valA.toLowerCase();
+                valB = (valB as string).toLowerCase();
+            }
+
+            if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
+            if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
+            return 0;
+        });
+
+        return result;
+    }, [leads, search, activeTab, sortField, sortOrder, followUps]);
+
+    const handleSort = (field: 'name' | 'destination' | 'potentialValue' | 'addedOn' | 'nextFollowUp') => {
+        if (sortField === field) {
+            setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+        } else {
+            setSortField(field);
+            setSortOrder('asc');
+        }
+    };
+
+    // Multi-select handlers
+    const handleToggleSelectAll = () => {
+        if (selectedLeadIds.length === sortedLeads.length && sortedLeads.length > 0) {
+            setSelectedLeadIds([]);
+        } else {
+            setSelectedLeadIds(sortedLeads.map(l => l.id));
+        }
+    };
+
+    const handleToggleSelectRow = (leadId: string, e: React.MouseEvent) => {
+        e.stopPropagation();
+        setSelectedLeadIds(prev => 
+            prev.includes(leadId) ? prev.filter(id => id !== leadId) : [...prev, leadId]
+        );
+    };
+
+    const handleBulkAssign = async (staffId: string) => {
+        if (!selectedLeadIds.length || !staffId) return;
+        const targetStaff = staff.find(s => String(s.id) === String(staffId));
+        try {
+            for (const id of selectedLeadIds) {
+                await updateLead(id, { assignedTo: Number(staffId) || (staffId as any) });
+            }
+            toast.success(`Assigned ${selectedLeadIds.length} lead(s) to ${targetStaff?.name || 'Staff'}`);
+            setSelectedLeadIds([]);
+        } catch (err) {
+            toast.error('Failed to bulk assign leads');
+        }
+    };
+
+    const handleBulkStatusChange = async (newStatus: string) => {
+        if (!selectedLeadIds.length || !newStatus) return;
+        try {
+            for (const id of selectedLeadIds) {
+                await updateLead(id, { status: newStatus as any });
+            }
+            toast.success(`Updated ${selectedLeadIds.length} lead(s) to ${newStatus}`);
+            setSelectedLeadIds([]);
+        } catch (err) {
+            toast.error('Failed to bulk update lead stage');
+        }
+    };
+
+    const handleBulkExport = () => {
+        const targetLeads = leads.filter(l => selectedLeadIds.includes(l.id));
+        if (!targetLeads.length) return;
+        const columns: ExportColumn<Lead>[] = [
+            { header: 'ID', key: 'id', width: 25 },
+            { header: 'Name', key: 'name', width: 30 },
+            { header: 'Email', key: 'email', width: 35 },
+            { header: 'Phone', key: 'phone', width: 20 },
+            { header: 'Destination', key: 'destination', width: 25 },
+            { header: 'Travelers', key: 'travelers', width: 15 },
+            { header: 'Type', key: 'type', width: 20 },
+            { header: 'Budget (INR)', key: 'potentialValue', width: 20 },
+            { header: 'Status', key: 'status', width: 15 },
+            { header: 'Source', key: 'source', width: 20 },
+            { header: 'Added On', key: l => new Date(l.addedOn).toLocaleDateString(), width: 15 }
+        ];
+
+        exportToExcel(targetLeads, columns, {
+            filename: `Selected_Leads_${new Date().toISOString().split('T')[0]}`,
+            sheetName: 'Selected Leads',
+            title: 'SHRAWELLO Travel Hub - Selected Leads Report',
+            subtitle: `Generated on: ${new Date().toLocaleDateString('en-IN')}`
+        });
+        toast.success(`Exported ${targetLeads.length} selected lead(s)!`);
+    };
+
+    const handleStageChange = async (lead: Lead, newStatus: string) => {
+        if (lead.status === newStatus) return;
+        if (newStatus === 'Converted') {
+            handleConvertToBooking();
+            return;
+        }
+
+        try {
+            await updateLead(lead.id, { status: newStatus as any });
+            if (addLeadLog) {
+                await addLeadLog(lead.id, {
+                    id: `lg-stage-${Date.now()}`,
+                    type: 'System',
+                    content: `Lead stage updated from "${lead.status}" to "${newStatus}" by ${currentUser?.name || 'Staff'}.`,
+                    timestamp: new Date().toISOString()
+                });
+            }
+            toast.success(`Stage updated to ${newStatus}`);
+        } catch (err: any) {
+            toast.error(err.message || 'Failed to update stage');
+        }
+    };
+
+    // Enhanced Stats & Pipeline Calculations
+    const nowTime = new Date();
+    const startOfTodayTime = new Date(nowTime.getFullYear(), nowTime.getMonth(), nowTime.getDate()).getTime();
+    
+    const tasksDueTodayCount = followUps.filter(f => {
+        if (f.status !== 'Pending' || !f.scheduledAt) return false;
+        return new Date(f.scheduledAt).getTime() <= nowTime.getTime();
+    }).length;
+
+    const overdueTasksCount = followUps.filter(f => {
+        if (f.status !== 'Pending' || !f.scheduledAt) return false;
+        return new Date(f.scheduledAt).getTime() < startOfTodayTime;
+    }).length;
+
+    const activeLeads = leads.filter(l => l.status !== 'Converted' && l.status !== 'Cold');
+    const activePipelineValue = activeLeads.reduce((acc, l) => acc + (l.potentialValue || 0), 0);
+    const highValueActiveCount = activeLeads.filter(l => (l.potentialValue || 0) >= 50000).length;
+    
+    const convertedLeadsCount = leads.filter(l => l.status === 'Converted').length;
+    const conversionRate = leads.length > 0 ? Math.round((convertedLeadsCount / leads.length) * 100) : 0;
+    
+    const unassignedCount = activeLeads.filter(l => !l.assignedTo).length;
+    const coldLeadsCount = leads.filter(l => l.status === 'Cold').length;
+
+    // Stage Funnel Summary
+    const stageSummary = useMemo(() => {
+        const stages = ['New', 'Warm', 'Hot', 'Offer Sent', 'Converted', 'Cold'] as const;
+        return stages.map(s => {
+            const stageLeads = leads.filter(l => l.status === s);
+            const stageVal = stageLeads.reduce((acc, l) => acc + (l.potentialValue || 0), 0);
+            const pct = leads.length > 0 ? Math.round((stageLeads.length / leads.length) * 100) : 0;
+            return { stage: s, count: stageLeads.length, value: stageVal, percent: pct };
+        });
+    }, [leads]);
+
+    const filteredLeads = sortedLeads;
 
     const handleSaveLog = () => {
         if (!selectedLeadId || !noteContent.trim()) return;
@@ -774,7 +941,7 @@ export const Leads: React.FC = () => {
                 <div className="px-8 py-6 max-w-[1600px] mx-auto w-full">
                     <h1 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight mb-1"><span className="font-display text-4xl">Lead Tracking</span></h1>
                     <p className="text-slate-500 mb-8">
-                        You have <span className="text-primary font-bold">{stats.tasks}</span> follow-up(s) due today.
+                        You have <span className="text-primary font-bold">{tasksDueTodayCount}</span> follow-up(s) due today.
                     </p>
 
                     {/* Smart Suggestions for Leads */}
@@ -811,25 +978,124 @@ export const Leads: React.FC = () => {
                         );
                     })()}
 
-                    {/* Stats Cards */}
-                    <div className="flex overflow-x-auto snap-x snap-mandatory hide-scrollbar gap-4 pb-2 md:grid md:grid-cols-3 mb-8 stagger-cards -mx-8 px-8 md:mx-0 md:px-0">
-                        <div className="min-w-[80vw] sm:min-w-[40vw] md:min-w-0 shrink-0 snap-center bg-white dark:bg-[#1A2633] p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
-                            <p className="text-xs font-bold text-slate-400 uppercase mb-1">Pending Leads</p>
-                            <div className="flex items-center gap-3">
-                                <span className="text-4xl kpi-number text-slate-900 dark:text-white">{stats.pending}</span>
+                    {/* Rich KPI Stats Cards */}
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8 stagger-cards">
+                        <div className="bg-white dark:bg-[#1A2633] p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm relative overflow-hidden group">
+                            <div className="flex justify-between items-start mb-2">
+                                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Active Pipeline</p>
+                                <div className="h-8 w-8 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 flex items-center justify-center">
+                                    <span className="material-symbols-outlined text-[18px]">payments</span>
+                                </div>
                             </div>
+                            <div className="flex items-baseline justify-between">
+                                <span className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">{formatPriceCompact(activePipelineValue)}</span>
+                                {highValueActiveCount > 0 && (
+                                    <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border border-purple-200/50">
+                                        💎 {highValueActiveCount} High-Val
+                                    </span>
+                                )}
+                            </div>
+                            <p className="text-[11px] text-slate-400 mt-1 font-medium">{activeLeads.length} active opportunities</p>
                         </div>
-                        <div className="min-w-[80vw] sm:min-w-[40vw] md:min-w-0 shrink-0 snap-center bg-white dark:bg-[#1A2633] p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
-                            <p className="text-xs font-bold text-slate-400 uppercase mb-1">Pipeline Value</p>
-                            <div className="flex items-center gap-3">
-                                <span className="text-4xl kpi-number text-slate-900 dark:text-white">{formatPriceCompact(stats.value)}</span>
+
+                        <div className="bg-white dark:bg-[#1A2633] p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm relative overflow-hidden group">
+                            <div className="flex justify-between items-start mb-2">
+                                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Lead Conversion</p>
+                                <div className="h-8 w-8 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-blue-600 flex items-center justify-center">
+                                    <span className="material-symbols-outlined text-[18px]">trending_up</span>
+                                </div>
                             </div>
+                            <div className="flex items-baseline justify-between">
+                                <span className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">{conversionRate}%</span>
+                                <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300">
+                                    {convertedLeadsCount} Converted
+                                </span>
+                            </div>
+                            <p className="text-[11px] text-slate-400 mt-1 font-medium">Out of {leads.length} total inquiries</p>
                         </div>
-                        <div className="min-w-[80vw] sm:min-w-[40vw] md:min-w-0 shrink-0 snap-center bg-white dark:bg-[#1A2633] p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
-                            <p className="text-xs font-bold text-slate-400 uppercase mb-1">Tasks Due Today</p>
-                            <div className="flex items-center gap-3">
-                                <span className="text-4xl kpi-number text-slate-900 dark:text-white">{stats.tasks}</span>
+
+                        <div className="bg-white dark:bg-[#1A2633] p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm relative overflow-hidden group">
+                            <div className="flex justify-between items-start mb-2">
+                                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Follow-up Tasks</p>
+                                <div className="h-8 w-8 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-600 flex items-center justify-center">
+                                    <Clock size={18} />
+                                </div>
                             </div>
+                            <div className="flex items-baseline justify-between">
+                                <span className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">{tasksDueTodayCount}</span>
+                                {overdueTasksCount > 0 && (
+                                    <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 animate-pulse">
+                                        ⚠️ {overdueTasksCount} Overdue
+                                    </span>
+                                )}
+                            </div>
+                            <p className="text-[11px] text-slate-400 mt-1 font-medium">Pending action for today</p>
+                        </div>
+
+                        <div className="bg-white dark:bg-[#1A2633] p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm relative overflow-hidden group">
+                            <div className="flex justify-between items-start mb-2">
+                                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Lead Health</p>
+                                <div className="h-8 w-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 flex items-center justify-center">
+                                    <span className="material-symbols-outlined text-[18px]">health_metrics</span>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-1">
+                                    <span className="text-2xl font-black text-amber-600 dark:text-amber-400">{unassignedCount}</span>
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase">Unassigned</span>
+                                </div>
+                                <span className="text-slate-300 dark:text-slate-700">|</span>
+                                <div className="flex items-center gap-1">
+                                    <span className="text-2xl font-black text-indigo-600 dark:text-indigo-400">{coldLeadsCount}</span>
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase">Cold</span>
+                                </div>
+                            </div>
+                            <p className="text-[11px] text-slate-400 mt-1 font-medium">Requires staff action / re-engagement</p>
+                        </div>
+                    </div>
+
+                    {/* ── VISUAL PIPELINE STAGE FUNNEL SUMMARY ── */}
+                    <div className="mb-6 bg-white dark:bg-[#1A2633] p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                        <div className="flex items-center justify-between mb-3">
+                            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                                <span className="material-symbols-outlined text-primary text-[16px]">filter_alt</span> Pipeline Visual Funnel
+                            </h3>
+                            <span className="text-[11px] font-bold text-slate-500">
+                                Total Value: <span className="text-slate-900 dark:text-white font-black">{formatPrice(leads.reduce((a, b) => a + (b.potentialValue || 0), 0))}</span>
+                            </span>
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+                            {stageSummary.map(item => {
+                                const isSelected = activeTab === item.stage;
+                                const stageBadgeStyle: Record<string, string> = {
+                                    'New': 'border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/10 text-blue-700 dark:text-blue-300',
+                                    'Warm': 'border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/10 text-amber-700 dark:text-amber-300',
+                                    'Hot': 'border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/10 text-red-700 dark:text-red-300',
+                                    'Offer Sent': 'border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-900/10 text-purple-700 dark:text-purple-300',
+                                    'Converted': 'border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-900/10 text-emerald-700 dark:text-emerald-300',
+                                    'Cold': 'border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/40 text-slate-600 dark:text-slate-400',
+                                };
+                                return (
+                                    <button
+                                        key={item.stage}
+                                        onClick={() => setActiveTab(isSelected ? 'All' : item.stage as any)}
+                                        className={`p-3 rounded-xl border text-left transition-all relative overflow-hidden group ${
+                                            isSelected ? 'ring-2 ring-primary border-primary bg-primary/5 shadow-sm' : stageBadgeStyle[item.stage]
+                                        }`}
+                                    >
+                                        <div className="flex items-center justify-between mb-1">
+                                            <span className="text-xs font-black uppercase tracking-wider">{item.stage}</span>
+                                            <span className="text-xs font-bold px-1.5 py-0.5 rounded-full bg-white/80 dark:bg-slate-800/80 text-slate-800 dark:text-slate-200 shadow-xs">
+                                                {item.count}
+                                            </span>
+                                        </div>
+                                        <p className="text-xs font-black text-slate-900 dark:text-white">{formatPriceCompact(item.value)}</p>
+                                        <div className="w-full bg-slate-200/60 dark:bg-slate-700/60 h-1 rounded-full mt-2 overflow-hidden">
+                                            <div className="bg-primary h-full rounded-full transition-all" style={{ width: `${item.percent}%` }} />
+                                        </div>
+                                    </button>
+                                );
+                            })}
                         </div>
                     </div>
 
@@ -1032,13 +1298,39 @@ export const Leads: React.FC = () => {
                     {/* Leads List */}
                     <div className="bg-white dark:bg-[#1A2633] border border-slate-100 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
                         {/* Table Header */}
-                        <div className="hidden sm:grid grid-cols-12 gap-4 px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 text-xs font-bold text-slate-400 uppercase tracking-wider">
-                            <div className="col-span-3">Lead Name</div>
-                            <div className="col-span-3">Destination</div>
-                            <div className="col-span-2">Value</div>
-                            <div className="col-span-2">Assigned To</div>
+                        <div className="hidden sm:grid grid-cols-12 gap-4 px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 text-xs font-bold text-slate-400 uppercase tracking-wider items-center select-none">
+                            <div className="col-span-3 flex items-center gap-3">
+                                {hasPermission('leads', 'manage') && (
+                                    <input 
+                                        type="checkbox" 
+                                        checked={sortedLeads.length > 0 && selectedLeadIds.length === sortedLeads.length}
+                                        onChange={handleToggleSelectAll}
+                                        className="rounded border-slate-300 text-primary focus:ring-primary h-4 w-4 cursor-pointer"
+                                        title="Select all visible leads"
+                                    />
+                                )}
+                                <button onClick={() => handleSort('name')} className="flex items-center gap-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors uppercase font-bold text-xs">
+                                    Lead Name {sortField === 'name' ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
+                                </button>
+                            </div>
+                            <div className="col-span-2">
+                                <button onClick={() => handleSort('destination')} className="flex items-center gap-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors uppercase font-bold text-xs">
+                                    Destination {sortField === 'destination' ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
+                                </button>
+                            </div>
+                            <div className="col-span-3">
+                                <button onClick={() => handleSort('nextFollowUp')} className="flex items-center gap-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors uppercase font-bold text-xs">
+                                    Next Follow-up {sortField === 'nextFollowUp' ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
+                                </button>
+                            </div>
+                            <div className="col-span-2">
+                                <button onClick={() => handleSort('potentialValue')} className="flex items-center gap-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors uppercase font-bold text-xs">
+                                    Value {sortField === 'potentialValue' ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
+                                </button>
+                            </div>
                             <div className="col-span-2 text-right">Status</div>
                         </div>
+
                         {/* Mobile Header */}
                         <div className="flex sm:hidden items-center gap-4 px-4 py-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 text-xs font-bold text-slate-400 uppercase tracking-wider">
                             <div className="flex-1">Lead Name</div>
@@ -1050,19 +1342,36 @@ export const Leads: React.FC = () => {
                         <div className="divide-y divide-slate-100 dark:divide-slate-800">
                             {filteredLeads.map(lead => {
                                 const isPartner = !!lead.partnerId || lead.source === 'Partner Referral';
+                                const isSelected = selectedLeadIds.includes(lead.id);
+                                const nextFu = getNextFollowUp(lead.id);
+                                const fuDate = nextFu?.scheduledAt ? new Date(nextFu.scheduledAt) : null;
+                                const isFuOverdue = fuDate ? fuDate.getTime() < new Date().getTime() : false;
+                                const isFuToday = fuDate ? fuDate.toDateString() === new Date().toDateString() : false;
+
                                 return (
                                     <div
                                         key={lead.id}
                                         onClick={() => setSelectedLeadId(lead.id)}
-                                        className={`cursor-pointer border-l-4 transition-colors ${
-                                            isPartner 
-                                                ? 'bg-violet-500/5 dark:bg-violet-500/10 border-violet-500 hover:bg-violet-500/10 dark:hover:bg-violet-500/20' 
-                                                : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800'
+                                        className={`cursor-pointer border-l-4 transition-colors group ${
+                                            isSelected
+                                                ? 'bg-primary/10 border-primary'
+                                                : isPartner 
+                                                    ? 'bg-violet-500/5 dark:bg-violet-500/10 border-violet-500 hover:bg-violet-500/10 dark:hover:bg-violet-500/20' 
+                                                    : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800'
                                         } ${selectedLeadId === lead.id ? 'bg-primary/5' : ''}`}
                                     >
                                         {/* Desktop Row */}
                                         <div className="hidden sm:grid grid-cols-12 gap-4 px-6 py-4 items-center">
-                                            <div className="col-span-3 flex items-center gap-4 overflow-hidden pr-4">
+                                            <div className="col-span-3 flex items-center gap-3 overflow-hidden pr-2">
+                                                {hasPermission('leads', 'manage') && (
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isSelected}
+                                                        onChange={(e) => handleToggleSelectRow(lead.id, e)}
+                                                        onClick={(e) => e.stopPropagation()}
+                                                        className="rounded border-slate-300 text-primary focus:ring-primary h-4 w-4 cursor-pointer shrink-0"
+                                                    />
+                                                )}
                                                 <div className={`h-10 w-10 shrink-0 rounded-full flex items-center justify-center font-bold text-sm ${lead.avatarColor || 'bg-slate-100 text-slate-600'}`}>
                                                     {lead.name.charAt(0)}
                                                 </div>
@@ -1082,31 +1391,77 @@ export const Leads: React.FC = () => {
                                                     </p>
                                                 </div>
                                             </div>
-                                            <div className="col-span-3 overflow-hidden pr-4">
-                                                <div className="flex items-center gap-2 text-slate-900 dark:text-white font-medium text-sm truncate">
+
+                                            <div className="col-span-2 overflow-hidden pr-2">
+                                                <div className="flex items-center gap-1.5 text-slate-900 dark:text-white font-medium text-sm truncate">
                                                     <MapPin size={14} className="text-slate-400 shrink-0" />
                                                     <span className="truncate">{lead.destination}</span>
                                                 </div>
-                                                <p className="text-xs text-slate-500 ml-6 truncate">{lead.type}</p>
+                                                <p className="text-xs text-slate-500 ml-5 truncate">{lead.type}</p>
                                             </div>
+
+                                            {/* Next Follow-up Column */}
+                                            <div className="col-span-3 overflow-hidden pr-2">
+                                                {nextFu ? (
+                                                    <div className="flex flex-col">
+                                                        <span className={`inline-flex items-center gap-1 text-[11px] font-bold ${
+                                                            isFuOverdue ? 'text-red-600 dark:text-red-400' : isFuToday ? 'text-amber-600 dark:text-amber-400' : 'text-slate-700 dark:text-slate-300'
+                                                        }`}>
+                                                            {isFuOverdue ? <span className="material-symbols-outlined text-[14px]">warning</span> : <Clock size={12} className="text-primary" />}
+                                                            {isFuToday ? `Today, ${fuDate?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : fuDate?.toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                                                        </span>
+                                                        <span className="text-[10px] text-slate-400 truncate max-w-[170px]">{nextFu.type}: {nextFu.description || 'Follow-up'}</span>
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-xs text-slate-400 italic">No task scheduled</span>
+                                                )}
+                                            </div>
+
                                             <div className="col-span-2 font-bold text-slate-900 dark:text-white truncate">
                                                 {formatPrice(lead.potentialValue || 0)}
+                                                {lead.assignedTo && (
+                                                    <p className="text-[10px] text-slate-400 font-normal truncate">
+                                                        By: {staff.find(s => s.id === lead.assignedTo)?.name || 'Staff'}
+                                                    </p>
+                                                )}
                                             </div>
-                                            <div className="col-span-2 text-xs font-medium text-slate-600 dark:text-slate-400 truncate">
-                                                {lead.assignedTo ? staff.find(s => s.id === lead.assignedTo)?.name || 'Unknown' : 'Unassigned'}
-                                                {(() => {
-                                                    const pending = transfers.find(tr => tr.item_type === 'Lead' && tr.item_id === lead.id && tr.status === 'Pending');
-                                                    return pending ? (
-                                                        <span className="block text-[9px] text-amber-500 font-bold animate-pulse flex items-center gap-0.5 mt-0.5" title={`Transfer pending to ${pending.to_staff_name}`}>
-                                                            🔄 Pending Transfer
-                                                        </span>
-                                                    ) : null;
-                                                })()}
-                                            </div>
-                                            <div className="col-span-2 text-right">
+
+                                            <div className="col-span-2 flex flex-col items-end gap-1">
                                                 <StatusBadge status={lead.status} />
+                                                {/* Quick Action Hover Buttons */}
+                                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    <a 
+                                                        href={`tel:${lead.phone}`}
+                                                        onClick={e => e.stopPropagation()} 
+                                                        className="p-1 rounded-md text-slate-400 hover:text-primary hover:bg-primary/10 transition-colors"
+                                                        title="Call Client"
+                                                    >
+                                                        <Phone size={13} />
+                                                    </a>
+                                                    {lead.whatsapp && (
+                                                        <a 
+                                                            href={`https://wa.me/${lead.whatsapp.replace(/\D/g, '')}`} 
+                                                            target="_blank" 
+                                                            rel="noreferrer"
+                                                            onClick={e => e.stopPropagation()} 
+                                                            className="p-1 rounded-md text-slate-400 hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors"
+                                                            title="WhatsApp Client"
+                                                        >
+                                                            <MessageCircle size={13} />
+                                                        </a>
+                                                    )}
+                                                    <a 
+                                                        href={`mailto:${lead.email}`}
+                                                        onClick={e => e.stopPropagation()} 
+                                                        className="p-1 rounded-md text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
+                                                        title="Email Client"
+                                                    >
+                                                        <Mail size={13} />
+                                                    </a>
+                                                </div>
                                             </div>
                                         </div>
+
                                         {/* Mobile Row */}
                                         <div className="flex sm:hidden items-center gap-3 px-4 py-3">
                                             <div className={`h-9 w-9 shrink-0 rounded-full flex items-center justify-center font-bold text-sm ${lead.avatarColor || 'bg-slate-100 text-slate-600'}`}>
@@ -1137,12 +1492,78 @@ export const Leads: React.FC = () => {
                         </div>
 
                         {/* Pagination Footer */}
-                        <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-500 font-medium">
-                            Showing {filteredLeads.length} of {leads.length} results
+                        <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-500 font-medium flex items-center justify-between">
+                            <span>Showing {filteredLeads.length} of {leads.length} leads</span>
+                            {selectedLeadIds.length > 0 && (
+                                <span className="font-bold text-primary">{selectedLeadIds.length} selected</span>
+                            )}
                         </div>
                     </div>
                 </div>
             </div>
+
+            {/* ── FLOATING MULTI-SELECT BULK ACTIONS BAR ── */}
+            {selectedLeadIds.length > 0 && (
+                <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] bg-slate-900 text-white dark:bg-slate-800 border border-slate-700 rounded-2xl px-6 py-3.5 shadow-2xl flex items-center gap-4 animate-in slide-in-from-bottom-4 backdrop-blur-md">
+                    <div className="flex items-center gap-2">
+                        <span className="h-6 w-6 rounded-full bg-primary text-white text-xs font-black flex items-center justify-center">
+                            {selectedLeadIds.length}
+                        </span>
+                        <span className="text-xs font-bold">Selected</span>
+                    </div>
+                    <div className="h-4 w-px bg-slate-700" />
+                    
+                    {/* Bulk Assign Staff Dropdown */}
+                    <select
+                        onChange={e => {
+                            if (e.target.value) {
+                                handleBulkAssign(e.target.value);
+                                e.target.value = '';
+                            }
+                        }}
+                        className="bg-slate-800 dark:bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-200 outline-none cursor-pointer hover:border-slate-500 transition-colors"
+                    >
+                        <option value="">Assign Staff...</option>
+                        {staff.map(s => (
+                            <option key={s.id} value={s.id}>{s.name}</option>
+                        ))}
+                    </select>
+
+                    {/* Bulk Stage Change Dropdown */}
+                    <select
+                        onChange={e => {
+                            if (e.target.value) {
+                                handleBulkStatusChange(e.target.value);
+                                e.target.value = '';
+                            }
+                        }}
+                        className="bg-slate-800 dark:bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-200 outline-none cursor-pointer hover:border-slate-500 transition-colors"
+                    >
+                        <option value="">Set Stage...</option>
+                        {['New', 'Warm', 'Hot', 'Offer Sent', 'Cold'].map(s => (
+                            <option key={s} value={s}>{s}</option>
+                        ))}
+                    </select>
+
+                    {/* Bulk Export Button */}
+                    <button
+                        onClick={handleBulkExport}
+                        className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold flex items-center gap-1.5 transition-colors"
+                    >
+                        <span className="material-symbols-outlined text-[16px]">download</span>
+                        Export
+                    </button>
+
+                    {/* Clear Selection */}
+                    <button
+                        onClick={() => setSelectedLeadIds([])}
+                        className="p-1 text-slate-400 hover:text-white rounded-lg transition-colors ml-2"
+                        title="Clear Selection"
+                    >
+                        <X size={16} />
+                    </button>
+                </div>
+            )}
 
             {/* LEAD DETAILS (Modal) */}
             {selectedLead && (
@@ -1202,6 +1623,41 @@ export const Leads: React.FC = () => {
                                 </span>
                             )}
                         </div>
+
+                        {/* Interactive 1-Click Lead Stage Stepper */}
+                        {hasPermission('leads', 'manage') && (
+                            <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Advance Stage Stepper</p>
+                                <div className="flex items-center gap-1.5 overflow-x-auto hide-scrollbar pb-1">
+                                    {(['New', 'Warm', 'Hot', 'Offer Sent', 'Converted', 'Cold'] as const).map((stage, idx) => {
+                                        const isActive = selectedLead.status === stage;
+                                        const stageColors: Record<string, string> = {
+                                            'New': 'bg-blue-600 text-white',
+                                            'Warm': 'bg-amber-600 text-white',
+                                            'Hot': 'bg-red-600 text-white',
+                                            'Offer Sent': 'bg-purple-600 text-white',
+                                            'Converted': 'bg-emerald-600 text-white',
+                                            'Cold': 'bg-slate-600 text-white',
+                                        };
+                                        return (
+                                            <button
+                                                key={stage}
+                                                onClick={() => handleStageChange(selectedLead, stage)}
+                                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                                                    isActive 
+                                                        ? `${stageColors[stage]} shadow-md ring-2 ring-offset-2 ring-primary/40`
+                                                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                                                }`}
+                                            >
+                                                <span className="text-[10px] font-mono opacity-80">{idx + 1}.</span>
+                                                <span>{stage}</span>
+                                                {isActive && <CheckCircle2 size={12} className="ml-0.5" />}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
                         <div className="flex gap-4 mt-4 border-b border-slate-100 dark:border-slate-800 pb-2">
                             <button
                                 onClick={() => setLeadModalTab('info')}

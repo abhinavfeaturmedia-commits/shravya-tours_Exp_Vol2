@@ -11,215 +11,593 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-// ─── Interactive SVG Area Chart ────────────────────────────────────────────────
-interface TrendPoint { month: string; revenue: number; profit: number; }
+// ─── High-Insight Interactive Financial Trend Chart ──────────────────────────────────────
+interface TrendPoint { month: string; revenue: number; profit: number; year?: number; mIndex?: number; }
+
 const TrendChart: React.FC<{ pts: TrendPoint[]; fmt: (n: number) => string }> = ({ pts, fmt }) => {
    const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
+   const [chartMode, setChartMode] = useState<'combo' | 'dual' | 'stacked'>('combo');
    const [activeMetric, setActiveMetric] = useState<'both' | 'revenue' | 'profit'>('both');
+   const [hideEmpty, setHideEmpty] = useState<boolean>(true);
 
-   const W = 900, H = 270, PAD = { top: 28, right: 24, bottom: 42, left: 64 };
+   // Filter empty leading months if requested
+   const displayPts = useMemo(() => {
+      if (!hideEmpty || pts.length === 0) return pts;
+      // Find first month index with non-zero revenue or profit
+      const firstActiveIdx = pts.findIndex(p => p.revenue > 0 || p.profit > 0);
+      if (firstActiveIdx <= 0) return pts;
+      return pts.slice(firstActiveIdx);
+   }, [pts, hideEmpty]);
+
+   const hasLeadingZeros = useMemo(() => {
+      const firstActiveIdx = pts.findIndex(p => p.revenue > 0 || p.profit > 0);
+      return firstActiveIdx > 0;
+   }, [pts]);
+
+   // Header Derived Insights & KPIs
+   const insights = useMemo(() => {
+      if (displayPts.length === 0) return { peakMonth: 'N/A', peakRev: 0, bestProfitMonth: 'N/A', maxProfit: 0, avgMargin: 0 };
+      
+      let peakRevPoint = displayPts[0];
+      let bestProfPoint = displayPts[0];
+      let totalRev = 0;
+      let totalProf = 0;
+
+      displayPts.forEach(p => {
+         totalRev += p.revenue;
+         totalProf += p.profit;
+         if (p.revenue > peakRevPoint.revenue) peakRevPoint = p;
+         if (p.profit > bestProfPoint.profit) bestProfPoint = p;
+      });
+
+      const avgMargin = totalRev > 0 ? (totalProf / totalRev) * 100 : 0;
+      return {
+         peakMonth: peakRevPoint.month,
+         peakRev: peakRevPoint.revenue,
+         bestProfitMonth: bestProfPoint.month,
+         maxProfit: bestProfPoint.profit,
+         avgMargin
+      };
+   }, [displayPts]);
+
+   // Layout Dimensions
+   const W = 920, H = 300;
+   const PAD = { top: 32, right: chartMode === 'dual' ? 68 : 32, bottom: 44, left: 68 };
    const innerW = W - PAD.left - PAD.right;
    const innerH = H - PAD.top - PAD.bottom;
-   const maxVal = Math.max(...pts.map(d => Math.max(d.revenue, d.profit)), 1);
+
+   const maxRev = Math.max(...displayPts.map(d => d.revenue), 1);
+   const maxProf = Math.max(...displayPts.map(d => d.profit), 1);
+   const maxValUnified = Math.max(...displayPts.map(d => Math.max(d.revenue, d.profit)), 1);
+
    const yTicks = 5;
-   const colW = pts.length > 1 ? innerW / (pts.length - 1) : innerW;
+   const n = displayPts.length;
+   const colWidth = n > 0 ? innerW / n : innerW;
+   const barWidth = Math.min(Math.max(colWidth * 0.38, 14), 36);
 
-   const xOf = (i: number) => PAD.left + (pts.length > 1 ? (i / (pts.length - 1)) * innerW : innerW / 2);
-   const yOf = (v: number) => PAD.top + innerH - (v / maxVal) * innerH;
+   // X & Y position helpers
+   const xCenterOf = (i: number) => PAD.left + (i + 0.5) * colWidth;
+   const yOfRev = (v: number) => PAD.top + innerH - (v / (chartMode === 'dual' ? maxRev : maxValUnified)) * innerH;
+   const yOfProf = (v: number) => PAD.top + innerH - (v / (chartMode === 'dual' ? maxProf : maxValUnified)) * innerH;
 
-   const bezierPath = (values: number[]) => {
-      if (values.length < 2) return '';
-      let d = `M ${xOf(0)} ${yOf(values[0])}`;
-      for (let i = 0; i < values.length - 1; i++) {
-         const cx = colW / 2.5;
-         d += ` C ${xOf(i) + cx} ${yOf(values[i])}, ${xOf(i + 1) - cx} ${yOf(values[i + 1])}, ${xOf(i + 1)} ${yOf(values[i + 1])}`;
+   // Formatting Y-Axis labels with precise decimal Lakhs (eliminates duplicate ₹2L ticks)
+   const fmtAxisLabel = (v: number) => {
+      if (v === 0) return '₹0';
+      if (v >= 10000000) return `₹${(v / 10000000).toFixed(1)}Cr`;
+      if (v >= 100000) {
+         const lakhs = v / 100000;
+         return lakhs % 1 === 0 ? `₹${lakhs.toFixed(0)}L` : `₹${lakhs.toFixed(1)}L`;
+      }
+      if (v >= 1000) return `₹${(v / 1000).toFixed(0)}K`;
+      return `₹${Math.round(v)}`;
+   };
+
+   // Bezier Curve generator for Line mode
+   const buildBezier = (vals: number[], yMapper: (v: number) => number) => {
+      if (vals.length === 0) return '';
+      if (vals.length === 1) return `M ${xCenterOf(0)} ${yMapper(vals[0])}`;
+      let d = `M ${xCenterOf(0)} ${yMapper(vals[0])}`;
+      for (let i = 0; i < vals.length - 1; i++) {
+         const x1 = xCenterOf(i);
+         const y1 = yMapper(vals[i]);
+         const x2 = xCenterOf(i + 1);
+         const y2 = yMapper(vals[i + 1]);
+         const cx = (x2 - x1) / 2.2;
+         d += ` C ${x1 + cx} ${y1}, ${x2 - cx} ${y2}, ${x2} ${y2}`;
       }
       return d;
    };
 
-   const areaPath = (values: number[]) => {
-      const line = bezierPath(values);
+   const buildArea = (vals: number[], yMapper: (v: number) => number) => {
+      const line = buildBezier(vals, yMapper);
       if (!line) return '';
-      return `${line} L ${xOf(pts.length - 1)} ${PAD.top + innerH} L ${xOf(0)} ${PAD.top + innerH} Z`;
+      const lastX = xCenterOf(vals.length - 1);
+      const firstX = xCenterOf(0);
+      const bottomY = PAD.top + innerH;
+      return `${line} L ${lastX} ${bottomY} L ${firstX} ${bottomY} Z`;
    };
 
-   const revPath  = bezierPath(pts.map(d => d.revenue));
-   const profPath = bezierPath(pts.map(d => d.profit));
-   const revArea  = areaPath(pts.map(d => d.revenue));
-   const profArea = areaPath(pts.map(d => d.profit));
-   const hovered  = hoveredIdx !== null ? pts[hoveredIdx] : null;
+   const activeIdx = hoveredIdx !== null ? hoveredIdx : selectedIdx;
+   const activeItem = activeIdx !== null && activeIdx < displayPts.length ? displayPts[activeIdx] : null;
 
-   const fmtTip = (v: number) =>
-      v >= 10000000 ? `₹${(v / 10000000).toFixed(1)}Cr`
-      : v >= 100000 ? `₹${(v / 100000).toFixed(1)}L`
-      : v >= 1000   ? `₹${(v / 1000).toFixed(1)}K`
-      : `₹${v.toFixed(0)}`;
-
-   const fmtY = (v: number) =>
-      v >= 100000 ? `₹${(v / 100000).toFixed(0)}L`
-      : v >= 1000 ? `₹${(v / 1000).toFixed(0)}K`
-      : `₹${v.toFixed(0)}`;
-
-   const showRev  = activeMetric === 'both' || activeMetric === 'revenue';
+   // Metric visibility flags
+   const showRev = activeMetric === 'both' || activeMetric === 'revenue';
    const showProf = activeMetric === 'both' || activeMetric === 'profit';
 
    return (
-      <div className="bg-white dark:bg-[#1A2633] p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
-         {/* Header */}
-         <div className="flex flex-wrap justify-between items-center mb-5 gap-3">
-            <h4 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2 section-heading-accent">
-               <TrendingUp size={20} className="text-primary" /> Monthly Revenue & Profit Trend
-            </h4>
-            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
-               {(['both', 'revenue', 'profit'] as const).map(m => (
-                  <button key={m} onClick={() => setActiveMetric(m)}
-                     className={`px-3 py-1.5 rounded-md text-xs font-bold capitalize transition-all ${
-                        activeMetric === m
-                           ? m === 'profit' ? 'bg-white dark:bg-slate-700 text-emerald-600 shadow-sm'
-                           : m === 'revenue' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm'
-                           : 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-sm'
-                           : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-                     }`}>
-                     {m === 'both' ? 'Both' : m === 'revenue' ? 'Revenue' : 'Profit'}
+      <div className="bg-white dark:bg-[#1A2633] p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 transition-all">
+         
+         {/* ── Top Header Controls & Title ── */}
+         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6 pb-4 border-b border-slate-100 dark:border-slate-800">
+            <div>
+               <div className="flex items-center gap-2">
+                  <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400">
+                     <TrendingUp size={22} />
+                  </div>
+                  <div>
+                     <h4 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                        Monthly Revenue & Financial Performance
+                     </h4>
+                     <p className="text-xs text-slate-500 dark:text-slate-400">
+                        Interactive breakdown of Gross Revenue, Supplier COGS, and Net Profit
+                     </p>
+                  </div>
+               </div>
+            </div>
+
+            {/* View Mode & Metric Switchers */}
+            <div className="flex flex-wrap items-center gap-2">
+               {/* Mode Switcher */}
+               <div className="flex items-center bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl border border-slate-200/50 dark:border-slate-700/50">
+                  <button
+                     onClick={() => setChartMode('combo')}
+                     className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                        chartMode === 'combo'
+                           ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm font-bold'
+                           : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                     }`}
+                     title="Combo Bar + Profit Line chart view"
+                  >
+                     📊 Combo
                   </button>
-               ))}
+                  <button
+                     onClick={() => setChartMode('dual')}
+                     className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                        chartMode === 'dual'
+                           ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm font-bold'
+                           : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                     }`}
+                     title="Dual Y-Axis Mode to visualize profit curve without squashing"
+                  >
+                     📈 Dual-Axis
+                  </button>
+                  <button
+                     onClick={() => setChartMode('stacked')}
+                     className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                        chartMode === 'stacked'
+                           ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm font-bold'
+                           : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                     }`}
+                     title="Stacked Bar: Supplier Cost + Net Profit = Gross Sales"
+                  >
+                     🥞 Stacked
+                  </button>
+               </div>
+
+               {/* Metric Filter Buttons */}
+               <div className="flex items-center bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl border border-slate-200/50 dark:border-slate-700/50">
+                  {(['both', 'revenue', 'profit'] as const).map(m => (
+                     <button
+                        key={m}
+                        onClick={() => setActiveMetric(m)}
+                        className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold capitalize transition-all ${
+                           activeMetric === m
+                              ? m === 'profit' ? 'bg-emerald-500 text-white shadow-sm font-bold'
+                              : m === 'revenue' ? 'bg-indigo-600 text-white shadow-sm font-bold'
+                              : 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 shadow-sm font-bold'
+                              : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                        }`}
+                     >
+                        {m}
+                     </button>
+                  ))}
+               </div>
+
+               {/* Smart Empty Months Filter Toggle */}
+               {hasLeadingZeros && (
+                  <button
+                     onClick={() => setHideEmpty(!hideEmpty)}
+                     className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-all flex items-center gap-1.5 ${
+                        hideEmpty
+                           ? 'bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800 font-semibold'
+                           : 'bg-white dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700'
+                     }`}
+                  >
+                     <Zap size={13} className={hideEmpty ? 'fill-indigo-500' : ''} />
+                     {hideEmpty ? 'Active Months' : 'All 12 Months'}
+                  </button>
+               )}
             </div>
          </div>
 
-         {/* SVG Chart */}
-         <div className="w-full overflow-x-auto">
-            <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ minWidth: 520 }}
-               onMouseLeave={() => setHoveredIdx(null)}>
+         {/* ── KPI Quick Insight Badges Banner ── */}
+         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+            <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
+               <div>
+                  <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+                     Peak Revenue Month
+                  </div>
+                  <div className="text-sm font-bold text-slate-900 dark:text-white mt-0.5">
+                     {insights.peakMonth} ({fmtAxisLabel(insights.peakRev)})
+                  </div>
+               </div>
+               <div className="w-8 h-8 rounded-lg bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-300 flex items-center justify-center font-bold text-xs">
+                  🏆
+               </div>
+            </div>
+
+            <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
+               <div>
+                  <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+                     Avg Profit Margin
+                  </div>
+                  <div className="text-sm font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">
+                     {insights.avgMargin.toFixed(1)}% Margin
+                  </div>
+               </div>
+               <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-300 flex items-center justify-center font-bold text-xs">
+                  📈
+               </div>
+            </div>
+
+            <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
+               <div>
+                  <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+                     Top Profit Month
+                  </div>
+                  <div className="text-sm font-bold text-slate-900 dark:text-white mt-0.5">
+                     {insights.bestProfitMonth} ({fmtAxisLabel(insights.maxProfit)})
+                  </div>
+               </div>
+               <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-300 flex items-center justify-center font-bold text-xs">
+                  💎
+               </div>
+            </div>
+         </div>
+
+         {/* ── Main Interactive SVG Chart ── */}
+         <div className="relative w-full overflow-x-auto">
+            <svg
+               viewBox={`0 0 ${W} ${H}`}
+               className="w-full h-auto overflow-visible select-none"
+               style={{ minWidth: 600 }}
+               onMouseLeave={() => setHoveredIdx(null)}
+            >
                <defs>
-                  <linearGradient id="ytd-gradRev" x1="0" y1="0" x2="0" y2="1">
-                     <stop offset="0%"   stopColor="#6366f1" stopOpacity="0.32" />
-                     <stop offset="100%" stopColor="#6366f1" stopOpacity="0.01" />
+                  {/* Revenue Gradient */}
+                  <linearGradient id="chartGradRev" x1="0" y1="0" x2="0" y2="1">
+                     <stop offset="0%" stopColor="#6366f1" stopOpacity="0.85" />
+                     <stop offset="100%" stopColor="#818cf8" stopOpacity="0.45" />
                   </linearGradient>
-                  <linearGradient id="ytd-gradProf" x1="0" y1="0" x2="0" y2="1">
-                     <stop offset="0%"   stopColor="#34d399" stopOpacity="0.28" />
-                     <stop offset="100%" stopColor="#34d399" stopOpacity="0.01" />
+                  {/* Expense Gradient */}
+                  <linearGradient id="chartGradCost" x1="0" y1="0" x2="0" y2="1">
+                     <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.80" />
+                     <stop offset="100%" stopColor="#fbbf24" stopOpacity="0.40" />
+                  </linearGradient>
+                  {/* Profit Line Area Fill */}
+                  <linearGradient id="chartGradProfArea" x1="0" y1="0" x2="0" y2="1">
+                     <stop offset="0%" stopColor="#10b981" stopOpacity="0.30" />
+                     <stop offset="100%" stopColor="#10b981" stopOpacity="0.0" />
                   </linearGradient>
                </defs>
 
-               {/* Grid + Y labels */}
+               {/* ── Grid Lines & Left Y-Axis ── */}
                {Array.from({ length: yTicks + 1 }, (_, i) => {
-                  const v = (maxVal / yTicks) * i;
-                  const y = yOf(v);
+                  const val = chartMode === 'dual' ? (maxRev / yTicks) * i : (maxValUnified / yTicks) * i;
+                  const y = yOfRev(val);
                   return (
-                     <g key={i}>
-                        <line x1={PAD.left} y1={y} x2={W - PAD.right} y2={y}
-                           stroke="currentColor" strokeOpacity="0.07" strokeWidth="1" strokeDasharray="4 4" />
-                        <text x={PAD.left - 8} y={y + 4} textAnchor="end"
-                           fill="currentColor" fillOpacity="0.38" fontSize="10" fontWeight="600">
-                           {fmtY(v)}
+                     <g key={`y-left-${i}`}>
+                        <line
+                           x1={PAD.left}
+                           y1={y}
+                           x2={W - PAD.right}
+                           y2={y}
+                           stroke="currentColor"
+                           strokeOpacity="0.08"
+                           strokeWidth="1"
+                           strokeDasharray="4 4"
+                        />
+                        <text
+                           x={PAD.left - 10}
+                           y={y + 4}
+                           textAnchor="end"
+                           fill="currentColor"
+                           fillOpacity="0.5"
+                           fontSize="11"
+                           fontWeight="600"
+                        >
+                           {fmtAxisLabel(val)}
                         </text>
                      </g>
                   );
                })}
 
-               {/* Area fills */}
-               {showRev  && pts.length > 1 && <path d={revArea}  fill="url(#ytd-gradRev)"  />}
-               {showProf && pts.length > 1 && <path d={profArea} fill="url(#ytd-gradProf)" />}
+               {/* ── Right Y-Axis (For Dual Axis Profit Mode) ── */}
+               {chartMode === 'dual' && showProf && (
+                  Array.from({ length: yTicks + 1 }, (_, i) => {
+                     const profVal = (maxProf / yTicks) * i;
+                     const y = yOfProf(profVal);
+                     return (
+                        <g key={`y-right-${i}`}>
+                           <text
+                              x={W - PAD.right + 10}
+                              y={y + 4}
+                              textAnchor="start"
+                              fill="#10b981"
+                              fontSize="11"
+                              fontWeight="700"
+                           >
+                              {fmtAxisLabel(profVal)}
+                           </text>
+                        </g>
+                     );
+                  })
+               )}
 
-               {/* Lines */}
-               {showRev  && pts.length > 1 && <path d={revPath}  fill="none" stroke="#6366f1" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />}
-               {showProf && pts.length > 1 && <path d={profPath} fill="none" stroke="#34d399" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />}
+               {/* ── Render Mode A & C: Bars for Gross Revenue & Vendor Cost ── */}
+               {displayPts.map((d, i) => {
+                  const cx = xCenterOf(i);
+                  const isHovered = activeIdx === i;
+                  const vendorCost = Math.max(0, d.revenue - d.profit);
 
-               {/* Per-month interaction */}
-               {pts.map((d, i) => (
-                  <g key={i}>
-                     {/* Month label */}
-                     <text x={xOf(i)} y={H - 8} textAnchor="middle"
-                        fill="currentColor" fillOpacity={hoveredIdx === i ? 0.9 : 0.45}
-                        fontSize="10" fontWeight="700">
-                        {d.month}
-                     </text>
+                  if (chartMode === 'stacked') {
+                     // Stacked mode: Cost bar on bottom, Profit bar on top
+                     const totalH = innerH * (d.revenue / maxValUnified);
+                     const costH = innerH * (vendorCost / maxValUnified);
+                     const profH = innerH * (Math.max(0, d.profit) / maxValUnified);
+                     const baseTop = PAD.top + innerH;
 
-                     {/* Invisible wide hit rect */}
-                     <rect
-                        x={xOf(i) - colW / 2} y={PAD.top}
-                        width={colW} height={innerH + 14}
-                        fill="transparent" style={{ cursor: 'crosshair' }}
-                        onMouseEnter={() => setHoveredIdx(i)}
-                     />
+                     return (
+                        <g key={`bar-stacked-${i}`} onClick={() => setSelectedIdx(i)}>
+                           {/* Vendor Cost Segment */}
+                           {showRev && costH > 0 && (
+                              <rect
+                                 x={cx - barWidth / 2}
+                                 y={baseTop - costH}
+                                 width={barWidth}
+                                 height={costH}
+                                 rx="3"
+                                 fill="url(#chartGradCost)"
+                                 opacity={isHovered ? 1 : 0.85}
+                                 className="transition-all duration-150 cursor-pointer"
+                              />
+                           )}
+                           {/* Profit Segment */}
+                           {showProf && profH > 0 && (
+                              <rect
+                                 x={cx - barWidth / 2}
+                                 y={baseTop - costH - profH}
+                                 width={barWidth}
+                                 height={profH}
+                                 rx="4"
+                                 fill="#10b981"
+                                 opacity={isHovered ? 1 : 0.9}
+                                 className="transition-all duration-150 cursor-pointer"
+                              />
+                           )}
+                        </g>
+                     );
+                  } else {
+                     // Combo / Dual Mode: Revenue bar + Vendor cost bar
+                     const revH = innerH * (d.revenue / (chartMode === 'dual' ? maxRev : maxValUnified));
+                     const costH = innerH * (vendorCost / (chartMode === 'dual' ? maxRev : maxValUnified));
+                     const baseTop = PAD.top + innerH;
 
-                     {/* Vertical crosshair */}
-                     {hoveredIdx === i && (
-                        <line x1={xOf(i)} y1={PAD.top} x2={xOf(i)} y2={PAD.top + innerH}
-                           stroke="currentColor" strokeOpacity="0.18" strokeWidth="1" strokeDasharray="4 3" />
-                     )}
+                     return (
+                        <g key={`bar-combo-${i}`} onClick={() => setSelectedIdx(i)}>
+                           {/* Gross Revenue Bar */}
+                           {showRev && d.revenue > 0 && (
+                              <rect
+                                 x={cx - barWidth / 2}
+                                 y={baseTop - revH}
+                                 width={barWidth}
+                                 height={revH}
+                                 rx="5"
+                                 fill="url(#chartGradRev)"
+                                 opacity={isHovered ? 1 : 0.75}
+                                 className="transition-all duration-150 cursor-pointer"
+                              />
+                           )}
+                        </g>
+                     );
+                  }
+               })}
 
-                     {/* Revenue dot */}
-                     {showRev && d.revenue > 0 && (
-                        <circle cx={xOf(i)} cy={yOf(d.revenue)} r={hoveredIdx === i ? 6 : 3.5}
-                           fill="#6366f1" stroke="white" strokeWidth="2"
-                           style={{ transition: 'r 0.12s ease' }} />
-                     )}
-                     {/* Profit dot */}
-                     {showProf && d.profit > 0 && (
-                        <circle cx={xOf(i)} cy={yOf(d.profit)} r={hoveredIdx === i ? 6 : 3.5}
-                           fill="#34d399" stroke="white" strokeWidth="2"
-                           style={{ transition: 'r 0.12s ease' }} />
-                     )}
-                  </g>
-               ))}
+               {/* ── Area Fill Under Profit Line ── */}
+               {showProf && displayPts.length > 1 && chartMode !== 'stacked' && (
+                  <path
+                     d={buildArea(displayPts.map(d => d.profit), yOfProf)}
+                     fill="url(#chartGradProfArea)"
+                  />
+               )}
 
-               {/* Floating tooltip inside SVG */}
-               {hovered && hoveredIdx !== null && (() => {
-                  const lines = (showRev && showProf) ? 2 : 1;
-                  const tipH = 22 + lines * 18 + 8;
-                  const tipW = 152;
-                  const tx = Math.min(Math.max(xOf(hoveredIdx) - tipW / 2, PAD.left), W - PAD.right - tipW);
-                  const ty = PAD.top + 4;
+               {/* ── Net Profit Smooth Curve Line ── */}
+               {showProf && displayPts.length > 1 && chartMode !== 'stacked' && (
+                  <path
+                     d={buildBezier(displayPts.map(d => d.profit), yOfProf)}
+                     fill="none"
+                     stroke="#10b981"
+                     strokeWidth="3.2"
+                     strokeLinecap="round"
+                     strokeLinejoin="round"
+                  />
+               )}
+
+               {/* ── Data Points, Node Circles & X-Axis Labels ── */}
+               {displayPts.map((d, i) => {
+                  const cx = xCenterOf(i);
+                  const isHovered = activeIdx === i;
+                  const profY = yOfProf(d.profit);
+
                   return (
-                     <g>
-                        {/* Shadow */}
-                        <rect x={tx + 2} y={ty + 2} width={tipW} height={tipH} rx="8" fill="black" fillOpacity="0.18" />
-                        <rect x={tx} y={ty} width={tipW} height={tipH} rx="8" fill="#0f172a" fillOpacity="0.94" />
-                        {/* Month name */}
-                        <text x={tx + 12} y={ty + 16} fill="white" fontSize="11" fontWeight="800">{hovered.month}</text>
-                        {/* Divider */}
-                        <line x1={tx + 8} y1={ty + 21} x2={tx + tipW - 8} y2={ty + 21} stroke="white" strokeOpacity="0.12" strokeWidth="1" />
-                        {/* Revenue row */}
-                        {showRev && (
-                           <>
-                              <circle cx={tx + 16} cy={ty + 32} r="4" fill="#818cf8" />
-                              <text x={tx + 26} y={ty + 36} fill="#a5b4fc" fontSize="10">Revenue</text>
-                              <text x={tx + tipW - 10} y={ty + 36} textAnchor="end" fill="#c7d2fe" fontSize="10" fontWeight="700">
-                                 {fmtTip(hovered.revenue)}
-                              </text>
-                           </>
+                     <g key={`pt-${i}`}>
+                        {/* X-Axis Month Label */}
+                        <text
+                           x={cx}
+                           y={H - 12}
+                           textAnchor="middle"
+                           fill="currentColor"
+                           fillOpacity={isHovered ? 1 : 0.65}
+                           fontSize={isHovered ? "12" : "11"}
+                           fontWeight={isHovered ? "800" : "600"}
+                           className="transition-all cursor-pointer"
+                           onClick={() => setSelectedIdx(i)}
+                        >
+                           {d.month}
+                        </text>
+
+                        {/* Interactive Full Column Hit Box */}
+                        <rect
+                           x={cx - colWidth / 2}
+                           y={PAD.top}
+                           width={colWidth}
+                           height={innerH + 18}
+                           fill="transparent"
+                           className="cursor-pointer"
+                           onMouseEnter={() => setHoveredIdx(i)}
+                           onClick={() => setSelectedIdx(i)}
+                        />
+
+                        {/* Vertical Crosshair Guide */}
+                        {isHovered && (
+                           <line
+                              x1={cx}
+                              y1={PAD.top}
+                              x2={cx}
+                              y2={PAD.top + innerH}
+                              stroke="#6366f1"
+                              strokeOpacity="0.35"
+                              strokeWidth="1.5"
+                              strokeDasharray="4 3"
+                           />
                         )}
-                        {/* Profit row */}
-                        {showProf && (
-                           <>
-                              <circle cx={tx + 16} cy={ty + (showRev ? 50 : 32)} r="4" fill="#34d399" />
-                              <text x={tx + 26} y={ty + (showRev ? 54 : 36)} fill="#6ee7b7" fontSize="10">Net Profit</text>
-                              <text x={tx + tipW - 10} y={ty + (showRev ? 54 : 36)} textAnchor="end" fill="#a7f3d0" fontSize="10" fontWeight="700">
-                                 {fmtTip(hovered.profit)}
-                              </text>
-                           </>
+
+                        {/* Net Profit Glowing Data Dot */}
+                        {showProf && d.profit > 0 && chartMode !== 'stacked' && (
+                           <circle
+                              cx={cx}
+                              cy={profY}
+                              r={isHovered ? 7 : 4}
+                              fill="#10b981"
+                              stroke="#ffffff"
+                              strokeWidth={isHovered ? "3" : "2"}
+                              className="transition-all duration-150 shadow-md cursor-pointer"
+                           />
                         )}
                      </g>
                   );
-               })()}
+               })}
             </svg>
+
+            {/* ── Rich Glassmorphic Interactive Floating Tooltip ── */}
+            {activeItem && activeIdx !== null && (() => {
+               const cx = xCenterOf(activeIdx);
+               const pctX = (cx / W) * 100;
+               const vendorCost = Math.max(0, activeItem.revenue - activeItem.profit);
+               const marginPct = activeItem.revenue > 0 ? (activeItem.profit / activeItem.revenue) * 100 : 0;
+               
+               // MoM calculation
+               const prevItem = activeIdx > 0 ? displayPts[activeIdx - 1] : null;
+               const momRevPct = prevItem && prevItem.revenue > 0 
+                  ? ((activeItem.revenue - prevItem.revenue) / prevItem.revenue) * 100 
+                  : null;
+
+               return (
+                  <div
+                     className="absolute z-20 top-2 -translate-x-1/2 pointer-events-none transition-all duration-150"
+                     style={{ left: `${Math.max(14, Math.min(pctX, 86))}%` }}
+                  >
+                     <div className="bg-slate-900/95 dark:bg-slate-900/95 backdrop-blur-md text-white px-4 py-3 rounded-2xl shadow-2xl border border-slate-700/60 min-w-[210px]">
+                        <div className="flex items-center justify-between border-b border-slate-700/80 pb-2 mb-2">
+                           <span className="font-extrabold text-xs text-indigo-300 uppercase tracking-wider flex items-center gap-1.5">
+                              <Calendar size={13} /> {activeItem.month} Breakdown
+                           </span>
+                           {momRevPct !== null && (
+                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${momRevPct >= 0 ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'}`}>
+                                 {momRevPct >= 0 ? `▲ +${momRevPct.toFixed(0)}%` : `▼ ${momRevPct.toFixed(0)}%`}
+                              </span>
+                           )}
+                        </div>
+
+                        <div className="space-y-1.5 text-xs">
+                           {/* Gross Revenue */}
+                           {showRev && (
+                              <div className="flex items-center justify-between">
+                                 <span className="text-slate-300 flex items-center gap-1.5 font-medium">
+                                    <span className="w-2.5 h-2.5 rounded-full bg-indigo-500"></span> Gross Revenue:
+                                 </span>
+                                 <span className="font-bold text-indigo-200">{fmt(activeItem.revenue)}</span>
+                              </div>
+                           )}
+
+                           {/* Vendor Cost */}
+                           {showRev && (
+                              <div className="flex items-center justify-between">
+                                 <span className="text-slate-400 flex items-center gap-1.5 font-medium">
+                                    <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span> Vendor COGS:
+                                 </span>
+                                 <span className="font-semibold text-slate-300">{fmt(vendorCost)}</span>
+                              </div>
+                           )}
+
+                           {/* Net Profit */}
+                           {showProf && (
+                              <div className="flex items-center justify-between pt-1 border-t border-slate-700/60">
+                                 <span className="text-emerald-400 flex items-center gap-1.5 font-bold">
+                                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400"></span> Net Profit:
+                                 </span>
+                                 <span className="font-extrabold text-emerald-300">{fmt(activeItem.profit)}</span>
+                              </div>
+                           )}
+
+                           {/* Profit Margin Badge */}
+                           <div className="mt-2 text-center pt-1.5 border-t border-slate-800 text-[11px] font-semibold text-slate-400">
+                              Profit Margin: <span className="text-emerald-400 font-bold">{marginPct.toFixed(1)}%</span>
+                           </div>
+                        </div>
+                     </div>
+                  </div>
+               );
+            })()}
          </div>
 
-         {/* Legend */}
-         <div className="flex justify-center gap-6 mt-2">
-            {showRev && (
-               <div className="flex items-center gap-2">
-                  <div className="w-6 h-0.5 bg-indigo-500 rounded-full"></div>
-                  <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Gross Revenue</span>
-               </div>
-            )}
-            {showProf && (
-               <div className="flex items-center gap-2">
-                  <div className="w-6 h-0.5 bg-emerald-400 rounded-full"></div>
-                  <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Net Profit</span>
-               </div>
-            )}
+         {/* ── Legend & Interactive Details ── */}
+         <div className="flex flex-wrap items-center justify-between gap-4 mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 text-xs">
+            <div className="flex items-center gap-5">
+               {showRev && (
+                  <div className="flex items-center gap-2">
+                     <span className="w-3 h-3 rounded-md bg-indigo-500"></span>
+                     <span className="font-semibold text-slate-700 dark:text-slate-300">Gross Sales</span>
+                  </div>
+               )}
+               {showRev && (
+                  <div className="flex items-center gap-2">
+                     <span className="w-3 h-3 rounded-md bg-amber-500"></span>
+                     <span className="font-semibold text-slate-600 dark:text-slate-400">Vendor Costs</span>
+                  </div>
+               )}
+               {showProf && (
+                  <div className="flex items-center gap-2">
+                     <span className="w-3 h-3 rounded-full bg-emerald-500 ring-2 ring-emerald-300 dark:ring-emerald-900"></span>
+                     <span className="font-bold text-emerald-600 dark:text-emerald-400">Net Profit Line</span>
+                  </div>
+               )}
+            </div>
+
+            <div className="text-slate-400 text-[11px] font-medium">
+               💡 Hover over any month to view detailed breakdown • Click to select
+            </div>
          </div>
       </div>
    );
@@ -763,17 +1141,17 @@ export const Analytics: React.FC = () => {
       return { qMap, topDests };
    }, [filteredLeads]);
 
-   // Format Currency
-   const fmt = (n: number) => `₹${n.toLocaleString('en-IN')}`;
-   // Format Short Currency — handles thousands, lakhs, and crores correctly
+   // Format Currency — rounded to whole integers
+   const fmt = (n: number) => `₹${Math.round(n || 0).toLocaleString('en-IN')}`;
+   // Format Short Currency — handles thousands, lakhs, and crores correctly with rounded integers
    const fmtShort = (n: number) => {
       if (!n || isNaN(n)) return '₹0';
-      const abs = Math.abs(n);
+      const abs = Math.round(Math.abs(n));
       const sign = n < 0 ? '-' : '';
       if (abs >= 10000000) return `${sign}₹${(abs / 10000000).toFixed(1)}Cr`;
       if (abs >= 100000) return `${sign}₹${(abs / 100000).toFixed(1)}L`;
       if (abs >= 1000) return `${sign}₹${(abs / 1000).toFixed(1)}K`;
-      return `${sign}₹${abs.toFixed(0)}`;
+      return `${sign}₹${abs.toLocaleString('en-IN')}`;
    };
 
    // Export the current filtered view as a downloadable CSV file

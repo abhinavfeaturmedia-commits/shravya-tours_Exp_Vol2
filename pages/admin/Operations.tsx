@@ -5,7 +5,9 @@ import { useNavigate } from 'react-router-dom';
 import {
     Map, Calendar, Users, Briefcase, CheckCircle,
     XCircle, AlertTriangle, LogOut, Car, RefreshCw,
-    Plus, Trash2, Clock, ChevronDown, ChevronUp, Coffee, Compass
+    Plus, Trash2, Clock, ChevronDown, ChevronUp, Compass,
+    Search, Filter, PhoneCall, ExternalLink, ShieldAlert, Sparkles, UserCheck, CheckSquare,
+    MessageSquare, Activity, Check, User
 } from 'lucide-react';
 import { Booking, SupplierBooking, BookingDailyDeliverable } from '../../types';
 import { api } from '../../src/lib/api';
@@ -43,14 +45,16 @@ const formatExternalUrl = (url: string): string => {
     return `https://${url}`;
 };
 
-/** Day-of-tour counter (1-based, clamped to duration) */
-const getDayOfTour = (dateStr: string, duration: number): number => {
+/** Tour progress calculation (Day count & percentage) */
+const getTourProgress = (dateStr: string, duration: number): { day: number; percent: number } => {
     const start = parseLocalDate(dateStr);
-    if (!start) return 1;
+    if (!start || duration <= 0) return { day: 1, percent: 100 };
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const diff = Math.round((today.getTime() - start.getTime()) / 86_400_000) + 1;
-    return Math.min(Math.max(diff, 1), duration);
+    const diffDays = Math.round((today.getTime() - start.getTime()) / 86_400_000) + 1;
+    const currentDay = Math.min(Math.max(diffDays, 1), duration);
+    const percent = Math.min(Math.max(Math.round((currentDay / duration) * 100), 5), 100);
+    return { day: currentDay, percent };
 };
 
 // ─── Pax count extraction ─────────────────────────────────────────────────────
@@ -63,12 +67,32 @@ const extractPaxCount = (guestsStr?: string): number => {
     return 1;
 };
 
+// ─── Deliverable Icon Helper ──────────────────────────────────────────────────
+const getDeliverableCategoryIcon = (type: string) => {
+    switch (type) {
+        case 'meal': return '🍳';
+        case 'transport': return '🚗';
+        case 'guide': return '🗣️';
+        case 'activity': return '🎟️';
+        case 'hotel': return '🏨';
+        default: return '⚙️';
+    }
+};
+
 export const Operations: React.FC = () => {
     const { bookings, packages, vendors, addSupplierBooking, updateSupplierBooking, updateBooking, refreshData } = useData() as any;
     const { staff, updateStaff, currentUser } = useAuth();
     const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState<'Tours' | 'Attendance'>('Tours');
     const [isRefreshing, setIsRefreshing] = useState(false);
+
+    // ─── Search & Filters ─────────────────────────────────────────────────────
+    const [searchQuery, setSearchQuery] = useState('');
+    const [statusFilter, setStatusFilter] = useState<'all' | 'live' | 'attention' | 'unassigned' | 'upcoming'>('all');
+
+    // ─── Staff Search & Filter (Attendance) ──────────────────────────────────
+    const [staffSearchQuery, setStaffSearchQuery] = useState('');
+    const [staffRoleFilter, setStaffRoleFilter] = useState<string>('all');
 
     // ─── Upcoming window toggle (7 / 14 / 30 days) ─────────────────────────
     const [upcomingDays, setUpcomingDays] = useState<7 | 14 | 30>(7);
@@ -80,12 +104,12 @@ export const Operations: React.FC = () => {
     const [deliverables, setDeliverables] = useState<Record<string, BookingDailyDeliverable[]>>({});
     const [loadingDeliverables, setLoadingDeliverables] = useState<Record<string, boolean>>({});
     const [expandedChecklists, setExpandedChecklists] = useState<Record<string, boolean>>({});
-    const [selectedDays, setSelectedDays] = useState<Record<string, number>>({}); 
-    const [newDeliverableName, setNewDeliverableName] = useState<Record<string, string>>({}); 
+    const [selectedDays, setSelectedDays] = useState<Record<string, number>>({});
+    const [newDeliverableName, setNewDeliverableName] = useState<Record<string, string>>({});
     const [newDeliverableType, setNewDeliverableType] = useState<Record<string, 'meal' | 'transport' | 'guide' | 'activity' | 'hotel' | 'other'>>({});
     const [newDeliverableTime, setNewDeliverableTime] = useState<Record<string, string>>({});
 
-    // Fix E: Fetch deliverables for a specific booking (triggered when checklist is expanded)
+    // Fetch deliverables for a specific booking
     const fetchDeliverableForBooking = useCallback(async (bookingId: string) => {
         setLoadingDeliverables(prev => ({ ...prev, [bookingId]: true }));
         try {
@@ -98,13 +122,11 @@ export const Operations: React.FC = () => {
         }
     }, []);
 
-    // Fix E: Refresh a single booking's deliverables (used after add/delete/update)
     const refreshDeliverables = useCallback((bookingId: string) => {
         fetchDeliverableForBooking(bookingId);
     }, [fetchDeliverableForBooking]);
 
-    // Fix D: Listen for bookings-changed events fired by the Bookings page
-    // This ensures live/upcoming lists auto-update when another tab changes booking status
+    // Listen for external booking changes
     React.useEffect(() => {
         const onBookingsChanged = () => {
             refreshData?.();
@@ -113,14 +135,13 @@ export const Operations: React.FC = () => {
         return () => window.removeEventListener('bookings-changed', onBookingsChanged);
     }, [refreshData]);
 
-    // ─── Refresh handler ────────────────────────────────────────────────────
+    // Manual Refresh handler
     const handleRefresh = useCallback(async () => {
         setIsRefreshing(true);
         try {
             await refreshData?.();
-            // Clear cached deliverables so they re-fetch fresh on expand
             setDeliverables({});
-            toast.success('Data refreshed');
+            toast.success('Operations data refreshed');
         } catch {
             toast.error('Refresh failed');
         } finally {
@@ -128,8 +149,7 @@ export const Operations: React.FC = () => {
         }
     }, [refreshData]);
 
-    // ─── Deliverables Handlers ───
-    // Fix G: Guard against duplicate checklist generation — check existing items first
+    // Deliverables Generation
     const handleGenerateChecklist = async (booking: Booking, duration: number) => {
         const existing = deliverables[booking.id] || [];
         if (existing.length > 0) {
@@ -142,7 +162,6 @@ export const Operations: React.FC = () => {
         try {
             const pkg = packages.find((p: any) => p.id === booking.packageId) || packages.find((p: any) => p.title === booking.title);
             const newItems: BookingDailyDeliverable[] = [];
-            // Use a single timestamp base per generation run to avoid Date.now() collisions in a tight loop
             const runTs = Date.now();
 
             for (let day = 1; day <= duration; day++) {
@@ -151,24 +170,19 @@ export const Operations: React.FC = () => {
                 const title = dayItin?.title?.toLowerCase() || '';
                 const uid = () => Math.random().toString(36).substr(2, 6);
 
-                // 1. Breakfast
                 newItems.push({ id: `DD-${booking.id}-${day}-bf-${runTs}-${uid()}`, bookingId: booking.id, dayNumber: day, itemName: 'Breakfast (Included in Hotel Plan)', itemType: 'meal', scheduledTime: '08:00 AM', status: 'Pending' });
 
-                // 2. Hotel overnight stay (not on last day)
                 if (day < duration) {
                     newItems.push({ id: `DD-${booking.id}-${day}-ht-${runTs}-${uid()}`, bookingId: booking.id, dayNumber: day, itemName: 'Overnight Stay check', itemType: 'hotel', scheduledTime: '12:00 PM', status: 'Pending' });
                 }
 
-                // 3. Transport
                 const transportItemName = day === 1 ? 'Airport / Station Pickup' : day === duration ? 'Airport / Station Drop' : 'Lobby Pickup';
                 newItems.push({ id: `DD-${booking.id}-${day}-tr-${runTs}-${uid()}`, bookingId: booking.id, dayNumber: day, itemName: transportItemName, itemType: 'transport', scheduledTime: '09:00 AM', status: 'Pending' });
 
-                // 4. Guide (if mentioned in itinerary)
                 if (pkg && (desc.includes('guide') || desc.includes('sightseeing') || title.includes('sightseeing') || title.includes('guided'))) {
                     newItems.push({ id: `DD-${booking.id}-${day}-gd-${runTs}-${uid()}`, bookingId: booking.id, dayNumber: day, itemName: 'Guide check-in', itemType: 'guide', scheduledTime: '09:30 AM', status: 'Pending' });
                 }
 
-                // 5. Activities from itinerary
                 let activityCount = 0;
                 let hasSightseeing = false;
                 if (pkg) {
@@ -240,9 +254,7 @@ export const Operations: React.FC = () => {
         }
     };
 
-    // Fix E: optimistic status update for instant UI feedback, then re-fetch from DB
     const handleUpdateStatus = async (id: string, bookingId: string, status: 'Pending' | 'Verified Success' | 'Delayed' | 'Substituted', notes?: string) => {
-        // Optimistic update
         setDeliverables(prev => ({
             ...prev,
             [bookingId]: (prev[bookingId] || []).map(d => d.id === id ? { ...d, status, notes } : d)
@@ -251,11 +263,34 @@ export const Operations: React.FC = () => {
             await api.updateDailyDeliverable(id, { status, notes });
         } catch {
             toast.error('Failed to update status');
-            refreshDeliverables(bookingId); // rollback by re-fetching
+            refreshDeliverables(bookingId);
         }
     };
 
-    // ─── Tour Classification Logic ────────────────────────────────────────────
+    // Mark all items verified for active day
+    const handleMarkAllVerified = async (bookingId: string, dayNum: number) => {
+        const bookingDeliverables = deliverables[bookingId] || [];
+        const dayItems = bookingDeliverables.filter(d => d.dayNumber === dayNum && d.status !== 'Verified Success');
+        if (dayItems.length === 0) {
+            toast.info('All items for this day are already verified!');
+            return;
+        }
+        try {
+            setDeliverables(prev => ({
+                ...prev,
+                [bookingId]: (prev[bookingId] || []).map(d => d.dayNumber === dayNum ? { ...d, status: 'Verified Success' } : d)
+            }));
+            for (const item of dayItems) {
+                await api.updateDailyDeliverable(item.id, { status: 'Verified Success' });
+            }
+            toast.success(`Marked ${dayItems.length} items as verified!`);
+        } catch {
+            toast.error('Failed to update items');
+            refreshDeliverables(bookingId);
+        }
+    };
+
+    // ─── Tour Classification Logic (Robust Overrides & Date Matching) ───────────
     const tourStats = useMemo(() => {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
@@ -267,17 +302,14 @@ export const Operations: React.FC = () => {
         const live: (Booking & { paxCount: number; duration: number; liveEndDate: Date; durationEstimated: boolean })[] = [];
         const upcoming: (Booking & { paxCount: number; paxUnknown: boolean })[] = [];
         const completed: Booking[] = [];
-        // Track IDs placed into completed to prevent double-counting
         const completedIds = new Set<string>();
 
         bookings.forEach((b: Booking) => {
-            // Only process Tour-type bookings (null type is treated as Tour for legacy rows)
             if (b.type && b.type !== 'Tour') return;
 
             const start = parseLocalDate(b.date);
             if (!start) return;
 
-            // Resolve duration — prefer explicit DB value, then package lookup, fallback to 1
             let duration: number;
             let durationEstimated = false;
             if (b.durationDays && b.durationDays > 0) {
@@ -297,7 +329,6 @@ export const Operations: React.FC = () => {
             end.setDate(start.getDate() + (duration - 1));
             end.setHours(23, 59, 59, 999);
 
-            // Pax count — prefer explicit paxCount field, then adult+child+infant, then parse guests string
             const rawPax = b.paxCount != null
                 ? b.paxCount
                 : (b.paxAdult != null ? (b.paxAdult + (b.paxChild ?? 0) + (b.paxInfant ?? 0)) : null);
@@ -308,10 +339,9 @@ export const Operations: React.FC = () => {
             const liveStatusLower = (b.liveStatus ?? 'live').toLowerCase();
 
             const isCancelledBooking = statusLower === 'cancelled' || liveStatusLower === 'cancelled';
-            if (isCancelledBooking) return; // Cancelled → never show in any section
+            if (isCancelledBooking) return; // Exclude cancelled tours
 
-            // ── Priority 1: Explicitly completed (manual override via liveStatus or booking status) ──
-            // These always go to Recently Completed regardless of date range
+            // ── Priority 1: Explicitly completed ──
             if (statusLower === 'completed' || liveStatusLower === 'completed') {
                 if (!completedIds.has(b.id)) {
                     completed.push(b);
@@ -320,8 +350,14 @@ export const Operations: React.FC = () => {
                 return;
             }
 
-            // ── Priority 2: LIVE — today falls within the tour date window ──
-            // Include both confirmed AND pending (pending can be on-tour for legacy bookings)
+            // ── Priority 2: Explicit LIVE or ISSUE override by Admin ──
+            // If an admin manually set liveStatus to Live or Issue, force into Live Tours!
+            if (liveStatusLower === 'live' || liveStatusLower === 'issue') {
+                live.push({ ...b, paxCount, duration, liveEndDate: end, durationEstimated });
+                return;
+            }
+
+            // ── Priority 3: Automatic Date Window (Today falls within tour start & end) ──
             if (start <= today && end >= today) {
                 if (statusLower === 'confirmed' || statusLower === 'pending') {
                     live.push({ ...b, paxCount, duration, liveEndDate: end, durationEstimated });
@@ -329,8 +365,7 @@ export const Operations: React.FC = () => {
                 }
             }
 
-            // ── Priority 3: UPCOMING — start date is in the future within the window ──
-            // Include confirmed AND pending bookings so ops team can prepare
+            // ── Priority 4: UPCOMING (Start date is in future within upcomingCutoff) ──
             if (start > today && start <= upcomingCutoff) {
                 if (statusLower === 'confirmed' || statusLower === 'pending') {
                     upcoming.push({ ...b, paxCount, paxUnknown });
@@ -338,8 +373,7 @@ export const Operations: React.FC = () => {
                 }
             }
 
-            // ── Priority 4: COMPLETED — end date is in the past (date-based auto-completion) ──
-            // Exclude pending-status past bookings (likely abandoned leads, not real tours)
+            // ── Priority 5: COMPLETED (End date in past, non-pending status) ──
             if (end < today && statusLower !== 'pending') {
                 if (!completedIds.has(b.id)) {
                     completed.push(b);
@@ -352,7 +386,6 @@ export const Operations: React.FC = () => {
             (parseLocalDate(a.date)?.getTime() ?? 0) - (parseLocalDate(b.date)?.getTime() ?? 0);
         live.sort(byDate);
         upcoming.sort(byDate);
-        // Most-recent completed first
         completed.sort((a, b) =>
             (parseLocalDate(b.date)?.getTime() ?? 0) - (parseLocalDate(a.date)?.getTime() ?? 0));
 
@@ -362,24 +395,108 @@ export const Operations: React.FC = () => {
     // ─── Fault Detection ──────────────────────────────────────────────────────
     const faults = useMemo(() => {
         return tourStats.live.map(tour => {
-            const issues: { type: 'issue' | 'no-driver'; label: string }[] = [];
+            const issues: { type: 'issue' | 'no-driver' | 'no-guide'; label: string }[] = [];
 
-            // 1. Manually flagged as Issue
             if ((tour as any).liveStatus === 'Issue') {
                 issues.push({ type: 'issue', label: 'Flagged as Issue by team' });
             }
 
-            // 2. No transport/driver assigned
             const hasTransport = tour.supplierBookings?.some(sb => sb.serviceType === 'Transport');
             if (!hasTransport) {
-                issues.push({ type: 'no-driver', label: 'No driver / transport assigned' });
+                issues.push({ type: 'no-driver', label: 'No transport / driver assigned' });
+            }
+
+            const hasGuide = tour.supplierBookings?.some(sb => sb.serviceType === 'Guide');
+            const pkg = packages.find((p: any) => p.id === tour.packageId || p.title === tour.title);
+            const mentionsGuide = pkg?.itinerary?.some((i: any) => i.desc?.toLowerCase().includes('guide'));
+            if (mentionsGuide && !hasGuide) {
+                issues.push({ type: 'no-guide', label: 'No tour guide assigned' });
             }
 
             return issues.length > 0 ? { tour, issues } : null;
         }).filter(Boolean) as { tour: typeof tourStats.live[0]; issues: { type: string; label: string }[] }[];
-    }, [tourStats.live]);
+    }, [tourStats.live, packages]);
 
     const [faultPanelOpen, setFaultPanelOpen] = useState(true);
+
+    // ─── KPI Control Header Metrics ──────────────────────────────────────────
+    const kpiSummary = useMemo(() => {
+        const activeLiveCount = tourStats.live.length;
+        const totalLivePax = tourStats.live.reduce((acc, t) => acc + (t.paxCount || 0), 0);
+        const attentionNeededCount = faults.length;
+        const unassignedTransportCount = tourStats.live.filter(t => !t.supplierBookings?.some(sb => sb.serviceType === 'Transport')).length;
+        const upcomingCount = tourStats.upcoming.length;
+
+        let totalItems = 0;
+        let verifiedItems = 0;
+        tourStats.live.forEach(t => {
+            const tourDeliverables = deliverables[t.id] || [];
+            totalItems += tourDeliverables.length;
+            verifiedItems += tourDeliverables.filter(d => d.status === 'Verified Success').length;
+        });
+
+        const presentStaff = staff.filter((s: any) => s.attendanceStatus === 'Present').length;
+        const fieldStaff = staff.filter((s: any) => s.attendanceStatus === 'Remote' || s.attendanceStatus === 'On Field').length;
+
+        return {
+            activeLiveCount,
+            totalLivePax,
+            attentionNeededCount,
+            unassignedTransportCount,
+            upcomingCount,
+            totalDeliverablesCount: totalItems,
+            verifiedDeliverablesCount: verifiedItems,
+            presentStaff,
+            fieldStaff
+        };
+    }, [tourStats, faults, deliverables, staff]);
+
+    // ─── Search & Filtered Lists ──────────────────────────────────────────────
+    const filteredLive = useMemo(() => {
+        return tourStats.live.filter(t => {
+            const q = searchQuery.toLowerCase().trim();
+            const matchesQuery = !q || (
+                t.customer.toLowerCase().includes(q) ||
+                t.title.toLowerCase().includes(q) ||
+                (t.invoiceNo && t.invoiceNo.toLowerCase().includes(q)) ||
+                (t.phone && t.phone.toLowerCase().includes(q)) ||
+                t.supplierBookings?.some(sb => sb.driverName?.toLowerCase().includes(q) || sb.vehicleNumber?.toLowerCase().includes(q))
+            );
+
+            if (!matchesQuery) return false;
+
+            if (statusFilter === 'attention') {
+                return faults.some(f => f.tour.id === t.id);
+            }
+            if (statusFilter === 'unassigned') {
+                return !t.supplierBookings?.some(sb => sb.serviceType === 'Transport');
+            }
+            return true;
+        });
+    }, [tourStats.live, searchQuery, statusFilter, faults]);
+
+    const filteredUpcoming = useMemo(() => {
+        return tourStats.upcoming.filter(t => {
+            const q = searchQuery.toLowerCase().trim();
+            return !q || (
+                t.customer.toLowerCase().includes(q) ||
+                t.title.toLowerCase().includes(q) ||
+                (t.invoiceNo && t.invoiceNo.toLowerCase().includes(q)) ||
+                (t.phone && t.phone.toLowerCase().includes(q))
+            );
+        });
+    }, [tourStats.upcoming, searchQuery]);
+
+    const filteredCompleted = useMemo(() => {
+        return tourStats.completed.filter(t => {
+            const q = searchQuery.toLowerCase().trim();
+            return !q || (
+                t.customer.toLowerCase().includes(q) ||
+                t.title.toLowerCase().includes(q) ||
+                (t.invoiceNo && t.invoiceNo.toLowerCase().includes(q))
+            );
+        });
+    }, [tourStats.completed, searchQuery]);
 
     // ─── Attendance Logic ─────────────────────────────────────────────────────
     const isAdmin = currentUser?.role === 'admin' || currentUser?.userType === 'Admin';
@@ -406,15 +523,12 @@ export const Operations: React.FC = () => {
         }
     };
 
-    // #8 — checkout keeps status 'Present' (checked in but left); only sets checkOutTime
     const handleCheckOut = async (empId: number) => {
         if (!isAdmin && currentUser?.id !== empId) { toast.error('You can only check out yourself.'); return; }
         try {
             const today = new Date().toISOString().split('T')[0];
             const logId = `ATL-${empId}-${today}`;
             await api.updateAttendanceLog(logId, { checkOutTime: new Date().toISOString() });
-            // Keep attendanceStatus unchanged — staff was present, now checked out
-            // We clear checkInTime to "-" so the "Out" button disappears
             await updateStaff(empId, { checkInTime: '-' });
             toast.success('Checked out successfully');
         } catch { toast.error('Failed to check out'); }
@@ -435,22 +549,18 @@ export const Operations: React.FC = () => {
         }
     };
 
-    // liveStatus changes sync booking.status in MySQL for Completed/Cancelled
     const handleLiveStatusChange = async (bookingId: string, liveStatus: string) => {
         if (liveStatus === 'Cancelled') {
-            const ok = window.confirm('Are you sure you want to cancel this live tour? This will also mark the booking as Cancelled.');
+            const ok = window.confirm('Are you sure you want to cancel this live tour? This will mark the booking as Cancelled.');
             if (!ok) return;
         }
         try {
-            // Build the update payload — sync live_status AND booking status for Completed/Cancelled
             const updatePayload: any = { liveStatus };
             if (liveStatus === 'Completed') {
-                updatePayload.status = 'Completed'; // syncs bookings.status → 'completed'
+                updatePayload.status = 'Completed';
             } else if (liveStatus === 'Cancelled') {
-                updatePayload.status = 'Cancelled'; // syncs bookings.status → 'cancelled'
+                updatePayload.status = 'Cancelled';
             }
-            // NOTE: updateBooking (DataContext) fires its own toast.success internally.
-            // Do NOT add a second toast here — that would produce a duplicate notification.
             await updateBooking(bookingId, updatePayload);
             window.dispatchEvent(new CustomEvent('bookings-changed'));
         } catch { toast.error('Failed to update tour status'); }
@@ -459,29 +569,44 @@ export const Operations: React.FC = () => {
     // ─── Prep / Assignment Modal ──────────────────────────────────────────────
     const [selectedBookingForPrep, setSelectedBookingForPrep] = useState<Booking | null>(null);
     const [prepModalOpen, setPrepModalOpen] = useState(false);
+    
+    // Transport assignment states
     const [driverVendorId, setDriverVendorId] = useState('');
     const [driverCost, setDriverCost] = useState('');
     const [driverName, setDriverName] = useState('');
     const [driverPhone, setDriverPhone] = useState('');
     const [vehicleNumber, setVehicleNumber] = useState('');
+    
+    // Guide assignment states
+    const [guideVendorId, setGuideVendorId] = useState('');
+    const [guideCost, setGuideCost] = useState('');
+    const [guideName, setGuideName] = useState('');
+    const [guidePhone, setGuidePhone] = useState('');
+
     const [whatsappGroupUrl, setWhatsappGroupUrl] = useState('');
-    // #10 — durationDays editable in modal
     const [modalDurationDays, setModalDurationDays] = useState('');
 
     const openPrepModal = (booking: Booking) => {
         setSelectedBookingForPrep(booking);
         const transport = booking.supplierBookings?.find(sb => sb.serviceType === 'Transport');
+        const guide = booking.supplierBookings?.find(sb => sb.serviceType === 'Guide');
+
         setDriverVendorId(transport?.vendorId || '');
         setDriverCost(transport?.cost ? String(transport.cost) : '');
         setDriverName(transport?.driverName || '');
         setDriverPhone(transport?.driverPhone || '');
         setVehicleNumber(transport?.vehicleNumber || '');
+
+        setGuideVendorId(guide?.vendorId || '');
+        setGuideCost(guide?.cost ? String(guide.cost) : '');
+        setGuideName(guide?.driverName || '');
+        setGuidePhone(guide?.driverPhone || '');
+
         setWhatsappGroupUrl(booking.whatsappGroupUrl || '');
         setModalDurationDays(booking.durationDays ? String(booking.durationDays) : '');
         setPrepModalOpen(true);
     };
 
-    // Fix F: Save tour details (duration + WA group) — works WITHOUT a vendor selected
     const handleSaveBookingDetails = async () => {
         if (!selectedBookingForPrep) return;
         const updates: any = {};
@@ -499,7 +624,6 @@ export const Operations: React.FC = () => {
         try {
             await updateBooking(selectedBookingForPrep.id, updates as any);
             toast.success('Tour details saved!');
-            // Fix I: refresh so duration/liveStatus resolve correctly in tourStats
             await refreshData?.();
         } catch { toast.error('Failed to save tour details'); }
     };
@@ -520,7 +644,7 @@ export const Operations: React.FC = () => {
             });
         } else {
             const newSb: SupplierBooking = {
-                id: `SB-${Date.now()}`,
+                id: `SB-TR-${Date.now()}`,
                 bookingId: selectedBookingForPrep.id,
                 vendorId: driverVendorId,
                 serviceType: 'Transport',
@@ -536,7 +660,6 @@ export const Operations: React.FC = () => {
             await addSupplierBooking(selectedBookingForPrep.id, newSb);
         }
 
-        // Persist WhatsApp group URL & duration if also changed
         const bookingUpdates: any = {};
         if (whatsappGroupUrl !== (selectedBookingForPrep.whatsappGroupUrl || '')) {
             bookingUpdates.whatsappGroupUrl = whatsappGroupUrl;
@@ -549,18 +672,53 @@ export const Operations: React.FC = () => {
             await updateBooking(selectedBookingForPrep.id, bookingUpdates as any);
         }
 
-        toast.success(existingTransport ? 'Driver updated successfully' : 'Driver assigned successfully');
-        // Fix I: Reload bookings so fault detection sees fresh supplierBookings
+        toast.success(existingTransport ? 'Driver updated' : 'Driver assigned');
         await refreshData?.();
         setPrepModalOpen(false);
     };
 
+    const handleAssignGuide = async () => {
+        if (!selectedBookingForPrep || !guideVendorId) return;
+        const costVal = parseFloat(guideCost) || 0;
+
+        const existingGuide = selectedBookingForPrep.supplierBookings?.find(sb => sb.serviceType === 'Guide');
+        if (existingGuide) {
+            await updateSupplierBooking(selectedBookingForPrep.id, existingGuide.id, {
+                vendorId: guideVendorId,
+                cost: costVal,
+                driverName: guideName || undefined,
+                driverPhone: guidePhone || undefined,
+            });
+        } else {
+            const newSb: SupplierBooking = {
+                id: `SB-GD-${Date.now()}`,
+                bookingId: selectedBookingForPrep.id,
+                vendorId: guideVendorId,
+                serviceType: 'Guide',
+                cost: costVal,
+                paidAmount: 0,
+                paymentStatus: 'Unpaid',
+                bookingStatus: 'Confirmed',
+                notes: 'Assigned via Operations Console',
+                driverName: guideName || undefined,
+                driverPhone: guidePhone || undefined,
+            };
+            await addSupplierBooking(selectedBookingForPrep.id, newSb);
+        }
+        toast.success(existingGuide ? 'Guide updated' : 'Guide assigned');
+        await refreshData?.();
+        setPrepModalOpen(false);
+    };
 
     const transportVendors = useMemo(() =>
-        vendors.filter((v: any) => v.category === 'Transport' || v.category === 'Guide'),
+        vendors.filter((v: any) => v.category === 'Transport'),
         [vendors]);
 
-    // ─── Attendance summary counts (#11) ────────────────────────────────────
+    const guideVendors = useMemo(() =>
+        vendors.filter((v: any) => v.category === 'Guide' || v.category === 'Activity' || v.category === 'Other'),
+        [vendors]);
+
+    // Attendance summary counts
     const attSummary = useMemo(() => ({
         present: staff.filter((s: any) => s.attendanceStatus === 'Present').length,
         field: staff.filter((s: any) => s.attendanceStatus === 'Remote' || s.attendanceStatus === 'On Field').length,
@@ -568,118 +726,263 @@ export const Operations: React.FC = () => {
         absent: staff.filter((s: any) => !s.attendanceStatus || s.attendanceStatus === 'Absent').length,
     }), [staff]);
 
+    const filteredStaff = useMemo(() => {
+        return staff.filter((emp: any) => {
+            const q = staffSearchQuery.toLowerCase().trim();
+            const matchesQuery = !q || (
+                emp.name.toLowerCase().includes(q) ||
+                (emp.role && emp.role.toLowerCase().includes(q)) ||
+                (emp.currentLocation && emp.currentLocation.toLowerCase().includes(q))
+            );
+            if (!matchesQuery) return false;
+
+            if (staffRoleFilter !== 'all') {
+                return emp.role?.toLowerCase() === staffRoleFilter.toLowerCase();
+            }
+            return true;
+        });
+    }, [staff, staffSearchQuery, staffRoleFilter]);
+
     return (
-        <div className="flex flex-col h-full admin-page-bg">
+        <div className="flex flex-col h-full admin-page-bg min-h-screen">
             {/* ── Header ── */}
-            <div className="bg-white dark:bg-[#1A2633] border-b border-slate-200 dark:border-slate-800 px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 sticky top-0 z-10">
+            <div className="bg-white/90 dark:bg-[#1A2633]/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 sticky top-0 z-20 shadow-xs">
                 <div>
-                    <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                        <Briefcase className="text-blue-600" />
-                        <span className="font-display text-3xl">Operations Center</span>
+                    <h2 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2.5">
+                        <div className="p-2 bg-blue-600/10 text-blue-600 dark:text-blue-400 rounded-xl">
+                            <Briefcase size={22} />
+                        </div>
+                        <span className="font-display text-2xl sm:text-3xl font-extrabold tracking-tight">Operations Control Center</span>
                     </h2>
-                    <p className="text-slate-500 dark:text-slate-400 text-sm">Monitor live tours and manage staff availability.</p>
+                    <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm font-medium mt-0.5">
+                        Real-time tracking for active tours, transport assignments, deliverable checklists &amp; field staff.
+                    </p>
                 </div>
                 <div className="flex items-center gap-3">
-                    {/* #9 — Manual refresh button */}
                     <button
                         onClick={handleRefresh}
                         disabled={isRefreshing}
                         title="Refresh data"
-                        className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors disabled:opacity-50"
+                        className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all disabled:opacity-50 border border-slate-200/60 dark:border-slate-700/50 shadow-xs"
                     >
-                        <RefreshCw size={16} className={isRefreshing ? 'animate-spin' : ''} />
+                        <RefreshCw size={16} className={isRefreshing ? 'animate-spin text-blue-600' : ''} />
                     </button>
-                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+                    <div className="flex bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
                         <button
                             onClick={() => setActiveTab('Tours')}
-                            className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'Tours' ? 'bg-white dark:bg-slate-700 shadow-sm text-blue-600 dark:text-blue-400' : 'text-slate-500 hover:text-slate-700'}`}
+                            className={`px-4 py-2 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 ${activeTab === 'Tours' ? 'bg-white dark:bg-slate-700 shadow-xs text-blue-600 dark:text-blue-400' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
                         >
-                            Tour Ops
+                            <Compass size={14} /> Tour Operations
                         </button>
                         <button
                             onClick={() => setActiveTab('Attendance')}
-                            className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'Attendance' ? 'bg-white dark:bg-slate-700 shadow-sm text-blue-600 dark:text-blue-400' : 'text-slate-500 hover:text-slate-700'}`}
+                            className={`px-4 py-2 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 ${activeTab === 'Attendance' ? 'bg-white dark:bg-slate-700 shadow-xs text-blue-600 dark:text-blue-400' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
                         >
-                            Staff Attendance
+                            <UserCheck size={14} /> Field Attendance
                         </button>
                     </div>
                 </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
 
                 {/* ══ TOURS TAB ══ */}
                 {activeTab === 'Tours' && (
-                    <div className="max-w-7xl mx-auto space-y-8">
+                    <div className="max-w-7xl mx-auto space-y-6">
+
+                        {/* ── KPI Summary Dashboard Control Header ── */}
+                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
+                            <div className="bg-white dark:bg-[#1A2633] p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs relative overflow-hidden group hover:border-blue-300 transition-all">
+                                <div className="flex items-center justify-between text-xs font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                                    <span>Active Live Tours</span>
+                                    <span className="relative flex h-2.5 w-2.5">
+                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
+                                    </span>
+                                </div>
+                                <div className="flex items-baseline gap-2 mt-1">
+                                    <span className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">{kpiSummary.activeLiveCount}</span>
+                                    <span className="text-xs font-bold text-slate-500 dark:text-slate-400">({kpiSummary.totalLivePax} Guests)</span>
+                                </div>
+                                <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full mt-3 overflow-hidden">
+                                    <div className="bg-green-500 h-full rounded-full" style={{ width: `${Math.min(kpiSummary.activeLiveCount * 25, 100)}%` }}></div>
+                                </div>
+                            </div>
+
+                            <div className="bg-white dark:bg-[#1A2633] p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs group hover:border-amber-300 transition-all">
+                                <div className="flex items-center justify-between text-xs font-extrabold text-amber-600 dark:text-amber-400 uppercase tracking-wider mb-1">
+                                    <span>Attention Required</span>
+                                    <AlertTriangle size={15} className="text-amber-500" />
+                                </div>
+                                <div className="flex items-baseline gap-2 mt-1">
+                                    <span className={`text-3xl font-black tracking-tight ${kpiSummary.attentionNeededCount > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-900 dark:text-white'}`}>
+                                        {kpiSummary.attentionNeededCount}
+                                    </span>
+                                    <span className="text-xs font-bold text-slate-500 dark:text-slate-400">Tours</span>
+                                </div>
+                                <p className="text-[10px] font-bold text-slate-400 mt-2 truncate">
+                                    {kpiSummary.unassignedTransportCount > 0 ? `${kpiSummary.unassignedTransportCount} missing transport` : 'All transport assigned'}
+                                </p>
+                            </div>
+
+                            <div className="bg-white dark:bg-[#1A2633] p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs group hover:border-blue-300 transition-all">
+                                <div className="flex items-center justify-between text-xs font-extrabold text-blue-600 dark:text-blue-400 uppercase tracking-wider mb-1">
+                                    <span>Upcoming Arrivals</span>
+                                    <Calendar size={15} className="text-blue-500" />
+                                </div>
+                                <div className="flex items-baseline gap-2 mt-1">
+                                    <span className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">{kpiSummary.upcomingCount}</span>
+                                    <span className="text-xs font-bold text-slate-500 dark:text-slate-400">Next {upcomingDays}d</span>
+                                </div>
+                                <p className="text-[10px] font-bold text-slate-400 mt-2">Scheduled tour departures</p>
+                            </div>
+
+                            <div className="bg-white dark:bg-[#1A2633] p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs group hover:border-indigo-300 transition-all">
+                                <div className="flex items-center justify-between text-xs font-extrabold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider mb-1">
+                                    <span>Checklist Health</span>
+                                    <CheckSquare size={15} className="text-indigo-500" />
+                                </div>
+                                <div className="flex items-baseline gap-2 mt-1">
+                                    <span className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">
+                                        {kpiSummary.totalDeliverablesCount > 0 ? `${Math.round((kpiSummary.verifiedDeliverablesCount / kpiSummary.totalDeliverablesCount) * 100)}%` : '100%'}
+                                    </span>
+                                    <span className="text-xs font-bold text-slate-500 dark:text-slate-400">({kpiSummary.verifiedDeliverablesCount}/{kpiSummary.totalDeliverablesCount})</span>
+                                </div>
+                                <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full mt-3 overflow-hidden">
+                                    <div className="bg-indigo-500 h-full rounded-full" style={{ width: `${kpiSummary.totalDeliverablesCount > 0 ? (kpiSummary.verifiedDeliverablesCount / kpiSummary.totalDeliverablesCount) * 100 : 100}%` }}></div>
+                                </div>
+                            </div>
+
+                            <div className="bg-white dark:bg-[#1A2633] p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs group hover:border-emerald-300 transition-all col-span-2 sm:col-span-1">
+                                <div className="flex items-center justify-between text-xs font-extrabold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider mb-1">
+                                    <span>Field Operations Staff</span>
+                                    <UserCheck size={15} className="text-emerald-500" />
+                                </div>
+                                <div className="flex items-baseline gap-2 mt-1">
+                                    <span className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">{kpiSummary.presentStaff + kpiSummary.fieldStaff}</span>
+                                    <span className="text-xs font-bold text-slate-500 dark:text-slate-400">/ {staff.length} Active</span>
+                                </div>
+                                <p className="text-[10px] font-bold text-slate-400 mt-2">{kpiSummary.fieldStaff} On Field / Remote</p>
+                            </div>
+                        </div>
+
+                        {/* ── Search & Filter Controls ── */}
+                        <div className="bg-white dark:bg-[#1A2633] p-3.5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col md:flex-row items-center justify-between gap-3">
+                            <div className="relative w-full md:w-80">
+                                <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                                <input
+                                    type="text"
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    placeholder="Search customer, tour, driver or invoice..."
+                                    className="w-full pl-10 pr-8 py-2 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 rounded-xl text-xs font-medium placeholder-slate-400 outline-none focus:ring-2 ring-blue-500/20 text-slate-900 dark:text-white transition-all"
+                                />
+                                {searchQuery && (
+                                    <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs font-bold">×</button>
+                                )}
+                            </div>
+
+                            <div className="flex items-center gap-1.5 overflow-x-auto w-full md:w-auto pb-1 md:pb-0">
+                                <span className="text-xs font-bold text-slate-400 mr-1 flex items-center gap-1 hidden sm:flex">
+                                    <Filter size={12} /> Filter:
+                                </span>
+                                <button
+                                    onClick={() => setStatusFilter('all')}
+                                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${statusFilter === 'all' ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xs' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'}`}
+                                >
+                                    All Tours ({tourStats.live.length})
+                                </button>
+                                <button
+                                    onClick={() => setStatusFilter('live')}
+                                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1 ${statusFilter === 'live' ? 'bg-green-600 text-white shadow-xs' : 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 hover:bg-green-100'}`}
+                                >
+                                    🟢 Live Only
+                                </button>
+                                <button
+                                    onClick={() => setStatusFilter('attention')}
+                                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1 ${statusFilter === 'attention' ? 'bg-red-600 text-white shadow-xs' : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 hover:bg-red-100'}`}
+                                >
+                                    ⚠️ Needs Attention ({faults.length})
+                                </button>
+                                <button
+                                    onClick={() => setStatusFilter('unassigned')}
+                                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1 ${statusFilter === 'unassigned' ? 'bg-amber-600 text-white shadow-xs' : 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 hover:bg-amber-100'}`}
+                                >
+                                    🚗 Transport Pending ({kpiSummary.unassignedTransportCount})
+                                </button>
+                            </div>
+                        </div>
 
                         {/* ── Faults / Alerts Banner ── */}
                         {faults.length > 0 && (
-                            <div className="mb-6">
+                            <div className="mb-2 animate-in fade-in slide-in-from-top-2">
                                 <button
                                     onClick={() => setFaultPanelOpen(v => !v)}
-                                    className="w-full flex items-center justify-between px-5 py-3.5 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-2xl text-left group transition-colors hover:bg-red-100 dark:hover:bg-red-900/30"
+                                    className="w-full flex items-center justify-between px-5 py-3.5 bg-red-50/90 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-2xl text-left group transition-all hover:bg-red-100/80 dark:hover:bg-red-900/30 shadow-xs"
                                 >
                                     <div className="flex items-center gap-3">
                                         <span className="relative flex h-3 w-3">
                                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
                                             <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
                                         </span>
-                                        <AlertTriangle size={16} className="text-red-500" />
-                                        <span className="font-black text-red-700 dark:text-red-400 text-sm">
-                                            {faults.length} Tour{faults.length > 1 ? 's' : ''} Need Attention
+                                        <AlertTriangle size={17} className="text-red-500" />
+                                        <span className="font-extrabold text-red-800 dark:text-red-300 text-sm">
+                                            {faults.length} Tour{faults.length > 1 ? 's' : ''} Need Operational Attention
                                         </span>
-                                        <span className="text-xs text-red-500 font-medium">
-                                            — {faults.reduce((acc, f) => acc + f.issues.length, 0)} fault{faults.reduce((acc, f) => acc + f.issues.length, 0) > 1 ? 's' : ''} detected
+                                        <span className="text-xs text-red-600 dark:text-red-400 font-semibold hidden sm:inline">
+                                            — {faults.reduce((acc, f) => acc + f.issues.length, 0)} total fault{faults.reduce((acc, f) => acc + f.issues.length, 0) > 1 ? 's' : ''} detected
                                         </span>
                                     </div>
-                                    <span className="text-red-400 text-xs font-bold">{faultPanelOpen ? '▲ Collapse' : '▼ Expand'}</span>
+                                    <span className="text-red-500 text-xs font-black">{faultPanelOpen ? '▲ Hide' : '▼ View Alerts'}</span>
                                 </button>
 
                                 {faultPanelOpen && (
-                                    <div className="mt-2 bg-white dark:bg-[#1A2633] border border-red-200 dark:border-red-800/30 rounded-2xl overflow-hidden shadow-sm">
+                                    <div className="mt-2 bg-white dark:bg-[#1A2633] border border-red-200 dark:border-red-800/30 rounded-2xl overflow-hidden shadow-xs divide-y divide-red-50 dark:divide-red-900/20">
                                         {faults.map(({ tour, issues }) => (
-                                            <div key={tour.id} className="px-5 py-4 border-b last:border-b-0 border-red-50 dark:border-red-900/20">
-                                                <div className="flex items-start justify-between gap-4">
-                                                    <div>
-                                                        <p className="font-bold text-slate-900 dark:text-white text-sm">
-                                                            {tour.customer}
-                                                            <span className="text-slate-400 font-normal ml-2 text-xs">{tour.title}</span>
-                                                        </p>
-                                                        <div className="flex flex-wrap gap-2 mt-2">
-                                                            {issues.map((issue, i) => (
-                                                                <span
-                                                                    key={i}
-                                                                    className={`inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full ${
-                                                                        issue.type === 'issue'
-                                                                            ? 'bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400'
-                                                                            : 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400'
-                                                                    }`}
-                                                                >
-                                                                    {issue.type === 'issue' && '🔴'}
-                                                                    {issue.type === 'no-driver' && '🚗'}
-                                                                    {issue.label}
-                                                                </span>
-                                                            ))}
-                                                        </div>
+                                            <div key={tour.id} className="px-5 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-red-50/30 dark:hover:bg-red-900/10 transition-colors">
+                                                <div>
+                                                    <div className="flex items-center gap-2">
+                                                        <p className="font-extrabold text-slate-900 dark:text-white text-sm">{tour.customer}</p>
+                                                        <span className="text-slate-400 font-mono text-xs">#{tour.invoiceNo || tour.id}</span>
                                                     </div>
-                                                    <div className="flex gap-2 flex-shrink-0">
-                                                        {!tour.supplierBookings?.some(sb => sb.serviceType === 'Transport') && (
-                                                            <button
-                                                                onClick={() => openPrepModal(tour)}
-                                                                className="text-[11px] font-bold px-3 py-1.5 bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/30 dark:hover:bg-amber-900/50 text-amber-700 dark:text-amber-400 rounded-lg transition-colors"
+                                                    <p className="text-xs text-slate-500 font-medium mt-0.5">{tour.title}</p>
+                                                    <div className="flex flex-wrap gap-1.5 mt-2">
+                                                        {issues.map((issue, i) => (
+                                                            <span
+                                                                key={i}
+                                                                className={`inline-flex items-center gap-1 text-[11px] font-black px-2.5 py-0.5 rounded-full ${
+                                                                    issue.type === 'issue'
+                                                                        ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300'
+                                                                        : issue.type === 'no-driver'
+                                                                        ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300'
+                                                                        : 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300'
+                                                                }`}
                                                             >
-                                                                Assign Driver
-                                                            </button>
-                                                        )}
-                                                        {(tour as any).liveStatus === 'Issue' && (
-                                                            <button
-                                                                onClick={() => handleLiveStatusChange(tour.id, 'Live')}
-                                                                className="text-[11px] font-bold px-3 py-1.5 bg-green-100 hover:bg-green-200 dark:bg-green-900/30 dark:hover:bg-green-900/50 text-green-700 dark:text-green-400 rounded-lg transition-colors"
-                                                            >
-                                                                Mark Resolved
-                                                            </button>
-                                                        )}
+                                                                {issue.type === 'issue' && '🔴'}
+                                                                {issue.type === 'no-driver' && '🚗'}
+                                                                {issue.type === 'no-guide' && '🗣️'}
+                                                                {issue.label}
+                                                            </span>
+                                                        ))}
                                                     </div>
+                                                </div>
+                                                <div className="flex gap-2 flex-shrink-0 self-end sm:self-center">
+                                                    {!tour.supplierBookings?.some(sb => sb.serviceType === 'Transport') && (
+                                                        <button
+                                                            onClick={() => openPrepModal(tour)}
+                                                            className="text-xs font-bold px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl shadow-xs transition-colors"
+                                                        >
+                                                            Assign Transport
+                                                        </button>
+                                                    )}
+                                                    {(tour as any).liveStatus === 'Issue' && (
+                                                        <button
+                                                            onClick={() => handleLiveStatusChange(tour.id, 'Live')}
+                                                            className="text-xs font-bold px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-xs transition-colors"
+                                                        >
+                                                            Mark Resolved
+                                                        </button>
+                                                    )}
                                                 </div>
                                             </div>
                                         ))}
@@ -688,347 +991,367 @@ export const Operations: React.FC = () => {
                             </div>
                         )}
 
-                        {/* Live Tours */}
+                        {/* Live Tours Section */}
                         <div>
-                            <h3 className="text-lg font-black text-slate-900 dark:text-white mb-4 flex items-center gap-2">
-                                <span className="relative flex h-3 w-3">
-                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                                    <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                            <h3 className="text-lg font-black text-slate-900 dark:text-white mb-4 flex items-center justify-between">
+                                <span className="flex items-center gap-2">
+                                    <span className="relative flex h-3 w-3">
+                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                                        <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                                    </span>
+                                    Live Tours Currently On Field ({filteredLive.length})
                                 </span>
-                                Live Tours (<span className="kpi-number text-xl">{tourStats.live.length}</span>)
+                                {searchQuery && (
+                                    <span className="text-xs font-medium text-slate-400">Filtered from {tourStats.live.length} total live</span>
+                                )}
                             </h3>
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 stagger-cards">
-                                {tourStats.live.map(tour => {
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                                {filteredLive.map(tour => {
                                     const assignedTransport = tour.supplierBookings?.find(sb => sb.serviceType === 'Transport');
                                     const transportVendor = assignedTransport ? vendors.find((v: any) => v.id === assignedTransport.vendorId) : null;
                                     const driverDisplayName = assignedTransport
                                         ? (transportVendor?.name || assignedTransport.driverName || 'Assigned')
                                         : 'Not Assigned';
-                                    const dayOfTour = getDayOfTour(tour.date, tour.duration);
 
-                                    // Compute end date display from liveEndDate
+                                    const assignedGuide = tour.supplierBookings?.find(sb => sb.serviceType === 'Guide');
+                                    const guideVendor = assignedGuide ? vendors.find((v: any) => v.id === assignedGuide.vendorId) : null;
+                                    const guideDisplayName = assignedGuide
+                                        ? (guideVendor?.name || assignedGuide.driverName || 'Assigned')
+                                        : null;
+
+                                    const { day: dayOfTour, percent: progressPercent } = getTourProgress(tour.date, tour.duration);
                                     const endDateLabel = (tour as any).liveEndDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
 
-                                    // #7 — determine WA URL before rendering button
                                     const formattedPhone = tour.phone?.replace(/\D/g, '');
                                     const waPhone = formattedPhone ? (formattedPhone.length === 10 ? `91${formattedPhone}` : formattedPhone) : '';
-                                    const waUrl = tour.whatsappGroupUrl || (waPhone ? `https://wa.me/${waPhone}` : '');
-                                    const hasWa = !!waUrl;
+                                    const directWaUrl = waPhone ? `https://wa.me/${waPhone}` : '';
+                                    const groupWaUrl = tour.whatsappGroupUrl;
 
                                     const hasFault = faults.some(f => f.tour.id === tour.id);
                                     const isIssue = (tour as any).liveStatus === 'Issue';
 
-                                    return (
-                                        <div key={tour.id} className={`bg-white dark:bg-[#1A2633] p-5 rounded-2xl border shadow-sm relative overflow-hidden transition-all ${
-                                            isIssue
-                                                ? 'border-red-300 dark:border-red-700/50 ring-1 ring-red-200 dark:ring-red-800/30'
-                                                : hasFault
-                                                ? 'border-amber-300 dark:border-amber-700/50 ring-1 ring-amber-200 dark:ring-amber-800/30'
-                                                : 'border-green-200 dark:border-green-900/30'
-                                        }`}>
-                                            <div className="absolute top-0 right-0 p-3 opacity-10">
-                                                <Map size={80} className="text-green-500" />
-                                            </div>
-                                            <div className="relative z-10">
-                                                <div className="flex justify-between items-start mb-2">
-                                                    <span className="bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400 text-[10px] font-black px-2 py-0.5 rounded uppercase">On Tour</span>
-                                                    <span className="text-slate-400 text-xs font-mono">{tour.invoiceNo || tour.id}</span>
-                                                </div>
-                                                <h4 className="font-bold text-slate-900 dark:text-white text-lg truncate" title={tour.customer}>{tour.customer}</h4>
-                                                <p className="text-sm text-slate-500 font-medium mb-4 truncate" title={tour.title}>{tour.title}</p>
+                                    // Deliverables stats calculation for tour card summary
+                                    const tourDeliverables = deliverables[tour.id] || [];
+                                    const totalDeliverablesCount = tourDeliverables.length;
+                                    const verifiedDeliverablesCount = tourDeliverables.filter(d => d.status === 'Verified Success').length;
 
-                                                <div className="space-y-2">
-                                                     <div className="flex items-center gap-2 text-xs font-bold text-slate-600 dark:text-slate-400">
-                                                        <Calendar size={14} />
-                                                        Day {dayOfTour} of {tour.duration}
-                                                        {/* Fix A: Show amber badge if duration was estimated (no confirmed duration in DB) */}
-                                                        {(tour as any).durationEstimated && (
-                                                            <span className="text-amber-500 font-bold text-[10px] bg-amber-50 dark:bg-amber-900/20 px-1.5 py-0.5 rounded" title="Duration estimated from package. Set exact duration in Prep Modal.">
-                                                                ⚠ Est.
-                                                            </span>
-                                                        )}
-                                                        <span className="text-slate-400 font-normal ml-1">
-                                                            (Ends {endDateLabel})
+                                    return (
+                                        <div key={tour.id} className={`bg-white dark:bg-[#1A2633] p-5 rounded-2xl border shadow-sm relative overflow-hidden transition-all flex flex-col justify-between ${
+                                            isIssue
+                                                ? 'border-red-400 dark:border-red-700/80 ring-2 ring-red-100 dark:ring-red-900/30'
+                                                : hasFault
+                                                ? 'border-amber-400 dark:border-amber-700/80 ring-2 ring-amber-100 dark:ring-amber-900/30'
+                                                : 'border-slate-200/80 dark:border-slate-800 hover:border-blue-300'
+                                        }`}>
+                                            <div className="absolute top-0 right-0 p-3 opacity-5 pointer-events-none">
+                                                <Map size={90} className="text-blue-600" />
+                                            </div>
+
+                                            <div>
+                                                {/* Header Status Row */}
+                                                <div className="flex justify-between items-center mb-3">
+                                                    <span className={`text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-wider flex items-center gap-1 ${
+                                                        isIssue
+                                                            ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+                                                            : 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400'
+                                                    }`}>
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
+                                                        {isIssue ? 'Issue Flagged' : 'On Tour'}
+                                                    </span>
+                                                    <span className="text-slate-400 text-xs font-mono font-bold">#{tour.invoiceNo || tour.id}</span>
+                                                </div>
+
+                                                <h4 className="font-black text-slate-900 dark:text-white text-lg truncate" title={tour.customer}>
+                                                    {tour.customer}
+                                                </h4>
+                                                <p className="text-xs text-slate-500 font-semibold mb-4 truncate" title={tour.title}>
+                                                    {tour.title}
+                                                </p>
+
+                                                {/* Dynamic Tour Progress Bar */}
+                                                <div className="bg-slate-50 dark:bg-slate-800/80 p-3 rounded-xl border border-slate-100 dark:border-slate-700/50 mb-4">
+                                                    <div className="flex items-center justify-between text-xs font-extrabold text-slate-700 dark:text-slate-300 mb-1.5">
+                                                        <span className="flex items-center gap-1">
+                                                            <Calendar size={13} className="text-blue-500" />
+                                                            Day {dayOfTour} of {tour.duration}
+                                                            {(tour as any).durationEstimated && (
+                                                                <span className="text-amber-500 font-bold text-[9px] bg-amber-50 dark:bg-amber-900/20 px-1 py-0.2 rounded" title="Estimated duration">⚠ Est</span>
+                                                            )}
+                                                        </span>
+                                                        <span className="text-blue-600 dark:text-blue-400 font-bold">{progressPercent}%</span>
+                                                    </div>
+                                                    <div className="w-full bg-slate-200 dark:bg-slate-700 h-2 rounded-full overflow-hidden">
+                                                        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 h-full rounded-full transition-all duration-500" style={{ width: `${progressPercent}%` }}></div>
+                                                    </div>
+                                                    <div className="flex justify-between items-center text-[10px] text-slate-400 font-medium mt-1.5">
+                                                        <span>Start: {formatLocalDate(tour.date)}</span>
+                                                        <span>End: {endDateLabel}</span>
+                                                    </div>
+                                                </div>
+
+                                                {/* Tour Info Badges */}
+                                                <div className="space-y-2 text-xs">
+                                                    <div className="flex items-center justify-between text-slate-600 dark:text-slate-400 font-bold">
+                                                        <span className="flex items-center gap-1.5"><Users size={13} className="text-slate-400" /> Guests:</span>
+                                                        <span className="text-slate-900 dark:text-white font-extrabold">
+                                                            {(tour as any).paxUnknown ? '? Guests' : `${tour.paxCount} Pax`}
                                                         </span>
                                                     </div>
-                                                    <div className="flex items-center gap-2 text-xs font-bold text-slate-600 dark:text-slate-400">
-                                                        {/* Fix H: Show '?' for genuinely unknown pax count */}
-                                                        <Users size={14} /> {(tour as any).paxUnknown ? <span className="text-slate-400">? Guests</span> : `${tour.paxCount} Guests`}
-                                                    </div>
-                                                    <div className="flex items-center gap-2 text-xs font-bold text-slate-600 dark:text-slate-400">
-                                                        <Car size={14} />
+
+                                                    <div className="flex items-center justify-between text-slate-600 dark:text-slate-400 font-bold">
+                                                        <span className="flex items-center gap-1.5"><Car size={13} className="text-slate-400" /> Transport:</span>
                                                         {assignedTransport && transportVendor ? (
                                                             <button
                                                                 onClick={() => navigate(`/admin/vendors?search=${encodeURIComponent(transportVendor.name)}`)}
-                                                                className="text-blue-600 hover:text-blue-700 hover:underline font-bold text-left inline"
+                                                                className="text-blue-600 hover:underline font-extrabold truncate max-w-[140px] text-right"
                                                             >
                                                                 {driverDisplayName}
                                                             </button>
                                                         ) : (
-                                                            <span className="text-amber-500">{driverDisplayName}</span>
+                                                            <span className="text-amber-600 dark:text-amber-400 font-black flex items-center gap-1">
+                                                                <AlertTriangle size={11} /> Unassigned
+                                                            </span>
                                                         )}
                                                     </div>
+
+                                                    {assignedGuide && (
+                                                        <div className="flex items-center justify-between text-slate-600 dark:text-slate-400 font-bold">
+                                                            <span className="flex items-center gap-1.5">🗣️ Tour Guide:</span>
+                                                            <span className="text-slate-900 dark:text-white font-extrabold truncate max-w-[140px] text-right">
+                                                                {guideDisplayName}
+                                                            </span>
+                                                        </div>
+                                                    )}
                                                 </div>
 
-                                                {/* ─── Daily Deliverables Checklist ─── */}
+                                                {/* ─── Daily Deliverables Checklist Accordion ─── */}
                                                 {(() => {
-                                                    const bookingDeliverables = deliverables[tour.id] || [];
                                                     const currentChecklistDay = selectedDays[tour.id] || dayOfTour;
-                                                    const dayItems = bookingDeliverables.filter(d => d.dayNumber === currentChecklistDay);
-                                                    const totalItems = dayItems.length;
-                                                    const verifiedItems = dayItems.filter(d => d.status === 'Verified Success').length;
+                                                    const dayItems = tourDeliverables.filter(d => d.dayNumber === currentChecklistDay);
+                                                    const dayTotal = dayItems.length;
+                                                    const dayVerified = dayItems.filter(d => d.status === 'Verified Success').length;
                                                     const isExpanded = !!expandedChecklists[tour.id];
 
                                                     return (
-                                                        <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+                                                        <div className="mt-4 pt-3.5 border-t border-slate-100 dark:border-slate-800">
                                                             <button
                                                                 onClick={() => {
                                                                     const nowExpanded = !expandedChecklists[tour.id];
                                                                     setExpandedChecklists(prev => ({ ...prev, [tour.id]: nowExpanded }));
-                                                                    // Fix E: Lazy-load deliverables for this booking only when first expanded
                                                                     if (nowExpanded && !deliverables[tour.id]) {
                                                                         fetchDeliverableForBooking(tour.id);
                                                                     }
                                                                 }}
-                                                                className="w-full flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                                                                className="w-full flex items-center justify-between text-xs font-extrabold text-slate-700 dark:text-slate-300 hover:text-blue-600 transition-colors p-1 rounded-lg"
                                                             >
                                                                 <span className="flex items-center gap-1.5">
-                                                                    <CheckCircle size={14} className={verifiedItems === totalItems && totalItems > 0 ? "text-green-500" : "text-slate-400"} />
-                                                                    <span>Day {currentChecklistDay} Checklist ({verifiedItems}/{totalItems} Verified)</span>
+                                                                    <CheckCircle size={14} className={dayVerified === dayTotal && dayTotal > 0 ? "text-green-500" : "text-slate-400"} />
+                                                                    <span>Day {currentChecklistDay} Deliverables ({dayVerified}/{dayTotal})</span>
                                                                 </span>
-                                                                <span>{isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</span>
+                                                                <span className="text-slate-400">{isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</span>
                                                             </button>
 
-                                                             {isExpanded && (
-                                                                 <div className="mt-3 space-y-3 bg-slate-50 dark:bg-slate-900/40 p-3 rounded-xl border border-slate-100 dark:border-slate-850/80 animate-in fade-in slide-in-from-top-1 duration-200">
-                                                                     {loadingDeliverables[tour.id] ? (
-                                                                         <div className="text-center py-4 text-xs text-slate-400">Loading checklist...</div>
-                                                                     ) : (
-                                                                     <>
-                                                                     {/* Day selector buttons */}
-                                                                     {tour.duration > 1 && (
-                                                                         <div className="flex flex-wrap gap-1 mb-2 border-b border-slate-200/60 dark:border-slate-800 pb-2">
-                                                                             {Array.from({ length: tour.duration }, (_, i) => i + 1).map(dayNum => (
-                                                                                 <button
-                                                                                     key={dayNum}
-                                                                                     onClick={() => setSelectedDays(prev => ({ ...prev, [tour.id]: dayNum }))}
-                                                                                     className={`px-2 py-0.5 text-[10px] font-black rounded-md transition-all ${
-                                                                                         currentChecklistDay === dayNum
-                                                                                             ? 'bg-blue-600 text-white shadow-sm'
-                                                                                             : 'bg-white dark:bg-slate-800 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700'
-                                                                                     }`}
-                                                                                 >
-                                                                                     D{dayNum}
-                                                                                 </button>
-                                                                             ))}
-                                                                         </div>
-                                                                     )}
-                                                                         {totalItems === 0 ? (
-                                                                             <div className="text-center py-4">
-                                                                                 <p className="text-[11px] text-slate-400 font-medium mb-2">No checklist items generated.</p>
-                                                                                 <button
-                                                                                     onClick={() => handleGenerateChecklist(tour, tour.duration)}
-                                                                                     className="px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 text-blue-600 dark:text-blue-400 text-[10px] font-black rounded-lg transition-colors inline-flex items-center gap-1"
-                                                                                 >
-                                                                                     <Plus size={10} /> Generate Checklist
-                                                                                 </button>
-                                                                             </div>
-                                                                         ) : (
-                                                                             <>
-                                                                                 {/* Checklist items list */}
-                                                                                 <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                                                                                     {dayItems.map(item => {
-                                                                                         const isSuccess = item.status === 'Verified Success';
-                                                                                         const isDelayed = item.status === 'Delayed';
-                                                                                         const isSubstituted = item.status === 'Substituted';
+                                                            {isExpanded && (
+                                                                <div className="mt-2.5 space-y-3 bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-200/60 dark:border-slate-800 animate-in fade-in">
+                                                                    {loadingDeliverables[tour.id] ? (
+                                                                        <div className="text-center py-4 text-xs text-slate-400 font-medium">Loading checklist...</div>
+                                                                    ) : (
+                                                                        <>
+                                                                            {/* Day Selector Buttons & Mark All Action */}
+                                                                            <div className="flex items-center justify-between border-b border-slate-200/80 dark:border-slate-800 pb-2 gap-2">
+                                                                                <div className="flex flex-wrap gap-1">
+                                                                                    {Array.from({ length: tour.duration }, (_, i) => i + 1).map(dayNum => (
+                                                                                        <button
+                                                                                            key={dayNum}
+                                                                                            onClick={() => setSelectedDays(prev => ({ ...prev, [tour.id]: dayNum }))}
+                                                                                            className={`px-2 py-0.5 text-[10px] font-black rounded-md transition-all ${
+                                                                                                currentChecklistDay === dayNum
+                                                                                                    ? 'bg-blue-600 text-white shadow-xs'
+                                                                                                    : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100'
+                                                                                            }`}
+                                                                                        >
+                                                                                            D{dayNum}
+                                                                                        </button>
+                                                                                    ))}
+                                                                                </div>
+                                                                                {dayTotal > 0 && dayVerified < dayTotal && (
+                                                                                    <button
+                                                                                        onClick={() => handleMarkAllVerified(tour.id, currentChecklistDay)}
+                                                                                        className="text-[10px] font-bold text-emerald-600 hover:underline whitespace-nowrap"
+                                                                                    >
+                                                                                        ✓ Mark All Verified
+                                                                                    </button>
+                                                                                )}
+                                                                            </div>
 
-                                                                                         return (
-                                                                                             <div key={item.id} className="flex flex-col gap-1 bg-white dark:bg-slate-800/50 p-2 rounded-lg border border-slate-100 dark:border-slate-800/50 group/item">
-                                                                                                 <div className="flex items-start justify-between gap-2">
-                                                                                                     <label className="flex items-start gap-2 cursor-pointer flex-1">
-                                                                                                         <input
-                                                                                                             type="checkbox"
-                                                                                                             checked={isSuccess}
-                                                                                                             onChange={(e) => handleUpdateStatus(
-                                                                                                                 item.id,
-                                                                                                                 tour.id,
-                                                                                                                 e.target.checked ? 'Verified Success' : 'Pending',
-                                                                                                                 item.notes
-                                                                                                             )}
-                                                                                                             className="mt-0.5 size-3.5 rounded text-blue-600 border-slate-300 focus:ring-blue-500/20 cursor-pointer"
-                                                                                                         />
-                                                                                                         <div className="flex flex-col flex-1">
-                                                                                                             <span className={`text-[11px] font-bold ${isSuccess ? 'line-through text-slate-400 dark:text-slate-500' : 'text-slate-700 dark:text-slate-300'}`}>
-                                                                                                                 {item.itemType === 'meal' && '🍳 '}
-                                                                                                                 {item.itemType === 'transport' && '🚗 '}
-                                                                                                                 {item.itemType === 'guide' && '🗣️ '}
-                                                                                                                 {item.itemType === 'activity' && '🎟️ '}
-                                                                                                                 {item.itemType === 'hotel' && '🏨 '}
-                                                                                                                 {item.itemName}
-                                                                                                             </span>
-                                                                                                             {item.scheduledTime && (
-                                                                                                                 <span className="text-[9px] text-slate-400 font-mono flex items-center gap-0.5">
-                                                                                                                     <Clock size={8} /> {item.scheduledTime}
-                                                                                                                 </span>
-                                                                                                             )}
-                                                                                                             {item.itemType === 'transport' && assignedTransport && transportVendor && (
-                                                                                                                 <button
-                                                                                                                     onClick={() => navigate(`/admin/vendors?search=${encodeURIComponent(transportVendor.name)}`)}
-                                                                                                                     className="text-[9px] text-blue-600 hover:underline font-bold mt-0.5 text-left block"
-                                                                                                                 >
-                                                                                                                     Contact Driver: {transportVendor.name}
-                                                                                                                 </button>
-                                                                                                             )}
-                                                                                                             {item.itemType === 'guide' && (
-                                                                                                                 <button
-                                                                                                                     onClick={() => navigate('/admin/vendors?search=Guide')}
-                                                                                                                     className="text-[9px] text-blue-600 hover:underline font-bold mt-0.5 text-left block"
-                                                                                                                 >
-                                                                                                                     View Guides Directory
-                                                                                                                 </button>
-                                                                                                             )}
-                                                                                                             {item.itemType === 'hotel' && (
-                                                                                                                 <button
-                                                                                                                     onClick={() => navigate('/admin/vendors?search=Hotel')}
-                                                                                                                     className="text-[9px] text-blue-600 hover:underline font-bold mt-0.5 text-left block"
-                                                                                                                 >
-                                                                                                                     View Hotels Directory
-                                                                                                                 </button>
-                                                                                                             )}
-                                                                                                         </div>
-                                                                                                     </label>
+                                                                            {dayTotal === 0 ? (
+                                                                                <div className="text-center py-3">
+                                                                                    <p className="text-[11px] text-slate-400 font-medium mb-2">No checklist items generated.</p>
+                                                                                    <button
+                                                                                        onClick={() => handleGenerateChecklist(tour, tour.duration)}
+                                                                                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold rounded-lg transition-colors inline-flex items-center gap-1 shadow-xs"
+                                                                                    >
+                                                                                        <Plus size={11} /> Auto-Generate Checklist
+                                                                                    </button>
+                                                                                </div>
+                                                                            ) : (
+                                                                                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                                                                                    {dayItems.map(item => {
+                                                                                        const isSuccess = item.status === 'Verified Success';
+                                                                                        const isDelayed = item.status === 'Delayed';
+                                                                                        const isSubstituted = item.status === 'Substituted';
 
-                                                                                                     <div className="flex items-center gap-1.5">
-                                                                                                         <select
-                                                                                                             value={item.status}
-                                                                                                             onChange={(e) => {
-                                                                                                                 const newStatus = e.target.value;
-                                                                                                                 if (newStatus === 'Substituted' || newStatus === 'Delayed') {
-                                                                                                                     const notesVal = window.prompt(`Enter reason for ${newStatus}:`, item.notes || '');
-                                                                                                                     if (notesVal !== null) {
-                                                                                                                         handleUpdateStatus(item.id, tour.id, newStatus as any, notesVal);
-                                                                                                                     }
-                                                                                                                 } else {
-                                                                                                                     handleUpdateStatus(item.id, tour.id, newStatus as any, undefined);
-                                                                                                                  }
-                                                                                                              }}
-                                                                                                              className={`px-1 py-0.5 text-[9px] font-black rounded border border-slate-200 dark:border-slate-700 outline-none cursor-pointer bg-slate-50 dark:bg-slate-800 ${
-                                                                                                                  isSuccess ? 'text-green-600 dark:text-green-400' :
-                                                                                                                  isDelayed ? 'text-red-500' :
-                                                                                                                  isSubstituted ? 'text-purple-500' :
-                                                                                                                  'text-slate-500 dark:text-slate-400'
-                                                                                                              }`}
-                                                                                                          >
-                                                                                                              <option value="Pending">Pending</option>
-                                                                                                              <option value="Verified Success">Success</option>
-                                                                                                              <option value="Delayed">Delayed</option>
-                                                                                                              <option value="Substituted">Substituted</option>
-                                                                                                          </select>
+                                                                                        return (
+                                                                                            <div key={item.id} className="flex flex-col gap-1 bg-white dark:bg-slate-800/70 p-2 rounded-lg border border-slate-100 dark:border-slate-800 group/item">
+                                                                                                <div className="flex items-start justify-between gap-2">
+                                                                                                    <label className="flex items-start gap-2 cursor-pointer flex-1">
+                                                                                                        <input
+                                                                                                            type="checkbox"
+                                                                                                            checked={isSuccess}
+                                                                                                            onChange={(e) => handleUpdateStatus(
+                                                                                                                item.id,
+                                                                                                                tour.id,
+                                                                                                                e.target.checked ? 'Verified Success' : 'Pending',
+                                                                                                                item.notes
+                                                                                                            )}
+                                                                                                            className="mt-0.5 size-3.5 rounded text-blue-600 border-slate-300 focus:ring-blue-500/20 cursor-pointer"
+                                                                                                        />
+                                                                                                        <div className="flex flex-col flex-1">
+                                                                                                            <span className={`text-[11px] font-bold ${isSuccess ? 'line-through text-slate-400' : 'text-slate-800 dark:text-slate-200'}`}>
+                                                                                                                {getDeliverableCategoryIcon(item.itemType)} {item.itemName}
+                                                                                                            </span>
+                                                                                                            {item.scheduledTime && (
+                                                                                                                <span className="text-[9px] text-slate-400 font-mono flex items-center gap-0.5">
+                                                                                                                    <Clock size={8} /> {item.scheduledTime}
+                                                                                                                </span>
+                                                                                                            )}
+                                                                                                        </div>
+                                                                                                    </label>
 
-                                                                                                          <button
-                                                                                                              onClick={() => handleDeleteDeliverable(item.id, tour.id)}
-                                                                                                              className="text-slate-300 hover:text-red-500 p-0.5 rounded opacity-0 group-hover/item:opacity-100 transition-opacity"
-                                                                                                              title="Delete item"
-                                                                                                          >
-                                                                                                              <Trash2 size={10} />
-                                                                                                          </button>
-                                                                                                      </div>
-                                                                                                  </div>
+                                                                                                    <div className="flex items-center gap-1">
+                                                                                                        <select
+                                                                                                            value={item.status}
+                                                                                                            onChange={(e) => {
+                                                                                                                const newStatus = e.target.value;
+                                                                                                                if (newStatus === 'Substituted' || newStatus === 'Delayed') {
+                                                                                                                    const notesVal = window.prompt(`Enter reason for ${newStatus}:`, item.notes || '');
+                                                                                                                    if (notesVal !== null) {
+                                                                                                                        handleUpdateStatus(item.id, tour.id, newStatus as any, notesVal);
+                                                                                                                    }
+                                                                                                                } else {
+                                                                                                                    handleUpdateStatus(item.id, tour.id, newStatus as any, undefined);
+                                                                                                                }
+                                                                                                            }}
+                                                                                                            className={`px-1.5 py-0.5 text-[9px] font-black rounded border border-slate-200 dark:border-slate-700 outline-none cursor-pointer bg-slate-50 dark:bg-slate-800 ${
+                                                                                                                isSuccess ? 'text-green-600 dark:text-green-400' :
+                                                                                                                isDelayed ? 'text-red-500' :
+                                                                                                                isSubstituted ? 'text-purple-500' :
+                                                                                                                'text-slate-500'
+                                                                                                            }`}
+                                                                                                        >
+                                                                                                            <option value="Pending">Pending</option>
+                                                                                                            <option value="Verified Success">Success</option>
+                                                                                                            <option value="Delayed">Delayed</option>
+                                                                                                            <option value="Substituted">Substituted</option>
+                                                                                                        </select>
 
-                                                                                             {item.notes && (
-                                                                                                 <div className="pl-2.5 text-[9px] text-slate-500 bg-slate-50 dark:bg-slate-900/30 p-1 rounded font-medium border-l-2 border-slate-300">
-                                                                                                     <span className="font-bold uppercase text-[8px] mr-1">Note:</span>{item.notes}
-                                                                                                 </div>
-                                                                                             )}
-                                                                                         </div>
-                                                                                     );
-                                                                                 })}
-                                                                             </div>
+                                                                                                        <button
+                                                                                                            onClick={() => handleDeleteDeliverable(item.id, tour.id)}
+                                                                                                            className="text-slate-300 hover:text-red-500 p-0.5 rounded opacity-0 group-hover/item:opacity-100 transition-opacity"
+                                                                                                            title="Delete item"
+                                                                                                        >
+                                                                                                            <Trash2 size={10} />
+                                                                                                        </button>
+                                                                                                    </div>
+                                                                                                </div>
+                                                                                            </div>
+                                                                                        );
+                                                                                    })}
+                                                                                </div>
+                                                                            )}
 
-                                                                             {/* Add custom item form */}
-                                                                             <div className="mt-3 pt-3 border-t border-slate-200/60 dark:border-slate-850 flex items-center gap-1">
-                                                                                 <input
-                                                                                     type="text"
-                                                                                     value={newDeliverableName[tour.id] || ''}
-                                                                                     onChange={(e) => setNewDeliverableName(prev => ({ ...prev, [tour.id]: e.target.value }))}
-                                                                                     placeholder="Add deliverable..."
-                                                                                     className="flex-1 min-w-0 px-2 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[10px] placeholder-slate-400 outline-none focus:ring-1 ring-blue-500/30 text-slate-700 dark:text-slate-300"
-                                                                                 />
-                                                                                 <select
-                                                                                     value={newDeliverableType[tour.id] || 'other'}
-                                                                                     onChange={(e) => setNewDeliverableType(prev => ({ ...prev, [tour.id]: e.target.value }))}
-                                                                                     className="px-1 py-1 bg-white dark:bg-slate-800 text-[10px] rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 outline-none cursor-pointer"
-                                                                                 >
-                                                                                     <option value="other">⚙️</option>
-                                                                                     <option value="meal">🍛</option>
-                                                                                     <option value="transport">🚗</option>
-                                                                                     <option value="guide">🗣️</option>
-                                                                                     <option value="activity">🎟️</option>
-                                                                                     <option value="hotel">🏨</option>
-                                                                                 </select>
-                                                                                 <input
-                                                                                     type="text"
-                                                                                     value={newDeliverableTime[tour.id] || ''}
-                                                                                     onChange={(e) => setNewDeliverableTime(prev => ({ ...prev, [tour.id]: e.target.value }))}
-                                                                                     placeholder="09:00 AM"
-                                                                                     className="w-12 px-1 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[9px] text-center placeholder-slate-400 outline-none focus:ring-1 ring-blue-500/30 text-slate-700 dark:text-slate-300"
-                                                                                 />
-                                                                                 <button
-                                                                                     onClick={() => handleAddCustomDeliverable(tour.id, currentChecklistDay)}
-                                                                                     className="p-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
-                                                                                     title="Add Item"
-                                                                                 >
-                                                                                     <Plus size={10} />
-                                                                                 </button>
-                                                                             </div>
-                                                                         </>
-                                                                     )}
-                                                                      </>
-                                                                      )}
-                                                                 </div>
-                                                             )}
-                                                         </div>
-                                                     );
-                                                 })()}
+                                                                            {/* Custom Deliverable Input */}
+                                                                            <div className="mt-2 pt-2 border-t border-slate-200/60 dark:border-slate-800 flex items-center gap-1">
+                                                                                <input
+                                                                                    type="text"
+                                                                                    value={newDeliverableName[tour.id] || ''}
+                                                                                    onChange={(e) => setNewDeliverableName(prev => ({ ...prev, [tour.id]: e.target.value }))}
+                                                                                    placeholder="Add item..."
+                                                                                    className="flex-1 min-w-0 px-2 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[10px] placeholder-slate-400 outline-none text-slate-800 dark:text-slate-200"
+                                                                                />
+                                                                                <select
+                                                                                    value={newDeliverableType[tour.id] || 'other'}
+                                                                                    onChange={(e) => setNewDeliverableType(prev => ({ ...prev, [tour.id]: e.target.value as any }))}
+                                                                                    className="px-1 py-1 bg-white dark:bg-slate-800 text-[10px] rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 outline-none"
+                                                                                >
+                                                                                    <option value="other">⚙️</option>
+                                                                                    <option value="meal">🍛</option>
+                                                                                    <option value="transport">🚗</option>
+                                                                                    <option value="guide">🗣️</option>
+                                                                                    <option value="activity">🎟️</option>
+                                                                                    <option value="hotel">🏨</option>
+                                                                                </select>
+                                                                                <button
+                                                                                    onClick={() => handleAddCustomDeliverable(tour.id, currentChecklistDay)}
+                                                                                    className="p-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-xs"
+                                                                                >
+                                                                                    <Plus size={10} />
+                                                                                </button>
+                                                                            </div>
+                                                                        </>
+                                                                    )}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })()}
+                                            </div>
 
-                                                <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 flex gap-2 flex-wrap">
-                                                    {/* #7 — visually disabled WA button when no link/phone */}
-                                                    <button
-                                                        onClick={() => hasWa && window.open(formatExternalUrl(waUrl), '_blank')}
-                                                        disabled={!hasWa}
-                                                        title={hasWa ? (tour.whatsappGroupUrl ? 'Open WA Group' : 'Open WhatsApp') : 'No phone or WA group set'}
-                                                        className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors ${hasWa
-                                                            ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 hover:bg-green-100 cursor-pointer'
-                                                            : 'bg-slate-100 dark:bg-slate-800/50 text-slate-400 cursor-not-allowed opacity-60'
-                                                        }`}
-                                                    >
-                                                        {tour.whatsappGroupUrl ? 'WA Group' : 'WhatsApp'}
-                                                    </button>
+                                            {/* Action Buttons Row */}
+                                            <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2">
+                                                <div className="flex gap-1.5">
+                                                    {directWaUrl && (
+                                                        <button
+                                                            onClick={() => window.open(directWaUrl, '_blank')}
+                                                            className="flex-1 py-1.5 px-2 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1"
+                                                            title="Chat with Customer on WhatsApp"
+                                                        >
+                                                            <MessageSquare size={12} /> Customer WA
+                                                        </button>
+                                                    )}
+                                                    {groupWaUrl && (
+                                                        <button
+                                                            onClick={() => window.open(formatExternalUrl(groupWaUrl), '_blank')}
+                                                            className="flex-1 py-1.5 px-2 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 hover:bg-blue-100 text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1"
+                                                            title="Open WhatsApp Group"
+                                                        >
+                                                            <Users size={12} /> WA Group
+                                                        </button>
+                                                    )}
+                                                </div>
 
-                                                    {/* #14 — liveStatus select with cancel confirmation built into handler */}
+                                                <div className="flex gap-2">
                                                     <select
                                                         value={tour.liveStatus || 'Live'}
                                                         onChange={(e) => handleLiveStatusChange(tour.id, e.target.value)}
-                                                        className="px-2 py-2 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold rounded-lg border-none outline-none cursor-pointer"
+                                                        className="px-2 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold rounded-xl border-none outline-none cursor-pointer"
                                                     >
                                                         <option value="Live">🟢 Live</option>
                                                         <option value="Issue">🔴 Issue</option>
                                                         <option value="Cancelled">❌ Cancel</option>
                                                     </select>
 
-                                                    {/* #4 — Assign/Edit driver on live tour cards */}
                                                     <button
                                                         onClick={() => openPrepModal(tour)}
-                                                        className="py-2 px-3 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 text-xs font-bold rounded-lg hover:bg-blue-100 transition-colors"
-                                                        title={assignedTransport ? 'Edit Transport' : 'Assign Driver'}
+                                                        className="flex-1 py-1.5 px-3 bg-blue-600 text-white hover:bg-blue-700 text-xs font-bold rounded-xl transition-colors shadow-xs flex items-center justify-center gap-1"
                                                     >
-                                                        <Car size={12} className="inline mr-1" />
-                                                        {assignedTransport ? 'Edit' : 'Assign'}
+                                                        <Car size={12} /> Assign Supplier
                                                     </button>
 
                                                     <button
                                                         onClick={() => navigate(`/admin/bookings?search=${tour.id}`)}
-                                                        className="flex-1 py-2 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold rounded-lg hover:bg-slate-100 transition-colors"
+                                                        className="py-1.5 px-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold rounded-xl hover:bg-slate-200 transition-colors"
                                                     >
                                                         Details
                                                     </button>
@@ -1037,152 +1360,150 @@ export const Operations: React.FC = () => {
                                         </div>
                                     );
                                 })}
-                                {tourStats.live.length === 0 && (
-                                    <div className="col-span-3 py-10 text-center bg-white dark:bg-[#1A2633] rounded-2xl border border-dashed border-slate-300 dark:border-slate-700">
-                                        <p className="text-slate-400 font-medium">No live tours at the moment.</p>
+
+                                {filteredLive.length === 0 && (
+                                    <div className="col-span-1 md:col-span-2 lg:col-span-3 py-12 text-center bg-white dark:bg-[#1A2633] rounded-2xl border border-dashed border-slate-300 dark:border-slate-700">
+                                        <Compass size={36} className="mx-auto text-slate-300 mb-2" />
+                                        <p className="text-slate-500 font-bold">No active live tours match your current filter.</p>
+                                        <p className="text-xs text-slate-400 mt-1">Try adjusting search or status filter options.</p>
                                     </div>
                                 )}
                             </div>
                         </div>
 
-                        {/* Upcoming Tours — Fix B: day-range toggle */}
-                        <div>
+                        {/* Upcoming Arrivals Section */}
+                        <div className="mt-8">
                             <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
                                 <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
                                     <Calendar className="text-blue-500" size={20} />
-                                    Upcoming Arrivals
-                                    <span className="text-sm font-normal text-slate-400">({tourStats.upcoming.length})</span>
+                                    Upcoming Arrivals ({filteredUpcoming.length})
                                 </h3>
-                                <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl gap-0.5">
+                                <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl gap-0.5 border border-slate-200/60 dark:border-slate-700/60">
                                     {([7, 14, 30] as const).map(d => (
                                         <button
                                             key={d}
                                             onClick={() => setUpcomingDays(d)}
                                             className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
                                                 upcomingDays === d
-                                                    ? 'bg-white dark:bg-slate-700 shadow-sm text-blue-600 dark:text-blue-400'
+                                                    ? 'bg-white dark:bg-slate-700 shadow-xs text-blue-600 dark:text-blue-400'
                                                     : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
                                             }`}
                                         >
-                                            {d}d
+                                            {d}d Window
                                         </button>
                                     ))}
                                 </div>
                             </div>
-                            <div className="bg-white dark:bg-[#1A2633] rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden">
-                                <table className="w-full text-left">
-                                    <thead className="bg-slate-50 dark:bg-slate-900/50 text-xs uppercase font-bold text-slate-400">
+
+                            <div className="bg-white dark:bg-[#1A2633] rounded-2xl shadow-xs border border-slate-200/80 dark:border-slate-800 overflow-hidden">
+                                <table className="w-full text-left border-collapse">
+                                    <thead className="bg-slate-50 dark:bg-slate-900/50 text-[11px] uppercase font-black text-slate-400 border-b border-slate-100 dark:border-slate-800">
                                         <tr>
-                                            <th className="px-6 py-4">Start Date</th>
-                                            <th className="px-6 py-4">Customer</th>
-                                            <th className="px-6 py-4">Package</th>
-                                            <th className="px-6 py-4">Assignment</th>
-                                            <th className="px-6 py-4 text-right">Action</th>
+                                            <th className="px-6 py-3.5">Start Date</th>
+                                            <th className="px-6 py-3.5">Customer &amp; Pax</th>
+                                            <th className="px-6 py-3.5">Package Title</th>
+                                            <th className="px-6 py-3.5">Supplier Assignments</th>
+                                            <th className="px-6 py-3.5 text-right">Actions</th>
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                        {tourStats.upcoming.map(tour => {
+                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+                                        {filteredUpcoming.map(tour => {
                                             const assignedTransport = tour.supplierBookings?.find(sb => sb.serviceType === 'Transport');
                                             const vendorName = assignedTransport ? vendors.find((v: any) => v.id === assignedTransport.vendorId)?.name : null;
                                             const driverLabel = vendorName || assignedTransport?.driverName || null;
+
                                             return (
-                                                <tr key={tour.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                                                    <td className="px-6 py-4 font-bold text-blue-600">
-                                                        {/* #3 — timezone-safe date display */}
+                                                <tr key={tour.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
+                                                    <td className="px-6 py-4 font-black text-blue-600 dark:text-blue-400">
                                                         {formatLocalDate(tour.date)}
                                                     </td>
-                                                    <td className="px-6 py-4 font-medium text-slate-900 dark:text-white">
-                                                        {tour.customer}
-                                                        {/* Fix H: show ? for genuinely unknown pax */}
-                                                        <div className="text-[10px] text-slate-400 font-normal">
+                                                    <td className="px-6 py-4 font-bold text-slate-900 dark:text-white">
+                                                        <div>{tour.customer}</div>
+                                                        <div className="text-[10px] text-slate-400 font-normal mt-0.5">
                                                             {(tour as any).paxUnknown ? '? Pax' : `${tour.paxCount} Pax`}
                                                         </div>
                                                     </td>
-                                                    <td className="px-6 py-4 text-sm text-slate-500">{tour.title}</td>
-                                                    <td className="px-6 py-4 text-sm">
+                                                    <td className="px-6 py-4 text-slate-600 dark:text-slate-400 font-medium">{tour.title}</td>
+                                                    <td className="px-6 py-4">
                                                         {driverLabel ? (
-                                                            <span className="flex items-center gap-1 text-green-600 font-bold text-xs">
-                                                                <CheckCircle size={12} /> {driverLabel}
+                                                            <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-bold">
+                                                                <CheckCircle size={13} /> {driverLabel}
                                                             </span>
                                                         ) : (
-                                                            <span className="text-amber-500 flex items-center gap-1 text-xs font-medium">
-                                                                <AlertTriangle size={12} /> Pending
+                                                            <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-900/20 px-2 py-0.5 rounded">
+                                                                <AlertTriangle size={12} /> Transport Pending
                                                             </span>
                                                         )}
                                                     </td>
                                                     <td className="px-6 py-4 text-right">
                                                         <button
                                                             onClick={() => openPrepModal(tour)}
-                                                            className="text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg font-bold text-xs transition-colors"
+                                                            className="text-blue-600 hover:text-blue-700 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 px-3 py-1.5 rounded-xl font-bold text-xs transition-colors"
                                                         >
-                                                            {driverLabel ? 'Manage' : 'Assign Driver'}
+                                                            {driverLabel ? 'Manage Supplier' : 'Assign Driver'}
                                                         </button>
                                                     </td>
                                                 </tr>
                                             );
                                         })}
-                                        {tourStats.upcoming.length === 0 && (
-                                            <tr><td colSpan={5} className="px-6 py-8 text-center text-slate-400">No upcoming tours in the next {upcomingDays} days.</td></tr>
+                                        {filteredUpcoming.length === 0 && (
+                                            <tr>
+                                                <td colSpan={5} className="px-6 py-10 text-center text-slate-400 font-medium">
+                                                    No upcoming tours scheduled in the next {upcomingDays} days matching filters.
+                                                </td>
+                                            </tr>
                                         )}
                                     </tbody>
                                 </table>
                             </div>
                         </div>
 
-                        {/* Recently Completed Tours */}
-                        {tourStats.completed.length > 0 && (
-                            <div>
+                        {/* Recently Completed Tours Section */}
+                        {filteredCompleted.length > 0 && (
+                            <div className="mt-8">
                                 <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
                                     <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
                                         <CheckCircle className="text-slate-400" size={20} />
-                                        Recently Completed
-                                        <span className="text-sm font-normal text-slate-400">({tourStats.completed.length})</span>
+                                        Recently Completed ({filteredCompleted.length})
                                     </h3>
-                                    {tourStats.completed.length > 10 && (
+                                    {filteredCompleted.length > 10 && (
                                         <button
                                             onClick={() => setShowAllCompleted(v => !v)}
                                             className="text-xs font-bold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/20 dark:hover:bg-blue-900/40 px-3 py-1.5 rounded-lg transition-colors"
                                         >
-                                            {showAllCompleted ? 'Show Less ▲' : `Show All ${tourStats.completed.length} ▼`}
+                                            {showAllCompleted ? 'Show Less ▲' : `Show All ${filteredCompleted.length} ▼`}
                                         </button>
                                     )}
                                 </div>
-                                <div className="bg-white dark:bg-[#1A2633] rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden">
-                                    <table className="w-full text-left">
-                                        <thead className="bg-slate-50 dark:bg-slate-900/50 text-xs uppercase font-bold text-slate-400">
+                                <div className="bg-white dark:bg-[#1A2633] rounded-2xl shadow-xs border border-slate-200/80 dark:border-slate-800 overflow-hidden">
+                                    <table className="w-full text-left border-collapse">
+                                        <thead className="bg-slate-50 dark:bg-slate-900/50 text-[11px] uppercase font-black text-slate-400 border-b border-slate-100 dark:border-slate-800">
                                             <tr>
-                                                <th className="px-6 py-4">Date</th>
-                                                <th className="px-6 py-4">Customer</th>
-                                                <th className="px-6 py-4">Package</th>
-                                                <th className="px-4 py-4 text-xs">Status</th>
-                                                <th className="px-6 py-4 text-right">Booking</th>
+                                                <th className="px-6 py-3.5">End Date</th>
+                                                <th className="px-6 py-3.5">Customer</th>
+                                                <th className="px-6 py-3.5">Package</th>
+                                                <th className="px-6 py-3.5">Status</th>
+                                                <th className="px-6 py-3.5 text-right">Booking</th>
                                             </tr>
                                         </thead>
-                                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                            {(showAllCompleted ? tourStats.completed : tourStats.completed.slice(0, 10)).map(tour => {
-                                                const isManuallyCompleted = tour.liveStatus === 'Completed' || (tour.status as string)?.toLowerCase() === 'completed';
+                                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+                                            {(showAllCompleted ? filteredCompleted : filteredCompleted.slice(0, 10)).map(tour => {
                                                 return (
-                                                    <tr key={tour.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 opacity-80">
-                                                        <td className="px-6 py-4 text-sm text-slate-500">{formatLocalDate(tour.date)}</td>
-                                                        <td className="px-6 py-4 font-medium text-slate-700 dark:text-slate-300">{tour.customer}</td>
-                                                        <td className="px-6 py-4 text-sm text-slate-500">{tour.title}</td>
-                                                        <td className="px-4 py-4">
-                                                            {isManuallyCompleted ? (
-                                                                <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">
-                                                                    <CheckCircle size={10} /> Completed
-                                                                </span>
-                                                            ) : (
-                                                                <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500">
-                                                                    Past
-                                                                </span>
-                                                            )}
+                                                    <tr key={tour.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 opacity-85 transition-colors">
+                                                        <td className="px-6 py-4 text-slate-500 font-mono">{formatLocalDate(tour.date)}</td>
+                                                        <td className="px-6 py-4 font-bold text-slate-800 dark:text-slate-200">{tour.customer}</td>
+                                                        <td className="px-6 py-4 text-slate-500 font-medium">{tour.title}</td>
+                                                        <td className="px-6 py-4">
+                                                            <span className="inline-flex items-center gap-1 text-[10px] font-black px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400">
+                                                                <CheckCircle size={10} /> Tour Completed
+                                                            </span>
                                                         </td>
                                                         <td className="px-6 py-4 text-right">
                                                             <button
                                                                 onClick={() => navigate(`/admin/bookings?search=${tour.id}`)}
-                                                                className="text-slate-500 hover:text-blue-600 bg-slate-50 hover:bg-blue-50 dark:bg-slate-800 dark:hover:bg-blue-900/20 px-3 py-1.5 rounded-lg font-bold text-xs transition-colors"
+                                                                className="text-slate-500 hover:text-blue-600 bg-slate-100 hover:bg-blue-50 dark:bg-slate-800 dark:hover:bg-blue-900/20 px-3 py-1.5 rounded-xl font-bold text-xs transition-colors"
                                                             >
-                                                                View
+                                                                View Details
                                                             </button>
                                                         </td>
                                                     </tr>
@@ -1190,48 +1511,64 @@ export const Operations: React.FC = () => {
                                             })}
                                         </tbody>
                                     </table>
-                                    {!showAllCompleted && tourStats.completed.length > 10 && (
-                                        <div className="px-6 py-3 bg-slate-50 dark:bg-slate-900/30 border-t border-slate-100 dark:border-slate-800 text-center">
-                                            <span className="text-xs text-slate-400">
-                                                Showing 10 of {tourStats.completed.length} — use "Show All" above to view more
-                                            </span>
-                                        </div>
-                                    )}
                                 </div>
                             </div>
                         )}
-
                     </div>
                 )}
 
                 {/* ══ ATTENDANCE TAB ══ */}
                 {activeTab === 'Attendance' && (
-                    <div className="max-w-5xl mx-auto">
-                        <div className="bg-white dark:bg-[#1A2633] rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden">
-                            <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex flex-wrap justify-between items-center gap-3 bg-slate-50/50">
-                                <div>
-                                    <h3 className="text-lg font-black text-slate-900 dark:text-white">Daily Attendance</h3>
-                                    <p className="text-xs text-slate-500 font-bold">{new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
-                                </div>
-                                {/* #11 — Full attendance summary badges */}
-                                <div className="flex flex-wrap gap-2">
-                                    <div className="px-3 py-1 bg-green-100 text-green-700 rounded-lg text-xs font-bold flex items-center gap-1">
-                                        <div className="w-2 h-2 bg-green-500 rounded-full"></div> {attSummary.present} Present
-                                    </div>
-                                    <div className="px-3 py-1 bg-blue-100 text-blue-700 rounded-lg text-xs font-bold flex items-center gap-1">
-                                        <div className="w-2 h-2 bg-blue-500 rounded-full"></div> {attSummary.field} Remote/Field
-                                    </div>
-                                    <div className="px-3 py-1 bg-amber-100 text-amber-700 rounded-lg text-xs font-bold flex items-center gap-1">
-                                        <div className="w-2 h-2 bg-amber-500 rounded-full"></div> {attSummary.leave} On Leave
-                                    </div>
-                                    <div className="px-3 py-1 bg-red-100 text-red-700 rounded-lg text-xs font-bold flex items-center gap-1">
-                                        <div className="w-2 h-2 bg-red-500 rounded-full"></div> {attSummary.absent} Absent
-                                    </div>
-                                </div>
+                    <div className="max-w-5xl mx-auto space-y-5">
+                        {/* Attendance Summary Stat Cards */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                            <div className="bg-emerald-50 dark:bg-emerald-900/20 p-4 rounded-2xl border border-emerald-200/60 dark:border-emerald-800/50">
+                                <div className="text-xs font-extrabold text-emerald-700 dark:text-emerald-400 uppercase">Present</div>
+                                <div className="text-2xl font-black text-emerald-800 dark:text-emerald-300 mt-1">{attSummary.present}</div>
+                            </div>
+                            <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-2xl border border-blue-200/60 dark:border-blue-800/50">
+                                <div className="text-xs font-extrabold text-blue-700 dark:text-blue-400 uppercase">On Field / Remote</div>
+                                <div className="text-2xl font-black text-blue-800 dark:text-blue-300 mt-1">{attSummary.field}</div>
+                            </div>
+                            <div className="bg-amber-50 dark:bg-amber-900/20 p-4 rounded-2xl border border-amber-200/60 dark:border-amber-800/50">
+                                <div className="text-xs font-extrabold text-amber-700 dark:text-amber-400 uppercase">On Leave</div>
+                                <div className="text-2xl font-black text-amber-800 dark:text-amber-300 mt-1">{attSummary.leave}</div>
+                            </div>
+                            <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-2xl border border-red-200/60 dark:border-red-800/50">
+                                <div className="text-xs font-extrabold text-red-700 dark:text-red-400 uppercase">Absent</div>
+                                <div className="text-2xl font-black text-red-800 dark:text-red-300 mt-1">{attSummary.absent}</div>
+                            </div>
+                        </div>
+
+                        {/* Search & Filter Bar for Staff */}
+                        <div className="bg-white dark:bg-[#1A2633] p-4 rounded-2xl shadow-xs border border-slate-200/80 dark:border-slate-800 flex flex-col sm:flex-row justify-between items-center gap-3">
+                            <div className="relative w-full sm:w-72">
+                                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                <input
+                                    type="text"
+                                    value={staffSearchQuery}
+                                    onChange={(e) => setStaffSearchQuery(e.target.value)}
+                                    placeholder="Search staff by name or role..."
+                                    className="w-full pl-9 pr-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs outline-none text-slate-900 dark:text-white"
+                                />
                             </div>
 
-                            <table className="w-full text-left">
-                                <thead className="bg-slate-50 dark:bg-slate-900/50 text-xs uppercase font-bold text-slate-400">
+                            <select
+                                value={staffRoleFilter}
+                                onChange={(e) => setStaffRoleFilter(e.target.value)}
+                                className="px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold rounded-xl outline-none text-slate-700 dark:text-slate-300"
+                            >
+                                <option value="all">All Staff Roles</option>
+                                <option value="admin">Admin</option>
+                                <option value="operations">Operations</option>
+                                <option value="driver">Driver</option>
+                                <option value="guide">Guide</option>
+                            </select>
+                        </div>
+
+                        <div className="bg-white dark:bg-[#1A2633] rounded-2xl shadow-xs border border-slate-200/80 dark:border-slate-800 overflow-hidden">
+                            <table className="w-full text-left border-collapse">
+                                <thead className="bg-slate-50 dark:bg-slate-900/50 text-[11px] uppercase font-black text-slate-400 border-b border-slate-100 dark:border-slate-800">
                                     <tr>
                                         <th className="px-6 py-4">Employee</th>
                                         <th className="px-6 py-4">Status</th>
@@ -1239,36 +1576,34 @@ export const Operations: React.FC = () => {
                                         <th className="px-6 py-4">Current Location</th>
                                     </tr>
                                 </thead>
-                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                    {staff.map((emp: any) => (
-                                        <tr key={emp.id} className="group hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+                                    {filteredStaff.map((emp: any) => (
+                                        <tr key={emp.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
                                             <td className="px-6 py-4">
-                                                <div className="font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                                                    {/* #12 — inline style instead of dynamic Tailwind class */}
+                                                <div className="font-extrabold text-slate-900 dark:text-white flex items-center gap-2.5">
                                                     <div
                                                         style={{ backgroundColor: getAvatarBg(emp.color) }}
-                                                        className="size-8 rounded-full flex items-center justify-center text-xs text-white font-bold flex-shrink-0"
+                                                        className="size-8 rounded-full flex items-center justify-center text-xs text-white font-black flex-shrink-0 shadow-xs"
                                                     >
                                                         {emp.initials}
                                                     </div>
-                                                    {emp.name}
-                                                    {emp.id === currentUser?.id && (
-                                                        <span className="text-[10px] bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 px-1.5 py-0.5 rounded ml-1">YOU</span>
-                                                    )}
+                                                    <div>
+                                                        <div>{emp.name}</div>
+                                                        <div className="text-[10px] text-slate-400 font-semibold capitalize">{emp.role}</div>
+                                                    </div>
                                                 </div>
-                                                <div className="text-xs text-slate-500 pl-10 capitalize">{emp.role}</div>
                                             </td>
                                             <td className="px-6 py-4">
                                                 <select
                                                     value={emp.attendanceStatus || 'Absent'}
                                                     onChange={(e) => handleStatusChange(emp.id, e.target.value)}
                                                     disabled={!isAdmin && currentUser?.id !== emp.id}
-                                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold border-none outline-none cursor-pointer disabled:opacity-50
-                                                        ${emp.attendanceStatus === 'Present' ? 'bg-green-100 text-green-700' :
-                                                            emp.attendanceStatus === 'On Field' ? 'bg-blue-100 text-blue-700' :
-                                                                emp.attendanceStatus === 'Remote' ? 'bg-sky-100 text-sky-700' :
-                                                                    emp.attendanceStatus === 'On Leave' ? 'bg-amber-100 text-amber-700' :
-                                                                        'bg-red-100 text-red-700'}`}
+                                                    className={`px-3 py-1.5 rounded-xl text-xs font-black border-none outline-none cursor-pointer disabled:opacity-50
+                                                        ${emp.attendanceStatus === 'Present' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300' :
+                                                            emp.attendanceStatus === 'On Field' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300' :
+                                                                emp.attendanceStatus === 'Remote' ? 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300' :
+                                                                    emp.attendanceStatus === 'On Leave' ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300' :
+                                                                        'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300'}`}
                                                 >
                                                     <option value="Present">Present</option>
                                                     <option value="Absent">Absent</option>
@@ -1280,9 +1615,8 @@ export const Operations: React.FC = () => {
                                             <td className="px-6 py-4 text-sm font-mono text-slate-600 dark:text-slate-400">
                                                 <div className="flex items-center gap-2">
                                                     <span>{emp.checkInTime || '-'}</span>
-                                                    {/* #8 — show checkout button only when checkInTime is a real time (not '-') */}
                                                     {emp.attendanceStatus && emp.attendanceStatus !== 'Absent' && emp.checkInTime && emp.checkInTime !== '-' && (isAdmin || currentUser?.id === emp.id) && (
-                                                        <button onClick={() => handleCheckOut(emp.id)} className="text-[10px] text-red-500 hover:text-red-700 font-bold flex items-center gap-0.5" title="Check Out">
+                                                        <button onClick={() => handleCheckOut(emp.id)} className="text-[10px] text-red-500 hover:text-red-700 font-black flex items-center gap-0.5 bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded-md" title="Check Out">
                                                             <LogOut size={10} /> Out
                                                         </button>
                                                     )}
@@ -1296,7 +1630,7 @@ export const Operations: React.FC = () => {
                                                         defaultValue={emp.currentLocation || (emp.attendanceStatus === 'Present' ? 'Office' : '')}
                                                         onBlur={(e) => handleLocationChange(emp.id, e.target.value)}
                                                         disabled={!isAdmin && currentUser?.id !== emp.id}
-                                                        className="bg-transparent border-b border-transparent hover:border-slate-300 focus:border-blue-500 outline-none w-32 transition-colors text-xs disabled:opacity-50"
+                                                        className="bg-transparent border-b border-transparent hover:border-slate-300 focus:border-blue-500 outline-none w-36 transition-colors text-xs font-semibold disabled:opacity-50 text-slate-800 dark:text-slate-200"
                                                         placeholder="Set Location..."
                                                     />
                                                 </div>
@@ -1311,95 +1645,144 @@ export const Operations: React.FC = () => {
 
             </div>
 
-            {/* ══ PREP / ASSIGNMENT MODAL ══ */}
+            {/* ══ PREP / SUPPLIER ASSIGNMENT MODAL ══ */}
             {prepModalOpen && selectedBookingForPrep && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
-                    <div className="bg-white dark:bg-[#1A2633] rounded-2xl w-full max-w-md shadow-2xl p-6 relative overflow-y-auto max-h-[90vh]">
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+                    <div className="bg-white dark:bg-[#1A2633] rounded-3xl w-full max-w-lg shadow-2xl p-6 relative overflow-y-auto max-h-[90vh] border border-slate-200 dark:border-slate-800">
                         <button
                             onClick={() => setPrepModalOpen(false)}
-                            className="absolute top-4 right-4 p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full"
+                            className="absolute top-4 right-4 p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-slate-400 hover:text-slate-600"
                         >
-                            <XCircle size={20} className="text-slate-400" />
+                            <XCircle size={20} />
                         </button>
 
-                        <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-1">Assign Transport</h3>
-                        <p className="text-sm text-slate-500 mb-6">Assign a driver or vehicle for <strong>{selectedBookingForPrep.customer}</strong>.</p>
+                        <h3 className="text-xl font-black text-slate-900 dark:text-white mb-1 flex items-center gap-2">
+                            <Car className="text-blue-600" size={22} /> Supplier &amp; Staff Assignment
+                        </h3>
+                        <p className="text-xs text-slate-500 mb-5 font-medium">
+                            Assign transport drivers and tour guides for <strong>{selectedBookingForPrep.customer}</strong>.
+                        </p>
 
-                        <div className="space-y-4">
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Select Driver / Agency</label>
-                                <select
-                                    value={driverVendorId}
-                                    onChange={(e) => setDriverVendorId(e.target.value)}
-                                    className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border-none rounded-xl outline-none focus:ring-2 ring-blue-500/20"
-                                >
-                                    <option value="">-- Select Vendor --</option>
-                                    {transportVendors.map((v: any) => (
-                                        <option key={v.id} value={v.id}>{v.name} ({v.location})</option>
-                                    ))}
-                                </select>
-                                {transportVendors.length === 0 && (
-                                    <p className="text-xs text-red-500 mt-1">No Transport vendors found. Add one in Vendors tab.</p>
-                                )}
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-5">
+                            {/* Section 1: Driver / Transport */}
+                            <div className="bg-slate-50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 space-y-3">
+                                <h4 className="text-xs font-black uppercase text-blue-600 dark:text-blue-400 flex items-center gap-1.5">
+                                    <Car size={14} /> Transport / Vehicle Assignment
+                                </h4>
                                 <div>
-                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Driver Name</label>
-                                    <input type="text" value={driverName} onChange={(e) => setDriverName(e.target.value)} placeholder="e.g. Raju Kumar" className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border-none rounded-xl outline-none focus:ring-2 ring-blue-500/20 text-sm" />
+                                    <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Transport Agency / Vendor</label>
+                                    <select
+                                        value={driverVendorId}
+                                        onChange={(e) => setDriverVendorId(e.target.value)}
+                                        className="w-full px-3.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-xs font-bold text-slate-800 dark:text-slate-200"
+                                    >
+                                        <option value="">-- Select Transport Vendor --</option>
+                                        {transportVendors.map((v: any) => (
+                                            <option key={v.id} value={v.id}>{v.name} ({v.location})</option>
+                                        ))}
+                                    </select>
                                 </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Driver Phone</label>
-                                    <input type="tel" value={driverPhone} onChange={(e) => setDriverPhone(e.target.value)} placeholder="+91 99999 00000" className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border-none rounded-xl outline-none focus:ring-2 ring-blue-500/20 text-sm" />
+
+                                <div className="grid grid-cols-2 gap-2.5">
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Driver Name</label>
+                                        <input type="text" value={driverName} onChange={(e) => setDriverName(e.target.value)} placeholder="e.g. Ramesh Kumar" className="w-full px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-xs" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Driver Phone</label>
+                                        <input type="tel" value={driverPhone} onChange={(e) => setDriverPhone(e.target.value)} placeholder="+91 98765 43210" className="w-full px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-xs" />
+                                    </div>
                                 </div>
-                            </div>
 
-                            <div className="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Vehicle Number</label>
-                                    <input type="text" value={vehicleNumber} onChange={(e) => setVehicleNumber(e.target.value)} placeholder="MH 01 AB 1234" className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border-none rounded-xl outline-none focus:ring-2 ring-blue-500/20 text-sm" />
+                                <div className="grid grid-cols-2 gap-2.5">
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Vehicle Number</label>
+                                        <input type="text" value={vehicleNumber} onChange={(e) => setVehicleNumber(e.target.value)} placeholder="e.g. HP 01 AB 1234" className="w-full px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-xs" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Cost (₹)</label>
+                                        <input type="number" value={driverCost} onChange={(e) => setDriverCost(e.target.value)} placeholder="0" className="w-full px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-xs" />
+                                    </div>
                                 </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Cost (₹)</label>
-                                    <input type="number" value={driverCost} onChange={(e) => setDriverCost(e.target.value)} placeholder="0" className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border-none rounded-xl outline-none focus:ring-2 ring-blue-500/20 text-sm" />
-                                </div>
-                            </div>
 
-                            {/* #10 — Tour Duration editable from modal */}
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Tour Duration (Days)</label>
-                                <input
-                                    type="number"
-                                    min="1"
-                                    value={modalDurationDays}
-                                    onChange={(e) => setModalDurationDays(e.target.value)}
-                                    placeholder="e.g. 5"
-                                    className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border-none rounded-xl outline-none focus:ring-2 ring-blue-500/20 text-sm"
-                                />
-                                <p className="text-[10px] text-slate-400 mt-1">Used by Operations to calculate live tour progress. Leave blank to use package default.</p>
-                            </div>
-
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">WhatsApp Group Link</label>
-                                <input type="url" value={whatsappGroupUrl} onChange={(e) => setWhatsappGroupUrl(e.target.value)} placeholder="https://chat.whatsapp.com/..." className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border-none rounded-xl outline-none focus:ring-2 ring-blue-500/20 text-sm" />
-                            </div>
-
-                            {/* Fix F: Save tour details (duration + WA) without needing a vendor */}
-                            <button
-                                onClick={handleSaveBookingDetails}
-                                className="w-full py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 mt-1 text-sm"
-                            >
-                                💾 Save Duration &amp; WA Group (No vendor needed)
-                            </button>
-
-                            <div className="border-t border-slate-200 dark:border-slate-700 pt-3">
-                                <p className="text-[10px] text-slate-400 mb-2 font-medium">Select a vendor above to confirm transport assignment:</p>
                                 <button
                                     onClick={handleAssignDriver}
                                     disabled={!driverVendorId}
-                                    className="w-full py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed btn-glow"
+                                    className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs transition-colors disabled:opacity-50 shadow-xs"
                                 >
-                                    🚗 Confirm Driver Assignment
+                                    Confirm Transport Assignment
+                                </button>
+                            </div>
+
+                            {/* Section 2: Tour Guide / Escort */}
+                            <div className="bg-slate-50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 space-y-3">
+                                <h4 className="text-xs font-black uppercase text-indigo-600 dark:text-indigo-400 flex items-center gap-1.5">
+                                    🗣️ Tour Guide / Field Coordinator
+                                </h4>
+                                <div>
+                                    <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Select Guide / Agency</label>
+                                    <select
+                                        value={guideVendorId}
+                                        onChange={(e) => setGuideVendorId(e.target.value)}
+                                        className="w-full px-3.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-xs font-bold text-slate-800 dark:text-slate-200"
+                                    >
+                                        <option value="">-- Select Guide --</option>
+                                        {guideVendors.map((v: any) => (
+                                            <option key={v.id} value={v.id}>{v.name} ({v.category})</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-2.5">
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Guide Name</label>
+                                        <input type="text" value={guideName} onChange={(e) => setGuideName(e.target.value)} placeholder="e.g. Vikram Sharma" className="w-full px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-xs" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Guide Phone</label>
+                                        <input type="tel" value={guidePhone} onChange={(e) => setGuidePhone(e.target.value)} placeholder="+91 99999 11111" className="w-full px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-xs" />
+                                    </div>
+                                </div>
+
+                                <button
+                                    onClick={handleAssignGuide}
+                                    disabled={!guideVendorId}
+                                    className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs transition-colors disabled:opacity-50 shadow-xs"
+                                >
+                                    Confirm Guide Assignment
+                                </button>
+                            </div>
+
+                            {/* Section 3: Tour Parameters & WhatsApp */}
+                            <div className="space-y-3">
+                                <div>
+                                    <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Tour Duration (Days)</label>
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        value={modalDurationDays}
+                                        onChange={(e) => setModalDurationDays(e.target.value)}
+                                        placeholder="e.g. 5"
+                                        className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-xs font-bold text-slate-900 dark:text-white"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">WhatsApp Group Link</label>
+                                    <input
+                                        type="url"
+                                        value={whatsappGroupUrl}
+                                        onChange={(e) => setWhatsappGroupUrl(e.target.value)}
+                                        placeholder="https://chat.whatsapp.com/..."
+                                        className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-xs font-bold text-slate-900 dark:text-white"
+                                    />
+                                </div>
+
+                                <button
+                                    onClick={handleSaveBookingDetails}
+                                    className="w-full py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 text-xs transition-colors"
+                                >
+                                    💾 Save Duration &amp; WA Group
                                 </button>
                             </div>
                         </div>

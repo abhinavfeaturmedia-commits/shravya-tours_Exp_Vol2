@@ -1344,9 +1344,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setVendors(prev => prev.map(v => {
       if (v.id === vendorId) {
         const pureManualTransactions = (v.transactions || []).filter(tx => !tx.id || (!tx.id.includes('-cost') && !tx.id.includes('-paid')));
+        const updatedTransactions = [transaction, ...pureManualTransactions];
+        const newBalance = Math.max(0, (v.balanceDue || 0) - amount);
         return {
           ...v,
-          transactions: [transaction, ...pureManualTransactions]
+          balanceDue: newBalance,
+          transactions: updatedTransactions
         };
       }
       return v;
@@ -1356,8 +1359,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const vendor = vendors.find(v => v.id === vendorId);
       if (vendor) {
         const pureManualTransactions = (vendor.transactions || []).filter(tx => !tx.id || (!tx.id.includes('-cost') && !tx.id.includes('-paid')));
+        const updatedTransactions = [transaction, ...pureManualTransactions];
+        const newBalance = Math.max(0, (vendor.balanceDue || 0) - amount);
         await api.updateVendor(vendorId, {
-          transactions: [transaction, ...pureManualTransactions]
+          balanceDue: newBalance,
+          transactions: updatedTransactions
         });
 
         logAction('Update', 'Vendors', `Initiated payout for Vendor: ${vendor.name} (Pending Approval)`);
@@ -1393,7 +1399,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const addVendorNote = useCallback(async (vendorId: string, note: import('../types').VendorNote) => {
     setVendors(prev => prev.map(v => {
       if (v.id === vendorId) {
-        return { ...v, notes: [note, ...(v.notes || [])] };
+        const existingNotes = Array.isArray(v.notes) ? v.notes : [];
+        return { ...v, notes: [note, ...existingNotes] };
       }
       return v;
     }));
@@ -1401,8 +1408,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const vendor = vendors.find(v => v.id === vendorId);
       if (vendor) {
+        const existingNotes = Array.isArray(vendor.notes) ? vendor.notes : [];
         await api.updateVendor(vendorId, {
-          notes: [note, ...(vendor.notes || [])]
+          notes: [note, ...existingNotes]
         });
         toast.success("Note added");
       }

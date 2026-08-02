@@ -873,16 +873,16 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
                     item.description ? cleanText(item.description) : 'Tour Service Operator',
                     item.hsn_sac || '9985',
                     qty.toString(),
-                    `Rs. ${rate.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
-                    `Rs. ${baseAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
-                    `${taxRate}%\nRs. ${taxAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
-                    `Rs. ${total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+                    `Rs. ${Math.round(rate).toLocaleString('en-IN')}`,
+                    `Rs. ${Math.round(baseAmount).toLocaleString('en-IN')}`,
+                    `${taxRate}%\nRs. ${Math.round(taxAmount).toLocaleString('en-IN')}`,
+                    `Rs. ${Math.round(total).toLocaleString('en-IN')}`
                 ];
             });
 
             const totalTaxAmt = items.reduce((acc, item) => acc + (parseDaysKm(item.total_days_km) * Number(item.unit_price || 0) * (Number(item.tax_rate || 0) / 100)), 0);
             const totalFullAmt = subtotalAmount + totalTaxAmt;
-            bodyData.push(['', 'TOTAL', '', '', '', `Rs. ${subtotalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, `Rs. ${totalTaxAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, `Rs. ${totalFullAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`]);
+            bodyData.push(['', 'TOTAL', '', '', '', `Rs. ${Math.round(subtotalAmount).toLocaleString('en-IN')}`, `Rs. ${Math.round(totalTaxAmt).toLocaleString('en-IN')}`, `Rs. ${Math.round(totalFullAmt).toLocaleString('en-IN')}`]);
         } else {
             tableHeaders = [['#', 'DESCRIPTION', 'HSN/SAC', 'QTY', 'RATE', 'TAXABLE VAL', 'CGST', 'SGST', 'TOTAL']];
             tableColStyles = {
@@ -910,17 +910,17 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
                     item.description ? cleanText(item.description) : 'Tour Service Operator',
                     item.hsn_sac || '9985',
                     qty.toString(),
-                    `Rs. ${rate.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
-                    `Rs. ${baseAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
-                    `${(taxRate / 2)}%\nRs. ${(taxAmount / 2).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
-                    `${(taxRate / 2)}%\nRs. ${(taxAmount / 2).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
-                    `Rs. ${total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+                    `Rs. ${Math.round(rate).toLocaleString('en-IN')}`,
+                    `Rs. ${Math.round(baseAmount).toLocaleString('en-IN')}`,
+                    `${(taxRate / 2)}%\nRs. ${Math.round(taxAmount / 2).toLocaleString('en-IN')}`,
+                    `${(taxRate / 2)}%\nRs. ${Math.round(taxAmount / 2).toLocaleString('en-IN')}`,
+                    `Rs. ${Math.round(total).toLocaleString('en-IN')}`
                 ];
             });
 
             const totalTaxAmt = items.reduce((acc, item) => acc + (parseDaysKm(item.total_days_km) * Number(item.unit_price || 0) * (Number(item.tax_rate || 0) / 100)), 0);
             const totalFullAmt = subtotalAmount + totalTaxAmt;
-            bodyData.push(['', 'TOTAL', '', '', '', `Rs. ${subtotalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, `Rs. ${(totalTaxAmt / 2).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, `Rs. ${(totalTaxAmt / 2).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, `Rs. ${totalFullAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`]);
+            bodyData.push(['', 'TOTAL', '', '', '', `Rs. ${Math.round(subtotalAmount).toLocaleString('en-IN')}`, `Rs. ${Math.round(totalTaxAmt / 2).toLocaleString('en-IN')}`, `Rs. ${Math.round(totalTaxAmt / 2).toLocaleString('en-IN')}`, `Rs. ${Math.round(totalFullAmt).toLocaleString('en-IN')}`]);
         }
     } else {
         tableHeaders = [['#', 'DESCRIPTION', 'QTY', 'TOTAL DAYS / KM', 'RATE', 'AMOUNT']];
@@ -944,13 +944,13 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
                 item.description ? cleanText(item.description) : 'Tour Service Operator',
                 qty.toString(),
                 daysKmStr.toString(),
-                `Rs. ${rate.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
-                `Rs. ${total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+                `Rs. ${Math.round(rate).toLocaleString('en-IN')}`,
+                `Rs. ${Math.round(total).toLocaleString('en-IN')}`
             ];
         });
 
         bodyData.push(['', 'TOTAL', '', totalQtyDays > 0 ? totalQtyDays.toString() : '1', '',
-            `Rs. ${subtotalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`]);
+            `Rs. ${Math.round(subtotalAmount).toLocaleString('en-IN')}`]);
     }
 
     const tableStartY = cardY + cardHeight + 5;
@@ -1149,7 +1149,7 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
         doc.text(label, 118, ry);
         doc.setTextColor(30, 41, 59);
         if (bold) doc.setFont("helvetica", "bold");
-        doc.text(`${isNeg ? '-' : ''}Rs. ${val.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, 114 + 81 - 4, ry, { align: 'right' });
+        doc.text(`${isNeg ? '-' : ''}Rs. ${Math.round(val).toLocaleString('en-IN')}`, 114 + 81 - 4, ry, { align: 'right' });
         ry += 4.5;
     };
 
@@ -1203,7 +1203,7 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
     doc.text("TOTAL (INR)", 118, ry);
     doc.setFontSize(12);
     doc.setTextColor(9, 28, 59);
-    doc.text(`Rs. ${finalTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, 191, ry + 0.5, { align: 'right' });
+    doc.text(`Rs. ${Math.round(finalTotal).toLocaleString('en-IN')}`, 191, ry + 0.5, { align: 'right' });
     ry += 7;
 
     // Amount Paid
@@ -1214,7 +1214,7 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
     doc.setTextColor(22, 163, 74);
     doc.text("AMOUNT PAID", 121, ry + 3.5);
     doc.setTextColor(9, 28, 59);
-    doc.text(`Rs. ${amountPaid.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, 191, ry + 3.5, { align: 'right' });
+    doc.text(`Rs. ${Math.round(amountPaid).toLocaleString('en-IN')}`, 191, ry + 3.5, { align: 'right' });
     ry += 11;
 
     // Balance Due
@@ -1224,7 +1224,7 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
     doc.setTextColor(balColor[0], balColor[1], balColor[2]);
     doc.text("BALANCE DUE", 118, ry);
     doc.setTextColor(9, 28, 59);
-    doc.text(`Rs. ${Math.max(0, balanceDue).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, 191, ry, { align: 'right' });
+    doc.text(`Rs. ${Math.round(Math.max(0, balanceDue)).toLocaleString('en-IN')}`, 191, ry, { align: 'right' });
 
     // ═══════════════════════════════════════════════════════════
     // TERMS & CONDITIONS

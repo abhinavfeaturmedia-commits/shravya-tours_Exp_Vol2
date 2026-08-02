@@ -142,7 +142,7 @@ export interface SupplierBooking {
   id: string;
   bookingId: string;
   vendorId: string;
-  serviceType: 'Hotel' | 'Transport' | 'Flight' | 'Activity' | 'Other';
+  serviceType: 'Hotel' | 'Transport' | 'Flight' | 'Activity' | 'Guide' | 'Other';
   confirmationNumber?: string;
   cost: number;
   paidAmount: number;

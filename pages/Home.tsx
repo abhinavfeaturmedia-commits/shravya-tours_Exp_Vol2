@@ -403,27 +403,58 @@ export const Home: React.FC = () => {
   }, []);
 
   // Tab Active Pill sliding refs and effect
+  const tabNavContainerRef = useRef<HTMLDivElement>(null);
   const tabRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({});
-  const [pillStyle, setPillStyle] = useState<{ left?: number; width?: number }>({});
+  const [pillStyle, setPillStyle] = useState<{ left: number; width: number; opacity: number }>({ left: 0, width: 0, opacity: 0 });
 
   const updatePillPosition = useCallback(() => {
     const activeBtn = tabRefs.current[activeTab];
-    if (activeBtn) {
-      setPillStyle({
-        left: activeBtn.offsetLeft,
-        width: activeBtn.offsetWidth,
-      });
+    const container = tabNavContainerRef.current;
+    if (activeBtn && container) {
+      const containerRect = container.getBoundingClientRect();
+      const btnRect = activeBtn.getBoundingClientRect();
+      const left = btnRect.left - containerRect.left + container.scrollLeft;
+      const width = btnRect.width;
+      if (width > 0) {
+        setPillStyle({ left, width, opacity: 1 });
+      }
     }
   }, [activeTab]);
 
   useEffect(() => {
-    const timer = setTimeout(updatePillPosition, 50);
-    return () => clearTimeout(timer);
+    updatePillPosition();
+    const raf = requestAnimationFrame(updatePillPosition);
+    const timer = setTimeout(updatePillPosition, 100);
+    const timer2 = setTimeout(updatePillPosition, 500);
+
+    if (typeof document !== 'undefined' && document.fonts) {
+      document.fonts.ready.then(updatePillPosition);
+    }
+
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(timer);
+      clearTimeout(timer2);
+    };
   }, [activeTab, updatePillPosition]);
 
   useEffect(() => {
+    const container = tabNavContainerRef.current;
+    if (!container) return;
+
+    const observer = new ResizeObserver(() => {
+      updatePillPosition();
+    });
+
+    observer.observe(container);
+    Array.from(container.children).forEach((child) => observer.observe(child as Element));
+
     window.addEventListener('resize', updatePillPosition, { passive: true });
-    return () => window.removeEventListener('resize', updatePillPosition);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', updatePillPosition);
+    };
   }, [updatePillPosition]);
 
   useEffect(() => {
@@ -1001,13 +1032,14 @@ export const Home: React.FC = () => {
 
               {/* Service Tabs */}
               <div className="flex justify-center px-2 w-full overflow-hidden">
-                <div className="bg-slate-100 dark:bg-white/5 backdrop-blur-md p-1.5 rounded-full inline-flex flex-nowrap max-w-full overflow-x-auto [-ms-scrollbar-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden border border-slate-200/80 dark:border-white/10 shadow-inner touch-pan-x snap-x snap-mandatory relative z-0">
+                <div ref={tabNavContainerRef} className="bg-slate-100 dark:bg-white/5 backdrop-blur-md p-1.5 rounded-full inline-flex flex-nowrap max-w-full overflow-x-auto [-ms-scrollbar-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden border border-slate-200/80 dark:border-white/10 shadow-inner touch-pan-x snap-x snap-mandatory relative z-0">
                   {/* Sliding active tab pill background */}
                   <div
                     className="absolute top-1.5 bottom-1.5 bg-[#C9732A] rounded-full transition-all duration-300 ease-out shadow-lg z-0 pointer-events-none"
                     style={{
-                      left: pillStyle.left !== undefined ? `${pillStyle.left}px` : 'auto',
-                      width: pillStyle.width !== undefined ? `${pillStyle.width}px` : 'auto',
+                      left: `${pillStyle.left}px`,
+                      width: `${pillStyle.width}px`,
+                      opacity: pillStyle.opacity,
                     }}
                   />
 

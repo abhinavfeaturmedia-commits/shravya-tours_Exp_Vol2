@@ -193,16 +193,76 @@ export const Vendors: React.FC = () => {
         });
     }, [vendors, search, categoryFilter, complianceFilter, sortConfig, bookings]);
 
+    // Compliance expiring count
+    const expiringCount = useMemo(() => {
+        const in30Days = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+        const now = new Date();
+        return vendors.filter(v => {
+            if (v.expiringSoon) return true;
+            if (v.contractExpiryDate) {
+                const exp = new Date(v.contractExpiryDate);
+                return !isNaN(exp.getTime()) && exp <= in30Days && exp >= now;
+            }
+            return false;
+        }).length;
+    }, [vendors]);
+
     // Dashboard Stats
     const stats = useMemo(() => {
         const totalVendors = vendors.length;
-        const totalSales = vendors.reduce((acc, v) => acc + (v.totalSales || 0), 0);
-        const totalCommission = vendors.reduce((acc, v) => acc + (v.totalCommission || 0), 0);
-        const totalPayables = vendors.reduce((acc, v) => acc + (v.balanceDue || 0), 0);
-        const avgMargin = totalSales > 0 ? (totalCommission / totalSales) * 100 : 0;
 
-        return { totalVendors, totalSales, totalCommission, totalPayables, avgMargin };
-    }, [vendors]);
+        let sumSales = 0;
+        let sumCommission = 0;
+        let sumPayables = 0;
+
+        vendors.forEach(v => {
+            // Find linked supplier bookings in bookings hook
+            const vendorSBookings = (bookings || []).flatMap(b =>
+                ((b as any).supplierBookings || [])
+                    .filter((sb: any) => String(sb.vendorId) === String(v.id) && sb.bookingStatus !== 'Cancelled')
+            );
+
+            const bookingsCost = vendorSBookings.reduce((sum: number, sb: any) => sum + (Number(sb.cost) || 0), 0);
+            const bookingsPaid = vendorSBookings.reduce((sum: number, sb: any) => sum + (Number(sb.paidAmount) || 0), 0);
+
+            // Pure manual debit transactions
+            const pureManualTransactions = (Array.isArray(v.transactions) ? v.transactions : []).filter(tx => !tx.id || (!tx.id.includes('-cost') && !tx.id.includes('-paid')));
+            const manualPaid = pureManualTransactions.reduce((sum: number, tx: any) => tx.type === 'Debit' ? sum + (Number(tx.amount) || 0) : sum - (Number(tx.amount) || 0), 0);
+
+            // Compute payables
+            const computedBalance = (v.balanceDue && v.balanceDue > 0)
+                ? v.balanceDue
+                : Math.max(0, bookingsCost - (bookingsPaid + manualPaid));
+
+            // Compute sales & commission
+            let computedSales = Number(v.totalSales) || 0;
+            let computedCommission = Number(v.totalCommission) || 0;
+
+            if (computedSales === 0 && bookingsCost > 0) {
+                const services = Array.isArray(v.services) ? v.services : [];
+                const activeServices = services.filter((s: any) => s.status !== 'Inactive' && (s.baseCost || 0) > 0);
+                let markupRatio = 0.15;
+                if (activeServices.length > 0) {
+                    markupRatio = activeServices.reduce((sum: number, s: any) => {
+                        const m = s.markupType === 'Percentage'
+                            ? (s.markupValue || 15) / 100
+                            : (s.markupValue || 0) / (s.baseCost || 1);
+                        return sum + m;
+                    }, 0) / activeServices.length;
+                }
+                computedSales = bookingsCost * (1 + markupRatio);
+                computedCommission = bookingsCost * markupRatio;
+            }
+
+            sumSales += computedSales;
+            sumCommission += computedCommission;
+            sumPayables += computedBalance;
+        });
+
+        const avgMargin = sumSales > 0 ? (sumCommission / sumSales) * 100 : 0;
+
+        return { totalVendors, totalSales: sumSales, totalCommission: sumCommission, totalPayables: sumPayables, avgMargin };
+    }, [vendors, bookings]);
 
     // Linked Data for Drawer
     const linkedPackages = useMemo(() => {
@@ -212,21 +272,82 @@ export const Vendors: React.FC = () => {
 
     const linkedBookings = useMemo(() => {
         if (!selectedVendor) return [];
-        if (!selectedVendor.linkedBookingIds || selectedVendor.linkedBookingIds.length === 0) return [];
-        const bookingIdsSet = new Set(selectedVendor.linkedBookingIds);
-        return bookings.filter(b => bookingIdsSet.has(b.id)).slice(0, 5);
+
+        const vendorIdStr = String(selectedVendor.id).toLowerCase();
+        const vendorNameStr = String(selectedVendor.name || '').toLowerCase();
+        const linkedSet = new Set(selectedVendor.linkedBookingIds || []);
+
+        return bookings.filter(b => {
+            // Direct ID match in linkedSet
+            if (linkedSet.has(b.id)) return true;
+
+            // Match via supplierBookings inside the booking
+            const hasSupplierLink = Array.isArray((b as any).supplierBookings) && (b as any).supplierBookings.some((sb: any) =>
+                String(sb.vendorId || '').toLowerCase() === vendorIdStr ||
+                (sb.vendorName && String(sb.vendorName).toLowerCase() === vendorNameStr)
+            );
+            if (hasSupplierLink) return true;
+
+            // Match via assignedVendorId on booking / car booking
+            if ((b as any).assignedVendorId && String((b as any).assignedVendorId).toLowerCase() === vendorIdStr) return true;
+
+            // Match via vendorId on booking
+            if ((b as any).vendorId && String((b as any).vendorId).toLowerCase() === vendorIdStr) return true;
+
+            return false;
+        });
     }, [selectedVendor, bookings]);
 
-    // Count expiring contracts within next 30 days
-    const expiringCount = useMemo(() => {
-        const now = new Date();
-        const in30Days = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-        return vendors.filter(v => {
-            if (!v.contractExpiryDate) return false;
-            const exp = new Date(v.contractExpiryDate);
-            return !isNaN(exp.getTime()) && exp <= in30Days && exp >= now;
-        }).length;
-    }, [vendors]);
+    // Normalized safe getters for selected vendor collections
+    const vendorNotes = useMemo(() => {
+        if (!selectedVendor) return [];
+        const raw = selectedVendor.notes;
+        let list: any[] = [];
+        if (Array.isArray(raw)) {
+            list = raw;
+        } else if (typeof raw === 'string') {
+            const trimmed = raw.trim();
+            if (trimmed && trimmed !== '[]' && trimmed !== 'null') {
+                try {
+                    const parsed = JSON.parse(trimmed);
+                    list = Array.isArray(parsed) ? parsed : [parsed];
+                } catch {
+                    list = [trimmed];
+                }
+            }
+        } else if (raw && typeof raw === 'object') {
+            list = [raw];
+        }
+        return list.map((n: any, idx: number) => {
+            if (typeof n === 'string') {
+                return { id: `n-${idx}`, text: n, date: 'N/A', author: 'System' };
+            }
+            if (n && typeof n === 'object') {
+                return {
+                    id: n.id || `n-${idx}`,
+                    text: n.text || n.note || n.content || '',
+                    date: n.date || 'N/A',
+                    author: n.author || 'System'
+                };
+            }
+            return { id: `n-${idx}`, text: String(n || ''), date: 'N/A', author: 'System' };
+        }).filter((n: any) => Boolean(n.text));
+    }, [selectedVendor]);
+
+    const vendorServices = useMemo(() => {
+        if (!selectedVendor) return [];
+        return Array.isArray(selectedVendor.services) ? selectedVendor.services : [];
+    }, [selectedVendor]);
+
+    const vendorDocuments = useMemo(() => {
+        if (!selectedVendor) return [];
+        return Array.isArray(selectedVendor.documents) ? selectedVendor.documents : [];
+    }, [selectedVendor]);
+
+    const vendorTransactions = useMemo(() => {
+        if (!selectedVendor) return [];
+        return Array.isArray(selectedVendor.transactions) ? selectedVendor.transactions : [];
+    }, [selectedVendor]);
 
     // --- Actions ---
 
@@ -421,21 +542,21 @@ export const Vendors: React.FC = () => {
             sellingPrice: sellingPrice,
             status: 'Active'
         };
-        updateVendor(selectedVendor.id, { services: [...selectedVendor.services, newService] });
+        updateVendor(selectedVendor.id, { services: [...vendorServices, newService] });
         setServiceForm({ name: '', unit: 'Per Night', baseCost: 0, markupType: 'Percentage', markupValue: 15 });
         showToast('Service added to catalog.');
     };
 
     const toggleServiceStatus = (serviceId: string) => {
         if (!selectedVendor) return;
-        const updatedServices = selectedVendor.services.map(s => s.id === serviceId ? { ...s, status: (s.status === 'Active' ? 'Inactive' : 'Active') as 'Active' | 'Inactive' } : s);
+        const updatedServices = vendorServices.map(s => s.id === serviceId ? { ...s, status: (s.status === 'Active' ? 'Inactive' : 'Active') as 'Active' | 'Inactive' } : s);
         updateVendor(selectedVendor.id, { services: updatedServices as VendorService[] });
     };
 
     const handleDeleteService = (serviceId: string) => {
         if (!selectedVendor) return;
         if (confirm('Remove this service?')) {
-            const updatedServices = selectedVendor.services.filter(s => s.id !== serviceId);
+            const updatedServices = vendorServices.filter(s => s.id !== serviceId);
             updateVendor(selectedVendor.id, { services: updatedServices });
             showToast('Service removed.');
         }
@@ -453,7 +574,7 @@ export const Vendors: React.FC = () => {
             (editServiceForm.markupType as any) || 'Percentage',
             Number(editServiceForm.markupValue) || 0
         );
-        const updatedServices = selectedVendor.services.map(s =>
+        const updatedServices = vendorServices.map(s =>
             s.id === editingServiceId
                 ? { ...s, ...editServiceForm, baseCost: Number(editServiceForm.baseCost), markupValue: Number(editServiceForm.markupValue), sellingPrice }
                 : s
@@ -467,7 +588,7 @@ export const Vendors: React.FC = () => {
     const handleBulkPriceUpdate = () => {
         if (!selectedVendor || bulkAdjustPercent === 0) return;
 
-        const updatedServices = selectedVendor.services.map(s => {
+        const updatedServices = vendorServices.map(s => {
             // Increase base cost by percent
             const newBaseCost = s.baseCost * (1 + bulkAdjustPercent / 100);
             // Recalculate selling price based on existing markup rule
@@ -546,7 +667,7 @@ export const Vendors: React.FC = () => {
             author: currentUser?.name || 'You'
         };
         
-        const updatedNotes = [newNote, ...(selectedVendor.notes || [])];
+        const updatedNotes = [newNote, ...vendorNotes];
         updateVendor(selectedVendor.id, { notes: updatedNotes });
         setNoteText('');
         showToast('Note added');
@@ -554,7 +675,7 @@ export const Vendors: React.FC = () => {
 
     const handleUpdateNote = (noteId: string) => {
         if (!selectedVendor || !editNoteText.trim()) return;
-        const updatedNotes = (selectedVendor.notes || []).map(note => 
+        const updatedNotes = vendorNotes.map(note => 
             note.id === noteId ? { ...note, text: editNoteText } : note
         );
         updateVendor(selectedVendor.id, { notes: updatedNotes });
@@ -566,7 +687,7 @@ export const Vendors: React.FC = () => {
     const handleDeleteNote = (noteId: string) => {
         if (!selectedVendor) return;
         if (!confirm('Are you sure you want to delete this note?')) return;
-        const updatedNotes = (selectedVendor.notes || []).filter(note => note.id !== noteId);
+        const updatedNotes = vendorNotes.filter(note => note.id !== noteId);
         updateVendor(selectedVendor.id, { notes: updatedNotes });
         showToast('Note deleted');
     };
@@ -1285,8 +1406,8 @@ export const Vendors: React.FC = () => {
                                             <h4 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-4 flex items-center gap-2"><span className="material-symbols-outlined text-sm">chat</span> Internal Notes</h4>
 
                                             <div className="max-h-[200px] overflow-y-auto space-y-3 mb-4 pr-2 scrollbar-thin">
-                                                {selectedVendor.notes && selectedVendor.notes.length > 0 ? (
-                                                    selectedVendor.notes.map((note, i) => (
+                                                {vendorNotes.length > 0 ? (
+                                                    vendorNotes.map((note, i) => (
                                                         <div key={i} className="flex gap-3 relative group">
                                                             <div className="size-6 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-[10px] font-bold text-slate-600 dark:text-slate-300 shrink-0 mt-2">
                                                                 {note.author.charAt(0)}
@@ -1370,7 +1491,7 @@ export const Vendors: React.FC = () => {
                                                 <button onClick={() => setServiceForm({ name: '', unit: 'Per Night', baseCost: 0, markupType: 'Percentage', markupValue: 15 })} className="text-xs font-bold text-primary hover:underline flex items-center gap-1"><span className="material-symbols-outlined text-sm">add</span> Add New</button>
                                             </div>
 
-                                            {selectedVendor.services.length > 0 ? selectedVendor.services.map(service => {
+                                            {vendorServices.length > 0 ? vendorServices.map(service => {
                                                 const isEditing = editingServiceId === service.id;
                                                 const unitProfit = service.sellingPrice - service.baseCost;
                                                 const isInactive = service.status === 'Inactive';
@@ -1435,17 +1556,17 @@ export const Vendors: React.FC = () => {
                                                                     <p className="font-bold text-slate-900 dark:text-white text-sm">{service.name}</p>
                                                                     {isInactive && <span className="text-[10px] font-bold px-2 py-0.5 bg-slate-200 dark:bg-slate-700 text-slate-500 rounded">Inactive</span>}
                                                                 </div>
-                                                                <p className="text-[11px] text-slate-500 font-medium">{service.unit} • ₹{service.baseCost.toLocaleString()}{getUnitSuffix(service.unit)}</p>
+                                                                <p className="text-[11px] text-slate-500 font-medium">{service.unit} • ₹{(Number(service.baseCost) || 0).toLocaleString()}{getUnitSuffix(service.unit)}</p>
                                                             </div>
                                                         </div>
                                                         <div className="flex items-center gap-6">
                                                             <div className="text-right hidden sm:block">
                                                                 <p className="text-[10px] font-bold text-slate-400 uppercase mb-0.5">Net Profit</p>
-                                                                <p className="font-black text-green-600 text-xs">+₹{unitProfit.toLocaleString()}</p>
+                                                                <p className="font-black text-green-600 text-xs">+₹{(Number(unitProfit) || 0).toLocaleString()}</p>
                                                             </div>
                                                             <div className="text-right pl-6 border-l border-slate-100 dark:border-slate-800">
                                                                 <p className="text-[10px] font-bold text-slate-400 uppercase mb-0.5">Selling Price</p>
-                                                                <p className="font-black text-slate-900 dark:text-white">₹{service.sellingPrice.toLocaleString()}<span className="text-[10px] font-medium text-slate-400">{getUnitSuffix(service.unit)}</span></p>
+                                                                <p className="font-black text-slate-900 dark:text-white">₹{(Number(service.sellingPrice) || 0).toLocaleString()}<span className="text-[10px] font-medium text-slate-400">{getUnitSuffix(service.unit)}</span></p>
                                                             </div>
                                                             <div className="flex items-center gap-1">
                                                                 <button
@@ -1510,11 +1631,11 @@ export const Vendors: React.FC = () => {
                                                                 onChange={(e) => {
                                                                     const km = parseFloat(e.target.value) || 0;
                                                                     const el = document.getElementById('estimatedTotal');
-                                                                    if (el) el.textContent = `₹${(km * currentSellingPrice).toLocaleString()}`;
+                                                                    if (el) el.textContent = `₹${(Number(km * currentSellingPrice) || 0).toLocaleString()}`;
                                                                 }}
                                                             />
                                                             <span className="text-slate-500 text-xs">×</span>
-                                                            <span className="text-white text-sm font-bold">₹{currentSellingPrice.toLocaleString()}/km</span>
+                                                            <span className="text-white text-sm font-bold">₹{(Number(currentSellingPrice) || 0).toLocaleString()}/km</span>
                                                             <span className="text-slate-500 text-xs">=</span>
                                                             <span id="estimatedTotal" className="text-lg font-black text-green-400">₹0</span>
                                                         </div>
@@ -1524,8 +1645,8 @@ export const Vendors: React.FC = () => {
                                                 {/* Pricing Preview */}
                                                 {serviceForm.baseCost ? (
                                                     <div className="mb-4 flex items-center justify-between px-1 text-xs">
-                                                        <span className="text-slate-500">Selling: <span className="text-white font-black">₹{currentSellingPrice.toLocaleString()}{getUnitSuffix(serviceForm.unit || '')}</span></span>
-                                                        <span className="text-green-400 font-bold">Profit: +₹{currentProfit.toLocaleString()}{getUnitSuffix(serviceForm.unit || '')}</span>
+                                                        <span className="text-slate-500">Selling: <span className="text-white font-black">₹{(Number(currentSellingPrice) || 0).toLocaleString()}{getUnitSuffix(serviceForm.unit || '')}</span></span>
+                                                        <span className="text-green-400 font-bold">Profit: +₹{(Number(currentProfit) || 0).toLocaleString()}{getUnitSuffix(serviceForm.unit || '')}</span>
                                                     </div>
                                                 ) : null}
 
@@ -1542,7 +1663,7 @@ export const Vendors: React.FC = () => {
                                             <div className="relative z-10 flex justify-between items-start">
                                                 <div>
                                                     <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] mb-2">Total Outstanding Balance</p>
-                                                    <h3 className="text-5xl font-black tracking-tighter">₹{selectedVendor.balanceDue.toLocaleString()}</h3>
+                                                    <h3 className="text-5xl font-black tracking-tighter">₹{(selectedVendor.balanceDue || 0).toLocaleString()}</h3>
                                                 </div>
                                                 <div className="size-12 bg-white/10 rounded-2xl flex items-center justify-center backdrop-blur-xl border border-white/10">
                                                     <span className="material-symbols-outlined">account_balance_wallet</span>
@@ -1551,7 +1672,7 @@ export const Vendors: React.FC = () => {
                                             <div className="relative z-10">
                                                 <button
                                                     onClick={() => setIsPaymentModalOpen(true)}
-                                                    disabled={selectedVendor.balanceDue <= 0}
+                                                    disabled={(selectedVendor.balanceDue || 0) <= 0}
                                                     className="w-full py-4 bg-white text-slate-900 text-xs font-black uppercase tracking-[0.2em] rounded-xl shadow-lg hover:bg-slate-50 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
                                                 >
                                                     Process Payout
@@ -1589,7 +1710,7 @@ export const Vendors: React.FC = () => {
                                         <div>
                                             <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-6 ml-1">Ledger Timeline</h3>
                                             <div className="space-y-4">
-                                                {selectedVendor.transactions && selectedVendor.transactions.length > 0 ? selectedVendor.transactions.map((tx) => (
+                                                {vendorTransactions.length > 0 ? vendorTransactions.map((tx) => (
                                                     <div key={tx.id} className="group bg-white dark:bg-[#1A2633] p-4 rounded-2xl border border-slate-100 dark:border-slate-800 hover:shadow-md transition-all flex items-center justify-between">
                                                         <div className="flex items-center gap-4">
                                                             <div className={`size-10 rounded-full flex items-center justify-center ${
@@ -1639,7 +1760,7 @@ export const Vendors: React.FC = () => {
                                                                         ? 'text-slate-400 dark:text-slate-600 line-through'
                                                                         : 'text-red-500'
                                                         }`}>
-                                                            {tx.type === 'Credit' ? '+' : '-'} ₹{tx.amount.toLocaleString()}
+                                                            {tx.type === 'Credit' ? '+' : '-'} ₹{(Number(tx.amount) || 0).toLocaleString()}
                                                         </span>
                                                     </div>
                                                 )) : (
@@ -1660,9 +1781,9 @@ export const Vendors: React.FC = () => {
                                             </button>
                                         </div>
 
-                                        {selectedVendor.documents.length > 0 ? (
+                                        {vendorDocuments.length > 0 ? (
                                             <div className="grid grid-cols-2 gap-4">
-                                                {selectedVendor.documents.map(doc => (
+                                                {vendorDocuments.map(doc => (
                                                     <div key={doc.id} className="group relative p-5 bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-800 rounded-2xl hover:shadow-xl transition-all flex flex-col gap-4">
                                                         <div className="flex justify-between items-start">
                                                             <div className={`size-12 rounded-xl flex items-center justify-center ${doc.status === 'Valid' ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/20' : 'bg-red-50 text-red-600 dark:bg-red-900/20'}`}>

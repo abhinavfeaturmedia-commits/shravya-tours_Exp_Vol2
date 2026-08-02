@@ -264,7 +264,7 @@ export const InvoicesDashboard: React.FC = () => {
                                 <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">{label}</h3>
                                 <div className={`w-8 h-8 rounded-lg bg-${color}-100 text-${color}-600 flex items-center justify-center`}>{icon}</div>
                             </div>
-                            <p className={`text-3xl font-black mb-1 ${valColor || 'text-slate-900 dark:text-white'}`}>₹{value.toLocaleString('en-IN',{minimumFractionDigits:2})}</p>
+                            <p className={`text-3xl font-black mb-1 ${valColor || 'text-slate-900 dark:text-white'}`}>₹{Math.round(value).toLocaleString('en-IN')}</p>
                             <p className="text-sm font-medium text-slate-500">{sub}</p>
                         </div>
                     ))}
@@ -334,7 +334,7 @@ export const InvoicesDashboard: React.FC = () => {
                                                 </span>
                                             ) : <span className="text-slate-400 italic">Not set</span>}
                                         </td>
-                                        <td className="py-4 px-6 font-bold text-slate-900 dark:text-white">₹{Number(inv.total_amount).toLocaleString('en-IN',{minimumFractionDigits:2})}</td>
+                                        <td className="py-4 px-6 font-bold text-slate-900 dark:text-white">₹{Math.round(Number(inv.total_amount)).toLocaleString('en-IN')}</td>
                                         <td className="py-4 px-6" onClick={e => e.stopPropagation()}>
                                             {statusChangingId === inv.id ? <Loader2 size={14} className="animate-spin text-orange-500"/> : (
                                                 <select value={inv.status||'Draft'} onChange={e => handleStatusChange(inv.id, e.target.value)}
