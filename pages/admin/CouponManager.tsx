@@ -652,33 +652,33 @@ export const CouponManager: React.FC = () => {
                         </div>
                       </div>
 
-                      {/* Slogan — flex-column stack, no absolute overlapping */}
-                      <div style={{ position: 'absolute', left: '40px', top: '105px', width: '518px', display: 'flex', flexDirection: 'column' }}>
-                        <span style={{ fontSize: '34px', fontWeight: 800, color: '#024430', lineHeight: 1.1, letterSpacing: '-0.01em' }}>EXPLORE MORE.</span>
-                        <span style={{ fontSize: '34px', fontWeight: 800, color: '#E65F2B', lineHeight: 1.1, letterSpacing: '-0.01em', marginTop: '1px' }}>PAY LESS.</span>
-                        <div style={{ width: '48px', height: '3px', backgroundColor: '#E65F2B', marginTop: '8px' }}></div>
-                        <span style={{ fontSize: '15px', fontWeight: 600, color: '#64748b', fontStyle: 'italic', lineHeight: 1.2, marginTop: '6px' }}>Create Memories That Last Forever</span>
+                      {/* Slogan — flex-column stack (top: 82px, ends at 173px) */}
+                      <div style={{ position: 'absolute', left: '40px', top: '82px', width: '518px', display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontSize: '28px', fontWeight: 800, color: '#024430', lineHeight: 1.1, letterSpacing: '-0.01em' }}>EXPLORE MORE.</span>
+                        <span style={{ fontSize: '28px', fontWeight: 800, color: '#E65F2B', lineHeight: 1.1, letterSpacing: '-0.01em', marginTop: '1px' }}>PAY LESS.</span>
+                        <div style={{ width: '44px', height: '3px', backgroundColor: '#E65F2B', marginTop: '6px', borderRadius: '2px' }}></div>
+                        <span style={{ fontSize: '13px', fontWeight: 600, color: '#024430', fontStyle: 'italic', lineHeight: 1.2, marginTop: '4px' }}>Create Memories That Last Forever</span>
                       </div>
 
-                      {/* Category Badges — flex row, space-between */}
-                      <div style={{ position: 'absolute', left: '40px', top: '220px', width: '518px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      {/* Category Badges — flex row, space-between (top: 194px, 21px clearance below slogan) */}
+                      <div style={{ position: 'absolute', left: '40px', top: '194px', width: '518px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                         {[
-                          { label: 'Customized Tours', color: '#024430', icon: <svg width="24" height="24" fill="none" stroke="#ffffff" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" /></svg> },
-                          { label: 'Family Packages', color: '#E65F2B', icon: <svg width="22" height="22" fill="none" stroke="#ffffff" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg> },
-                          { label: 'Honeymoon Packages', color: '#024430', icon: <svg width="20" height="20" fill="#ffffff" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg> },
-                          { label: 'Group Tours', color: '#E65F2B', icon: <svg width="22" height="22" fill="#ffffff" viewBox="0 0 24 24"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg> },
+                          { label: 'Customized Tours', color: '#024430', icon: <svg width="22" height="22" fill="none" stroke="#ffffff" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" /></svg> },
+                          { label: 'Family Packages', color: '#E65F2B', icon: <svg width="20" height="20" fill="none" stroke="#ffffff" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg> },
+                          { label: 'Honeymoon Packages', color: '#024430', icon: <svg width="18" height="18" fill="#ffffff" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg> },
+                          { label: 'Group Tours', color: '#E65F2B', icon: <svg width="20" height="20" fill="#ffffff" viewBox="0 0 24 24"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg> },
                         ].map((cat, i) => (
                           <div key={i} style={{ width: '110px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
-                            <div style={{ width: '50px', height: '50px', borderRadius: '25px', backgroundColor: cat.color, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', marginBottom: '6px', flexShrink: 0 }}>
+                            <div style={{ width: '44px', height: '44px', borderRadius: '22px', backgroundColor: cat.color, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 3px 5px rgba(0,0,0,0.08)', marginBottom: '5px', flexShrink: 0 }}>
                               {cat.icon}
                             </div>
-                            <span style={{ fontSize: '9px', fontWeight: 700, color: '#1e293b', lineHeight: 1.1, letterSpacing: '0.01em', whiteSpace: 'nowrap' }}>{cat.label}</span>
+                            <span style={{ fontSize: '8.5px', fontWeight: 700, color: '#1e293b', lineHeight: 1.1, letterSpacing: '0.01em', whiteSpace: 'nowrap' }}>{cat.label}</span>
                           </div>
                         ))}
                       </div>
 
-                      {/* Bottom Feature Pill Bar — flex space-between */}
-                      <div style={{ position: 'absolute', left: '40px', top: '302px', width: '518px', height: '48px', backgroundColor: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px' }}>
+                      {/* Bottom Feature Pill Bar — flex space-between (top: 280px) */}
+                      <div style={{ position: 'absolute', left: '40px', top: '280px', width: '518px', height: '44px', backgroundColor: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '14px', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 18px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <svg width="16" height="16" fill="none" stroke="#024430" strokeWidth={2} viewBox="0 0 24 24" style={{ flexShrink: 0 }}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
                           <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.1 }}>
@@ -709,45 +709,45 @@ export const CouponManager: React.FC = () => {
                     <div style={{ width: '282px', height: '375px', backgroundColor: '#024430', position: 'relative', boxSizing: 'border-box', overflow: 'hidden' }}>
                       <div style={{ position: 'absolute', inset: 0, backgroundImage: 'radial-gradient(rgba(255,255,255,0.06) 1px, transparent 1px)', backgroundSize: '12px 12px', pointerEvents: 'none', zIndex: 1 }} />
 
+                      {/* ── ZONE 1: Offer Label (top: 24px) ── */}
                       <div style={{ position: 'absolute', top: '24px', left: 0, width: '282px', textAlign: 'center', zIndex: 5 }}>
                         <span style={{ color: '#fb923c', fontWeight: 800, fontSize: '11px', letterSpacing: '0.15em', textTransform: 'uppercase' }}>— SPECIAL OFFER —</span>
                       </div>
 
-                      {/* Discount Number + Symbol — flex centered row */}
-                      <div style={{ position: 'absolute', top: '52px', left: 0, width: '282px', display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: 5 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '72px' }}>
-                          <span style={{ fontSize: '64px', fontWeight: 800, color: '#ffffff', lineHeight: 1, letterSpacing: '-0.04em', marginRight: '6px' }}>{form.discountValue}</span>
+                      {/* ── ZONE 2: Discount Number + Subtitle (top: 54px) ── */}
+                      <div style={{ position: 'absolute', top: '54px', left: 0, width: '282px', display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: 5 }}>
+                        <div style={{ display: 'flex', itemsCenter: 'center', justifyContent: 'center', height: '58px' }}>
+                          <span style={{ fontSize: '52px', fontWeight: 800, color: '#ffffff', lineHeight: 1, letterSpacing: '-0.03em', marginRight: '5px' }}>{form.discountValue}</span>
                           <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'flex-start', lineHeight: 1.1 }}>
-                            <span style={{ fontSize: '24px', fontWeight: 800, color: '#ffffff' }}>{form.discountType === 'Percentage' ? '%' : '₹'}</span>
-                            <span style={{ fontSize: '13px', fontWeight: 800, color: '#fb923c', textTransform: 'uppercase', marginTop: '1px' }}>{form.discountType === 'Percentage' ? 'OFF' : 'FLAT'}</span>
+                            <span style={{ fontSize: '20px', fontWeight: 800, color: '#ffffff', lineHeight: 1 }}>{form.discountType === 'Percentage' ? '%' : '₹'}</span>
+                            <span style={{ fontSize: '11px', fontWeight: 800, color: '#fb923c', textTransform: 'uppercase', marginTop: '2px', lineHeight: 1 }}>{form.discountType === 'Percentage' ? 'OFF' : 'FLAT'}</span>
                           </div>
                         </div>
-                        <span style={{ fontSize: '10px', fontWeight: 800, color: 'rgba(255,255,255,0.9)', letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: '6px', textAlign: 'center', lineHeight: 1.2, whiteSpace: 'nowrap' }}>ON ALL TOUR PACKAGES</span>
-                        <div style={{ marginTop: '8px', height: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                          <svg width="16" height="16" fill="#fb923c" viewBox="0 0 24 24"><path d="M12 3c.5 3 2.5 5 5.5 5.5-3 .5-5 2.5-5.5 5.5-.5-3-2.5-5-5.5-5.5 3-.5 5-2.5 5.5-5.5z" /></svg>
-                        </div>
+                        <span style={{ fontSize: '9.5px', fontWeight: 800, color: 'rgba(255,255,255,0.92)', letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: '14px', textAlign: 'center', lineHeight: 1.2, whiteSpace: 'nowrap' }}>ON ALL TOUR PACKAGES</span>
                       </div>
 
-                      {/* Coupon Code */}
-                      <div style={{ position: 'absolute', top: '198px', left: '24px', width: '234px', height: '54px', zIndex: 5 }}>
-                        <div style={{ position: 'absolute', top: '-10px', left: '57px', width: '120px', height: '20px', background: 'linear-gradient(to right, #f97316, #E65F2B)', color: '#ffffff', fontWeight: 700, fontSize: '8px', textTransform: 'uppercase', letterSpacing: '0.15em', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '12px', whiteSpace: 'nowrap', zIndex: 15 }}>COUPON CODE</div>
-                        <div style={{ position: 'absolute', left: 0, top: 0, width: '234px', height: '54px', backgroundColor: '#ffffff', borderRadius: '16px', padding: '4px', border: '2px solid #E65F2B', boxSizing: 'border-box' }}>
-                          <div style={{ border: '1px dashed #cbd5e1', borderRadius: '12px', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box' }}>
-                            <span style={{ fontFamily: 'monospace', fontSize: form.code && form.code.length > 10 ? '13px' : '16px', fontWeight: 700, color: '#024430', letterSpacing: '0.1em', textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '200px' }}>{form.code || 'TOUR15'}</span>
+                      {/* ── ZONE 3: Airplane Divider (top: 146px) ── */}
+                      <div style={{ position: 'absolute', top: '146px', left: '31px', width: '220px', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 5 }}>
+                        <div style={{ height: '1px', backgroundColor: 'rgba(251, 146, 60, 0.35)', flex: 1 }}></div>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="#fb923c" style={{ margin: '0 8px', flexShrink: 0 }}><path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L14 19v-5.5L21 16z" transform="rotate(90 12 12)" /></svg>
+                        <div style={{ height: '1px', backgroundColor: 'rgba(251, 146, 60, 0.35)', flex: 1 }}></div>
+                      </div>
+
+                      {/* ── ZONE 4: Coupon Code Box (top: 196px) ── */}
+                      <div style={{ position: 'absolute', top: '196px', left: '24px', width: '234px', zIndex: 5 }}>
+                        <div style={{ display: 'flex', justifyContent: 'center', position: 'relative', top: '7px', zIndex: 15 }}>
+                          <div style={{ backgroundColor: '#E65F2B', color: '#ffffff', fontWeight: 800, fontSize: '8px', textTransform: 'uppercase', letterSpacing: '0.14em', padding: '2px 14px', borderRadius: '10px', whiteSpace: 'nowrap', lineHeight: 1.2 }}>COUPON CODE</div>
+                        </div>
+                        <div style={{ width: '234px', height: '50px', backgroundColor: '#ffffff', borderRadius: '14px', padding: '2.5px', border: '2px solid #E65F2B', boxSizing: 'border-box' }}>
+                          <div style={{ border: '1px dashed #cbd5e1', borderRadius: '10px', width: '100%', height: '100%', backgroundColor: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', overflow: 'hidden', padding: '0 6px' }}>
+                            <span style={{ fontFamily: "'Outfit', sans-serif", fontSize: form.code && form.code.length > 12 ? '12px' : '15px', fontWeight: 800, color: '#024430', letterSpacing: '0.06em', textTransform: 'uppercase', whiteSpace: 'nowrap', lineHeight: 1, display: 'inline-block', paddingBottom: '1px' }}>{form.code || 'TOUR15'}</span>
                           </div>
                         </div>
                       </div>
 
-                      {/* Airplane Divider */}
-                      <div style={{ position: 'absolute', top: '268px', left: '24px', width: '234px', height: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 5 }}>
-                        <div style={{ height: '1px', backgroundColor: 'rgba(249, 115, 22, 0.2)', flex: 1 }}></div>
-                        <svg width="14" height="14" fill="#fb923c" viewBox="0 0 24 24" style={{ transform: 'rotate(90deg)', margin: '0 8px', flexShrink: 0 }}><path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L14 19v-5.5L21 16z" /></svg>
-                        <div style={{ height: '1px', backgroundColor: 'rgba(249, 115, 22, 0.2)', flex: 1 }}></div>
-                      </div>
-
-                      {/* Expiry */}
-                      <div style={{ position: 'absolute', bottom: '24px', left: 0, width: '282px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fb923c', fontWeight: 800, fontSize: '11px', letterSpacing: '0.05em', zIndex: 5 }}>
-                        <svg width="14" height="14" fill="none" stroke="#fb923c" strokeWidth="2.5" viewBox="0 0 24 24" style={{ marginRight: '6px', flexShrink: 0 }}>
+                      {/* ── ZONE 5: Expiry Footer (bottom: 24px) ── */}
+                      <div style={{ position: 'absolute', bottom: '24px', left: 0, width: '282px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fb923c', fontWeight: 800, fontSize: '11px', letterSpacing: '0.08em', zIndex: 5 }}>
+                        <svg width="13" height="13" fill="none" stroke="#fb923c" strokeWidth="2.5" viewBox="0 0 24 24" style={{ marginRight: '6px', flexShrink: 0 }}>
                           <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
                           <line x1="16" y1="2" x2="16" y2="6" />
                           <line x1="8" y1="2" x2="8" y2="6" />
@@ -765,10 +765,10 @@ export const CouponManager: React.FC = () => {
 
                       {/* Dotted Flight Path SVG */}
                       <div style={{ position: 'absolute', top: '35px', right: '25px', pointerEvents: 'none', zIndex: 10 }}>
-                        <svg width="192px" height="48px" viewBox="0 0 200 50" style={{ opacity: 0.8 }}>
-                          <path d="M10 40 C 60 20, 110 5, 170 25" fill="none" stroke="#024430" strokeWidth={1.8} strokeDasharray="4,4" />
+                        <svg width="192" height="48" viewBox="0 0 200 50" style={{ opacity: 0.8 }}>
+                          <path d="M 10 40 C 60 20, 110 5, 170 25" fill="none" stroke="#024430" strokeWidth={1.8} strokeDasharray="4,4" />
                           <g transform="translate(170, 25) rotate(15) scale(0.9)">
-                            <path d="M12,0 L-4,-12 L-2,-3 L-14,0 L-2,3 L-4,12 Z" fill="#024430" />
+                            <path d="M 12 0 L -4 -12 L -2 -3 L -14 0 L -2 3 L -4 12 Z" fill="#024430" />
                           </g>
                         </svg>
                       </div>
@@ -849,43 +849,46 @@ export const CouponManager: React.FC = () => {
                     <div style={{ width: '282px', height: '375px', backgroundColor: '#024430', position: 'relative', boxSizing: 'border-box', overflow: 'hidden' }}>
                       <div style={{ position: 'absolute', inset: 0, backgroundImage: 'radial-gradient(rgba(255,255,255,0.06) 1px, transparent 1px)', backgroundSize: '12px 12px', pointerEvents: 'none', zIndex: 1 }} />
 
+                      {/* ── ZONE 1: Offer Label (top: 24px) ── */}
                       <div style={{ position: 'absolute', top: '24px', left: 0, width: '282px', textAlign: 'center', zIndex: 5 }}>
                         <span style={{ color: '#fb923c', fontWeight: 800, fontSize: '11px', letterSpacing: '0.15em', textTransform: 'uppercase' }}>★ EXCLUSIVE OFFER ★</span>
                       </div>
 
-                      {/* Discount Number + Symbol */}
-                      <div style={{ position: 'absolute', top: '52px', left: 0, width: '282px', display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: 5 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '72px' }}>
-                          <span style={{ fontSize: '64px', fontWeight: 800, color: '#ffffff', lineHeight: 1, letterSpacing: '-0.04em', marginRight: '6px' }}>{form.discountValue}</span>
+                      {/* ── ZONE 2: Discount Number + Subtitle (top: 54px) ── */}
+                      <div style={{ position: 'absolute', top: '54px', left: 0, width: '282px', display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: 5 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '58px' }}>
+                          <span style={{ fontSize: '52px', fontWeight: 800, color: '#ffffff', lineHeight: 1, letterSpacing: '-0.03em', marginRight: '5px' }}>{form.discountValue}</span>
                           <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'flex-start', lineHeight: 1.1 }}>
-                            <span style={{ fontSize: '24px', fontWeight: 800, color: '#ffffff' }}>{form.discountType === 'Percentage' ? '%' : '₹'}</span>
-                            <span style={{ fontSize: '13px', fontWeight: 800, color: '#fb923c', textTransform: 'uppercase', marginTop: '1px' }}>{form.discountType === 'Percentage' ? 'OFF' : 'FLAT'}</span>
+                            <span style={{ fontSize: '20px', fontWeight: 800, color: '#ffffff', lineHeight: 1 }}>{form.discountType === 'Percentage' ? '%' : '₹'}</span>
+                            <span style={{ fontSize: '11px', fontWeight: 800, color: '#fb923c', textTransform: 'uppercase', marginTop: '2px', lineHeight: 1 }}>{form.discountType === 'Percentage' ? 'OFF' : 'FLAT'}</span>
                           </div>
                         </div>
-                        <span style={{ fontSize: '10px', fontWeight: 800, color: 'rgba(255,255,255,0.95)', letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: '6px', textAlign: 'center', lineHeight: 1.2, whiteSpace: 'nowrap' }}>ON ALL BOOKINGS</span>
-                        <span style={{ fontSize: '8px', fontWeight: 800, color: '#5eead4', letterSpacing: '0.05em', textTransform: 'uppercase', marginTop: '3px', textAlign: 'center', lineHeight: 1.2, whiteSpace: 'nowrap' }}>CAB | TRAIN | FLIGHTS | TOURS</span>
+                        <span style={{ fontSize: '9.5px', fontWeight: 800, color: 'rgba(255,255,255,0.92)', letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: '14px', textAlign: 'center', lineHeight: 1.2, whiteSpace: 'nowrap' }}>ON ALL BOOKINGS</span>
+                        <span style={{ fontSize: '7.5px', fontWeight: 800, color: '#5eead4', letterSpacing: '0.05em', textTransform: 'uppercase', marginTop: '3px', textAlign: 'center', lineHeight: 1.2, whiteSpace: 'nowrap' }}>CAB | TRAIN | FLIGHTS | TOURS</span>
                       </div>
 
-                      {/* Coupon Code */}
-                      <div style={{ position: 'absolute', top: '198px', left: '24px', width: '234px', height: '54px', zIndex: 5 }}>
-                        <div style={{ position: 'absolute', top: '-10px', left: '57px', width: '120px', height: '20px', background: 'linear-gradient(to right, #f97316, #E65F2B)', color: '#ffffff', fontWeight: 700, fontSize: '8px', textTransform: 'uppercase', letterSpacing: '0.15em', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '12px', whiteSpace: 'nowrap', zIndex: 15 }}>COUPON CODE</div>
-                        <div style={{ position: 'absolute', left: 0, top: 0, width: '234px', height: '54px', backgroundColor: '#ffffff', borderRadius: '16px', padding: '4px', border: '2px solid #E65F2B', boxSizing: 'border-box' }}>
-                          <div style={{ border: '1px dashed #cbd5e1', borderRadius: '12px', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box' }}>
-                            <span style={{ fontFamily: 'monospace', fontSize: form.code && form.code.length > 10 ? '13px' : '16px', fontWeight: 700, color: '#024430', letterSpacing: '0.1em', textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '200px' }}>{form.code || 'SHRAWELLO15'}</span>
+                      {/* ── ZONE 3: Airplane Divider (top: 146px) ── */}
+                      <div style={{ position: 'absolute', top: '146px', left: '31px', width: '220px', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 5 }}>
+                        <div style={{ height: '1px', backgroundColor: 'rgba(251, 146, 60, 0.35)', flex: 1 }}></div>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="#fb923c" style={{ margin: '0 8px', flexShrink: 0 }}><path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L14 19v-5.5L21 16z" transform="rotate(90 12 12)" /></svg>
+                        <div style={{ height: '1px', backgroundColor: 'rgba(251, 146, 60, 0.35)', flex: 1 }}></div>
+                      </div>
+
+                      {/* ── ZONE 4: Coupon Code Box (top: 196px) ── */}
+                      <div style={{ position: 'absolute', top: '196px', left: '24px', width: '234px', zIndex: 5 }}>
+                        <div style={{ display: 'flex', justifyContent: 'center', position: 'relative', top: '7px', zIndex: 15 }}>
+                          <div style={{ backgroundColor: '#E65F2B', color: '#ffffff', fontWeight: 800, fontSize: '8px', textTransform: 'uppercase', letterSpacing: '0.14em', padding: '2px 14px', borderRadius: '10px', whiteSpace: 'nowrap', lineHeight: 1.2 }}>COUPON CODE</div>
+                        </div>
+                        <div style={{ width: '234px', height: '50px', backgroundColor: '#ffffff', borderRadius: '14px', padding: '2.5px', border: '2px solid #E65F2B', boxSizing: 'border-box' }}>
+                          <div style={{ border: '1px dashed #cbd5e1', borderRadius: '10px', width: '100%', height: '100%', backgroundColor: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', overflow: 'hidden', padding: '0 6px' }}>
+                            <span style={{ fontFamily: "'Outfit', sans-serif", fontSize: form.code && form.code.length > 12 ? '12px' : '15px', fontWeight: 800, color: '#024430', letterSpacing: '0.06em', textTransform: 'uppercase', whiteSpace: 'nowrap', lineHeight: 1, display: 'inline-block', paddingBottom: '1px' }}>{form.code || 'SHRAWELLO15'}</span>
                           </div>
                         </div>
                       </div>
 
-                      {/* Airplane Divider */}
-                      <div style={{ position: 'absolute', top: '268px', left: '24px', width: '234px', height: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 5 }}>
-                        <div style={{ height: '1px', backgroundColor: 'rgba(249, 115, 22, 0.2)', flex: 1 }}></div>
-                        <svg width="14" height="14" fill="#fb923c" viewBox="0 0 24 24" style={{ transform: 'rotate(90deg)', margin: '0 8px', flexShrink: 0 }}><path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L14 19v-5.5L21 16z" /></svg>
-                        <div style={{ height: '1px', backgroundColor: 'rgba(249, 115, 22, 0.2)', flex: 1 }}></div>
-                      </div>
-
-                      {/* Expiry */}
-                      <div style={{ position: 'absolute', bottom: '24px', left: 0, width: '282px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fb923c', fontWeight: 800, fontSize: '11px', letterSpacing: '0.05em', zIndex: 5 }}>
-                        <svg width="14" height="14" fill="none" stroke="#fb923c" strokeWidth="2.5" viewBox="0 0 24 24" style={{ marginRight: '6px', flexShrink: 0 }}>
+                      {/* ── ZONE 5: Expiry Footer (bottom: 24px) ── */}
+                      <div style={{ position: 'absolute', bottom: '24px', left: 0, width: '282px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fb923c', fontWeight: 800, fontSize: '11px', letterSpacing: '0.08em', zIndex: 5 }}>
+                        <svg width="13" height="13" fill="none" stroke="#fb923c" strokeWidth="2.5" viewBox="0 0 24 24" style={{ marginRight: '6px', flexShrink: 0 }}>
                           <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
                           <line x1="16" y1="2" x2="16" y2="6" />
                           <line x1="8" y1="2" x2="8" y2="6" />
