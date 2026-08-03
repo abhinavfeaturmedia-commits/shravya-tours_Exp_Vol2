@@ -139,7 +139,7 @@ export const CustomerRegister: React.FC = () => {
         <div className="relative z-10">
           <div className="inline-flex items-center gap-2 bg-white/15 backdrop-blur-sm border border-white/20 rounded-full px-4 py-1.5 mb-6">
             <span className="material-symbols-outlined text-white text-[16px]">travel_explore</span>
-            <span className="text-white text-xs font-semibold tracking-wider uppercase">Join 50,000+ Travelers</span>
+            <span className="text-white text-xs font-semibold tracking-wider uppercase">Join 3.5K+ Travelers</span>
           </div>
 
           <h1 className="text-white font-bold text-5xl xl:text-[52px] leading-[1.1] mb-6 drop-shadow-xl"

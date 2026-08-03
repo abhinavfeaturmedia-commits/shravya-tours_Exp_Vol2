@@ -140,7 +140,7 @@ export const Login: React.FC = () => {
                             ))}
                         </div>
                         <p className="text-white/70 text-sm font-light">
-                            Trusted by <span className="text-white font-semibold">50,000+</span> happy travelers
+                            Trusted by <span className="text-white font-semibold">3.5K+</span> happy travelers
                         </p>
                     </div>
                 </div>

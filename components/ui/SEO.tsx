@@ -11,7 +11,7 @@ interface SEOProps {
 }
 
 const DEFAULT_TITLE = 'SHRAWELLO Travel Hub - Premium Travel Experiences';
-const DEFAULT_DESCRIPTION = 'Book handpicked hotels, seamless flights, and immersive tours. Join 50,000+ travelers for unforgettable experiences across India and beyond.';
+const DEFAULT_DESCRIPTION = 'Book handpicked hotels, seamless flights, and immersive tours. Join 3.5K+ travelers for unforgettable experiences across India and beyond.';
 const DEFAULT_IMAGE = 'https://lh3.googleusercontent.com/aida-public/AB6AXuDe8BDAUta_Sad0sbfFPp3eGFuTDne-kjCHaSbEmPIsw2A35eYa_4cmO0qQIrrAUnyuBkmJYYx5BswvQ8xoNvi-V48GV78qtY2osp3mRT5dAgVv31-tcAdYZIYq5VwnghdHN-xLMZHlH8DhevC9MvU-RUVOzTxENfRuR9CornjT44jfRzEHiuwDi6on6RQISv-Sa7xPzXf6U61FblGpi9Ou2aXfsR5_PoyNJhX-aCt1zuv1ogRgtmIOXqYjfcAQ79z48VNTNX3nLemm';
 
 export const SEO: React.FC<SEOProps> = ({

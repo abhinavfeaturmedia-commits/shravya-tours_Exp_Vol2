@@ -689,7 +689,7 @@ export const Home: React.FC = () => {
     <>
       <SEO
         title="Home"
-        description="Book handpicked hotels, seamless flights, and immersive tours. Join 50,000+ travelers for unforgettable experiences."
+        description="Book handpicked hotels, seamless flights, and immersive tours. Join 3.5K+ travelers for unforgettable experiences."
       />
 
       <style>{`
@@ -967,7 +967,7 @@ export const Home: React.FC = () => {
             {/* Minimalist Glass Stats Strip */}
             <div className="mt-12 sm:mt-14 inline-flex items-center gap-6 sm:gap-12 px-6 sm:px-10 py-3.5 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-white shadow-xl flex-wrap justify-center reveal reveal-delay-4">
               {[
-                { value: '50K+', label: 'Happy Travelers' },
+                { value: '3.5K+', label: 'Happy Travelers' },
                 { value: '200+', label: 'Destinations' },
                 { value: '4.9★', label: 'Avg. Rating' },
                 { value: '100%', label: 'Verified Tours' },
@@ -1222,7 +1222,7 @@ export const Home: React.FC = () => {
                   ))}
                 </div>
                 <div>
-                  <p className="font-black text-slate-900 dark:text-white text-xs leading-none">50,000+</p>
+                  <p className="font-black text-slate-900 dark:text-white text-xs leading-none">3.5K+</p>
                   <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">happy travelers</p>
                 </div>
               </div>
