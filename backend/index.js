@@ -1161,7 +1161,7 @@ async function ensureLiveOpsSchema() {
         "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS pax_count INT DEFAULT NULL",
         "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS pax_child INT DEFAULT 0",
         "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS whatsapp_group_url VARCHAR(500) DEFAULT NULL",
-        "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS live_status VARCHAR(50) DEFAULT 'Live'",
+        "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS live_status VARCHAR(50) DEFAULT NULL",
         "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS whatsapp VARCHAR(50) DEFAULT NULL",
         "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS is_whatsapp_same TINYINT(1) DEFAULT 1",
         "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS alt_phone VARCHAR(50) DEFAULT NULL",
@@ -1241,6 +1241,12 @@ async function ensureLiveOpsSchema() {
         console.log('[LiveOps Migration] attendance_logs table ensured.');
     } catch (err) {
         console.error('[LiveOps Migration] Failed to create attendance_logs:', err.message);
+    }
+
+    try {
+        await pool.query("UPDATE bookings SET live_status = NULL WHERE live_status = 'Live'");
+    } catch (err) {
+        // safe ignore if table doesn't exist yet
     }
 
     console.log('[LiveOps Migration] Schema check complete.');

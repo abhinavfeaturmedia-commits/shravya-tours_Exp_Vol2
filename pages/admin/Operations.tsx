@@ -51,6 +51,18 @@ const getTourProgress = (dateStr: string, duration: number): { day: number; perc
     if (!start || duration <= 0) return { day: 1, percent: 100 };
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+
+    const end = new Date(start);
+    end.setDate(start.getDate() + (duration - 1));
+    end.setHours(23, 59, 59, 999);
+
+    if (today < start) {
+        return { day: 0, percent: 0 };
+    }
+    if (today > end) {
+        return { day: duration, percent: 100 };
+    }
+
     const diffDays = Math.round((today.getTime() - start.getTime()) / 86_400_000) + 1;
     const currentDay = Math.min(Math.max(diffDays, 1), duration);
     const percent = Math.min(Math.max(Math.round((currentDay / duration) * 100), 5), 100);
@@ -94,8 +106,8 @@ export const Operations: React.FC = () => {
     const [staffSearchQuery, setStaffSearchQuery] = useState('');
     const [staffRoleFilter, setStaffRoleFilter] = useState<string>('all');
 
-    // ─── Upcoming window toggle (7 / 14 / 30 days) ─────────────────────────
-    const [upcomingDays, setUpcomingDays] = useState<7 | 14 | 30>(7);
+    // ─── Upcoming window toggle (7 / 14 / 30 / 60 days) ─────────────────────────
+    const [upcomingDays, setUpcomingDays] = useState<7 | 14 | 30 | 60>(30);
 
     // ─── Recently Completed — Show More toggle ───────────────────────────────
     const [showAllCompleted, setShowAllCompleted] = useState(false);
@@ -336,13 +348,13 @@ export const Operations: React.FC = () => {
             const paxUnknown = rawPax == null && !b.guests;
 
             const statusLower = (b.status ?? 'pending').toLowerCase();
-            const liveStatusLower = (b.liveStatus ?? 'live').toLowerCase();
+            const liveStatusRaw = b.liveStatus ? String(b.liveStatus).trim() : '';
 
-            const isCancelledBooking = statusLower === 'cancelled' || liveStatusLower === 'cancelled';
+            const isCancelledBooking = statusLower === 'cancelled' || liveStatusRaw.toLowerCase() === 'cancelled';
             if (isCancelledBooking) return; // Exclude cancelled tours
 
             // ── Priority 1: Explicitly completed ──
-            if (statusLower === 'completed' || liveStatusLower === 'completed') {
+            if (statusLower === 'completed' || liveStatusRaw.toLowerCase() === 'completed') {
                 if (!completedIds.has(b.id)) {
                     completed.push(b);
                     completedIds.add(b.id);
@@ -351,30 +363,26 @@ export const Operations: React.FC = () => {
             }
 
             // ── Priority 2: Explicit LIVE or ISSUE override by Admin ──
-            // If an admin manually set liveStatus to Live or Issue, force into Live Tours!
-            if (liveStatusLower === 'live' || liveStatusLower === 'issue') {
+            // Only trigger if liveStatus is explicitly set by admin to 'Live' or 'Issue'
+            if (liveStatusRaw === 'Live' || liveStatusRaw === 'Issue') {
                 live.push({ ...b, paxCount, duration, liveEndDate: end, durationEstimated });
                 return;
             }
 
             // ── Priority 3: Automatic Date Window (Today falls within tour start & end) ──
             if (start <= today && end >= today) {
-                if (statusLower === 'confirmed' || statusLower === 'pending') {
-                    live.push({ ...b, paxCount, duration, liveEndDate: end, durationEstimated });
-                    return;
-                }
+                live.push({ ...b, paxCount, duration, liveEndDate: end, durationEstimated });
+                return;
             }
 
             // ── Priority 4: UPCOMING (Start date is in future within upcomingCutoff) ──
             if (start > today && start <= upcomingCutoff) {
-                if (statusLower === 'confirmed' || statusLower === 'pending') {
-                    upcoming.push({ ...b, paxCount, paxUnknown });
-                    return;
-                }
+                upcoming.push({ ...b, paxCount, paxUnknown });
+                return;
             }
 
-            // ── Priority 5: COMPLETED (End date in past, non-pending status) ──
-            if (end < today && statusLower !== 'pending') {
+            // ── Priority 5: COMPLETED / PAST TOURS (End date in past) ──
+            if (end < today) {
                 if (!completedIds.has(b.id)) {
                     completed.push(b);
                     completedIds.add(b.id);
@@ -555,7 +563,7 @@ export const Operations: React.FC = () => {
             if (!ok) return;
         }
         try {
-            const updatePayload: any = { liveStatus };
+            const updatePayload: any = { liveStatus: liveStatus === 'Auto' ? null : liveStatus };
             if (liveStatus === 'Completed') {
                 updatePayload.status = 'Completed';
             } else if (liveStatus === 'Cancelled') {
@@ -563,6 +571,7 @@ export const Operations: React.FC = () => {
             }
             await updateBooking(bookingId, updatePayload);
             window.dispatchEvent(new CustomEvent('bookings-changed'));
+            toast.success(liveStatus === 'Auto' ? 'Reset to automatic date classification' : `Tour status updated to ${liveStatus}`);
         } catch { toast.error('Failed to update tour status'); }
     };
 
@@ -1059,10 +1068,20 @@ export const Operations: React.FC = () => {
                                                         <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
                                                         {isIssue ? 'Issue Flagged' : 'On Tour'}
                                                     </span>
-                                                    <span className="text-slate-400 text-xs font-mono font-bold">#{tour.invoiceNo || tour.id}</span>
+                                                    <button
+                                                        onClick={() => navigate(`/admin/bookings?search=${encodeURIComponent(tour.customer)}`)}
+                                                        className="text-slate-400 hover:text-blue-600 text-xs font-mono font-bold transition-colors"
+                                                        title="View in Bookings"
+                                                    >
+                                                        #{tour.invoiceNo || tour.id}
+                                                    </button>
                                                 </div>
 
-                                                <h4 className="font-black text-slate-900 dark:text-white text-lg truncate" title={tour.customer}>
+                                                <h4
+                                                    onClick={() => navigate(`/admin/customers?search=${encodeURIComponent(tour.customer)}`)}
+                                                    className="font-black text-slate-900 dark:text-white text-lg truncate cursor-pointer hover:text-blue-600 transition-colors"
+                                                    title={`View ${tour.customer} in Customers`}
+                                                >
                                                     {tour.customer}
                                                 </h4>
                                                 <p className="text-xs text-slate-500 font-semibold mb-4 truncate" title={tour.title}>
@@ -1337,8 +1356,9 @@ export const Operations: React.FC = () => {
                                                         onChange={(e) => handleLiveStatusChange(tour.id, e.target.value)}
                                                         className="px-2 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold rounded-xl border-none outline-none cursor-pointer"
                                                     >
-                                                        <option value="Live">🟢 Live</option>
-                                                        <option value="Issue">🔴 Issue</option>
+                                                        <option value="Live">🟢 Force Live</option>
+                                                        <option value="Issue">🔴 Flag Issue</option>
+                                                        <option value="Auto">⚡ Auto (Date)</option>
                                                         <option value="Cancelled">❌ Cancel</option>
                                                     </select>
 
@@ -1379,7 +1399,7 @@ export const Operations: React.FC = () => {
                                     Upcoming Arrivals ({filteredUpcoming.length})
                                 </h3>
                                 <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl gap-0.5 border border-slate-200/60 dark:border-slate-700/60">
-                                    {([7, 14, 30] as const).map(d => (
+                                    {([7, 14, 30, 60] as const).map(d => (
                                         <button
                                             key={d}
                                             onClick={() => setUpcomingDays(d)}

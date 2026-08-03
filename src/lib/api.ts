@@ -614,7 +614,7 @@ export const api = {
                 durationDays: row.duration_days ? Number(row.duration_days) : undefined,
                 paxCount: row.pax_count ? Number(row.pax_count) : undefined,
                 whatsappGroupUrl: row.whatsapp_group_url || undefined,
-                liveStatus: row.live_status as any || undefined,
+                liveStatus: (row.live_status && row.live_status !== 'Auto') ? (row.live_status as any) : undefined,
                 partnerId: row.partner_id || undefined,
                 partnerName: row.partner_name || undefined,
                 partnerCompanyName: row.partner_company_name || undefined,
