@@ -2,8 +2,85 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePartnerAuth } from '../../context/PartnerAuthContext';
 import { copyToClipboard } from '../../utils/clipboard';
+import { toast } from '../../components/ui/Toast';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
+
+const parseJsonFieldSafe = (field: any, fallback: any) => {
+  if (typeof field === 'string') {
+    if (!field.trim()) return fallback;
+    try {
+      return JSON.parse(field);
+    } catch {
+      return fallback;
+    }
+  }
+  return field || fallback;
+};
+
+const mapRawPackage = (row: any) => {
+  let itinerary: { day: number; title: string; desc: string }[] = [];
+  const rawItinerary = parseJsonFieldSafe(row.itinerary, null);
+  if (rawItinerary && Array.isArray(rawItinerary) && rawItinerary.length > 0) {
+    itinerary = rawItinerary;
+  } else {
+    const builderData = parseJsonFieldSafe(row.builder_data, null);
+    if (builderData?.days && Array.isArray(builderData.days)) {
+      itinerary = builderData.days.map((d: any, i: number) => ({
+        day: d.day ?? (i + 1),
+        title: d.title || `Day ${d.day ?? (i + 1)}`,
+        desc: [
+          d.description || '',
+          ...(Array.isArray(d.activities) ? d.activities.map((a: any) => typeof a === 'string' ? a : (a.name || a.title || '')) : [])
+        ].filter(Boolean).join('\n') || 'Day details not specified.'
+      }));
+    } else if (builderData?.items && Array.isArray(builderData.items)) {
+      const daysCount = builderData.tripDetails?.days || row.days || 4;
+      const days = Array.from({ length: daysCount }, (_, i) => i + 1);
+      itinerary = days.map(day => {
+        const dayItems = builderData.items.filter((i: any) => i.day === day);
+        const desc = dayItems.length === 0
+          ? 'Leisure day for personal exploration.'
+          : dayItems
+              .sort((a: any, b: any) => (a.time || '').localeCompare(b.time || ''))
+              .map((item: any) => `• ${item.time ? item.time + ': ' : ''}${item.title}${item.description ? ' - ' + item.description : ''}`)
+              .join('\n');
+        const dayTheme = (builderData.dayMeta?.[day] as any)?.theme
+          || dayItems.find((i: any) => i.type === 'activity')?.title
+          || (day === 1 ? 'Arrival & Welcome' : `Day ${day} Itinerary`);
+        return { day, title: dayTheme, desc };
+      });
+    }
+  }
+
+  let highlights: { icon: string; label: string }[] = [];
+  const rawHighlights = parseJsonFieldSafe(row.highlights, null);
+  if (rawHighlights && Array.isArray(rawHighlights) && rawHighlights.length > 0) {
+    highlights = rawHighlights.map((h: any) => ({
+      icon: typeof h === 'object' ? (h.icon || 'star') : 'star',
+      label: typeof h === 'object' ? (h.label || String(h)) : String(h)
+    }));
+  } else {
+    const rawFeatures = parseJsonFieldSafe(row.features, []);
+    highlights = (Array.isArray(rawFeatures) ? rawFeatures : []).map((f: any) => ({
+      icon: typeof f === 'object' ? (f.icon || 'star') : 'star',
+      label: typeof f === 'object' ? (f.label || String(f)) : String(f)
+    }));
+  }
+
+  return {
+    ...row,
+    price: Number(row.price) || 0,
+    days: Number(row.days) || 1,
+    itinerary,
+    highlights,
+    included: parseJsonFieldSafe(row.included, []),
+    notIncluded: parseJsonFieldSafe(row.not_included || row.notIncluded, []),
+    overview: row.overview || row.description || '',
+    partner_commission_value: row.partner_commission_value !== null && row.partner_commission_value !== undefined ? Number(row.partner_commission_value) : null,
+    partner_commission_type: row.partner_commission_type || null,
+  };
+};
 
 export const PartnerPackages: React.FC = () => {
   const navigate = useNavigate();
@@ -33,7 +110,8 @@ export const PartnerPackages: React.FC = () => {
       const res = await fetch(`${API_BASE}/api/crud/packages?eq_status=Active`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to fetch packages');
-      setPackages(data.data || []);
+      const rawList = data.data || [];
+      setPackages(rawList.map(mapRawPackage));
     } catch (err: any) {
       setError(err.message || 'Failed to load packages');
     } finally {
@@ -104,7 +182,10 @@ export const PartnerPackages: React.FC = () => {
     copyToClipboard(referralUrl).then(success => {
       if (success) {
         setCopiedPkgId(pkg.id);
-        setTimeout(() => setCopiedPkgId(null), 2000);
+        toast.success('Affiliate link copied! Any client who books via this link will be linked to your partner account.');
+        setTimeout(() => setCopiedPkgId(null), 2500);
+      } else {
+        toast.error('Failed to copy referral link');
       }
     });
   };

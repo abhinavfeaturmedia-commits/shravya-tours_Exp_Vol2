@@ -8,6 +8,7 @@ import { SuggestPopup, isDismissed, isSnoozed, dismissSuggestion, snoozeSuggesti
 import { PaymentLogos } from '../ui/PaymentLogos';
 import { useCustomerAuth } from '../../context/CustomerAuthContext';
 import { PublicChatbot } from '../ui/PublicChatbot';
+import { ErrorBoundary } from '../ui/ErrorBoundary';
 
 export const PublicLayout: React.FC = () => {
   const location = useLocation();
@@ -27,12 +28,14 @@ export const PublicLayout: React.FC = () => {
   const seasonalTitle = isMonsoon ? 'Monsoon Magic Deals!' : 'Peak Season Packages!';
   const seasonalDesc = isMonsoon ? 'Get up to 25% off on select hill station and waterfall packages this monsoon.' : 'Rajasthan, Kerala & Goa packages with exclusive winter pricing. Limited seats!';
 
-  // Partner Affiliate Tracking
+  // Partner Affiliate Tracking (HashRouter compatible)
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
+    const hashQuery = window.location.hash.includes('?') ? window.location.hash.split('?')[1] : '';
+    const params = new URLSearchParams(location.search || hashQuery);
     const partnerRef = params.get('ref');
     if (partnerRef) {
       sessionStorage.setItem('shravya_partner_ref', partnerRef);
+      sessionStorage.setItem('shrawello_partner_ref', partnerRef);
       localStorage.setItem('shravya_ref_partner', partnerRef);
       localStorage.setItem('shravya_ref_partner_time', String(Date.now()));
       
@@ -42,7 +45,7 @@ export const PublicLayout: React.FC = () => {
       
       console.log(`[Affiliate] Partner linked (30 days persistence): ${partnerRef}`);
     }
-  }, [location.search]);
+  }, [location.search, location.pathname]);
 
   // Exit-intent detector (desktop: mouse leaves viewport top)
   useEffect(() => {
@@ -97,9 +100,13 @@ export const PublicLayout: React.FC = () => {
 
   return (
     <div className="flex flex-col min-h-screen font-sans bg-background-light dark:bg-slate-950 selection:bg-primary/30 text-slate-900 dark:text-slate-100">
-      <UrgencyNotification />
+      <ErrorBoundary fallbackTitle="Notification error">
+        <UrgencyNotification />
+      </ErrorBoundary>
 
-      <WhatsAppModal isOpen={isWhatsAppOpen} onClose={() => setIsWhatsAppOpen(false)} />
+      <ErrorBoundary fallbackTitle="Modal error">
+        <WhatsAppModal isOpen={isWhatsAppOpen} onClose={() => setIsWhatsAppOpen(false)} />
+      </ErrorBoundary>
 
       {/* Floating Navigation */}
       <div className="fixed top-3 sm:top-6 inset-x-0 z-50 flex justify-center px-3 sm:px-4 pointer-events-none">
@@ -113,11 +120,11 @@ export const PublicLayout: React.FC = () => {
         </div>
       </div>
 
-
-
       {/* Main Content */}
       <main className="flex-grow">
-        <Outlet />
+        <ErrorBoundary fallbackTitle="Page failed to load">
+          <Outlet />
+        </ErrorBoundary>
       </main>
 
       {/* ── Exit-Intent Popup ── */}
@@ -251,7 +258,9 @@ export const PublicLayout: React.FC = () => {
           </div>
         </div>
       </footer>
-      <PublicChatbot />
+      <ErrorBoundary fallbackTitle="Chatbot error">
+        <PublicChatbot />
+      </ErrorBoundary>
     </div>
   );
 };

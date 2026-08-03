@@ -99,7 +99,8 @@ const ApprovedBanner: React.FC = () => (
 
 // ─── Main Component ────────────────────────────────────────────────────────────
 export const InteractiveItinerary: React.FC = () => {
-    const { id } = useParams<{ id: string }>();
+    const { id: rawId } = useParams<{ id: string }>();
+    const id = rawId ? rawId.split('?')[0] : '';
     const { packages, updatePackage, masterLocations, coupons } = useData();
 
     const [showSuccess, setShowSuccess] = useState(false);

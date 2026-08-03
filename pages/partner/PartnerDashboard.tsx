@@ -20,14 +20,17 @@ import {
 } from 'recharts';
 
 const StatCard: React.FC<{ icon: string; label: string; value: string; sub?: string; gradient: string; iconColor: string }> = ({ icon, label, value, sub, gradient, iconColor }) => (
-  <div className={`bg-gradient-to-br ${gradient} backdrop-blur-md rounded-2xl p-5 border border-white/10 hover:border-white/20 relative overflow-hidden group transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-black/20`}>
-    <div className="absolute top-0 right-0 w-24 h-24 rounded-full bg-white/5 -translate-y-8 translate-x-8 group-hover:scale-110 transition-transform duration-500" />
-    <div className={`size-10 rounded-xl ${iconColor} flex items-center justify-center mb-3 shadow-lg`}>
-      <span className="material-symbols-outlined text-white text-[20px]">{icon}</span>
+  <div className={`bg-gradient-to-br ${gradient} backdrop-blur-xl rounded-2xl p-5 border border-white/10 hover:border-white/25 relative overflow-hidden group transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl hover:shadow-black/40`}>
+    <div className="absolute top-0 right-0 w-28 h-28 rounded-full bg-white/5 -translate-y-10 translate-x-10 group-hover:scale-125 transition-transform duration-700 pointer-events-none" />
+    <div className="flex items-center justify-between mb-3">
+      <div className={`size-11 rounded-xl ${iconColor} flex items-center justify-center shadow-lg shadow-black/20 group-hover:scale-105 transition-transform duration-300`}>
+        <span className="material-symbols-outlined text-white text-[22px]">{icon}</span>
+      </div>
+      <span className="text-[10px] font-black uppercase tracking-wider text-white/30 bg-white/5 px-2 py-0.5 rounded-full border border-white/5">Realtime</span>
     </div>
-    <p className="text-white/60 text-xs font-bold uppercase tracking-wider">{label}</p>
-    <p className="text-2xl font-black text-white mt-1 group-hover:text-transparent group-hover:bg-clip-text group-hover:bg-gradient-to-r group-hover:from-white group-hover:to-white/70 transition-all">{value}</p>
-    {sub && <p className="text-white/40 text-xs mt-1">{sub}</p>}
+    <p className="text-white/50 text-[11px] font-bold uppercase tracking-widest">{label}</p>
+    <p className="text-2xl lg:text-3xl font-black text-white mt-1 group-hover:text-transparent group-hover:bg-clip-text group-hover:bg-gradient-to-r group-hover:from-white group-hover:to-white/80 transition-all tracking-tight">{value}</p>
+    {sub && <p className="text-white/40 text-xs mt-1.5 flex items-center gap-1 font-medium"><span className="w-1 h-1 rounded-full bg-violet-400" />{sub}</p>}
   </div>
 );
 

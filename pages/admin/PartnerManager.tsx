@@ -30,7 +30,8 @@ const PartnerTable: React.FC<{
   handleApprove: (id: string) => void; handleBlock: (id: string) => void;
   handleDelete: (id: string) => void; openEdit: (p: any) => void;
   openDetails: (id: string) => void;
-}> = ({ partners, search, statusFilter, setSearch, setStatusFilter, statusBadge, handleApprove, handleBlock, handleDelete, openEdit, openDetails }) => {
+  onRequestAgreement: (p: any) => void;
+}> = ({ partners, search, statusFilter, setSearch, setStatusFilter, statusBadge, handleApprove, handleBlock, handleDelete, openEdit, openDetails, onRequestAgreement }) => {
   const navigate = useNavigate();
   const kycBadgeConfig: Record<string, { label: string; style: string; icon: string }> = {
     Pending: { label: 'Pending', style: 'bg-slate-50 text-slate-500 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700/50', icon: 'hourglass_empty' },
@@ -45,12 +46,25 @@ const PartnerTable: React.FC<{
     const matchS = statusFilter === 'All' || p.status === statusFilter;
     return matchQ && matchS;
   });
+
+  const openWhatsApp = (phone: string, name: string) => {
+    const cleanPhone = (phone || '').replace(/\D/g, '');
+    const text = encodeURIComponent(`Hi ${name}, reaching out from SHRAWELLO Travel Hub regarding your Associate Account.`);
+    window.open(`https://wa.me/${cleanPhone.length === 10 ? '91' + cleanPhone : cleanPhone}?text=${text}`, '_blank');
+  };
+
+  const openEmail = (email: string, name: string) => {
+    const subject = encodeURIComponent('SHRAWELLO B2B Travel Associate Portal Update');
+    const body = encodeURIComponent(`Dear ${name},\n\nHope you are doing well!\n\nBest regards,\nSHRAWELLO Travel Hub Team`);
+    window.open(`mailto:${email}?subject=${subject}&body=${body}`, '_blank');
+  };
+
   return (
     <div className="bg-white dark:bg-[#1A2633]/80 border border-slate-200 dark:border-white/10 rounded-2xl overflow-hidden shadow-sm">
       <div className="overflow-x-auto">
-        <div className="min-w-[700px]">
-      <div className="hidden lg:grid grid-cols-[2fr_1fr_1fr_1fr_110px_110px_170px] gap-4 px-6 py-3 bg-slate-50 dark:bg-white/[0.03] border-b border-slate-100 dark:border-white/5 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
-        <span>Partner</span><span>Commission</span><span>Activity</span><span>Earnings</span><span>Status</span><span>KYC Status</span><span className="text-right">Actions</span>
+        <div className="min-w-[980px]">
+      <div className="hidden lg:grid grid-cols-[2fr_1fr_1.1fr_1fr_120px_100px_100px_180px] gap-3 px-6 py-3 bg-slate-50 dark:bg-white/[0.03] border-b border-slate-100 dark:border-white/5 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
+        <span>Partner</span><span>Commission</span><span>Activity &amp; Growth</span><span>Earnings</span><span>Agreement</span><span>Status</span><span>KYC</span><span className="text-right">Actions</span>
       </div>
       {filtered.length === 0 ? (
         <div className="text-center py-16">
@@ -62,14 +76,44 @@ const PartnerTable: React.FC<{
         <div className="divide-y divide-slate-100 dark:divide-white/5">
           {filtered.map((p: any) => {
             const convPct = p.total_leads_submitted > 0 ? Math.round((p.total_bookings_converted / p.total_leads_submitted) * 100) : 0;
+            const isHighConverter = convPct >= 40 && p.total_leads_submitted >= 2;
+            const isTopProducer = p.is_top_producer || (p.total_earnings > 0 && p.total_bookings_converted >= 3);
+            const isRisingStar = (() => {
+              if (!p.created_at && !p.joined_date) return false;
+              const date = new Date(p.created_at || p.joined_date);
+              const days = (Date.now() - date.getTime()) / (1000 * 60 * 60 * 24);
+              return days <= 60 && (p.total_leads_submitted >= 1 || p.total_bookings_converted >= 1);
+            })();
+
+            const momPct = Number(p.mom_growth_pct) || 0;
+            const hasContract = !!p.terms_agreed_at;
+
             return (
-              <div key={p.id} className="grid grid-cols-1 lg:grid-cols-[2fr_1fr_1fr_1fr_110px_110px_170px] gap-4 px-6 py-4 hover:bg-slate-50 dark:hover:bg-white/[0.03] transition-colors items-center">
-                <div className="flex items-center gap-3 cursor-pointer group/item shrink-0" onClick={() => openDetails(p.id)}>
-                  <div className={`size-10 rounded-xl bg-gradient-to-br ${getAvatarColor(p.id)} flex items-center justify-center text-white font-black text-sm shrink-0 shadow-md transition-transform group-hover/item:scale-110 duration-200`}>{getInitials(p.name)}</div>
-                  <div className="min-w-0">
-                    <p className="font-bold text-slate-900 dark:text-white text-sm leading-tight hover:text-violet-600 dark:hover:text-violet-400 transition-colors">{p.name}</p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{p.email}</p>
-                    {p.company_name && <p className="text-[10px] text-slate-400 dark:text-slate-550 mt-0.5">{p.company_name}{p.location ? ` · ${p.location}` : ''}</p>}
+              <div key={p.id} className="grid grid-cols-1 lg:grid-cols-[2fr_1fr_1.1fr_1fr_120px_100px_100px_180px] gap-3 px-6 py-4 hover:bg-slate-50 dark:hover:bg-white/[0.03] transition-colors items-center">
+                <div className="flex items-start gap-3 cursor-pointer group/item shrink-0" onClick={() => openDetails(p.id)}>
+                  <div className={`size-10 rounded-xl bg-gradient-to-br ${getAvatarColor(p.id)} flex items-center justify-center text-white font-black text-sm shrink-0 shadow-md transition-transform group-hover/item:scale-110 duration-200 mt-0.5`}>{getInitials(p.name)}</div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <p className="font-bold text-slate-900 dark:text-white text-sm leading-tight hover:text-violet-600 dark:hover:text-violet-400 transition-colors">{p.name}</p>
+                      {/* Leaderboard Badges */}
+                      {isTopProducer && (
+                        <span className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-md font-black bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-sm" title="Top Producer Badge">
+                          🔥 Top Producer
+                        </span>
+                      )}
+                      {isHighConverter && (
+                        <span className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-md font-black bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-sm" title="High Conversion Rate (>40%)">
+                          🎯 High Converter
+                        </span>
+                      )}
+                      {isRisingStar && !isTopProducer && (
+                        <span className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-md font-black bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-sm" title="Joined in last 60 days with active leads">
+                          ⭐ Rising Star
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">{p.email}</p>
+                    {p.company_name && <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{p.company_name}{p.location ? ` · ${p.location}` : ''}</p>}
                   </div>
                 </div>
                 <div>
@@ -81,14 +125,53 @@ const PartnerTable: React.FC<{
                 </div>
                 <div>
                   <p className="text-xs text-slate-700 dark:text-slate-300 font-semibold">{p.total_leads_submitted} leads · {p.total_bookings_converted} booked</p>
-                  <div className="mt-1.5 h-1.5 bg-slate-100 dark:bg-white/10 rounded-full overflow-hidden w-24">
+                  <div className="mt-1 h-1.5 bg-slate-100 dark:bg-white/10 rounded-full overflow-hidden w-24">
                     <div className="h-full bg-gradient-to-r from-violet-500 to-purple-500 rounded-full" style={{ width: `${convPct}%` }} />
                   </div>
-                  <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{convPct}% conversion</p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-[10px] text-slate-400 dark:text-slate-500">{convPct}% conv</span>
+                    {/* MoM Lead Growth Indicator */}
+                    {momPct > 0 ? (
+                      <span className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.2 rounded font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20" title={`This Month: ${p.leads_this_month} leads vs Last Month: ${p.leads_last_month} leads`}>
+                        ▲ +{momPct}% MoM
+                      </span>
+                    ) : momPct < 0 ? (
+                      <span className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.2 rounded font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20" title={`This Month: ${p.leads_this_month} leads vs Last Month: ${p.leads_last_month} leads`}>
+                        ▼ {momPct}% MoM
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.2 rounded font-medium text-slate-400 border border-slate-200 dark:border-slate-800" title={`This Month: ${p.leads_this_month} leads`}>
+                        • 0% MoM
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div>
                   <p className="text-sm font-black text-emerald-600 dark:text-emerald-400">₹{Number(p.total_earnings).toLocaleString('en-IN')}</p>
                   {Number(p.pending_payout) > 0 && <p className="text-[11px] text-amber-500">₹{Number(p.pending_payout).toLocaleString('en-IN')} pending</p>}
+                </div>
+                {/* Contract / B2B Agreement Column */}
+                <div>
+                  {hasContract ? (
+                    <div className="inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-full font-bold bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900/40" title={`Agreed on ${new Date(p.terms_agreed_at).toLocaleDateString()} (${p.terms_version || 'v1.0'})`}>
+                      <span className="material-symbols-outlined text-[13px]">verified</span>
+                      Signed ({p.terms_version || 'v1.0'})
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-900/40">
+                        <span className="material-symbols-outlined text-[12px]">gavel</span>
+                        Pending Contract
+                      </span>
+                      <button
+                        onClick={() => onRequestAgreement(p)}
+                        className="block text-[9px] font-bold text-violet-600 dark:text-violet-400 hover:underline active:scale-95"
+                        title="Click to send signature link via WhatsApp/Email"
+                      >
+                        Request Agreement ↗
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <div>
                   <span className={`inline-flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-full font-bold border ${statusBadge[p.status] || 'bg-slate-100 text-slate-500 border-slate-200 dark:bg-white/10 dark:text-white/50 dark:border-white/10'}`}>
@@ -116,21 +199,36 @@ const PartnerTable: React.FC<{
                   })()}
                 </div>
                 <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                  {/* Direct Contact Buttons */}
+                  <button
+                    onClick={() => openWhatsApp(p.phone, p.name)}
+                    className="p-1.5 bg-emerald-500/10 hover:bg-emerald-500 text-emerald-600 hover:text-white rounded-lg transition-all active:scale-95"
+                    title="Send WhatsApp Message"
+                  >
+                    <span className="material-symbols-outlined text-[15px]">chat</span>
+                  </button>
+                  <button
+                    onClick={() => openEmail(p.email, p.name)}
+                    className="p-1.5 bg-sky-500/10 hover:bg-sky-500 text-sky-600 hover:text-white rounded-lg transition-all active:scale-95"
+                    title="Send Email"
+                  >
+                    <span className="material-symbols-outlined text-[15px]">mail</span>
+                  </button>
                   {p.status === 'Pending Approval' && (
-                    <button onClick={() => handleApprove(p.id)} className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition-all hover:shadow-lg hover:shadow-emerald-500/25 active:scale-95">
-                      <span className="material-symbols-outlined text-[14px]">check</span>Approve
+                    <button onClick={() => handleApprove(p.id)} className="flex items-center gap-1 px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-[11px] font-bold transition-all hover:shadow-lg hover:shadow-emerald-500/25 active:scale-95">
+                      <span className="material-symbols-outlined text-[13px]">check</span>Approve
                     </button>
                   )}
-                  <button onClick={() => openEdit(p)} className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/20 text-slate-700 dark:text-white rounded-lg text-xs font-bold transition-all active:scale-95">
-                    <span className="material-symbols-outlined text-[14px]">edit</span>Edit
+                  <button onClick={() => openEdit(p)} className="flex items-center gap-1 px-2 py-1 bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/20 text-slate-700 dark:text-white rounded-lg text-[11px] font-bold transition-all active:scale-95">
+                    <span className="material-symbols-outlined text-[13px]">edit</span>Edit
                   </button>
                   {p.status === 'Active' && (
-                    <button onClick={() => handleBlock(p.id)} className="flex items-center gap-1 px-2.5 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg text-xs font-bold transition-all active:scale-95">
-                      <span className="material-symbols-outlined text-[14px]">block</span>Block
+                    <button onClick={() => handleBlock(p.id)} className="p-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg transition-all active:scale-95" title="Block Partner">
+                      <span className="material-symbols-outlined text-[15px]">block</span>
                     </button>
                   )}
-                  <button onClick={() => handleDelete(p.id)} className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all active:scale-95">
-                    <span className="material-symbols-outlined text-[14px]">delete</span>
+                  <button onClick={() => handleDelete(p.id)} className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all active:scale-95" title="Delete Partner">
+                    <span className="material-symbols-outlined text-[15px]">delete</span>
                   </button>
                 </div>
               </div>
@@ -190,6 +288,56 @@ export const PartnerManager: React.FC = () => {
   const [leadsSearch, setLeadsSearch] = useState('');
   const [ledgerSearch, setLedgerSearch] = useState('');
   const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  // Broadcast Nudge State
+  const [broadcastModal, setBroadcastModal] = useState(false);
+  const [broadcastForm, setBroadcastForm] = useState({
+    title: 'Special Incentive: 2x Commission on Kerala Packages!',
+    message: 'Earn double commission on all Kerala tour package inquiries submitted before this Sunday. Accelerate your earnings today!',
+    targetAudience: 'active',
+    bonusCommission: '+5% Extra Bonus'
+  });
+  const [sendingBroadcast, setSendingBroadcast] = useState(false);
+
+  // Agreement Request Target State
+  const [agreementTarget, setAgreementTarget] = useState<any>(null);
+
+  const handleRequestAgreement = (p: any) => {
+    setAgreementTarget(p);
+  };
+
+  const sendAgreementWhatsApp = (p: any) => {
+    const cleanPhone = (p.phone || '').replace(/\D/g, '');
+    const text = encodeURIComponent(`Hi ${p.name}, please complete your digital SHRAWELLO B2B Travel Associate Agreement contract at: ${window.location.origin}${window.location.pathname}#/partner/agreement`);
+    window.open(`https://wa.me/${cleanPhone.length === 10 ? '91' + cleanPhone : cleanPhone}?text=${text}`, '_blank');
+    showMsg(`Agreement signature link dispatched to ${p.name} via WhatsApp!`);
+    setAgreementTarget(null);
+  };
+
+  const sendAgreementEmail = (p: any) => {
+    const subject = encodeURIComponent('Action Required: Complete Your SHRAWELLO B2B Associate Agreement Contract');
+    const body = encodeURIComponent(`Dear ${p.name},\n\nPlease log in to your Partner Portal and review & sign your digital B2B Travel Associate Agreement contract:\n${window.location.origin}${window.location.pathname}#/partner/agreement\n\nBest regards,\nSHRAWELLO Travel Hub Team`);
+    window.open(`mailto:${p.email}?subject=${subject}&body=${body}`, '_blank');
+    showMsg(`Agreement email draft created for ${p.name}!`);
+    setAgreementTarget(null);
+  };
+
+  const sendBroadcastNudge = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSendingBroadcast(true);
+    try {
+      const res = await adminFetch('/api/admin/partners/broadcast-nudge', {
+        method: 'POST',
+        body: JSON.stringify(broadcastForm)
+      });
+      setBroadcastModal(false);
+      showMsg(res.message || 'Campaign broadcast nudge dispatched successfully!');
+    } catch (err: any) {
+      alert(err.message || 'Failed to send broadcast nudge');
+    } finally {
+      setSendingBroadcast(false);
+    }
+  };
 
   const loadPartnerDetails = useCallback(async (id: string) => {
     setDetailLoading(true);
@@ -386,7 +534,11 @@ export const PartnerManager: React.FC = () => {
           <h1 className="text-2xl font-black text-slate-900 dark:text-white">Associate Management</h1>
           <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">Manage B2B travel associates, commissions &amp; payouts</p>
         </div>
-        <div className="flex gap-3 items-center">
+        <div className="flex gap-3 items-center flex-wrap">
+          <button onClick={() => setBroadcastModal(true)} className="flex items-center gap-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg shadow-amber-500/20 transition-all active:scale-[0.98]">
+            <span className="material-symbols-outlined text-[18px]">campaign</span>
+            Broadcast Nudge
+          </button>
           <button onClick={() => setAddModal(true)} className="flex items-center gap-2 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg shadow-violet-500/25 transition-all active:scale-[0.98]">
             <span className="material-symbols-outlined text-[18px]">add</span>
             Add Associate
@@ -478,6 +630,7 @@ export const PartnerManager: React.FC = () => {
           handleDelete={handleDelete}
           openEdit={openEdit}
           openDetails={setDetailPartnerId}
+          onRequestAgreement={handleRequestAgreement}
         />
       ) : (
         /* Payouts Tab */
@@ -1304,6 +1457,152 @@ export const PartnerManager: React.FC = () => {
                   ) : null}
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Broadcast Campaign Nudge Modal */}
+      {broadcastModal && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in">
+          <div className="bg-white dark:bg-[#1A2633] w-full max-w-lg rounded-3xl shadow-2xl p-6 border border-slate-200 dark:border-white/10 animate-in zoom-in-95 space-y-5">
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                <div className="size-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-white font-black shadow-lg">
+                  <span className="material-symbols-outlined text-[20px]">campaign</span>
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-slate-900 dark:text-white leading-tight">Broadcast Campaign Nudge</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Send incentive announcements &amp; bonus alerts to associates</p>
+                </div>
+              </div>
+              <button onClick={() => setBroadcastModal(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-white transition-colors">
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            <form onSubmit={sendBroadcastNudge} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Campaign Title</label>
+                <input
+                  type="text"
+                  required
+                  value={broadcastForm.title}
+                  onChange={e => setBroadcastForm({ ...broadcastForm, title: e.target.value })}
+                  placeholder="e.g. 2x Commission on Kerala Packages!"
+                  className={inputClass}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Target Audience</label>
+                  <select
+                    value={broadcastForm.targetAudience}
+                    onChange={e => setBroadcastForm({ ...broadcastForm, targetAudience: e.target.value as any })}
+                    className={inputClass}
+                  >
+                    <option value="active">Active Associates Only</option>
+                    <option value="all">All Registered Associates</option>
+                    <option value="unsigned_contract">Unsigned Contract Only</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Bonus Incentive</label>
+                  <input
+                    type="text"
+                    value={broadcastForm.bonusCommission}
+                    onChange={e => setBroadcastForm({ ...broadcastForm, bonusCommission: e.target.value })}
+                    placeholder="e.g. +5% Bonus or 2x Commission"
+                    className={inputClass}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Announcement Message</label>
+                <textarea
+                  rows={3}
+                  required
+                  value={broadcastForm.message}
+                  onChange={e => setBroadcastForm({ ...broadcastForm, message: e.target.value })}
+                  placeholder="Write message details for your travel associates..."
+                  className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50 transition-all resize-none"
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setBroadcastModal(false)}
+                  className="px-4 py-2.5 bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/20 text-slate-700 dark:text-white font-bold rounded-xl text-xs transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={sendingBroadcast}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white font-bold rounded-xl text-xs shadow-lg shadow-amber-500/25 transition-all disabled:opacity-50"
+                >
+                  <span className="material-symbols-outlined text-[16px]">send</span>
+                  {sendingBroadcast ? 'Dispatching...' : 'Dispatch Broadcast'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Request Digital Agreement Signature Modal */}
+      {agreementTarget && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in">
+          <div className="bg-white dark:bg-[#1A2633] w-full max-w-md rounded-3xl shadow-2xl p-6 border border-slate-200 dark:border-white/10 animate-in zoom-in-95 space-y-5">
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                <div className="size-10 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center text-white font-black shadow-lg">
+                  <span className="material-symbols-outlined text-[20px]">gavel</span>
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-slate-900 dark:text-white leading-tight">Request Agreement Signature</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Partner: {agreementTarget.name}</p>
+                </div>
+              </div>
+              <button onClick={() => setAgreementTarget(null)} className="text-slate-400 hover:text-slate-600 dark:hover:text-white transition-colors">
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/40 rounded-2xl p-4 text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
+              <p className="font-bold flex items-center gap-1 mb-1">
+                <span className="material-symbols-outlined text-[16px]">info</span>
+                Digital B2B Agreement Contract Pending
+              </p>
+              <p>Send a direct signature link to <strong>{agreementTarget.name}</strong> so they can accept the digital terms in their partner portal.</p>
+            </div>
+
+            <div className="space-y-3 pt-1">
+              <button
+                onClick={() => sendAgreementWhatsApp(agreementTarget)}
+                className="w-full flex items-center justify-center gap-2.5 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs shadow-lg shadow-emerald-500/20 transition-all active:scale-[0.98]"
+              >
+                <span className="material-symbols-outlined text-[18px]">chat</span>
+                Send Signature Link via WhatsApp
+              </button>
+
+              <button
+                onClick={() => sendAgreementEmail(agreementTarget)}
+                className="w-full flex items-center justify-center gap-2.5 py-3 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-xl text-xs shadow-lg shadow-sky-500/20 transition-all active:scale-[0.98]"
+              >
+                <span className="material-symbols-outlined text-[18px]">mail</span>
+                Send Signature Link via Email
+              </button>
+
+              <button
+                onClick={() => setAgreementTarget(null)}
+                className="w-full py-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs font-semibold"
+              >
+                Cancel
+              </button>
             </div>
           </div>
         </div>

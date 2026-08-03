@@ -90,25 +90,37 @@ export const PartnerLeads: React.FC = () => {
       {/* Stats bar */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: 'Total', value: leads.length, filter: 'all', color: 'violet' },
-          { label: 'New', value: leads.filter(l => l.status === 'New').length, filter: 'New', color: 'blue' },
-          { label: 'Hot', value: leads.filter(l => l.status === 'Hot' || l.status === 'Warm').length, filter: 'Hot', color: 'red' },
-          { label: 'Converted', value: leads.filter(l => l.booking_id).length, filter: 'converted', color: 'emerald' },
+          { label: 'Total Referrals', value: leads.length, filter: 'all', color: 'violet', icon: 'groups' },
+          { label: 'New Inquiries', value: leads.filter(l => l.status === 'New').length, filter: 'New', color: 'blue', icon: 'mark_chat_unread' },
+          { label: 'In Follow-up', value: leads.filter(l => l.status === 'Hot' || l.status === 'Warm' || l.status === 'Offer Sent').length, filter: 'Hot', color: 'amber', icon: 'local_fire_department' },
+          { label: 'Converted', value: leads.filter(l => l.booking_id).length, filter: 'converted', color: 'emerald', icon: 'verified' },
         ].map(s => (
           <button key={s.filter} onClick={() => setFilter(s.filter)}
-            className={`p-3 rounded-xl border text-left transition-all ${filter === s.filter ? `bg-${s.color}-600/20 border-${s.color}-500/40` : 'bg-white/5 border-white/10 hover:bg-white/10'}`}>
-            <p className="text-2xl font-black text-white">{s.value}</p>
-            <p className="text-xs text-white/50 font-semibold">{s.label}</p>
+            className={`p-4 rounded-2xl border text-left transition-all duration-300 backdrop-blur-xl relative overflow-hidden group ${
+              filter === s.filter
+                ? `bg-${s.color}-600/20 border-${s.color}-500/40 shadow-lg shadow-black/20`
+                : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
+            }`}>
+            <div className="flex items-center justify-between mb-1">
+              <span className="material-symbols-outlined text-white/40 text-[18px] group-hover:scale-110 transition-transform">{s.icon}</span>
+              {filter === s.filter && <span className="size-2 rounded-full bg-violet-400 animate-ping" />}
+            </div>
+            <p className="text-2xl lg:text-3xl font-black text-white">{s.value}</p>
+            <p className="text-xs text-white/50 font-bold uppercase tracking-wider mt-0.5">{s.label}</p>
           </button>
         ))}
       </div>
 
       {/* Filter tabs */}
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-2 pt-2">
         {['all', 'New', 'Warm', 'Hot', 'Cold', 'Offer Sent', 'Converted', 'converted'].map(f => (
           f !== 'converted' && (
             <button key={f} onClick={() => setFilter(f)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${filter === f ? 'bg-violet-600 border-violet-600 text-white' : 'bg-white/5 border-white/10 text-white/50 hover:text-white'}`}>
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold border transition-all ${
+                filter === f
+                  ? 'bg-gradient-to-r from-violet-600 to-purple-600 border-violet-500 text-white shadow-md shadow-violet-500/20'
+                  : 'bg-white/5 border-white/10 text-white/50 hover:text-white hover:bg-white/10'
+              }`}>
               {f === 'all' ? 'All Leads' : f}
             </button>
           )
@@ -152,7 +164,14 @@ export const PartnerLeads: React.FC = () => {
                   </div>
                   <div className="hidden sm:block">
                     <p className="text-sm text-white/80 font-semibold">{lead.destination || '—'}</p>
-                    <p className="text-xs text-white/40">{lead.travelers || '—'}</p>
+                    {lead.package_title ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] text-violet-300 font-bold bg-violet-500/15 border border-violet-500/20 px-2 py-0.5 rounded-md mt-0.5 max-w-[150px] truncate">
+                        <span className="material-symbols-outlined text-[12px] shrink-0">card_travel</span>
+                        {lead.package_title}
+                      </span>
+                    ) : (
+                      <p className="text-xs text-white/40">{lead.travelers || '—'}</p>
+                    )}
                   </div>
                   <div className="hidden sm:block">
                      <p className="text-sm text-white/70">{formatDateSafe(lead.start_date, '—')}</p>
@@ -201,6 +220,15 @@ export const PartnerLeads: React.FC = () => {
                 {/* Details Card */}
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-3">
                   <h3 className="text-xs font-bold text-white/40 uppercase tracking-wide">Lead Details</h3>
+                  {selectedLead.package_title && (
+                    <div className="bg-violet-500/10 border border-violet-500/20 rounded-xl p-2.5 flex items-center gap-2 mb-2">
+                      <span className="material-symbols-outlined text-violet-400 text-[18px]">card_travel</span>
+                      <div>
+                        <p className="text-[10px] text-violet-300 font-bold uppercase tracking-wider">Referred Tour Package</p>
+                        <p className="text-xs font-bold text-white">{selectedLead.package_title}</p>
+                      </div>
+                    </div>
+                  )}
                   <div className="grid grid-cols-2 gap-4 text-xs">
                     <div>
                       <p className="text-white/40 mb-0.5">Travel Dates</p>

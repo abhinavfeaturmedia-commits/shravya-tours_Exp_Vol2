@@ -169,7 +169,7 @@ export const PartnerLayout: React.FC = () => {
       {/* Main */}
       <div className="flex-1 flex flex-col min-h-screen overflow-y-auto">
         {/* Header */}
-        <header className="h-16 flex items-center justify-between px-6 border-b border-white/10 bg-white/5 backdrop-blur-xl sticky top-0 z-20 shrink-0">
+        <header className="h-16 flex items-center justify-between px-6 border-b border-white/10 bg-slate-900/60 backdrop-blur-xl sticky top-0 z-20 shrink-0">
           <button className="lg:hidden text-white/60 hover:text-white" onClick={() => setIsSidebarOpen(true)}>
             <span className="material-symbols-outlined text-2xl">menu</span>
           </button>
@@ -177,13 +177,17 @@ export const PartnerLayout: React.FC = () => {
             <span className="font-black text-white">SHRAWELLO</span>
             <span className="text-[10px] text-violet-400 font-bold">Associate</span>
           </div>
-          <div className="hidden lg:block" />
+          <div className="hidden lg:flex items-center gap-3">
+            <Link to="/partner/leads/new" className="flex items-center gap-2 px-3.5 py-1.5 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white rounded-xl font-bold text-xs shadow-lg shadow-violet-500/20 transition-all hover:scale-105 active:scale-95">
+              <span className="material-symbols-outlined text-[16px]">person_add</span> Submit Lead
+            </Link>
+          </div>
           <div className="flex items-center gap-3">
             <div className="text-right hidden sm:block">
               <p className="text-sm font-bold text-white">{partner.name}</p>
-              <p className="text-[10px] text-white/50">Travel Associate</p>
+              <p className="text-[10px] text-violet-300 font-medium">Travel Associate ({partner.partnerId || 'Verified'})</p>
             </div>
-            <div className="size-9 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center font-bold text-white text-sm">
+            <div className="size-9 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center font-bold text-white text-sm shadow-md ring-2 ring-violet-500/30">
               {initials}
             </div>
           </div>

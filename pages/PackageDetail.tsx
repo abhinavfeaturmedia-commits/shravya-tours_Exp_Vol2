@@ -16,13 +16,26 @@ import { copyToClipboard } from '../utils/clipboard';
 import { useCustomerAuth, CUSTOMER_JWT_KEY } from '../context/CustomerAuthContext';
 
 export const PackageDetail: React.FC = () => {
-  const { id } = useParams<{ id: string }>();
+  const { id: rawId } = useParams<{ id: string }>();
+  const id = useMemo(() => (rawId ? rawId.split('?')[0] : ''), [rawId]);
   const navigate = useNavigate();
   const { packages, masterLocations, addLead, trendingDestinations, updatePackage, cmsGallery } = useData();
   const { hasPermission } = useAuth();
   
   const { customer, isAuthenticated } = useCustomerAuth();
   const [isWishlisted, setIsWishlisted] = useState(false);
+
+  useEffect(() => {
+    const hashQuery = window.location.hash.includes('?') ? window.location.hash.split('?')[1] : '';
+    const params = new URLSearchParams(window.location.search || hashQuery);
+    const partnerRef = params.get('ref');
+    if (partnerRef) {
+      sessionStorage.setItem('shravya_partner_ref', partnerRef);
+      sessionStorage.setItem('shrawello_partner_ref', partnerRef);
+      localStorage.setItem('shravya_ref_partner', partnerRef);
+      localStorage.setItem('shravya_ref_partner_time', String(Date.now()));
+    }
+  }, [rawId]);
 
   useEffect(() => {
     const checkWishlistStatus = async () => {
@@ -196,24 +209,35 @@ export const PackageDetail: React.FC = () => {
   // Offer countdown
   const [timeLeft, setTimeLeft] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 });
   const [offerExpired, setOfferExpired] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const rawTour = packages.find(p => p.id === id);
 
-  // Lazy-load full package record so builderData is available
+  // Direct API fetch for this specific package.
+  // This is the PRIMARY data source when the page is opened fresh via an affiliate link
+  // and DataContext hasn't yet populated packages[] from the bulk fetch.
   const [fullPackageData, setFullPackageData] = useState<Package | null>(null);
+  const [directFetchDone, setDirectFetchDone] = useState(false);
   useEffect(() => {
     if (!id) return;
-    api.getPackageById(id).then(full => {
-      if (full) setFullPackageData(full);
-    }).catch(console.warn);
+    setDirectFetchDone(false);
+    api.getPackageById(id)
+      .then(full => {
+        if (full) setFullPackageData(full);
+      })
+      .catch(console.warn)
+      .finally(() => setDirectFetchDone(true));
   }, [id]);
 
-  // Merge full package's builderData into the tour object
+  // Merge: rawTour (from DataContext bulk list) + fullPackageData (from direct API fetch).
+  // Use fullPackageData as primary fallback when rawTour isn't available yet.
   const tour = useMemo(() => {
-    return rawTour
-      ? { ...rawTour, builderData: fullPackageData?.builderData ?? rawTour.builderData }
-      : null;
-  }, [rawTour, fullPackageData?.builderData]);
+    if (rawTour) {
+      return { ...rawTour, builderData: fullPackageData?.builderData ?? rawTour.builderData };
+    }
+    // Fallback: direct API fetch result (handles fresh new-window opens via affiliate links)
+    return fullPackageData ?? null;
+  }, [rawTour, fullPackageData]);
 
   // Aspect ratio of the first image in the gallery
   const [firstImageRatio, setFirstImageRatio] = useState(1.777); // Default 16:9
@@ -648,12 +672,17 @@ export const PackageDetail: React.FC = () => {
   }, [tour, TABS]);
 
   if (!tour) {
-    if (!packages || packages.length === 0) {
+    // Show skeleton while the direct API fetch is in progress
+    // This handles fresh new-window opens (affiliate links) before DataContext finishes loading
+    if (!directFetchDone) {
       return (
         <div className="min-h-screen pt-28 pb-16 px-4 md:px-8 max-w-[1440px] mx-auto">
           <div className="h-8 w-64 bg-slate-200 dark:bg-slate-800 rounded animate-pulse mb-4"></div>
           <div className="h-12 w-3/4 bg-slate-200 dark:bg-slate-800 rounded animate-pulse mb-8"></div>
           <div className="h-[500px] w-full bg-slate-200 dark:bg-slate-800 rounded-[2rem] animate-pulse"></div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-8">
+            {[1,2,3].map(i => <div key={i} className="h-32 bg-slate-200 dark:bg-slate-800 rounded-2xl animate-pulse" />)}
+          </div>
         </div>
       );
     }
@@ -790,8 +819,6 @@ export const PackageDetail: React.FC = () => {
   const headcount = getPaxHeadcount();
   const perPersonPrice = Math.round(calculateTotal() / (headcount > 0 ? headcount : 1));
   const perPersonOriginalPrice = Math.round(calculateOriginalTotal() / (headcount > 0 ? headcount : 1));
-
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const confirmBooking = async (e: React.FormEvent) => {
     e.preventDefault();

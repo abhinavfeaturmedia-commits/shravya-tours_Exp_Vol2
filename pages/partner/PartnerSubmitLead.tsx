@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { usePartnerAuth } from '../../context/PartnerAuthContext';
+import { toast } from '../../components/ui/Toast';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -8,6 +9,8 @@ export const PartnerSubmitLead: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { partner } = usePartnerAuth() as any;
+  const [referredPkg, setReferredPkg] = useState<any | null>(null);
+
   const [form, setForm] = useState({
     name: '', email: '', phone: '', location: '', destination: '',
     startDate: '', endDate: '', travelers: '2 Adults', budget: '',
@@ -22,17 +25,29 @@ export const PartnerSubmitLead: React.FC = () => {
     const notes = searchParams.get('notes') || '';
     const typeParam = searchParams.get('type') || 'Tour';
 
+    if (pkgId) {
+      fetch(`${API_BASE}/api/crud/packages/${encodeURIComponent(pkgId)}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data && data.data) {
+            setReferredPkg(data.data);
+          }
+        })
+        .catch(() => {});
+    }
+
     if (pkgId || dest || val || notes) {
       setForm(prev => ({
         ...prev,
-        packageId: pkgId,
-        destination: dest,
-        potentialValue: val,
-        type: typeParam,
-        preferences: notes ? `${notes}\n\n${prev.preferences}`.trim() : prev.preferences
+        packageId: pkgId || prev.packageId,
+        destination: dest || prev.destination,
+        potentialValue: val || prev.potentialValue,
+        type: typeParam || prev.type,
+        preferences: notes ? (prev.preferences.includes(notes) ? prev.preferences : `${notes}\n\n${prev.preferences}`.trim()) : prev.preferences
       }));
     }
   }, [searchParams]);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -57,6 +72,7 @@ export const PartnerSubmitLead: React.FC = () => {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to submit lead');
+      toast.success('Lead referred successfully!');
       navigate('/partner/leads');
     } catch (err: any) {
       setError(err.message || 'Failed to submit lead');
@@ -75,6 +91,30 @@ export const PartnerSubmitLead: React.FC = () => {
         <h1 className="text-2xl font-black text-white">Submit New Lead</h1>
         <p className="text-white/50 text-sm mt-1">Enter your customer's travel details and we'll follow up to convert the booking</p>
       </div>
+
+      {/* Referred Package Banner */}
+      {(form.packageId || referredPkg) && (
+        <div className="bg-gradient-to-r from-violet-900/40 via-purple-900/30 to-slate-900/50 border border-violet-500/30 rounded-2xl p-4 flex items-center justify-between gap-4 backdrop-blur-md">
+          <div className="flex items-center gap-3">
+            <div className="size-12 rounded-xl bg-violet-600/30 border border-violet-500/30 flex items-center justify-center text-violet-300 shrink-0">
+              <span className="material-symbols-outlined text-[24px]">travel_explore</span>
+            </div>
+            <div>
+              <span className="text-[10px] font-bold text-violet-400 uppercase tracking-widest block">Referred Package</span>
+              <h4 className="text-base font-black text-white">{referredPkg?.title || form.destination}</h4>
+              <p className="text-white/50 text-xs">
+                Package ID: <code className="bg-white/10 px-1.5 py-0.5 rounded text-white font-mono text-[10px]">{form.packageId}</code>
+              </p>
+            </div>
+          </div>
+          {form.potentialValue && (
+            <div className="text-right shrink-0">
+              <span className="text-[10px] text-white/40 uppercase font-bold block">Target Price</span>
+              <span className="text-sm font-black text-emerald-400">₹{Number(form.potentialValue).toLocaleString('en-IN')}</span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Dynamic Commission Banner */}
       {(() => {

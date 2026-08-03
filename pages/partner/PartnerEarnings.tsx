@@ -48,36 +48,36 @@ export const PartnerEarnings: React.FC = () => {
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-gradient-to-br from-emerald-900/30 to-teal-900/20 border border-emerald-500/20 rounded-2xl p-5">
-          <div className="size-9 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-lg flex items-center justify-center mb-3">
-            <span className="material-symbols-outlined text-white text-[18px]">check_circle</span>
+        <div className="bg-gradient-to-br from-emerald-900/30 via-teal-900/20 to-slate-900/40 border border-emerald-500/30 backdrop-blur-xl rounded-2xl p-5 shadow-xl relative overflow-hidden group">
+          <div className="size-10 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl flex items-center justify-center mb-3 shadow-md shadow-emerald-950/40 group-hover:scale-105 transition-transform">
+            <span className="material-symbols-outlined text-white text-[20px]">check_circle</span>
           </div>
-          <p className="text-white/50 text-xs font-bold uppercase tracking-wide">Total Paid</p>
-          <p className="text-2xl font-black text-white mt-1">₹{totalPaid.toLocaleString('en-IN')}</p>
+          <p className="text-white/50 text-[11px] font-bold uppercase tracking-widest">Total Paid Out</p>
+          <p className="text-2xl lg:text-3xl font-black text-white mt-1">₹{totalPaid.toLocaleString('en-IN')}</p>
         </div>
-        <div className="bg-gradient-to-br from-blue-900/30 to-indigo-900/20 border border-blue-500/20 rounded-2xl p-5">
-          <div className="size-9 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center mb-3">
-            <span className="material-symbols-outlined text-white text-[18px]">hourglass_top</span>
+        <div className="bg-gradient-to-br from-blue-900/30 via-indigo-900/20 to-slate-900/40 border border-blue-500/30 backdrop-blur-xl rounded-2xl p-5 shadow-xl relative overflow-hidden group">
+          <div className="size-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center mb-3 shadow-md shadow-blue-950/40 group-hover:scale-105 transition-transform">
+            <span className="material-symbols-outlined text-white text-[20px]">hourglass_top</span>
           </div>
-          <p className="text-white/50 text-xs font-bold uppercase tracking-wide">Approved (Awaiting Payment)</p>
-          <p className="text-2xl font-black text-white mt-1">₹{totalApproved.toLocaleString('en-IN')}</p>
+          <p className="text-white/50 text-[11px] font-bold uppercase tracking-widest">Approved (Awaiting Payment)</p>
+          <p className="text-2xl lg:text-3xl font-black text-white mt-1">₹{totalApproved.toLocaleString('en-IN')}</p>
         </div>
-        <div className="bg-gradient-to-br from-amber-900/30 to-orange-900/20 border border-amber-500/20 rounded-2xl p-5">
-          <div className="size-9 bg-gradient-to-br from-amber-500 to-orange-600 rounded-lg flex items-center justify-center mb-3">
-            <span className="material-symbols-outlined text-white text-[18px]">pending</span>
+        <div className="bg-gradient-to-br from-amber-900/30 via-orange-900/20 to-slate-900/40 border border-amber-500/30 backdrop-blur-xl rounded-2xl p-5 shadow-xl relative overflow-hidden group">
+          <div className="size-10 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl flex items-center justify-center mb-3 shadow-md shadow-amber-950/40 group-hover:scale-105 transition-transform">
+            <span className="material-symbols-outlined text-white text-[20px]">pending</span>
           </div>
-          <p className="text-white/50 text-xs font-bold uppercase tracking-wide">Pending Review</p>
-          <p className="text-2xl font-black text-white mt-1">₹{totalPending.toLocaleString('en-IN')}</p>
+          <p className="text-white/50 text-[11px] font-bold uppercase tracking-widest">Pending Review</p>
+          <p className="text-2xl lg:text-3xl font-black text-white mt-1">₹{totalPending.toLocaleString('en-IN')}</p>
         </div>
       </div>
 
       {/* Commission Rate Info */}
-      <div className="flex items-center gap-3 bg-violet-600/10 border border-violet-500/20 rounded-xl p-4">
-        <span className="material-symbols-outlined text-violet-400 text-[20px] shrink-0">info</span>
-        <p className="text-sm text-white/60">
-          Your commission rate: <strong className="text-violet-300">
-            {partner.commissionType === 'Percentage' ? `${partner.commissionValue}% of booking amount` : `₹${partner.commissionValue} flat per booking`}
-          </strong>. Commissions are generated automatically when a booking is completed. Admin will approve and release payouts.
+      <div className="flex items-center gap-3.5 bg-violet-600/10 border border-violet-500/25 rounded-2xl p-4 backdrop-blur-md">
+        <span className="material-symbols-outlined text-violet-400 text-[22px] shrink-0">info</span>
+        <p className="text-sm text-white/70 leading-relaxed">
+          Your active commission rate: <strong className="text-violet-300">
+            {partner.commissionType === 'Percentage' ? `${partner.commissionValue}% of total booking amount` : `₹${partner.commissionValue} flat per booking`}
+          </strong>. Commissions generate automatically upon booking conversion and payout releases follow admin verification.
         </p>
       </div>
 
@@ -85,8 +85,12 @@ export const PartnerEarnings: React.FC = () => {
       <div className="flex flex-wrap gap-2">
         {['all', 'Pending', 'Approved', 'Paid', 'Rejected'].map(f => (
           <button key={f} onClick={() => setFilter(f)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${filter === f ? 'bg-violet-600 border-violet-600 text-white' : 'bg-white/5 border-white/10 text-white/50 hover:text-white'}`}>
-            {f === 'all' ? 'All' : f}
+            className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all ${
+              filter === f
+                ? 'bg-gradient-to-r from-violet-600 to-purple-600 border-violet-500 text-white shadow-md shadow-violet-500/20'
+                : 'bg-white/5 border-white/10 text-white/50 hover:text-white hover:bg-white/10'
+            }`}>
+            {f === 'all' ? 'All Payouts' : f}
           </button>
         ))}
       </div>

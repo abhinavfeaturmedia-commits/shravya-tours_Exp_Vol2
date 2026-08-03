@@ -2661,107 +2661,7 @@ app.get('/api/db-test', async (req, res) => {
     }
 });
 
-// ─── Public Lead Capture API Endpoint ───
-// Allows website visitors (unauthenticated) to submit lead inquiries directly into MySQL
-app.post('/api/public/leads', async (req, res) => {
-    try {
-        const {
-            name, email, phone, location, destination, start_date, end_date,
-            travelers, budget, type, status, priority, potential_value, source,
-            preferences, partner_id, whatsapp, is_whatsapp_same, pax_adult, pax_child,
-            pax_infant, residential_address, office_address, alt_phone, notes
-        } = req.body || {};
-
-        if (!name || (!phone && !email)) {
-            return res.status(400).json({ error: 'Name and either phone or email are required' });
-        }
-
-        const trimmedName = String(name).trim();
-        const trimmedEmail = email ? String(email).trim() : null;
-        const trimmedPhone = phone ? String(phone).trim() : null;
-        const normPhone = normalisePhone(trimmedPhone || whatsapp);
-
-        // Returning Customer Auto-Link Check
-        let customerId = null;
-        let isReturningCustomer = 0;
-        if (normPhone) {
-            const matchedCustomer = await findMatchingCustomer(normPhone);
-            if (matchedCustomer) {
-                customerId = matchedCustomer.id;
-                isReturningCustomer = 1;
-            }
-        }
-
-        // Generate Lead ID and Lead Number (e.g. LD-10045)
-        const leadId = `LD-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-        
-        let leadNumber = `LD-${Math.floor(10000 + Math.random() * 90000)}`;
-        try {
-            const [maxRow] = await pool.query("SELECT MAX(CAST(SUBSTRING(lead_number, 4) AS UNSIGNED)) as maxNum FROM leads WHERE lead_number LIKE 'LD-%'");
-            if (maxRow[0] && maxRow[0].maxNum) {
-                leadNumber = `LD-${maxRow[0].maxNum + 1}`;
-            }
-        } catch (numErr) {
-            console.warn('[Public Lead] Lead number generation fallback:', numErr.message);
-        }
-
-        const leadSource = source || 'Bucket List Sale Popup';
-        const leadStatus = status || 'New';
-        const leadPriority = priority || 'High';
-        const leadType = type || 'Tour';
-        const leadValue = Number(potential_value || 0);
-
-        const prefContent = notes || (typeof preferences === 'object' ? JSON.stringify(preferences) : preferences) || null;
-
-        const insertQuery = `
-            INSERT INTO leads (
-                id, lead_number, name, email, phone, location, destination, start_date, end_date,
-                travelers, budget, type, status, priority, potential_value, source,
-                preferences, partner_id, customer_id, is_returning_customer, whatsapp,
-                is_whatsapp_same, pax_adult, pax_child, pax_infant, residential_address,
-                office_address, alt_phone, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
-        `;
-
-        await pool.query(insertQuery, [
-            leadId, leadNumber, trimmedName, trimmedEmail, trimmedPhone,
-            location || 'Not Specified', destination || 'Not Specified',
-            start_date || null, end_date || null,
-            travelers || '2 Adults', budget || 'TBD', leadType, leadStatus, leadPriority,
-            leadValue, leadSource, prefContent, partner_id || null, customerId,
-            isReturningCustomer, whatsapp || trimmedPhone, is_whatsapp_same !== false ? 1 : 0,
-            Number(pax_adult || 1), Number(pax_child || 0), Number(pax_infant || 0),
-            residential_address || null, office_address || null, alt_phone || null
-        ]);
-
-        // Insert initial log entry into lead_logs
-        try {
-            const logId = `LOG-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-            const logContent = `Inquiry submitted via ${leadSource}. Details: ${prefContent || destination || 'General Inquiry'}`;
-            await pool.query(
-                `INSERT INTO lead_logs (id, lead_id, type, content, sender, timestamp) VALUES (?, ?, 'System', ?, 'Customer', NOW())`,
-                [logId, leadId, logContent]
-            );
-        } catch (logErr) {
-            console.warn('[Public Lead] Log insertion warning:', logErr.message);
-        }
-
-        // Add audit log entry
-        auditLog('PublicInquirySubmit', 'leads', `New public lead submitted: ${trimmedName} (${leadNumber}) via ${leadSource}`, 'Customer');
-
-        console.log(`[Public Lead] Created lead ${leadNumber} (${leadId}) for ${trimmedName} [Returning Customer: ${isReturningCustomer}]`);
-
-        res.status(201).json({
-            success: true,
-            id: leadId,
-            lead_number: leadNumber,
-            message: 'Inquiry received successfully! Our travel expert will contact you shortly.'
-        });
-    } catch (err) {
-        console.error('[Public Lead Error]', err);
-        res.status(500).json({ error: 'Failed to record lead inquiry: ' + err.message });
-    }
-});
+// ─── Public Lead Capture API Endpoint (handled at line 4959 with package_id & partner_id support) ───
 
 // Serving and uploads handled at the end of the file
 
@@ -9026,15 +8926,18 @@ app.post('/api/partner/leads', partnerAuthMiddleware, async (req, res) => {
 // Partner: Get my submitted leads with status tracking
 app.get('/api/partner/leads', partnerAuthMiddleware, async (req, res) => {
     try {
+        const partnerId = req.partner.partnerId || req.partner.id;
         const [rows] = await pool.query(
             `SELECT l.id, l.name, l.email, l.phone, l.destination, l.start_date, l.end_date, 
-             l.travelers, l.budget, l.status, l.potential_value, l.created_at,
+             l.travelers, l.budget, l.status, l.potential_value, l.package_id, l.created_at,
+             p.title as package_title,
              b.id as booking_id, b.total_price as booking_amount
              FROM leads l
-             LEFT JOIN bookings b ON b.partner_id = ? AND b.customer_email = l.email
-             WHERE l.partner_id = ?
+             LEFT JOIN packages p ON p.id = l.package_id
+             LEFT JOIN bookings b ON (b.lead_id = l.id OR (b.partner_id = ? AND b.customer_email = l.email))
+             WHERE l.partner_id = ? OR l.partner_id = ?
              ORDER BY l.created_at DESC`,
-            [req.partner.partnerId, req.partner.partnerId]
+            [partnerId, partnerId, req.partner.id || partnerId]
         );
         res.json({ data: rows });
     } catch (err) {
@@ -9541,12 +9444,39 @@ async function requirePartnerAdmin(req, res, next) {
     return res.status(403).json({ error: 'Unauthorized' });
 }
 
-// Admin: Get all partners with stats
+// Admin: Get all partners with stats, MoM growth analytics, and leaderboard metrics
 app.get('/api/admin/partners', authMiddleware, async (req, res) => {
     try {
         const [partners] = await pool.query('SELECT * FROM partners ORDER BY created_at DESC');
         const enriched = await Promise.all(partners.map(async (p) => {
             const [leadsRows] = await pool.query('SELECT COUNT(*) as cnt FROM leads WHERE partner_id = ?', [p.id]);
+            
+            // MoM Growth calculations: this month vs last month
+            const [thisMonthRows] = await pool.query(
+                `SELECT COUNT(*) as cnt FROM leads 
+                 WHERE partner_id = ? 
+                   AND MONTH(created_at) = MONTH(CURRENT_DATE()) 
+                   AND YEAR(created_at) = YEAR(CURRENT_DATE())`,
+                [p.id]
+            );
+            const [lastMonthRows] = await pool.query(
+                `SELECT COUNT(*) as cnt FROM leads 
+                 WHERE partner_id = ? 
+                   AND MONTH(created_at) = MONTH(CURRENT_DATE() - INTERVAL 1 MONTH) 
+                   AND YEAR(created_at) = YEAR(CURRENT_DATE() - INTERVAL 1 MONTH)`,
+                [p.id]
+            );
+            
+            const leadsThisMonth = Number(thisMonthRows[0]?.cnt) || 0;
+            const leadsLastMonth = Number(lastMonthRows[0]?.cnt) || 0;
+            
+            let momGrowthPct = 0;
+            if (leadsLastMonth > 0) {
+                momGrowthPct = Math.round(((leadsThisMonth - leadsLastMonth) / leadsLastMonth) * 100);
+            } else if (leadsThisMonth > 0) {
+                momGrowthPct = 100;
+            }
+
             const [commRows] = await pool.query(
                 `SELECT 
                   COALESCE(SUM(commission_amount), 0) as total_earnings,
@@ -9564,12 +9494,58 @@ app.get('/api/admin/partners', authMiddleware, async (req, res) => {
                 total_bookings_converted: Number(stats.converted_bookings) || 0,
                 total_earnings: Number(stats.total_earnings) || 0,
                 pending_payout: Number(stats.pending_payout) || 0,
+                leads_this_month: leadsThisMonth,
+                leads_last_month: leadsLastMonth,
+                mom_growth_pct: momGrowthPct,
             };
         }));
-        res.json({ data: enriched });
+
+        // Calculate Top Producer rank score (highest earnings get top rank)
+        const sortedByEarnings = [...enriched].sort((a, b) => b.total_earnings - a.total_earnings);
+        const topProducerIds = new Set(sortedByEarnings.slice(0, 3).filter(x => x.total_earnings > 0).map(x => x.id));
+
+        const finalData = enriched.map(p => ({
+            ...p,
+            is_top_producer: topProducerIds.has(p.id)
+        }));
+
+        res.json({ data: finalData });
     } catch (err) {
         console.error('Admin get partners error:', err);
         res.status(500).json({ error: 'Failed to fetch partners' });
+    }
+});
+
+// Admin: Send Broadcast Campaign Nudge to associates
+app.post('/api/admin/partners/broadcast-nudge', authMiddleware, requirePartnerAdmin, async (req, res) => {
+    const { title, message, targetAudience, bonusCommission } = req.body || {};
+    if (!title || !message) {
+        return res.status(400).json({ error: 'Title and Message are required.' });
+    }
+
+    try {
+        let whereClause = "WHERE status = 'Active'";
+        if (targetAudience === 'unsigned_contract') {
+            whereClause = "WHERE terms_agreed_at IS NULL";
+        } else if (targetAudience === 'all') {
+            whereClause = "";
+        }
+
+        const [recipients] = await pool.query(`SELECT id, name, email, phone FROM partners ${whereClause}`);
+        
+        // Log campaign broadcast entry
+        const broadcastLog = `[Broadcast Nudge] "${title}": Sent to ${recipients.length} associates. Bonus: ${bonusCommission || 'N/A'}`;
+        console.log(broadcastLog);
+
+        res.json({
+            success: true,
+            recipientCount: recipients.length,
+            message: `Campaign broadcast dispatched to ${recipients.length} associate(s)!`,
+            recipients: recipients.map(r => ({ id: r.id, name: r.name, phone: r.phone }))
+        });
+    } catch (err) {
+        console.error('Broadcast nudge error:', err);
+        res.status(500).json({ error: 'Failed to send broadcast campaign nudge.' });
     }
 });
 
