@@ -173,6 +173,84 @@ export const AdminKYCManager: React.FC = () => {
     setToast({ msg: `${label} copied to clipboard!`, type: 'success' });
   };
 
+  // Govt ID Format Validators
+  const validatePAN = (pan?: string | null): { isValid: boolean; label: string } => {
+    if (!pan) return { isValid: false, label: 'Missing' };
+    const clean = pan.trim().toUpperCase();
+    const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
+    return panRegex.test(clean)
+      ? { isValid: true, label: '✓ Valid PAN Format' }
+      : { isValid: false, label: '⚠ Invalid PAN Format' };
+  };
+
+  const validateAadhaar = (aadhaar?: string | null): { isValid: boolean; label: string } => {
+    if (!aadhaar) return { isValid: false, label: 'Missing' };
+    const clean = aadhaar.replace(/\s+/g, '');
+    const aadhaarRegex = /^\d{12}$/;
+    return aadhaarRegex.test(clean)
+      ? { isValid: true, label: '✓ Valid 12-Digit Aadhaar' }
+      : { isValid: false, label: '⚠ Invalid Aadhaar Format' };
+  };
+
+  // Instant WhatsApp & Email Nudge Triggers
+  const sendApprovalWhatsApp = (partner: any) => {
+    const cleanPhone = (partner.phone || '').replace(/\D/g, '');
+    const text = encodeURIComponent(`Hi ${partner.name}! 🎉 Great news! Your KYC verification on SHRAWELLO Travel Hub has been APPROVED. Your partner account is fully active for bookings & commissions. Access your portal: ${window.location.origin}${window.location.pathname}#/partner/dashboard`);
+    window.open(`https://wa.me/${cleanPhone.length === 10 ? '91' + cleanPhone : cleanPhone}?text=${text}`, '_blank');
+    setToast({ msg: `WhatsApp approval alert opened for ${partner.name}!`, type: 'success' });
+  };
+
+  const sendRejectionWhatsApp = (partner: any, reason: string) => {
+    const cleanPhone = (partner.phone || '').replace(/\D/g, '');
+    const text = encodeURIComponent(`Hi ${partner.name}, your submitted KYC documents on SHRAWELLO Travel Hub require re-submission. Reason: ${reason || 'Documents unclear'}. Please log in to re-upload clear photos: ${window.location.origin}${window.location.pathname}#/partner/kyc`);
+    window.open(`https://wa.me/${cleanPhone.length === 10 ? '91' + cleanPhone : cleanPhone}?text=${text}`, '_blank');
+    setToast({ msg: `WhatsApp rejection alert opened for ${partner.name}!`, type: 'success' });
+  };
+
+  const sendApprovalEmailAlert = (partner: any) => {
+    const subject = encodeURIComponent('KYC Verification Approved ✅ — SHRAWELLO Travel Hub');
+    const body = encodeURIComponent(`Dear ${partner.name},\n\nCongratulations! Your KYC documents have been reviewed and approved by our compliance team.\n\nYour B2B Travel Associate Account is now active for bookings and commissions.\n\nBest regards,\nSHRAWELLO Travel Hub Team`);
+    window.open(`mailto:${partner.email}?subject=${subject}&body=${body}`, '_blank');
+    setToast({ msg: `Approval email draft opened for ${partner.name}!`, type: 'success' });
+  };
+
+  // 1-Click Document Bundle Downloader
+  const handleDownloadAllDocs = async (partner: any) => {
+    const docs: { url: string; name: string }[] = [];
+    const sanitizeName = (partner.name || 'Partner').replace(/\s+/g, '_');
+    if (partner.kyc_pan_front_url) docs.push({ url: partner.kyc_pan_front_url, name: `PAN_Front_${sanitizeName}` });
+    if (partner.kyc_pan_back_url) docs.push({ url: partner.kyc_pan_back_url, name: `PAN_Back_${sanitizeName}` });
+    if (partner.kyc_aadhaar_front_url) docs.push({ url: partner.kyc_aadhaar_front_url, name: `Aadhaar_Front_${sanitizeName}` });
+    if (partner.kyc_aadhaar_back_url) docs.push({ url: partner.kyc_aadhaar_back_url, name: `Aadhaar_Back_${sanitizeName}` });
+    if (partner.kyc_passport_url) docs.push({ url: partner.kyc_passport_url, name: `Passport_${sanitizeName}` });
+    if (partner.kyc_dl_url) docs.push({ url: partner.kyc_dl_url, name: `Driving_Licence_${sanitizeName}` });
+
+    if (docs.length === 0) {
+      setToast({ msg: 'No document files available for download.', type: 'error' });
+      return;
+    }
+
+    setToast({ msg: `Downloading ${docs.length} document file(s)...`, type: 'success' });
+    for (const doc of docs) {
+      try {
+        const response = await fetch(doc.url);
+        const blob = await response.blob();
+        const blobUrl = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        const ext = doc.url.split('.').pop()?.split('?')[0] || 'jpg';
+        link.download = `${doc.name}.${ext}`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(blobUrl);
+        await new Promise(r => setTimeout(r, 400));
+      } catch {
+        window.open(doc.url, '_blank');
+      }
+    }
+  };
+
   const FILTERS = ['All', 'Submitted', 'Pending', 'Verified', 'Rejected'];
 
   const DocImage: React.FC<{ url?: string | null; label: string }> = ({ url, label }) => {
@@ -407,9 +485,23 @@ export const AdminKYCManager: React.FC = () => {
                           )}
                         </td>
                         <td className="px-6 py-4">
-                          <p className="font-mono text-xs font-bold text-slate-700 dark:text-slate-300">
-                            {r.kyc_pan_number || '—'}
-                          </p>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <p className="font-mono text-xs font-bold text-slate-700 dark:text-slate-300">
+                              {r.kyc_pan_number || '—'}
+                            </p>
+                            {r.kyc_pan_number && (() => {
+                              const v = validatePAN(r.kyc_pan_number);
+                              return (
+                                <span className={`inline-flex items-center text-[9px] font-bold px-1.5 py-0.2 rounded border ${
+                                  v.isValid
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-900/30'
+                                    : 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/20 dark:text-rose-400 dark:border-rose-900/30'
+                                }`}>
+                                  {v.isValid ? '✓ Valid' : '⚠ Invalid'}
+                                </span>
+                              );
+                            })()}
+                          </div>
                           <p className="text-[10px] text-slate-400 mt-0.5">
                             {r.kyc_pan_front_url ? 'Files uploaded' : 'No document file'}
                           </p>
@@ -467,12 +559,22 @@ export const AdminKYCManager: React.FC = () => {
                   <p className="text-slate-550 dark:text-slate-400 text-xs">{selected.email} {selected.phone ? `· ${selected.phone}` : ''}</p>
                 </div>
               </div>
-              <button 
-                onClick={() => { setSelected(null); setRejectReason(''); }}
-                className="p-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors"
-              >
-                <span className="material-symbols-outlined text-xl">close</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleDownloadAllDocs(selected)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-500 text-white rounded-xl text-xs font-bold shadow-md shadow-violet-500/20 transition-all active:scale-95"
+                  title="Download all uploaded document files as a bundle"
+                >
+                  <span className="material-symbols-outlined text-[16px]">download</span>
+                  Download Docs
+                </button>
+                <button 
+                  onClick={() => { setSelected(null); setRejectReason(''); }}
+                  className="p-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors"
+                >
+                  <span className="material-symbols-outlined text-xl">close</span>
+                </button>
+              </div>
             </div>
 
             {/* Drawer Body */}
@@ -504,6 +606,33 @@ export const AdminKYCManager: React.FC = () => {
                 )}
               </div>
 
+              {/* Audit Stamp Section */}
+              {selected.kyc_status === 'Verified' && (
+                <div className="bg-emerald-50/80 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 rounded-2xl p-4 space-y-2">
+                  <div className="flex items-center gap-2 text-emerald-800 dark:text-emerald-300 font-black text-xs uppercase tracking-wider">
+                    <span className="material-symbols-outlined text-lg">verified_user</span>
+                    Official Verification Audit Stamp
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-600 dark:text-slate-300 font-medium">
+                    <div>
+                      <span className="text-slate-400 font-semibold block text-[10px] uppercase">Verified By</span>
+                      <span className="font-bold text-slate-800 dark:text-slate-100">{selected.kyc_verified_by || 'Admin Compliance Staff'}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 font-semibold block text-[10px] uppercase">Timestamp</span>
+                      <span className="font-bold text-slate-800 dark:text-slate-100">
+                        {selected.kyc_verified_at ? new Date(selected.kyc_verified_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+                      </span>
+                    </div>
+                  </div>
+                  {selected.kyc_resubmission_count > 0 && (
+                    <p className="text-[10px] text-amber-600 dark:text-amber-400 font-bold pt-1 border-t border-emerald-100 dark:border-emerald-900/30">
+                      🔄 Verified after {selected.kyc_resubmission_count} resubmission attempt(s)
+                    </p>
+                  )}
+                </div>
+              )}
+
               {/* Bank Details */}
               <div className="space-y-3">
                 <h3 className="text-slate-900 dark:text-white font-black text-sm flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-2">
@@ -520,7 +649,7 @@ export const AdminKYCManager: React.FC = () => {
                       { label: 'UPI ID', val: selected.bank_details.upi || '—', isMono: !!selected.bank_details.upi }
                     ].map(f => (
                       <div key={f.label} className="flex items-center justify-between py-1 group/field">
-                        <span className="text-slate-400 dark:text-slate-500 font-semibold">{f.label}:</span>
+                        <span className="text-slate-400 dark:text-slate-550 font-semibold">{f.label}:</span>
                         <div className="flex items-center gap-1.5">
                           <span className={`font-bold text-slate-850 dark:text-slate-200 ${f.isMono ? 'font-mono tracking-wide' : ''}`}>
                             {f.val}
@@ -551,10 +680,23 @@ export const AdminKYCManager: React.FC = () => {
               {/* PAN Card Section */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
-                  <h3 className="text-slate-900 dark:text-white font-black text-sm flex items-center gap-2">
-                    <span className="material-symbols-outlined text-amber-500 text-lg">credit_card</span>
-                    PAN Card Details
-                  </h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-slate-900 dark:text-white font-black text-sm flex items-center gap-2">
+                      <span className="material-symbols-outlined text-amber-500 text-lg">credit_card</span>
+                      PAN Card Details
+                    </h3>
+                    {selected.kyc_pan_number && (() => {
+                      const v = validatePAN(selected.kyc_pan_number);
+                      return (
+                        <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${
+                          v.isValid ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-900/30'
+                                    : 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/20 dark:text-rose-400 dark:border-rose-900/30'
+                        }`}>
+                          {v.label}
+                        </span>
+                      );
+                    })()}
+                  </div>
                   {selected.kyc_pan_number && (
                     <div className="flex items-center gap-1">
                       <span className="font-mono text-xs font-extrabold text-slate-800 dark:text-slate-200 bg-slate-150 dark:bg-slate-900 px-2 py-0.5 rounded-lg border border-slate-200 dark:border-slate-800">
@@ -578,10 +720,23 @@ export const AdminKYCManager: React.FC = () => {
               {/* Aadhaar Card Section */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
-                  <h3 className="text-slate-900 dark:text-white font-black text-sm flex items-center gap-2">
-                    <span className="material-symbols-outlined text-blue-500 text-lg">badge</span>
-                    Aadhaar Card Details
-                  </h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-slate-900 dark:text-white font-black text-sm flex items-center gap-2">
+                      <span className="material-symbols-outlined text-blue-500 text-lg">badge</span>
+                      Aadhaar Card Details
+                    </h3>
+                    {selected.kyc_aadhaar_number && (() => {
+                      const v = validateAadhaar(selected.kyc_aadhaar_number);
+                      return (
+                        <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${
+                          v.isValid ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-900/30'
+                                    : 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/20 dark:text-rose-400 dark:border-rose-900/30'
+                        }`}>
+                          {v.label}
+                        </span>
+                      );
+                    })()}
+                  </div>
                   {selected.kyc_aadhaar_number && (
                     <div className="flex items-center gap-1">
                       <span className="font-mono text-xs font-extrabold text-slate-800 dark:text-slate-200 bg-slate-150 dark:bg-slate-900 px-2 py-0.5 rounded-lg border border-slate-200 dark:border-slate-800">
@@ -618,7 +773,28 @@ export const AdminKYCManager: React.FC = () => {
             </div>
 
             {/* Drawer Actions Footer */}
-            <div className="sticky bottom-0 bg-slate-50 dark:bg-[#151F2A] border-t border-slate-200 dark:border-slate-800 p-5 shrink-0 z-10">
+            <div className="sticky bottom-0 bg-slate-50 dark:bg-[#151F2A] border-t border-slate-200 dark:border-slate-800 p-5 shrink-0 z-10 space-y-3">
+              {/* Quick WhatsApp & Email Nudge Bar */}
+              <div className="flex items-center gap-2 pb-2 border-b border-slate-200 dark:border-slate-800">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider shrink-0">Instant Nudges:</span>
+                <button
+                  onClick={() => sendApprovalWhatsApp(selected)}
+                  className="flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 bg-emerald-500/10 hover:bg-emerald-500 text-emerald-600 hover:text-white rounded-lg text-xs font-bold transition-all"
+                  title="Send Approval Alert via WhatsApp"
+                >
+                  <span className="material-symbols-outlined text-[15px]">chat</span>
+                  WhatsApp Alert
+                </button>
+                <button
+                  onClick={() => sendApprovalEmailAlert(selected)}
+                  className="flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 bg-sky-500/10 hover:bg-sky-500 text-sky-600 hover:text-white rounded-lg text-xs font-bold transition-all"
+                  title="Send Approval Email"
+                >
+                  <span className="material-symbols-outlined text-[15px]">mail</span>
+                  Email Alert
+                </button>
+              </div>
+
               {selected.kyc_status === 'Submitted' && (
                 <div className="space-y-4">
                   <div>
@@ -651,7 +827,7 @@ export const AdminKYCManager: React.FC = () => {
                   </div>
                 </div>
               )}
-              {/* I5: Revoke action for Verified partners */}
+              {/* Revoke action for Verified partners */}
               {selected.kyc_status === 'Verified' && (
                 <div className="space-y-3">
                   <div className="bg-emerald-50 dark:bg-emerald-950/10 border border-emerald-200 dark:border-emerald-900/30 rounded-2xl p-4 flex items-center gap-3">
@@ -696,6 +872,15 @@ export const AdminKYCManager: React.FC = () => {
                       : `KYC Rejected — Reason: ${selected.kyc_rejection_reason || '—'}`
                     }
                   </p>
+                  {selected.kyc_status === 'Rejected' && (
+                    <button
+                      onClick={() => sendRejectionWhatsApp(selected, selected.kyc_rejection_reason)}
+                      className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline"
+                    >
+                      <span className="material-symbols-outlined text-[15px]">chat</span>
+                      Send Rejection Notice via WhatsApp ↗
+                    </button>
+                  )}
                   {selected.kyc_resubmission_count > 0 && (
                     <p className="text-amber-500 text-xs mt-1 font-bold">🔄 {selected.kyc_resubmission_count} resubmission(s)</p>
                   )}
