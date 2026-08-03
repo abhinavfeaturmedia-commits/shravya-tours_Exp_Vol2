@@ -946,24 +946,32 @@ export const Settings: React.FC = () => {
   }
 
   return (
-    <div className="flex h-full admin-page-bg">
-      {/* ── Sidebar ── */}
-      <aside className="w-56 shrink-0 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-[#151F2A] flex flex-col">
-        <div className="px-5 py-5 border-b border-slate-100 dark:border-slate-800">
-          <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <span className="material-symbols-outlined text-primary text-[20px]">settings</span>
-            Settings
-          </h2>
-          <p className="text-[11px] text-slate-400 mt-0.5">System Configuration</p>
+    <div className="flex flex-col md:flex-row h-full admin-page-bg">
+      {/* ── Sidebar (Desktop) / Mobile Top Horizontal Tabs ── */}
+      <aside className="w-full md:w-56 shrink-0 border-b md:border-b-0 md:border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-[#151F2A] flex flex-col">
+        <div className="px-4 py-3 md:px-5 md:py-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between md:block">
+          <div>
+            <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <span className="material-symbols-outlined text-primary text-[20px]">settings</span>
+              Settings
+            </h2>
+            <p className="text-[11px] text-slate-400 mt-0.5 hidden md:block">System Configuration</p>
+          </div>
+          {isLoading && (
+            <div className="flex md:hidden items-center gap-1.5 text-[11px] text-slate-400">
+              <span className="size-3 border-2 border-slate-300 border-t-primary rounded-full animate-spin" />
+              Loading...
+            </div>
+          )}
         </div>
-        <nav className="flex-1 p-3 space-y-0.5">
+        <nav className="flex md:flex-col overflow-x-auto md:overflow-x-visible p-2 md:p-3 gap-1 md:gap-0.5 hide-scrollbar">
           {TABS.map(tab => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all text-left ${
+              className={`flex items-center gap-2 md:gap-3 px-3 py-2 md:py-2.5 rounded-xl text-xs md:text-sm font-medium transition-all text-left whitespace-nowrap shrink-0 md:shrink ${
                 activeTab === tab.id
-                  ? 'bg-primary/10 text-primary dark:bg-primary/20 font-bold'
+                  ? 'bg-primary/10 text-primary dark:bg-primary/20 font-bold shadow-sm'
                   : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
               }`}
             >
@@ -974,20 +982,20 @@ export const Settings: React.FC = () => {
             </button>
           ))}
         </nav>
-        <div className="p-3 border-t border-slate-100 dark:border-slate-800">
+        <div className="p-3 border-t border-slate-100 dark:border-slate-800 hidden md:block">
           <p className="text-[10px] text-slate-400 text-center">Changes saved to database</p>
         </div>
       </aside>
 
       {/* ── Content ── */}
-      <main className="flex-1 overflow-y-auto">
+      <main className="flex-1 overflow-y-auto min-w-0">
         {/* Header */}
-        <div className="sticky top-0 z-10 bg-white dark:bg-[#1A2633] border-b border-slate-200 dark:border-slate-800 px-8 py-4 flex items-center justify-between">
+        <div className="sticky top-0 z-10 bg-white dark:bg-[#1A2633] border-b border-slate-200 dark:border-slate-800 px-4 md:px-8 py-3 md:py-4 flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold text-slate-900 dark:text-white">
+            <h1 className="text-lg md:text-xl font-bold text-slate-900 dark:text-white">
               {TABS.find(t => t.id === activeTab)?.label}
             </h1>
-            <p className="text-xs text-slate-400 mt-0.5">
+            <p className="text-[11px] md:text-xs text-slate-400 mt-0.5 line-clamp-1">
               {activeTab === 'company' && 'Your brand identity used across invoices, proposals, and documents'}
               {activeTab === 'finance' && 'Tax configuration, bank details, and revenue targets'}
               {activeTab === 'staff' && 'Session timeouts, permissions, and CRM defaults'}
@@ -995,7 +1003,7 @@ export const Settings: React.FC = () => {
             </p>
           </div>
           {isLoading && (
-            <div className="flex items-center gap-2 text-xs text-slate-400">
+            <div className="hidden md:flex items-center gap-2 text-xs text-slate-400">
               <span className="size-3.5 border-2 border-slate-300 border-t-primary rounded-full animate-spin" />
               Loading settings...
             </div>
@@ -1003,13 +1011,13 @@ export const Settings: React.FC = () => {
         </div>
 
         {/* Tab content */}
-        <div className="p-8 max-w-4xl">
+        <div className="p-4 sm:p-8 max-w-4xl">
           {isLoading ? (
             <div className="space-y-4">
               {[1, 2, 3].map(i => (
-                <div key={i} className="bg-white dark:bg-[#1A2633] rounded-2xl border border-slate-100 dark:border-slate-800 p-6 animate-pulse">
+                <div key={i} className="bg-white dark:bg-[#1A2633] rounded-2xl border border-slate-100 dark:border-slate-800 p-4 md:p-6 animate-pulse">
                   <div className="h-4 bg-slate-100 dark:bg-slate-800 rounded w-1/3 mb-4" />
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {[1, 2, 3, 4].map(j => (
                       <div key={j} className="space-y-2">
                         <div className="h-3 bg-slate-100 dark:bg-slate-800 rounded w-1/2" />

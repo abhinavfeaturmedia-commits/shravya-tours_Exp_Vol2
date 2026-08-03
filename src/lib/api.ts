@@ -924,6 +924,7 @@ export const api = {
             potential_value: lead.potentialValue || 0,
             source: lead.source || 'Website',
             preferences: lead.preferences,
+            notes: lead.notes || lead.preferences,
             avatar_color: lead.avatarColor,
             assigned_to: lead.assignedTo,
             whatsapp: lead.whatsapp,

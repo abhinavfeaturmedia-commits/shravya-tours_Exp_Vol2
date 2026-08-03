@@ -37,7 +37,7 @@ export const useLeads = () => {
             toast.error(err.message || 'Failed to create lead');
         },
         onSuccess: () => {
-            toast.success('Lead created completely!');
+            toast.success('Inquiry submitted successfully! Our travel expert will contact you shortly.');
             queryClient.invalidateQueries({ queryKey: ['leads'] });
         },
     });
@@ -155,7 +155,7 @@ export const useLeads = () => {
         leads,
         isLoading,
         error,
-        addLead: (lead: Lead) => addLeadMutation.mutate(lead),
+        addLead: (lead: Lead) => addLeadMutation.mutateAsync(lead),
         updateLead: (id: string, updates: Partial<Lead>) => updateLeadMutation.mutate({ id, updates }),
         deleteLead: (id: string) => deleteLeadMutation.mutate(id),
         addLeadLog: (id: string, log: any) => addLeadLogMutation.mutateAsync({ id, log }),

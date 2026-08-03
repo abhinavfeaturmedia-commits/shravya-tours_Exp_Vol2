@@ -108,6 +108,7 @@ export const SupportInbox: React.FC = () => {
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [tagInput, setTagInput] = useState('');
   const [translatedMessages, setTranslatedMessages] = useState<Record<number, string>>({});
+  const [showMobileProfile, setShowMobileProfile] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -181,6 +182,7 @@ export const SupportInbox: React.FC = () => {
   }, [fetchConversations, fetchCannedReplies]);
 
   useEffect(() => {
+    setShowMobileProfile(false);
     if (selectedId !== null) {
       fetchMessages(selectedId);
       fetchTimeline(selectedId);
@@ -416,10 +418,10 @@ export const SupportInbox: React.FC = () => {
 
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="h-[calc(100vh-140px)] lg:h-[calc(100vh-80px)] -mb-10 lg:-mb-16 flex bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm">
+    <div className="h-[calc(100vh-100px)] lg:h-[calc(100vh-80px)] -mb-10 lg:-mb-16 flex bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm">
 
       {/* ── LEFT: Conversation List ─────────────────────────────────────────── */}
-      <aside className="w-80 flex flex-col border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shrink-0 h-full">
+      <aside className={`w-full md:w-80 flex flex-col border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shrink-0 h-full ${selectedId !== null ? 'hidden md:flex' : 'flex'}`}>
         {/* Header */}
         <div className="p-4 border-b border-slate-200 dark:border-slate-800 space-y-3">
           <div className="flex items-center justify-between">
@@ -528,7 +530,7 @@ export const SupportInbox: React.FC = () => {
       </aside>
 
       {/* ── CENTER: Chat Area ───────────────────────────────────────────────── */}
-      <section className="flex-1 flex flex-col bg-slate-50/50 dark:bg-slate-900/10 min-w-0 h-full">
+      <section className={`flex-1 flex flex-col bg-slate-50/50 dark:bg-slate-900/10 min-w-0 h-full ${selectedId === null ? 'hidden md:flex' : 'flex'}`}>
         {selectedId === null ? (
           <div className="flex-grow flex flex-col items-center justify-center text-slate-400 p-8 text-center">
             <span className="material-symbols-outlined text-[64px] text-slate-300 dark:text-slate-800 mb-3">forum</span>
@@ -542,19 +544,39 @@ export const SupportInbox: React.FC = () => {
             {/* Chat header */}
             <div className="border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 flex flex-col shrink-0 z-10 shadow-sm">
               {/* Row 1: Identity & Primary State */}
-              <div className="min-h-[56px] py-2 px-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-100 dark:border-slate-900/40">
+              <div className="min-h-[56px] py-2 px-4 md:px-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-100 dark:border-slate-900/40">
                 <div className="min-w-0 flex items-center gap-2">
-                  <div>
+                  {/* Mobile Back Button */}
+                  <button
+                    onClick={() => setSelectedId(null)}
+                    className="md:hidden p-1.5 -ml-1 text-slate-500 hover:text-slate-900 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shrink-0"
+                    title="Back to conversations"
+                  >
+                    <span className="material-symbols-outlined text-[20px]">arrow_back</span>
+                  </button>
+                  <div className="min-w-0">
                     <h3 className="font-display font-black text-slate-800 dark:text-white text-sm truncate">{selectedConversation?.customer_name}</h3>
                     <p className="text-[10px] text-slate-400 font-bold truncate leading-tight mt-0.5">{selectedConversation?.customer_email}</p>
                   </div>
                   <button
                     onClick={() => setShowAuditLog(true)}
-                    className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900 rounded-lg transition-colors ml-2"
+                    className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900 rounded-lg transition-colors ml-1 shrink-0"
                     title="View Query Audit Log"
                   >
                     <span className="material-symbols-outlined text-[18px]">history</span>
                   </button>
+                  {/* Mobile Profile Drawer Trigger */}
+                  {selectedConversation && (
+                    <button
+                      type="button"
+                      onClick={() => setShowMobileProfile(true)}
+                      className="lg:hidden p-1.5 text-primary hover:bg-primary/10 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold shrink-0 border border-primary/20 bg-primary/5 ml-auto"
+                      title="View Customer Profile & Context"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">account_circle</span>
+                      <span className="text-[10px] font-black uppercase">Profile</span>
+                    </button>
+                  )}
                 </div>
 
                 <div className="flex gap-2 items-center flex-wrap sm:flex-nowrap">
@@ -777,9 +799,9 @@ export const SupportInbox: React.FC = () => {
         )}
       </section>
 
-      {/* ── RIGHT: Customer Details Panel ───────────────────────────────────── */}
+      {/* ── RIGHT: Customer Details Panel (Desktop Persistent Side Column) ── */}
       {selectedId !== null && selectedConversation && (
-        <aside className="w-80 flex flex-col border-l border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shrink-0 h-full overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+        <aside className="hidden lg:flex w-80 flex-col border-l border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shrink-0 h-full overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
 
           {/* Customer Profile */}
           <div className="p-5 space-y-4">
@@ -949,6 +971,195 @@ export const SupportInbox: React.FC = () => {
             </div>
           </div>
         </aside>
+      )}
+
+      {/* ── MOBILE: Customer Profile Slide-Over Drawer Modal ── */}
+      {showMobileProfile && selectedConversation && (
+        <div className="fixed inset-0 z-[160] lg:hidden flex justify-end bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
+          <div className="w-full max-w-sm h-full bg-white dark:bg-slate-950 shadow-2xl flex flex-col overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 animate-in slide-in-from-right">
+            {/* Header */}
+            <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between sticky top-0 bg-white dark:bg-slate-950 z-10 shadow-xs">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-primary text-[20px]">account_circle</span>
+                <h3 className="font-bold text-slate-900 dark:text-white text-sm">Customer Profile & Context</h3>
+              </div>
+              <button
+                onClick={() => setShowMobileProfile(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors"
+              >
+                <span className="material-symbols-outlined text-[20px]">close</span>
+              </button>
+            </div>
+
+            {/* Customer Profile */}
+            <div className="p-5 space-y-4">
+              <div className="flex justify-between items-center">
+                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Customer Profile</h4>
+                <select
+                  value={selectedConversation.sentiment ?? 'Neutral'}
+                  onChange={e => updateTicket({ sentiment: e.target.value as any })}
+                  className={`text-[9px] font-black uppercase pl-2 pr-6 py-0.5 rounded-full border cursor-pointer ${getSentimentStyle(selectedConversation.sentiment).bg}`}
+                >
+                  <option value="Neutral">😐 Neutral</option>
+                  <option value="Positive">😊 Positive</option>
+                  <option value="Frustrated">😠 Frustrated</option>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <div className="size-11 rounded-xl bg-primary/10 text-primary border border-primary/20 font-black flex items-center justify-center text-sm shadow-sm shrink-0">
+                  {selectedConversation.customer_name.charAt(0).toUpperCase()}
+                </div>
+                <div className="min-w-0">
+                  <h5 className="font-bold text-slate-800 dark:text-white text-xs truncate leading-tight">{selectedConversation.customer_name}</h5>
+                  <p className="text-[9px] text-slate-400 font-bold truncate mt-0.5">Ref Code: {selectedConversation.referral_code ?? 'None'}</p>
+                </div>
+              </div>
+
+              {/* Tags */}
+              <div className="space-y-1.5">
+                <span className="text-slate-400 text-[9px] font-black uppercase tracking-wider block">Query Tags:</span>
+                <div className="flex flex-wrap gap-1">
+                  {selectedConversation.tags
+                    ? selectedConversation.tags.split(',').map((tag, i) => (
+                      <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary/5 border border-primary/10 text-primary text-[9px] font-bold rounded-full select-none">
+                        #{tag}
+                        <button onClick={() => removeTag(tag)} className="hover:text-red-500 font-extrabold text-[8px] pl-0.5">×</button>
+                      </span>
+                    ))
+                    : <span className="text-[10px] text-slate-400 italic">No tags added yet.</span>
+                  }
+                </div>
+                <div className="flex gap-1.5 mt-1.5">
+                  <input
+                    type="text"
+                    placeholder="Add tag (e.g. Refund)..."
+                    value={tagInput}
+                    onChange={e => setTagInput(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && addTag()}
+                    className="w-full text-[10px] font-semibold px-2.5 py-1 bg-slate-50 dark:bg-slate-900 border-none rounded-lg focus:ring-1 focus:ring-primary/25"
+                  />
+                  <button type="button" onClick={addTag} className="px-2.5 bg-slate-900 text-white rounded-lg text-[10px] font-bold">Add</button>
+                </div>
+              </div>
+
+              {/* Stats grid */}
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="p-3 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-white/5">
+                  <span className="text-[9px] text-slate-400 block font-bold">Loyalty Points</span>
+                  <span className="font-extrabold text-slate-800 dark:text-white">{selectedConversation.loyalty_points ?? 0} Pts</span>
+                </div>
+                <div className="p-3 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-white/5">
+                  <span className="text-[9px] text-slate-400 block font-bold">Active Bookings</span>
+                  <span className="font-extrabold text-slate-800 dark:text-white">
+                    {customerBookings.filter(b => b.status === 'Confirmed' || b.status === 'Active').length} Trip(s)
+                  </span>
+                </div>
+              </div>
+
+              {/* Extra info */}
+              <div className="space-y-2.5 text-xs font-semibold">
+                {selectedConversation.customer_phone && (
+                  <div className="flex justify-between items-center gap-2">
+                    <span className="text-slate-400 text-[10px] font-bold">Phone:</span>
+                    <span className="text-slate-700 dark:text-slate-300">{selectedConversation.customer_phone}</span>
+                  </div>
+                )}
+                {selectedConversation.travel_preferences && (
+                  <div className="pt-2 border-t border-slate-50 dark:border-slate-800">
+                    <span className="text-slate-400 text-[10px] font-bold block mb-1">Travel preferences:</span>
+                    <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed font-medium bg-slate-50 dark:bg-slate-900/60 p-2.5 rounded-xl">
+                      {selectedConversation.travel_preferences}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Linked Bookings */}
+            <div className="p-5 space-y-3.5">
+              <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Linked Bookings</h4>
+              {customerBookings.length === 0 ? (
+                <p className="text-[10px] text-slate-400 font-bold italic py-2">No bookings linked to this email.</p>
+              ) : (
+                <div className="space-y-2.5">
+                  {customerBookings.slice(0, 3).map(b => (
+                    <div
+                      key={b.id}
+                      onClick={() => { setBookingDetailModal(b); setShowMobileProfile(false); }}
+                      className="p-3 bg-slate-50 dark:bg-slate-900/50 hover:bg-primary/5 cursor-pointer rounded-xl border border-slate-100 dark:border-white/5 flex flex-col gap-1.5 transition-colors group"
+                    >
+                      <div className="flex justify-between items-center gap-2">
+                        <span className="font-bold text-slate-800 dark:text-white text-[11px] truncate shrink-0 max-w-[130px] group-hover:text-primary transition-colors">
+                          {(b as any).package_name || (b as any).title || (b as any).destination || 'Custom Trip'}
+                        </span>
+                        <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full ${b.status === 'Confirmed' ? 'bg-emerald-100 text-emerald-700' : b.status === 'Cancelled' ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-600'}`}>
+                          {b.status}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center text-[9px] text-slate-400 font-bold">
+                        <span>Travel Date: {safeFormatDate((b as any).travel_date, 'MMM dd, yyyy', 'Pending')}</span>
+                        <span className="text-slate-700 dark:text-slate-300">₹{(b as any).total_price?.toLocaleString()}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Timeline */}
+            <div className="p-5 space-y-4">
+              <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Journey Timeline</h4>
+              <div className="space-y-4 max-h-60 overflow-y-auto pr-1 no-scrollbar text-xs">
+                {timeline.length === 0 ? (
+                  <p className="text-[10px] text-slate-400 italic">No timeline data available.</p>
+                ) : (
+                  <div className="relative border-l-2 border-slate-100 dark:border-slate-800 ml-2 pl-4 space-y-4">
+                    {timeline.map((t, i) => (
+                      <div key={i} className="relative">
+                        <span className="absolute -left-[21px] top-0.5 size-2.5 rounded-full bg-primary border-2 border-white dark:border-slate-950" />
+                        <div className="text-[9px] font-black text-slate-400">{safeFormatDate(t.date, 'MMM dd, yyyy')}</div>
+                        <div className="font-bold text-slate-800 dark:text-slate-200 mt-0.5 text-[11px]">{t.title}</div>
+                        <p className="text-[10px] text-slate-500 leading-snug mt-0.5">{t.description}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Canned Replies Library */}
+            <div className="p-5 space-y-4 flex-1 flex flex-col">
+              <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Canned Replies Library</h4>
+              <input
+                type="text"
+                placeholder="Search canned replies..."
+                value={cannedSearch}
+                onChange={e => setCannedSearch(e.target.value)}
+                className="w-full text-[10px] font-semibold px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border-none rounded-lg focus:ring-1 focus:ring-primary/25"
+              />
+              <div className="space-y-4 overflow-y-auto max-h-64 pr-1 no-scrollbar">
+                {Array.from(new Set(activeCannedReplies.map(r => r.category))).map((cat, i) => (
+                  <div key={i} className="space-y-2">
+                    <span className="text-[9px] text-[#C9732A] font-black uppercase tracking-wider block">{cat}</span>
+                    <div className="space-y-1.5">
+                      {activeCannedReplies.filter(r => r.category === cat).map((r, j) => (
+                        <button
+                          key={j}
+                          onClick={() => { insertCannedReply(r.text); setShowMobileProfile(false); }}
+                          className="w-full text-left p-2 bg-slate-50 hover:bg-primary/5 dark:bg-slate-900 border border-slate-100 dark:border-white/5 rounded-xl hover:border-primary/20 transition-all font-semibold text-[10px] text-slate-700 dark:text-slate-300 line-clamp-1 block"
+                          title={r.text}
+                        >
+                          {r.title}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── Booking Detail Modal ─────────────────────────────────────────────── */}

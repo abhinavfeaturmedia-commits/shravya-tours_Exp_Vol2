@@ -383,13 +383,13 @@ export const PartnerManager: React.FC = () => {
     <div className="px-6 lg:px-8 py-6 max-w-[1600px] mx-auto w-full space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-2xl font-black text-slate-900 dark:text-white">Partner Management</h1>
-          <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">Manage B2B partners, commissions &amp; payouts</p>
+          <h1 className="text-2xl font-black text-slate-900 dark:text-white">Associate Management</h1>
+          <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">Manage B2B travel associates, commissions &amp; payouts</p>
         </div>
         <div className="flex gap-3 items-center">
           <button onClick={() => setAddModal(true)} className="flex items-center gap-2 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg shadow-violet-500/25 transition-all active:scale-[0.98]">
             <span className="material-symbols-outlined text-[18px]">add</span>
-            Add Partner
+            Add Associate
           </button>
           {pendingCount > 0 && (
             <div className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-bold px-3 py-2 rounded-xl">
@@ -413,8 +413,8 @@ export const PartnerManager: React.FC = () => {
         const totalPayout = commissions.reduce((s: number, c: any) => s + Number(c.commission_amount), 0);
         const convRate = partners.length > 0 ? Math.round((partners.filter((p:any) => p.status === 'Active').length / partners.length) * 100) : 0;
         const stats = [
-          { label: 'Total Partners', value: partners.length, sub: `${convRate}% active rate`, icon: 'handshake', color: 'from-violet-500 to-purple-600', bg: 'from-violet-500/10 to-purple-500/5', border: 'border-violet-500/20' },
-          { label: 'Active Partners', value: partners.filter((p:any) => p.status === 'Active').length, sub: 'Approved & earning', icon: 'verified', color: 'from-emerald-500 to-teal-600', bg: 'from-emerald-500/10 to-teal-500/5', border: 'border-emerald-500/20' },
+          { label: 'Total Associates', value: partners.length, sub: `${convRate}% active rate`, icon: 'handshake', color: 'from-violet-500 to-purple-600', bg: 'from-violet-500/10 to-purple-500/5', border: 'border-violet-500/20' },
+          { label: 'Active Associates', value: partners.filter((p:any) => p.status === 'Active').length, sub: 'Approved & earning', icon: 'verified', color: 'from-emerald-500 to-teal-600', bg: 'from-emerald-500/10 to-teal-500/5', border: 'border-emerald-500/20' },
           { label: 'Pending Approval', value: pendingCount, sub: pendingCount > 0 ? 'Action required' : 'All reviewed', icon: 'pending_actions', color: 'from-amber-500 to-orange-600', bg: 'from-amber-500/10 to-orange-500/5', border: 'border-amber-500/20' },
           { label: 'Total Payout Pool', value: `₹${totalPayout.toLocaleString('en-IN')}`, sub: `${commissions.length} commissions`, icon: 'account_balance_wallet', color: 'from-blue-500 to-indigo-600', bg: 'from-blue-500/10 to-indigo-500/5', border: 'border-blue-500/20' },
         ];
@@ -442,7 +442,7 @@ export const PartnerManager: React.FC = () => {
               className={`px-5 py-2 rounded-lg text-sm font-bold capitalize transition-all ${
                 tab === t ? 'bg-violet-600 text-white shadow-lg shadow-violet-500/25' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
               }`}>
-              {t === 'payouts' ? 'Commission Payouts' : `Partners ${partners.length > 0 ? `(${partners.length})` : ''}`}
+              {t === 'payouts' ? 'Commission Payouts' : `Associates ${partners.length > 0 ? `(${partners.length})` : ''}`}
             </button>
           ))}
         </div>

@@ -82,7 +82,7 @@ export const PublicLayout: React.FC = () => {
     { label: 'About', href: '/about' },
     { label: 'Contact', href: '/contact' },
     { label: 'My Account', href: isAuthenticated ? '/my-account' : '/customer/login' },
-    { label: 'Partners', href: '/partner/login' },
+    { label: 'Associates', href: '/partner/login' },
     { label: 'Staff', href: '/login' },
   ];
 
@@ -244,7 +244,7 @@ export const PublicLayout: React.FC = () => {
             <p>© 2025 SHRAWELLO Travel Hub and Events LLP. All rights reserved.</p>
             <div className="flex gap-6">
               <Link to="/customer/login" className="hover:text-slate-900 dark:hover:text-white transition-colors">My Account</Link>
-              <Link to="/partner/login" className="hover:text-slate-900 dark:hover:text-white transition-colors">Partner Portal</Link>
+              <Link to="/partner/login" className="hover:text-slate-900 dark:hover:text-white transition-colors">Associate Portal</Link>
               <Link to="/admin" className="hover:text-slate-900 dark:hover:text-white transition-colors">Staff Portal</Link>
               <button onClick={(e) => handlePlaceholder(e, 'Sitemap')} className="hover:text-slate-900 dark:hover:text-white transition-colors">Sitemap</button>
             </div>

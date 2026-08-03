@@ -233,6 +233,7 @@ export interface Lead {
   addedOn: string;
   source: string;
   preferences?: string;
+  notes?: string;
   logs: LeadLog[];
   avatarColor?: string;
   assignedTo?: number;             // Staff ID

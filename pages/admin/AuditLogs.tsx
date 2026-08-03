@@ -77,27 +77,27 @@ export const AuditLogs: React.FC = () => {
     return (
         <div className="flex flex-col h-full admin-page-bg">
             {/* Header */}
-            <div className="px-8 py-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="px-4 py-4 md:px-8 md:py-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                    <h1 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-3 font-display text-4xl">
-                        <ShieldAlert className="text-primary" size={32} />
+                    <h1 className="text-2xl md:text-3xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-3 font-display">
+                        <ShieldAlert className="text-primary" size={28} />
                         System Audit Logs
                     </h1>
-                    <p className="text-slate-500 mt-1">
+                    <p className="text-slate-500 text-xs md:text-sm mt-1">
                         Track system activities, security events, and data changes.
                     </p>
                 </div>
                 <button
                     onClick={handleExport}
-                    className="flex items-center gap-2 bg-white dark:bg-[#1A2633] text-slate-700 dark:text-slate-200 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-sm btn-glow"
+                    className="flex items-center justify-center gap-2 bg-white dark:bg-[#1A2633] text-slate-700 dark:text-slate-200 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-sm btn-glow w-full md:w-auto"
                 >
                     <Download size={18} /> Export Excel
                 </button>
             </div>
 
             {/* Filters Toolbar */}
-            <div className="px-8 pb-6">
-                <div className="bg-white dark:bg-[#1A2633] p-4 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col lg:flex-row gap-4">
+            <div className="px-4 md:px-8 pb-4 md:pb-6">
+                <div className="bg-white dark:bg-[#1A2633] p-3 md:p-4 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col lg:flex-row gap-3 md:gap-4">
                     {/* Search */}
                     <div className="relative flex-1">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
@@ -111,23 +111,23 @@ export const AuditLogs: React.FC = () => {
                     </div>
 
                     {/* Filters */}
-                    <div className="flex gap-3 overflow-x-auto pb-1 lg:pb-0">
-                        <div className="relative min-w-[140px]">
+                    <div className="flex gap-2 md:gap-3 overflow-x-auto pb-1 lg:pb-0 hide-scrollbar">
+                        <div className="relative flex-1 min-w-[130px]">
                             <select
                                 value={filterModule}
                                 onChange={(e) => setFilterModule(e.target.value)}
-                                className="w-full appearance-none bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 py-2.5 pl-4 pr-10 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-primary outline-none cursor-pointer"
+                                className="w-full appearance-none bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 py-2.5 pl-3 pr-8 rounded-xl text-xs md:text-sm font-semibold focus:ring-2 focus:ring-primary outline-none cursor-pointer"
                             >
                                 {uniqueModules.map(m => <option key={m} value={m}>{m} Module</option>)}
                             </select>
                             <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
                         </div>
 
-                        <div className="relative min-w-[140px]">
+                        <div className="relative flex-1 min-w-[130px]">
                             <select
                                 value={filterAction}
                                 onChange={(e) => setFilterAction(e.target.value)}
-                                className="w-full appearance-none bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 py-2.5 pl-4 pr-10 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-primary outline-none cursor-pointer"
+                                className="w-full appearance-none bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 py-2.5 pl-3 pr-8 rounded-xl text-xs md:text-sm font-semibold focus:ring-2 focus:ring-primary outline-none cursor-pointer"
                             >
                                 {uniqueActions.map(a => <option key={a} value={a}>{a} Actions</option>)}
                             </select>
@@ -138,10 +138,10 @@ export const AuditLogs: React.FC = () => {
             </div>
 
             {/* Logs Table */}
-            <div className="flex-1 px-8 pb-8 overflow-hidden flex flex-col">
+            <div className="flex-1 px-4 md:px-8 pb-4 md:pb-8 overflow-hidden flex flex-col">
                 <div className="bg-white dark:bg-[#1A2633] border border-slate-100 dark:border-slate-800 rounded-2xl shadow-sm flex-1 flex flex-col overflow-hidden">
-                    {/* Table Header */}
-                    <div className="grid grid-cols-12 px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 text-xs font-bold text-slate-400 uppercase tracking-wider shrink-0">
+                    {/* Table Header (Desktop Only) */}
+                    <div className="hidden md:grid grid-cols-12 px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 text-xs font-bold text-slate-400 uppercase tracking-wider shrink-0">
                         <div className="col-span-3">Timestamp / User</div>
                         <div className="col-span-2">Module</div>
                         <div className="col-span-2">Action</div>
@@ -152,34 +152,60 @@ export const AuditLogs: React.FC = () => {
                     <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
                         {paginatedLogs.length > 0 ? (
                             paginatedLogs.map((log) => (
-                                <div key={log.id} className="grid grid-cols-12 px-6 py-4 items-center hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group">
-                                    <div className="col-span-3">
-                                        <div className="flex flex-col">
-                                            <span className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                                                <Clock size={14} className="text-slate-400" />
-                                                {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                <span className="text-xs font-normal text-slate-500 dark:text-slate-400">
-                                                    {new Date(log.timestamp).toLocaleDateString()}
+                                <div key={log.id} className="p-4 md:px-6 md:py-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group">
+                                    {/* Mobile View Card */}
+                                    <div className="flex md:hidden flex-col gap-2">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                                <ActionBadge action={log.action} />
+                                                <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full border border-slate-200 dark:border-slate-700">
+                                                    {log.module}
                                                 </span>
-                                            </span>
-                                            <span className="text-xs text-slate-500 mt-1 flex items-center gap-1">
-                                                <User size={12} /> {log.performedBy || 'System'}
+                                            </div>
+                                            <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1 shrink-0">
+                                                <Clock size={11} />
+                                                {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • {new Date(log.timestamp).toLocaleDateString()}
                                             </span>
                                         </div>
-                                    </div>
-                                    <div className="col-span-2">
-                                        <span className="flex items-center gap-1.5 text-sm font-medium text-slate-700 dark:text-slate-300">
-                                            <div className="w-1.5 h-1.5 rounded-full bg-slate-400"></div>
-                                            {log.module}
-                                        </span>
-                                    </div>
-                                    <div className="col-span-2">
-                                        <ActionBadge action={log.action} />
-                                    </div>
-                                    <div className="col-span-5 relative">
-                                        <p className="text-sm text-slate-600 dark:text-slate-300 truncate pr-4" title={log.details}>
+                                        <p className="text-xs text-slate-800 dark:text-slate-200 font-medium leading-relaxed break-words" title={log.details}>
                                             {log.details}
                                         </p>
+                                        <div className="flex items-center gap-1 text-[11px] font-semibold text-slate-500 dark:text-slate-400 pt-0.5">
+                                            <User size={12} className="text-slate-400" />
+                                            <span>{log.performedBy || 'System'}</span>
+                                        </div>
+                                    </div>
+
+                                    {/* Desktop View Grid */}
+                                    <div className="hidden md:grid grid-cols-12 items-center">
+                                        <div className="col-span-3">
+                                            <div className="flex flex-col">
+                                                <span className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                                                    <Clock size={14} className="text-slate-400" />
+                                                    {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                    <span className="text-xs font-normal text-slate-500 dark:text-slate-400">
+                                                        {new Date(log.timestamp).toLocaleDateString()}
+                                                    </span>
+                                                </span>
+                                                <span className="text-xs text-slate-500 mt-1 flex items-center gap-1">
+                                                    <User size={12} /> {log.performedBy || 'System'}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div className="col-span-2">
+                                            <span className="flex items-center gap-1.5 text-sm font-medium text-slate-700 dark:text-slate-300">
+                                                <div className="w-1.5 h-1.5 rounded-full bg-slate-400"></div>
+                                                {log.module}
+                                            </span>
+                                        </div>
+                                        <div className="col-span-2">
+                                            <ActionBadge action={log.action} />
+                                        </div>
+                                        <div className="col-span-5 relative">
+                                            <p className="text-sm text-slate-600 dark:text-slate-300 truncate pr-4" title={log.details}>
+                                                {log.details}
+                                            </p>
+                                        </div>
                                     </div>
                                 </div>
                             ))

@@ -168,7 +168,7 @@ export const PublicChatbot: React.FC = () => {
                     <Sparkles className="size-6 shrink-0 text-amber-300 animate-pulse" />
                     <div>
                         <h4 className="font-bold text-xs">Request Received! ✈️</h4>
-                        <p className="text-[10px] text-emerald-50 opacity-90 leading-tight mt-0.5">Your tour preference has been registered as a premium lead. Our team will contact you shortly!</p>
+                        <p className="text-[10px] text-emerald-50 opacity-90 leading-tight mt-0.5">Your tour preference has been registered! Our team will contact you shortly with customized trip quotes.</p>
                     </div>
                 </div>
             )}

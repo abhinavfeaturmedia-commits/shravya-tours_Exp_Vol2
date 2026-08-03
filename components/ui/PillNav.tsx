@@ -20,6 +20,18 @@ export interface PillNavProps {
   pillTextColor?: string;
 }
 
+const getItemIcon = (label: string) => {
+  const l = label.toLowerCase();
+  if (l.includes('home')) return 'home';
+  if (l.includes('destination') || l.includes('package') || l.includes('tour')) return 'travel_explore';
+  if (l.includes('about')) return 'info';
+  if (l.includes('contact')) return 'support_agent';
+  if (l.includes('account') || l.includes('profile')) return 'account_circle';
+  if (l.includes('partner')) return 'handshake';
+  if (l.includes('staff') || l.includes('login')) return 'badge';
+  return 'explore';
+};
+
 export const PillNav: React.FC<PillNavProps> = ({
   logo,
   logoAlt = 'Logo',
@@ -125,39 +137,53 @@ export const PillNav: React.FC<PillNavProps> = ({
       {/* Mobile Menu Dropdown */}
       <div 
         className={`
-          md:hidden overflow-hidden transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] w-[95%] max-w-sm
-          ${isMobileMenuOpen ? 'max-h-[400px] opacity-100 mt-2 translate-y-0' : 'max-h-0 opacity-0 mt-0 -translate-y-4'}
+          md:hidden transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] w-[95%] max-w-sm
+          ${isMobileMenuOpen 
+            ? 'max-h-[calc(100vh-100px)] opacity-100 mt-2 translate-y-0 overflow-y-auto' 
+            : 'max-h-0 opacity-0 mt-0 -translate-y-4 overflow-hidden'
+          }
         `}
       >
-        <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-2xl border border-white/20 dark:border-slate-800 rounded-[2rem] p-2 shadow-2xl ring-1 ring-black/5">
+        <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-2xl border border-slate-200/80 dark:border-slate-800 rounded-[2rem] p-3 shadow-2xl ring-1 ring-black/5">
           <ul className="flex flex-col gap-1">
             {items.map((item) => {
               const isActive = activeHref === item.href;
+              const iconName = getItemIcon(item.label);
               return (
                 <li key={item.href}>
                   <Link
                     to={item.href}
                     className={`
-                      flex items-center justify-between px-6 py-4 rounded-2xl text-sm font-bold transition-all
+                      flex items-center justify-between px-4 py-3 rounded-xl text-sm font-bold transition-all
                       ${isActive 
-                        ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-md' 
-                        : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                        ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-md scale-[1.01]' 
+                        : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/80'
                       }
                     `}
                     onClick={() => setIsMobileMenuOpen(false)}
                   >
-                    {item.label}
-                    {isActive && <span className="material-symbols-outlined text-[18px]">arrow_right_alt</span>}
+                    <div className="flex items-center gap-3">
+                      <span className={`material-symbols-outlined text-[20px] ${isActive ? 'text-primary' : 'text-slate-400 dark:text-slate-500'}`}>
+                        {iconName}
+                      </span>
+                      <span>{item.label}</span>
+                    </div>
+                    {isActive ? (
+                      <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
+                    ) : (
+                      <span className="material-symbols-outlined text-[16px] text-slate-300 dark:text-slate-600">chevron_right</span>
+                    )}
                   </Link>
                 </li>
               );
             })}
-            <li className="mt-1 pt-1 border-t border-slate-100/50 dark:border-slate-800/50">
+            <li className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-800">
               <Link
                 to="/contact"
-                className="w-full flex items-center justify-center px-6 py-3.5 rounded-xl bg-primary text-white font-bold transition-all active:scale-95 shadow-lg shadow-primary/20"
+                className="w-full flex items-center justify-center gap-2 px-5 py-3.5 rounded-xl bg-gradient-to-r from-primary to-orange-600 text-white font-extrabold text-sm shadow-lg shadow-primary/25 hover:brightness-110 active:scale-[0.98] transition-all"
                 onClick={() => setIsMobileMenuOpen(false)}
               >
+                <span className="material-symbols-outlined text-[18px]">request_quote</span>
                 Get Quote
               </Link>
             </li>
