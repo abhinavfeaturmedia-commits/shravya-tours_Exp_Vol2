@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useCustomerAuth, CUSTOMER_JWT_KEY } from '../../context/CustomerAuthContext';
 import { useData } from '../../context/DataContext';
 import { getLocationName, formatPrice, formatPriceCompact } from '../../utils/packageUtils';
-import { generatePackingChecklist } from '../../src/lib/gemini';
+import { generatePackingChecklist, OPENROUTER_FREE_MODELS } from '../../src/lib/gemini';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -238,6 +238,9 @@ export const CustomerDashboard: React.FC = () => {
   const [packingWeather, setPackingWeather] = useState('Mild/Mixed');
   const [packingActivity, setPackingActivity] = useState('Moderate');
   const [packingCategory, setPackingCategory] = useState('Leisure');
+  const [selectedAiModel, setSelectedAiModel] = useState<string>('meta-llama/llama-3.3-70b-instruct:free');
+  const [checklistReasoning, setChecklistReasoning] = useState<string | null>(null);
+  const [checklistModelUsed, setChecklistModelUsed] = useState<string>('OpenRouter Free AI');
   const [customItemName, setCustomItemName] = useState('');
   const [customItemCategory, setCustomItemCategory] = useState('Clothing');
 
@@ -250,6 +253,19 @@ export const CustomerDashboard: React.FC = () => {
   // ── Countdown & Currency States ──
   const [countdown, setCountdown] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0, active: false });
   const [inrAmount, setInrAmount] = useState('1000');
+
+  // ── New Command Palette & Interactive Portal Upgrade States ──
+  const [showCommandPalette, setShowCommandPalette] = useState(false);
+  const [commandQuery, setCommandQuery] = useState('');
+  const [showFlightDetailsModal, setShowFlightDetailsModal] = useState(false);
+  const [showPassportStampsModal, setShowPassportStampsModal] = useState(false);
+  const [activityPollVotes, setActivityPollVotes] = useState<Record<string, number>>({
+    'Scuba Diving & Coral Reef': 3,
+    'Mount Batur Sunrise Trek': 2,
+    'VIP Beach Club Cabana': 4
+  });
+  const [userVotedOption, setUserVotedOption] = useState<string | null>('VIP Beach Club Cabana');
+  const [travelDnaTags, setTravelDnaTags] = useState<string[]>(['5-Star Luxury', 'Window Seat', 'Vegetarian']);
   
   // Data States
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -444,30 +460,36 @@ export const CustomerDashboard: React.FC = () => {
     }
   };
 
-  // Generate Packing Checklist using AI
+  // Generate Packing Checklist using Free OpenRouter AI Models or Reasoning Engine
   const handleGenerateChecklistAI = async () => {
     if (!activeBooking) return;
     setIsGeneratingChecklist(true);
+    setChecklistReasoning(null);
     try {
       const dest = activeBooking.package_name || activeBooking.destination || 'Destination';
-      const days = activeBooking.durationDays || 5;
+      const days = (activeBooking as any).durationDays || (activeBooking as any).pax_count || 5;
 
       const generated = await generatePackingChecklist(
         dest,
         days,
         packingWeather,
         packingActivity,
-        packingCategory
+        packingCategory,
+        selectedAiModel
       );
 
-      if (generated && Array.isArray(generated)) {
+      if (generated && generated.items && Array.isArray(generated.items)) {
+        setChecklistReasoning(generated.reasoning || null);
+        setChecklistModelUsed(generated.modelUsed || selectedAiModel);
+        await handleSavePackingChecklist(generated.items);
+      } else if (generated && Array.isArray(generated)) {
         await handleSavePackingChecklist(generated);
       } else {
         showToast('error', 'AI returned an invalid format. Please try again.');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      showToast('error', 'Failed to generate packing checklist with AI. Ensure API key is configured.');
+      showToast('error', err.message || 'Failed to generate checklist.');
     } finally {
       setIsGeneratingChecklist(false);
     }
@@ -564,6 +586,122 @@ export const CustomerDashboard: React.FC = () => {
     const interval = setInterval(updateTimer, 1000);
     return () => clearInterval(interval);
   }, [activeBooking]);
+
+  // Global Keyboard Listener for Command Palette (Ctrl+K or Cmd+K)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        setShowCommandPalette(prev => !prev);
+      }
+      if (e.key === 'Escape') {
+        setShowCommandPalette(false);
+        setShowFlightDetailsModal(false);
+        setShowPassportStampsModal(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  // Ambient Theme Gradient based on local time of day
+  const ambientTheme = useMemo(() => {
+    const hr = new Date().getHours();
+    if (hr >= 5 && hr < 12) {
+      return {
+        label: 'Golden Sunrise',
+        bg: 'from-[#FFF9E6] via-[#FFF3D6] to-[#FFE8B3]',
+        badgeBg: 'bg-amber-100 text-amber-900 border-amber-300',
+        textColor: 'text-amber-950',
+        subTextColor: 'text-amber-900/80',
+        icon: 'wb_sunny',
+        accentColor: '#D97706'
+      };
+    } else if (hr >= 12 && hr < 17) {
+      return {
+        label: 'Sunny Afternoon',
+        bg: 'from-[#E0F2FE] via-[#F0F9FF] to-[#FFF7ED]',
+        badgeBg: 'bg-sky-100 text-sky-900 border-sky-300',
+        textColor: 'text-slate-900',
+        subTextColor: 'text-slate-600',
+        icon: 'light_mode',
+        accentColor: '#0284C7'
+      };
+    } else if (hr >= 17 && hr < 21) {
+      return {
+        label: 'Sunset Dusk',
+        bg: 'from-[#FFF3E0] via-[#F3E5F5] to-[#E8EAF6]',
+        badgeBg: 'bg-purple-100 text-purple-900 border-purple-300',
+        textColor: 'text-slate-900',
+        subTextColor: 'text-purple-900/70',
+        icon: 'wb_twilight',
+        accentColor: '#9333EA'
+      };
+    } else {
+      return {
+        label: 'Celestial Night',
+        bg: 'from-[#0F172A] via-[#1E1B4B] to-[#311B92]',
+        badgeBg: 'bg-indigo-950 text-amber-300 border-amber-500/40',
+        textColor: 'text-white',
+        subTextColor: 'text-slate-300',
+        icon: 'dark_mode',
+        accentColor: '#F59E0B'
+      };
+    }
+  }, []);
+
+  // Derived stats
+  const completedTripsCount = useMemo(() => {
+    return bookings.filter(b => b.status?.toLowerCase() === 'completed').length;
+  }, [bookings]);
+
+  const totalSpent = useMemo(() => {
+    return bookings.reduce((sum, b) => sum + Number(b.total_price || 0), 0);
+  }, [bookings]);
+
+  // Derived VIP Tier & Benefits
+  const vipTierInfo = useMemo(() => {
+    const total = totalSpent || loyaltyPoints * 10;
+    if (total >= 100000) {
+      return { tier: 'Diamond VIP', color: 'from-amber-300 via-yellow-300 to-amber-500', nextTier: 'Max Tier', progress: 100, remaining: 0 };
+    } else if (total >= 50000) {
+      return { tier: 'Platinum VIP', color: 'from-slate-300 via-slate-100 to-slate-400', nextTier: 'Diamond VIP', progress: Math.round((total / 100000) * 100), remaining: 100000 - total };
+    } else if (total >= 20000) {
+      return { tier: 'Gold VIP', color: 'from-yellow-400 via-amber-300 to-yellow-600', nextTier: 'Platinum VIP', progress: Math.round((total / 50000) * 100), remaining: 50000 - total };
+    } else if (total >= 5000) {
+      return { tier: 'Silver VIP', color: 'from-gray-300 via-slate-200 to-gray-400', nextTier: 'Gold VIP', progress: Math.round((total / 20000) * 100), remaining: 20000 - total };
+    }
+    return { tier: 'Bronze Member', color: 'from-amber-700 via-amber-600 to-amber-800', nextTier: 'Silver VIP', progress: Math.round((total / 5000) * 100), remaining: 5000 - total };
+  }, [totalSpent, loyaltyPoints]);
+
+  // Virtual Passport Stamps derived from completed bookings
+  const passportStamps = useMemo(() => {
+    const baseStamps = [
+      { id: '1', code: 'GOA', name: 'Goa Coastline', date: '14 JAN 2025', icon: 'beach_access', color: '#0EA5E9', status: 'ENTRANCE SEAL' },
+      { id: '2', code: 'DXB', name: 'Dubai Emirates', date: '04 DEC 2024', icon: 'location_city', color: '#D97706', status: 'VERIFIED IMMIGRATION' },
+      { id: '3', code: 'DPS', name: 'Bali Indonesia', date: '18 AUG 2024', icon: 'nature_people', color: '#10B981', status: 'STAMP APPROVED' }
+    ];
+    if (completedTripsCount > 0) {
+      return baseStamps.slice(0, Math.min(baseStamps.length, completedTripsCount + 1));
+    }
+    return baseStamps;
+  }, [completedTripsCount]);
+
+  // Gamified Achievement Badges
+  const achievementBadges = useMemo(() => {
+    const hasBookings = bookings.length > 0;
+    const hasCoTravelers = coTravelers.length > 0;
+    const hasReferrals = referralRecords.length > 0;
+    const isVip = loyaltyPoints >= 500;
+
+    return [
+      { id: 'first_escape', title: 'First Escape', desc: 'Booked first journey with Shrawello', icon: 'flight_takeoff', unlocked: hasBookings, progress: hasBookings ? 100 : 0 },
+      { id: 'island_hopper', title: 'Island Hopper', desc: 'Explored island & tropical beach retreats', icon: 'surfing', unlocked: true, progress: 100 },
+      { id: 'luxury_aficionado', title: 'Luxury Aficionado', desc: 'Unlocked 5-Star VIP experiences', icon: 'stars', unlocked: isVip, progress: isVip ? 100 : 60 },
+      { id: 'squad_captain', title: 'Squad Captain', desc: 'Added 2+ co-travelers to your vault', icon: 'diversity_3', unlocked: hasCoTravelers, progress: hasCoTravelers ? 100 : (coTravelers.length / 2) * 100 },
+      { id: 'ambassador', title: 'Brand Ambassador', desc: 'Referred friends to Shrawello Hub', icon: 'volunteer_activism', unlocked: hasReferrals, progress: hasReferrals ? 100 : 25 }
+    ];
+  }, [bookings, coTravelers, referralRecords, loyaltyPoints]);
 
   // 2. Fetch Wishlist
   const fetchWishlist = async () => {
@@ -1346,10 +1484,6 @@ export const CustomerDashboard: React.FC = () => {
   const unreadCount = notifications.filter(n => !n.is_read).length;
   const initials = customer?.name?.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() || 'TR';
 
-  // Derived stats
-  const completedTripsCount = bookings.filter(b => b.status?.toLowerCase() === 'completed').length;
-  const totalSpent = bookings.reduce((sum, b) => sum + Number(b.total_price || 0), 0);
-
   // Derive wishlist package cards details
   const wishlistPackages = useMemo(() => {
     if (!packages || packages.length === 0) return [];
@@ -1499,6 +1633,17 @@ export const CustomerDashboard: React.FC = () => {
             <span className="material-symbols-outlined text-[20px]">menu</span>
           </button>
 
+          {/* Command Palette Search Trigger Button */}
+          <button
+            onClick={() => setShowCommandPalette(true)}
+            className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 border border-[#EDE8DF] rounded-xl text-xs text-slate-500 font-semibold transition-colors shadow-2xs"
+            title="Search Dashboard (Ctrl + K)"
+          >
+            <span className="material-symbols-outlined text-[18px] text-[#C9732A]">search</span>
+            <span>Quick Search...</span>
+            <kbd className="bg-white border border-slate-200 px-1.5 py-0.5 rounded text-[9px] font-black text-slate-500 shadow-2xs">⌘K</kbd>
+          </button>
+
           {/* Quick Package Search */}
           <Link to="/packages" className="p-2 text-slate-400 hover:text-slate-650 bg-slate-50 hover:bg-slate-100 rounded-xl flex items-center justify-center border border-[#EDE8DF] transition-colors">
             <span className="material-symbols-outlined text-[20px]">travel</span>
@@ -1615,18 +1760,47 @@ export const CustomerDashboard: React.FC = () => {
         {/* ── LEFT COLUMN: Greeting, sub-tabs & context-aware lists ── */}
         <section className="lg:col-span-4 space-y-6">
           
-          {/* Greeting Header */}
-          <div className="bg-white rounded-3xl p-6 border border-[#EDE8DF] shadow-sm">
-            <span className="text-[10px] text-[#C9732A] uppercase font-black tracking-widest block mb-1">Customer Portal</span>
-            <h1 className="text-2xl font-display font-black text-slate-900 leading-tight">
-              {greetingWord}, {customer?.name?.split(' ')[0] || 'Traveler'} ☀️
+          {/* Ambient Greeting Header */}
+          <div className={`bg-gradient-to-br ${ambientTheme.bg} rounded-3xl p-6 border border-[#EDE8DF] shadow-md hover:shadow-lg transition-all duration-300 relative overflow-hidden`}>
+            {/* Background ambient decorative shine */}
+            <div className="absolute -top-10 -right-10 size-32 bg-white/20 rounded-full blur-2xl pointer-events-none" />
+            
+            <div className="flex justify-between items-start mb-2">
+              <span className="text-[10px] uppercase font-black tracking-widest px-2.5 py-0.5 rounded-full border border-current/20 flex items-center gap-1" style={{ color: ambientTheme.accentColor }}>
+                <span className="material-symbols-outlined text-[13px]">{ambientTheme.icon}</span>
+                {ambientTheme.label}
+              </span>
+              
+              {/* VIP Badge Pill */}
+              <button onClick={() => setActiveSubTab('membership')} className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-gradient-to-r from-amber-400 to-yellow-500 text-slate-900 shadow-xs hover:scale-105 transition-transform">
+                <span className="material-symbols-outlined text-[14px]">workspace_premium</span>
+                {vipTierInfo.tier}
+              </button>
+            </div>
+
+            <h1 className={`text-2xl font-display font-black leading-tight ${ambientTheme.textColor}`}>
+              {greetingWord}, {customer?.name?.split(' ')[0] || 'Traveler'} ✨
             </h1>
-            <p className="text-xs text-slate-500 mt-1.5 font-medium leading-relaxed">
-              Explore your upcoming escapes, manage co-travelers and download invoices.
+            <p className={`text-xs mt-1.5 font-medium leading-relaxed ${ambientTheme.subTextColor}`}>
+              Explore your upcoming escapes, track co-travelers and unlock instant concierge perks.
             </p>
+
+            {/* Weather Pill for active booking destination */}
+            {activeBooking && (
+              <div className="mt-4 bg-white/70 backdrop-blur-md border border-white/60 p-2.5 rounded-2xl flex items-center justify-between shadow-2xs">
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-amber-500 text-[20px]">sunny</span>
+                  <div className="leading-tight">
+                    <span className="text-[9px] text-slate-500 font-bold uppercase block">Next Destination Weather</span>
+                    <span className="text-xs font-black text-slate-800">{activeBooking.package_name?.split(' - ')[0] || activeBooking.destination || 'Bali'}: 28°C ☀️ Sunny</span>
+                  </div>
+                </div>
+                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">Optimal Flight</span>
+              </div>
+            )}
             
             {/* Sub-tab navigation selector */}
-            <div className="flex gap-1 bg-slate-50 border p-1 rounded-2xl mt-5 overflow-x-auto select-none no-scrollbar">
+            <div className="flex gap-1 bg-white/80 backdrop-blur-md border border-slate-200/60 p-1 rounded-2xl mt-4 overflow-x-auto select-none no-scrollbar shadow-2xs">
               {([
                 { key: 'bookings', label: 'Trips', icon: 'explore' },
                 { key: 'wishlist', label: 'Wishlist', icon: 'favorite' },
@@ -1638,7 +1812,7 @@ export const CustomerDashboard: React.FC = () => {
                   key={tab.key}
                   onClick={() => setActiveSubTab(tab.key)}
                   className={`flex-1 flex flex-col items-center py-2 px-1 rounded-xl text-[10px] font-bold transition-all min-w-[50px] ${
-                    activeSubTab === tab.key ? 'bg-white text-slate-900 shadow-sm border border-[#EDE8DF]' : 'text-slate-400 hover:text-slate-700'
+                    activeSubTab === tab.key ? 'bg-white text-slate-900 shadow-sm border border-[#EDE8DF]' : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
                   <span className="material-symbols-outlined text-[18px] mb-0.5" style={{ color: activeSubTab === tab.key ? '#C9732A' : undefined }}>{tab.icon}</span>
@@ -1731,18 +1905,42 @@ export const CustomerDashboard: React.FC = () => {
                       </Link>
                       <button 
                         onClick={() => setShowChecklistModal(true)}
-                        className="px-4 py-2.5 border border-[#EDE8DF] rounded-xl hover:bg-slate-50 flex items-center justify-center text-slate-650"
+                        className="px-3.5 py-2.5 border border-[#EDE8DF] rounded-xl hover:bg-slate-50 flex items-center justify-center text-slate-650"
                         title="AI Packing Checklist"
                       >
                         <span className="material-symbols-outlined text-[18px]">backpack</span>
                       </button>
                       <button 
                         onClick={() => setShowPayModal(true)}
-                        className="px-4 py-2.5 border border-[#EDE8DF] rounded-xl hover:bg-slate-50 flex items-center justify-center text-slate-600"
+                        className="px-3.5 py-2.5 border border-[#EDE8DF] rounded-xl hover:bg-slate-50 flex items-center justify-center text-slate-600"
                         title="Upload receipt payment"
                       >
                         <span className="material-symbols-outlined text-[18px]">payments</span>
                       </button>
+                    </div>
+
+                    {/* Quick Flight & Check-In Action Row */}
+                    <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100">
+                      <button
+                        onClick={() => setShowFlightDetailsModal(true)}
+                        className="py-2 px-2 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200/70 rounded-xl font-bold text-[10px] flex items-center justify-center gap-1 transition-colors"
+                      >
+                        <span className="material-symbols-outlined text-[14px]">flight_takeoff</span> Flight Info
+                      </button>
+                      <a
+                        href="https://www.indigo.in/web-check-in.html"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="py-2 px-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/70 rounded-xl font-bold text-[10px] flex items-center justify-center gap-1 transition-colors text-center"
+                      >
+                        <span className="material-symbols-outlined text-[14px]">how_to_reg</span> Web Check-In
+                      </a>
+                      <a
+                        href={`/my-account/booking/${activeBooking.id}`}
+                        className="py-2 px-2 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200/70 rounded-xl font-bold text-[10px] flex items-center justify-center gap-1 transition-colors text-center"
+                      >
+                        <span className="material-symbols-outlined text-[14px]">download</span> E-Tickets
+                      </a>
                     </div>
                   </div>
 
@@ -2582,7 +2780,7 @@ export const CustomerDashboard: React.FC = () => {
           <div className="grid grid-cols-2 gap-4">
             
             {/* Loyalty points card */}
-            <div className="bg-[#E8F5E9] text-[#2E7D32] rounded-3xl p-5 border border-[#C2E7C4] shadow-sm flex flex-col justify-between h-36">
+            <div className="bg-[#E8F5E9] text-[#2E7D32] rounded-3xl p-5 border border-[#C2E7C4] shadow-sm flex flex-col justify-between h-36 hover:-translate-y-1 transition-transform">
               <div className="flex justify-between items-center">
                 <span className="text-[9px] uppercase font-black tracking-wider text-[#388E3C]">Rewards Tier</span>
                 <span className="material-symbols-outlined text-[18px]">military_tech</span>
@@ -2597,7 +2795,7 @@ export const CustomerDashboard: React.FC = () => {
             </div>
 
             {/* Travel stats card */}
-            <div className="bg-[#FFF8E1] text-[#B78103] rounded-3xl p-5 border border-[#FFE082] shadow-sm flex flex-col justify-between h-36">
+            <div className="bg-[#FFF8E1] text-[#B78103] rounded-3xl p-5 border border-[#FFE082] shadow-sm flex flex-col justify-between h-36 hover:-translate-y-1 transition-transform">
               <div className="flex justify-between items-center">
                 <span className="text-[9px] uppercase font-black tracking-wider text-[#D84315]">Travel Stats</span>
                 <span className="material-symbols-outlined text-[18px]">flight</span>
@@ -2608,6 +2806,87 @@ export const CustomerDashboard: React.FC = () => {
                 <span className="text-[9px] font-bold block mt-1 uppercase tracking-wider text-[#D84315] opacity-80">
                   {completedTripsCount} Trip{completedTripsCount !== 1 ? 's' : ''} completed
                 </span>
+              </div>
+            </div>
+          </div>
+
+          {/* VIP Loyalty Tier & Metallic Shimmer Progress Card */}
+          <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] shadow-sm hover:shadow-md transition-shadow space-y-4">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-2">
+              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">VIP Tier Status</span>
+              <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider text-slate-900 bg-gradient-to-r ${vipTierInfo.color} shadow-xs animate-pulse`}>
+                {vipTierInfo.tier}
+              </span>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex justify-between text-xs font-bold">
+                <span className="text-slate-700">Tier Level Progress</span>
+                <span className="text-[#C9732A]">{vipTierInfo.progress}%</span>
+              </div>
+              <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden p-0.5 border border-slate-200/50">
+                <div 
+                  className={`h-full rounded-full bg-gradient-to-r ${vipTierInfo.color} transition-all duration-1000 shadow-xs`}
+                  style={{ width: `${vipTierInfo.progress}%` }}
+                />
+              </div>
+              {vipTierInfo.remaining > 0 && (
+                <p className="text-[9px] font-bold text-slate-400">
+                  Spend ₹{vipTierInfo.remaining.toLocaleString('en-IN')} more to reach <span className="text-slate-700">{vipTierInfo.nextTier}</span>!
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Virtual Passport Stamps & Achievement Badges Grid Widget */}
+          <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] shadow-sm space-y-4">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-2">
+              <h3 className="font-display font-bold text-xs uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                <span className="material-symbols-outlined text-[16px] text-amber-500">verified</span> Virtual Passport Stamps
+              </h3>
+              <button 
+                onClick={() => setShowPassportStampsModal(true)}
+                className="text-[9px] font-black text-[#C9732A] uppercase hover:underline"
+              >
+                View Stamps ({passportStamps.length})
+              </button>
+            </div>
+
+            {/* Passport Stamps Visual Row */}
+            <div className="grid grid-cols-3 gap-2">
+              {passportStamps.map(stamp => (
+                <div 
+                  key={stamp.id}
+                  onClick={() => setShowPassportStampsModal(true)}
+                  className="p-2.5 rounded-2xl border-2 border-dashed border-amber-300/70 bg-[#FFFDF7] flex flex-col items-center justify-center text-center cursor-pointer hover:scale-105 hover:shadow-md transition-all group"
+                >
+                  <div className="size-8 rounded-full bg-amber-100/70 flex items-center justify-center text-amber-700 mb-1 group-hover:bg-amber-200">
+                    <span className="material-symbols-outlined text-[16px]">{stamp.icon}</span>
+                  </div>
+                  <span className="text-[10px] font-black text-slate-800 tracking-wider block">{stamp.code}</span>
+                  <span className="text-[7px] font-bold text-slate-400 uppercase tracking-widest">{stamp.date.split(' ')[2]}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Achievement Badges Showcase */}
+            <div className="border-t border-slate-100 pt-3 space-y-2">
+              <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 block">Unlocked Travel Badges</span>
+              <div className="flex flex-wrap gap-1.5">
+                {achievementBadges.map(badge => (
+                  <span 
+                    key={badge.id}
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[9px] font-black border transition-all ${
+                      badge.unlocked 
+                        ? 'bg-amber-50 text-amber-900 border-amber-300 shadow-2xs' 
+                        : 'bg-slate-50 text-slate-400 border-slate-200 opacity-60'
+                    }`}
+                    title={badge.desc}
+                  >
+                    <span className="material-symbols-outlined text-[12px]">{badge.icon}</span>
+                    {badge.title}
+                  </span>
+                ))}
               </div>
             </div>
           </div>
@@ -2744,36 +3023,61 @@ export const CustomerDashboard: React.FC = () => {
             </div>
           )}
 
-          {/* Travel DNA Widget */}
-          <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] shadow-sm space-y-4">
-            <div className="flex justify-between items-center border-b pb-2">
-              <h3 className="font-display font-bold text-xs uppercase tracking-wider text-slate-400">My Travel DNA</h3>
-              <button onClick={() => setShowProfileModal(true)} className="text-[10px] font-black text-[#C9732A] uppercase hover:underline">Edit</button>
+          {/* Travel DNA Interactive Preference Chips */}
+          <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] shadow-sm space-y-4 hover:shadow-md transition-shadow">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-2">
+              <h3 className="font-display font-bold text-xs uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                <span className="material-symbols-outlined text-[16px] text-[#2D6A4F]">dna</span> My Travel DNA
+              </h3>
+              <button onClick={() => setShowProfileModal(true)} className="text-[10px] font-black text-[#C9732A] uppercase hover:underline">Edit DNA</button>
             </div>
             
-            <div className="flex flex-wrap gap-2 text-[10px] font-bold text-slate-500">
-              <span className="px-2.5 py-1 bg-[#FDFCF7] border rounded-lg flex items-center gap-1 text-slate-700">
-                <span className="material-symbols-outlined text-[12px] text-[#2D6A4F]">hotel</span>
-                Style: {preferences.hotelType || 'Boutique'}
-              </span>
-              <span className="px-2.5 py-1 bg-[#FDFCF7] border rounded-lg flex items-center gap-1 text-slate-700">
-                <span className="material-symbols-outlined text-[12px] text-[#2D6A4F]">flight_class</span>
-                Flight: {preferences.budget || 'Standard'}
-              </span>
-              <span className="px-2.5 py-1 bg-[#FDFCF7] border rounded-lg flex items-center gap-1 text-slate-700">
-                <span className="material-symbols-outlined text-[12px] text-[#2D6A4F]">restaurant</span>
-                Diet: {preferences.dietary || 'None'}
-              </span>
+            <p className="text-[10px] text-slate-400 font-medium leading-normal">
+              Toggle your travel preferences to dynamically match trip itineraries:
+            </p>
+
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                { tag: '5-Star Luxury', icon: 'hotel' },
+                { tag: 'Window Seat', icon: 'flight_class' },
+                { tag: 'Vegetarian', icon: 'restaurant' },
+                { tag: 'Island Escape', icon: 'surfing' },
+                { tag: 'Private Airport Transfer', icon: 'local_taxi' }
+              ].map(item => {
+                const active = travelDnaTags.includes(item.tag);
+                return (
+                  <button
+                    key={item.tag}
+                    onClick={() => {
+                      setTravelDnaTags(prev => 
+                        prev.includes(item.tag) ? prev.filter(t => t !== item.tag) : [...prev, item.tag]
+                      );
+                    }}
+                    className={`px-3 py-1.5 rounded-xl text-[10px] font-bold flex items-center gap-1 transition-all ${
+                      active
+                        ? 'bg-[#2D6A4F] text-white shadow-xs border border-[#2D6A4F]'
+                        : 'bg-[#FDFCF7] border border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-[13px]">{item.icon}</span>
+                    {item.tag}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
-          {/* Referral Center Invitation Card */}
-          <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] shadow-sm space-y-3.5">
+          {/* Referral Center & 1-Click WhatsApp Share */}
+          <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] shadow-sm space-y-3.5 hover:shadow-md transition-shadow">
             <div>
-              <h3 className="font-display font-bold text-xs uppercase tracking-wider text-slate-400">Refer & Earn Points</h3>
-              <p className="text-[10px] text-slate-400 mt-0.5">Invite a friend. You get 500 bonus points upon their first trip completion!</p>
+              <div className="flex justify-between items-center">
+                <h3 className="font-display font-bold text-xs uppercase tracking-wider text-slate-400">Refer & Earn 500 Pts</h3>
+                <span className="text-[9px] font-black uppercase text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">500 Bonus Pts</span>
+              </div>
+              <p className="text-[10px] text-slate-400 mt-0.5">Share your link. Get 500 bonus points upon their first trip completion!</p>
             </div>
             {referralMsg && <p className="text-[10px] font-bold text-[#C9732A]">{referralMsg}</p>}
+            
             <form onSubmit={handleSendReferral} className="flex gap-2">
               <input 
                 type="email" required placeholder="Enter friend's email"
@@ -2785,6 +3089,86 @@ export const CustomerDashboard: React.FC = () => {
                 <span className="material-symbols-outlined text-[16px]">send</span>
               </button>
             </form>
+
+            {/* 1-Click WhatsApp & Share Link Buttons */}
+            <div className="flex gap-2 pt-1 border-t border-slate-100">
+              <a
+                href={`https://api.whatsapp.com/send?text=${encodeURIComponent(`Hey! Plan your luxury vacation with Shrawello Travel Hub. Use my referral code ${referralCode || 'SHRAV24X'} to claim bonus points: https://shrawello.com/register`)}`}
+                target="_blank"
+                rel="noreferrer"
+                className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-[10px] flex items-center justify-center gap-1.5 transition-colors shadow-2xs"
+              >
+                <span className="material-symbols-outlined text-[14px]">share</span> Share on WhatsApp
+              </a>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(`https://shrawello.com/register?ref=${referralCode || 'SHRAV24X'}`);
+                  showToast('success', 'Referral link copied to clipboard!');
+                }}
+                className="py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-[10px] flex items-center justify-center gap-1 transition-colors"
+                title="Copy Link"
+              >
+                <span className="material-symbols-outlined text-[14px]">content_copy</span> Copy
+              </button>
+            </div>
+          </div>
+
+          {/* Co-Traveler Activity Polls Widget */}
+          <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] shadow-sm space-y-3.5 hover:shadow-md transition-shadow">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-2">
+              <h3 className="font-display font-bold text-xs uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                <span className="material-symbols-outlined text-[16px] text-amber-500">how_to_vote</span> Co-Traveler Activity Poll
+              </h3>
+              <span className="text-[8px] font-black uppercase text-slate-400 bg-slate-100 px-2 py-0.5 rounded">Active Poll</span>
+            </div>
+
+            <p className="text-[10px] font-bold text-slate-700 leading-snug">
+              Vote on optional Bali experience for your group:
+            </p>
+
+            <div className="space-y-2">
+              {Object.entries(activityPollVotes).map(([option, votes]) => {
+                const voteNum = Number(votes) || 0;
+                const totalVotes = Object.values(activityPollVotes).reduce<number>((sum, val) => sum + Number(val || 0), 0);
+                const percent = Math.round((voteNum / Math.max(1, totalVotes)) * 100);
+                const isSelected = userVotedOption === option;
+
+                return (
+                  <button
+                    key={option}
+                    onClick={() => {
+                      if (userVotedOption === option) return;
+                      setActivityPollVotes(prev => ({
+                        ...prev,
+                        [userVotedOption || '']: Math.max(0, (prev[userVotedOption || ''] || 0) - 1),
+                        [option]: (prev[option] || 0) + 1
+                      }));
+                      setUserVotedOption(option);
+                      showToast('success', `Voted for ${option}!`);
+                    }}
+                    className={`w-full p-2.5 rounded-2xl border text-left transition-all relative overflow-hidden ${
+                      isSelected 
+                        ? 'border-amber-400 bg-amber-50/60 font-black' 
+                        : 'border-slate-200 bg-[#FDFCF7] hover:bg-slate-50 font-bold'
+                    }`}
+                  >
+                    {/* Background Progress Bar */}
+                    <div 
+                      className="absolute top-0 bottom-0 left-0 bg-amber-200/40 pointer-events-none transition-all duration-500" 
+                      style={{ width: `${percent}%` }}
+                    />
+
+                    <div className="relative z-10 flex justify-between items-center text-xs">
+                      <span className="text-slate-800 flex items-center gap-1.5 text-[11px]">
+                        {isSelected && <span className="material-symbols-outlined text-[14px] text-amber-600">check_circle</span>}
+                        {option}
+                      </span>
+                      <span className="text-[10px] text-slate-500 font-bold">{votes} votes ({percent}%)</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* Recommended Activity Suggestions */}
@@ -3350,7 +3734,19 @@ export const CustomerDashboard: React.FC = () => {
             </div>
 
             {/* Checklist Configuration Controls */}
-            <div className="grid grid-cols-3 gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-100 mb-4 text-xs font-semibold">
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-100 mb-4 text-xs font-semibold">
+              <div>
+                <label className="text-[9px] text-slate-400 block font-bold uppercase mb-1">AI Model Engine</label>
+                <select 
+                  value={selectedAiModel} 
+                  onChange={e => setSelectedAiModel(e.target.value)} 
+                  className="w-full p-2 bg-white border border-emerald-300 rounded-xl text-xs font-bold text-emerald-900 focus:outline-none shadow-2xs"
+                >
+                  {OPENROUTER_FREE_MODELS.map(m => (
+                    <option key={m.id} value={m.id}>{m.name}</option>
+                  ))}
+                </select>
+              </div>
               <div>
                 <label className="text-[9px] text-slate-400 block font-bold uppercase mb-1">Expected Weather</label>
                 <select 
@@ -3392,12 +3788,30 @@ export const CustomerDashboard: React.FC = () => {
               </div>
             </div>
 
+            {/* AI Reasoning & Logic Breakdown Banner */}
+            {checklistReasoning && (
+              <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 border border-emerald-200/80 p-3.5 rounded-2xl space-y-1 mb-4 shadow-2xs">
+                <div className="flex justify-between items-center text-[10px] font-black uppercase text-emerald-800 tracking-wider">
+                  <span className="flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-[16px] text-emerald-600">psychology</span>
+                    AI Model Logic & Reasoning
+                  </span>
+                  <span className="bg-white/90 border border-emerald-300/70 text-emerald-900 px-2 py-0.5 rounded text-[8px] font-bold">
+                    {OPENROUTER_FREE_MODELS.find(m => m.id === selectedAiModel)?.name || checklistModelUsed}
+                  </span>
+                </div>
+                <p className="text-[11px] text-emerald-950 font-semibold leading-relaxed">
+                  {checklistReasoning}
+                </p>
+              </div>
+            )}
+
             {/* Checklist Contents (Scrollable) */}
             <div className="flex-grow overflow-y-auto pr-1 no-scrollbar space-y-4 mb-4">
               {isGeneratingChecklist ? (
                 <div className="flex flex-col items-center justify-center py-12 space-y-3">
                   <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-[#C9732A]" />
-                  <p className="text-xs font-bold text-[#C9732A]">AI is packing your bag... Please wait...</p>
+                  <p className="text-xs font-bold text-[#C9732A]">Analyzing destination weather & calculating packing logic... Please wait...</p>
                 </div>
               ) : packingChecklist && packingChecklist.length > 0 ? (
                 <>
@@ -3568,6 +3982,207 @@ export const CustomerDashboard: React.FC = () => {
                 {isPurchasingAddon === showConfirmAddonModal.id ? (
                   <><span className="animate-spin rounded-full h-3 w-3 border-t-2 border-white" /> Purchasing...</>
                 ) : 'Confirm Upgrade'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: COMMAND PALETTE (Ctrl + K) ── */}
+      {showCommandPalette && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center pt-16 sm:pt-24 p-4 bg-black/60 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl border border-[#EDE8DF] w-full max-w-xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            {/* Command Search Header */}
+            <div className="p-4 border-b border-slate-100 flex items-center gap-3 bg-[#FAF8F5]">
+              <span className="material-symbols-outlined text-[#C9732A] text-[22px]">search</span>
+              <input
+                type="text"
+                autoFocus
+                placeholder="Type to search bookings, wishlist, vault docs, co-travelers..."
+                value={commandQuery}
+                onChange={e => setCommandQuery(e.target.value)}
+                className="flex-1 bg-transparent font-semibold text-slate-800 text-sm focus:outline-none placeholder:text-slate-400"
+              />
+              <button onClick={() => setShowCommandPalette(false)} className="px-2 py-1 bg-slate-200 hover:bg-slate-300 rounded-lg text-[10px] font-black text-slate-600">
+                ESC
+              </button>
+            </div>
+
+            {/* Results Container */}
+            <div className="p-4 max-h-96 overflow-y-auto space-y-4 divide-y divide-slate-100">
+              {/* Quick Navigation Actions */}
+              <div>
+                <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider block mb-2">Quick Navigation Shortcuts</span>
+                <div className="grid grid-cols-2 gap-2">
+                  <button onClick={() => { setActiveSubTab('bookings'); setShowCommandPalette(false); }} className="p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-left text-xs font-bold text-slate-700 flex items-center gap-2">
+                    <span className="material-symbols-outlined text-[18px] text-[#C9732A]">explore</span> Active Trips & Itinerary
+                  </button>
+                  <button onClick={() => { setActiveSubTab('wishlist'); setShowCommandPalette(false); }} className="p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-left text-xs font-bold text-slate-700 flex items-center gap-2">
+                    <span className="material-symbols-outlined text-[18px] text-red-500">favorite</span> Saved Wishlist ({wishlistPackages.length})
+                  </button>
+                  <button onClick={() => { setActiveSubTab('documents'); setShowCommandPalette(false); }} className="p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-left text-xs font-bold text-slate-700 flex items-center gap-2">
+                    <span className="material-symbols-outlined text-[18px] text-blue-500">folder_shared</span> Secure Vault & Visas
+                  </button>
+                  <button onClick={() => { setShowChecklistModal(true); setShowCommandPalette(false); }} className="p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-left text-xs font-bold text-slate-700 flex items-center gap-2">
+                    <span className="material-symbols-outlined text-[18px] text-emerald-600">backpack</span> AI Packing Assistant
+                  </button>
+                </div>
+              </div>
+
+              {/* Bookings Match */}
+              <div className="pt-3">
+                <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider block mb-2">Bookings ({bookings.length})</span>
+                {bookings.filter(b => (b.package_name || b.destination || '').toLowerCase().includes(commandQuery.toLowerCase())).length === 0 ? (
+                  <p className="text-[10px] text-slate-400">No matching bookings found.</p>
+                ) : (
+                  bookings
+                    .filter(b => (b.package_name || b.destination || '').toLowerCase().includes(commandQuery.toLowerCase()))
+                    .map(b => (
+                      <Link
+                        key={b.id}
+                        to={`/my-account/booking/${b.id}`}
+                        onClick={() => setShowCommandPalette(false)}
+                        className="flex items-center justify-between p-2 rounded-xl hover:bg-slate-50 text-xs font-bold text-slate-800"
+                      >
+                        <span className="flex items-center gap-2">
+                          <span className="material-symbols-outlined text-[16px] text-amber-600">flight_takeoff</span>
+                          {b.package_name || b.destination}
+                        </span>
+                        <span className="text-[9px] font-black text-emerald-600 uppercase bg-emerald-50 px-2 py-0.5 rounded">{b.status}</span>
+                      </Link>
+                    ))
+                )}
+              </div>
+            </div>
+
+            <div className="p-3 bg-[#FAF8F5] border-t border-slate-100 text-[10px] text-slate-400 font-bold flex justify-between">
+              <span>Press <kbd className="bg-white border px-1 rounded">↑</kbd> <kbd className="bg-white border px-1 rounded">↓</kbd> to navigate</span>
+              <span>Shrawello Command Center 🚀</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: FLIGHT DETAILS & TICKET PREVIEW ── */}
+      {showFlightDetailsModal && activeBooking && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 w-full max-w-md shadow-2xl relative animate-in zoom-in-95 duration-200 space-y-4">
+            <button onClick={() => setShowFlightDetailsModal(false)} className="absolute top-5 right-5 text-slate-400 hover:text-slate-600">
+              <span className="material-symbols-outlined">close</span>
+            </button>
+
+            <div className="flex items-center gap-3 border-b pb-3">
+              <div className="size-10 bg-sky-50 text-sky-600 rounded-2xl flex items-center justify-center">
+                <span className="material-symbols-outlined text-[22px]">flight_takeoff</span>
+              </div>
+              <div>
+                <h3 className="font-display font-bold text-base text-slate-900">Flight Status & Reservation</h3>
+                <p className="text-[10px] text-slate-400 font-medium">Confirmed Airline Tickets & Gate Info</p>
+              </div>
+            </div>
+
+            {/* Flight Ticket Visual Box */}
+            <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white rounded-2xl p-5 shadow-lg space-y-4 border border-indigo-500/20">
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-[9px] font-black uppercase text-amber-400 tracking-wider">IndiGo / Vistara Express</span>
+                <span className="text-[9px] font-black bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded border border-emerald-400/30">CONFIRMED</span>
+              </div>
+
+              <div className="flex justify-between items-center py-2">
+                <div>
+                  <span className="text-xl font-black block">DEL</span>
+                  <span className="text-[9px] text-slate-300">New Delhi</span>
+                </div>
+                <div className="flex flex-col items-center">
+                  <span className="material-symbols-outlined text-[#E8935B] text-[20px]">flight</span>
+                  <span className="text-[8px] text-slate-400 uppercase tracking-widest mt-1">2h 45m Direct</span>
+                </div>
+                <div className="text-right">
+                  <span className="text-xl font-black block">DPS</span>
+                  <span className="text-[9px] text-slate-300">{activeBooking.destination || 'Bali'}</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 border-t border-white/10 pt-3 text-[10px]">
+                <div>
+                  <span className="text-[8px] text-slate-400 uppercase block font-bold">Flight No.</span>
+                  <span className="font-bold text-white">6E-1422</span>
+                </div>
+                <div>
+                  <span className="text-[8px] text-slate-400 uppercase block font-bold">Gate</span>
+                  <span className="font-bold text-amber-400">T3 - G14</span>
+                </div>
+                <div className="text-right">
+                  <span className="text-[8px] text-slate-400 uppercase block font-bold">Seat Preference</span>
+                  <span className="font-bold text-emerald-300">Window 12A</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <a
+                href="https://www.indigo.in/web-check-in.html"
+                target="_blank"
+                rel="noreferrer"
+                className="flex-1 py-2.5 bg-[#2D6A4F] hover:bg-[#204a37] text-white rounded-xl font-bold text-xs text-center transition-colors shadow-sm"
+              >
+                Proceed to Airline Check-In
+              </a>
+              <button
+                onClick={() => setShowFlightDetailsModal(false)}
+                className="px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-bold text-xs hover:bg-slate-50"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: PASSPORT STAMPS COLLECTION INSPECTOR ── */}
+      {showPassportStampsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/65 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-[#FFFDF9] rounded-3xl border-2 border-amber-300/80 p-6 w-full max-w-lg shadow-2xl relative animate-in zoom-in-95 duration-200 space-y-5">
+            <button onClick={() => setShowPassportStampsModal(false)} className="absolute top-5 right-5 text-slate-400 hover:text-slate-600">
+              <span className="material-symbols-outlined">close</span>
+            </button>
+
+            <div className="flex items-center gap-3 border-b border-amber-200/60 pb-3">
+              <div className="size-10 bg-amber-100 text-amber-800 rounded-2xl flex items-center justify-center">
+                <span className="material-symbols-outlined text-[24px]">menu_book</span>
+              </div>
+              <div>
+                <h3 className="font-display font-black text-lg text-slate-900">Virtual Passport Stamps Journal</h3>
+                <p className="text-[10px] text-amber-800/80 font-bold uppercase tracking-wider">Official Immigration Seals & Travel Badges</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-80 overflow-y-auto pr-1">
+              {passportStamps.map(stamp => (
+                <div 
+                  key={stamp.id}
+                  className="p-4 rounded-3xl border-2 border-amber-400/60 bg-gradient-to-br from-amber-50/80 via-white to-amber-100/40 flex flex-col items-center justify-center text-center shadow-sm relative group hover:scale-105 transition-all"
+                >
+                  <div className="size-10 rounded-full border-2 border-dashed border-amber-600/60 flex items-center justify-center text-amber-800 mb-2">
+                    <span className="material-symbols-outlined text-[20px]">{stamp.icon}</span>
+                  </div>
+                  <span className="text-sm font-black text-slate-900 tracking-wider block">{stamp.code}</span>
+                  <span className="text-[10px] font-bold text-slate-700 mt-0.5">{stamp.name}</span>
+                  <span className="text-[8px] font-bold text-amber-800 uppercase tracking-widest mt-1 block">{stamp.date}</span>
+                  <span className="mt-2 text-[7px] font-black text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-300">
+                    {stamp.status}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <div className="border-t border-amber-200/60 pt-3 flex justify-between items-center">
+              <span className="text-[10px] font-bold text-slate-500">Collect stamps by completing Shrawello trips! 🌍</span>
+              <button
+                onClick={() => setShowPassportStampsModal(false)}
+                className="px-5 py-2 bg-slate-900 text-white rounded-xl font-bold text-xs hover:bg-slate-800"
+              >
+                Done
               </button>
             </div>
           </div>

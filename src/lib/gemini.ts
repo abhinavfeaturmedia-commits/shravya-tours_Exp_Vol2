@@ -345,41 +345,230 @@ export const generateWeeklyStandupSummary = async (logs: any[], staffNamesMap: R
     }
 };
 
-export const generatePackingChecklist = async (
-    destination: string,
-    days: number,
-    weather: string,
-    activityLevel: string,
-    category: string
+// List of available free OpenRouter models & Smart Engine
+export const OPENROUTER_FREE_MODELS = [
+  { id: 'meta-llama/llama-3.3-70b-instruct:free', name: 'Meta LLaMA 3.3 70B (Free AI)', provider: 'OpenRouter' },
+  { id: 'deepseek/deepseek-r1:free', name: 'DeepSeek R1 (Free Reasoning)', provider: 'OpenRouter' },
+  { id: 'google/gemini-2.5-flash:free', name: 'Gemini 2.5 Flash (Free AI)', provider: 'OpenRouter' },
+  { id: 'qwen/qwen-2.5-coder-32b-instruct:free', name: 'Qwen 2.5 Coder 32B (Free AI)', provider: 'OpenRouter' },
+  { id: 'smart-logic-engine', name: 'Instant Smart Reasoning Engine', provider: 'Deterministic AI' }
+];
+
+// Offline / Fallback Smart Reasoning & Logic Engine
+export const generatePackingChecklistSmartLogic = (
+  destination: string,
+  days: number,
+  weather: string,
+  activityLevel: string,
+  category: string
 ) => {
-    const prompt = `
-    You are an expert travel assistant for SHRAWELLO Travel Hub.
-    Generate a detailed packing checklist for a trip to "${destination}" for ${days} days.
-    The weather will be: ${weather}.
-    The planned activity level is: ${activityLevel}.
-    The trip/itinerary category is: ${category}.
+  const destLower = (destination || '').toLowerCase();
+  const weatherLower = (weather || '').toLowerCase();
+  const activityLower = (activityLevel || '').toLowerCase();
 
-    Return ONLY a JSON array of sections (no markdown code fences, no extra text, just raw JSON array).
-    Each section must follow this format:
-    {
-      "category": "Clothing",
-      "items": [
-        { "name": "Light t-shirts", "qty": "5", "checked": false },
-        { "name": "Comfortable jeans", "qty": "2", "checked": false }
-      ]
-    }
+  const isCold = destLower.includes('kashmir') || destLower.includes('himachal') || destLower.includes('swiss') || weatherLower.includes('cold') || weatherLower.includes('chilly') || weatherLower.includes('rain');
+  const isBeach = destLower.includes('bali') || destLower.includes('goa') || destLower.includes('kerala') || destLower.includes('maldives') || destLower.includes('beach') || weatherLower.includes('sunny') || weatherLower.includes('warm');
+  const isTrekking = activityLower.includes('trek') || activityLower.includes('intense') || activityLower.includes('hiking') || activityLower.includes('adventure');
 
-    Include essential categories like: "Clothing", "Toiletries", "Documents & Money", "Electronics", "Essentials & Meds".
-    Provide specific quantities for items where relevant based on the trip duration (${days} days) and weather (${weather}).
-    `;
+  // Logic calculation for clothes quantities based on days
+  const shirtQty = Math.min(days, 7);
+  const pantsQty = Math.max(2, Math.min(Math.ceil(days / 2), 4));
+  const socksQty = Math.min(days + 1, 8);
 
-    try {
-        const text = await getAIResponse(prompt);
-        return robustParseJson(text);
-    } catch (error) {
-        console.error("Packing Checklist Generation Error:", error);
-        throw error;
-    }
+  const clothingItems: Array<{ name: string; qty: string; checked: boolean }> = [
+    { name: isBeach ? "Breathable linen shirts / tees" : "Comfortable t-shirts", qty: String(shirtQty), checked: false },
+    { name: isCold ? "Warm trousers / fleece-lined pants" : "Comfortable trousers / shorts", qty: String(pantsQty), checked: false },
+    { name: "Underwear & socks", qty: String(socksQty), checked: false },
+    { name: "Sleepwear / Loungewear", qty: "2", checked: false },
+  ];
+
+  if (isCold) {
+    clothingItems.push(
+      { name: "Heavy Fleece / Down Jacket", qty: "1", checked: false },
+      { name: "Thermal Innerwear Sets", qty: "2", checked: false },
+      { name: "Woolen Beanie & Gloves", qty: "1 set", checked: false }
+    );
+  }
+
+  if (isBeach) {
+    clothingItems.push(
+      { name: "Quick-dry Swimwear & Beach Coverups", qty: "2 sets", checked: false },
+      { name: "UV Protection Sunglasses", qty: "1 pair", checked: false },
+      { name: "Sun Hat / Visor", qty: "1", checked: false }
+    );
+  }
+
+  const toiletryItems = [
+    { name: "Travel Toothbrush & Paste", qty: "1 set", checked: false },
+    { name: "Shampoo & Body Wash Sachet", qty: "1 bottle", checked: false },
+    { name: "Deodorant / Perfume Spray", qty: "1", checked: false },
+    { name: isBeach ? "Sunscreen Broad Spectrum SPF50+" : "Moisturizer / Lip Balm", qty: "1 bottle", checked: false },
+  ];
+
+  const docItems = [
+    { name: "Passport / Government ID original & copies", qty: "1 set", checked: false },
+    { name: "Flight Tickets & Hotel Vouchers (Printed/PDF)", qty: "1 file", checked: false },
+    { name: "Credit/Debit Cards & Local Cash", qty: "As needed", checked: false },
+    { name: "Travel Insurance Card / Policy copy", qty: "1", checked: false },
+  ];
+
+  const electronicsItems = [
+    { name: "Smartphone & Fast Charger", qty: "1 set", checked: false },
+    { name: "Power Bank (10,000mAh+)", qty: "1", checked: false },
+    { name: "Universal Travel Plug Adapter", qty: "1", checked: false },
+  ];
+
+  const specialtyItems = [];
+  if (isTrekking) {
+    specialtyItems.push(
+      { name: "Ankle-Support Trekking Boots", qty: "1 pair", checked: false },
+      { name: "Hydration Flask / Insulated Bottle", qty: "1 L", checked: false },
+      { name: "First Aid & Bandage Kit", qty: "1 pouch", checked: false },
+      { name: "Electrolyte Packets & Energy Bars", qty: "5 packs", checked: false }
+    );
+  } else {
+    specialtyItems.push(
+      { name: "Comfortable Walking Sneakers / Sandals", qty: "1 pair", checked: false },
+      { name: "Compact Daypack Backpack", qty: "1", checked: false }
+    );
+  }
+
+  const reasoningText = `Reasoning Logic (${days} Days in ${destination}): Calculated ${shirtQty} tops and ${pantsQty} pants based on a ${days}-day duration rule. ${
+    isCold 
+      ? 'Detected cold/chilly alpine climate — added thermal innerwear, down jacket, and woolen gear.' 
+      : isBeach 
+      ? 'Detected tropical/coastal climate — prioritized UV SPF50+, quick-dry swimwear, and breathable fabrics.' 
+      : 'Selected versatile smart casual wardrobe for mild climate.'
+  } ${isTrekking ? 'Included trekking boots, hydration flask, and emergency first aid for active terrain.' : ''}`;
+
+  return {
+    reasoning: reasoningText,
+    modelUsed: 'Smart Reasoning Logic Engine',
+    items: [
+      { category: "Clothing", items: clothingItems },
+      { category: "Toiletries", items: toiletryItems },
+      { category: "Documents & Money", items: docItems },
+      { category: "Electronics", items: electronicsItems },
+      { category: isTrekking ? "Outdoor & Trekking Gear" : "Essentials & Meds", items: specialtyItems }
+    ]
+  };
 };
+
+export const generatePackingChecklist = async (
+  destination: string,
+  days: number,
+  weather: string,
+  activityLevel: string,
+  category: string,
+  selectedModel: string = 'meta-llama/llama-3.3-70b-instruct:free'
+) => {
+  if (selectedModel === 'smart-logic-engine') {
+    return generatePackingChecklistSmartLogic(destination, days, weather, activityLevel, category);
+  }
+
+  const prompt = `
+  You are an expert travel assistant for SHRAWELLO Travel Hub.
+  Generate a detailed packing checklist for a trip to "${destination}" for ${days} days.
+  The weather will be: ${weather}.
+  The planned activity level is: ${activityLevel}.
+  The trip/itinerary category is: ${category}.
+
+  Analyze the trip duration (${days} days), destination climate (${weather}), and activity profile (${activityLevel}) with careful reasoning.
+
+  Return ONLY a valid raw JSON object formatted exactly as below (no markdown formatting, no code fences, no leading text):
+  {
+    "reasoning": "A concise 2-sentence logical explanation detailing why these specific clothing quantities, weather protection gear, and activity items were selected for this ${days}-day trip to ${destination}.",
+    "items": [
+      {
+        "category": "Clothing",
+        "items": [
+          { "name": "Light t-shirts", "qty": "5", "checked": false },
+          { "name": "Comfortable jeans", "qty": "2", "checked": false }
+        ]
+      },
+      {
+        "category": "Toiletries",
+        "items": [
+          { "name": "Toothbrush & Paste", "qty": "1 set", "checked": false }
+        ]
+      },
+      {
+        "category": "Documents & Money",
+        "items": [
+          { "name": "Passport & Visas", "qty": "1 set", "checked": false }
+        ]
+      },
+      {
+        "category": "Electronics",
+        "items": [
+          { "name": "Power Bank 10000mAh", "qty": "1", "checked": false }
+        ]
+      }
+    ]
+  }
+  `;
+
+  try {
+    const config = await getOpenRouterConfig();
+    let text = '';
+
+    if (config.enabled && config.apiKey) {
+      // Call OpenRouter with selected free model or fallback queue
+      const callOpenRouterDirect = async (model: string): Promise<string> => {
+        const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${config.apiKey}`,
+            "Content-Type": "application/json",
+            "HTTP-Referer": window.location.origin,
+            "X-Title": "Shrawello Travel Hub"
+          },
+          body: JSON.stringify({
+            model,
+            messages: [{ role: "user", content: prompt }]
+          })
+        });
+
+        if (!res.ok) {
+          throw new Error(`OpenRouter (${res.status}): ${await res.text()}`);
+        }
+        const data = await res.json();
+        return data.choices?.[0]?.message?.content || '';
+      };
+
+      try {
+        text = await callOpenRouterDirect(selectedModel);
+      } catch (err) {
+        console.warn(`[AI] Selected model ${selectedModel} failed, trying LLaMA 3.3 70B free fallback:`, err);
+        text = await callOpenRouterDirect('meta-llama/llama-3.3-70b-instruct:free');
+      }
+    } else {
+      // Direct call fallback
+      text = await getAIResponse(prompt);
+    }
+
+    const parsed = robustParseJson(text);
+    if (parsed && Array.isArray(parsed)) {
+      return {
+        reasoning: `AI Reasoning (${days} Days in ${destination}): Curated ${days}-day packing checklist for ${weather} weather and ${activityLevel} activities.`,
+        modelUsed: selectedModel,
+        items: parsed
+      };
+    } else if (parsed && parsed.items && Array.isArray(parsed.items)) {
+      return {
+        reasoning: parsed.reasoning || `AI Reasoning (${days} Days in ${destination}): Customized items for ${weather} and ${activityLevel}.`,
+        modelUsed: selectedModel,
+        items: parsed.items
+      };
+    }
+
+    // Fallback to Smart Reasoning Engine if JSON parsing didn't return standard format
+    return generatePackingChecklistSmartLogic(destination, days, weather, activityLevel, category);
+  } catch (error) {
+    console.warn("OpenRouter Free AI call failed, falling back to Smart Reasoning Engine:", error);
+    return generatePackingChecklistSmartLogic(destination, days, weather, activityLevel, category);
+  }
+};
+
 
 
