@@ -6,6 +6,7 @@ import { useSettings } from '../../context/SettingsContext';
 import { useData } from '../../context/DataContext';
 
 import { generateTrueInvoicePDF } from '../../utils/pdfGenerator';
+import { parsePaxString } from '../../utils/paxUtils';
 
 const ones = ['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen'];
 const tens = ['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
@@ -261,6 +262,7 @@ export const DocumentEditor: React.FC = () => {
             const res = await fetch(`/api/crud/bookings/${bId}`, { headers: { 'Authorization': `Bearer ${token}` } });
             if (res.ok) {
                 const { data } = await res.json();
+                const pax = parsePaxString(data.pax_adult || data.guests || data.number_of_people);
                 setDocData(prev => ({
                     ...prev,
                     client_name: data.customer_name || data.customer || '',
@@ -271,7 +273,8 @@ export const DocumentEditor: React.FC = () => {
                     travel_dates: data.booking_date || data.date ? new Date(data.booking_date || data.date).toISOString().split('T')[0] : '',
                     travel_date_from: data.start_date ? new Date(data.start_date).toISOString().split('T')[0] : (data.booking_date ? new Date(data.booking_date).toISOString().split('T')[0] : ''),
                     travel_date_to: data.end_date ? new Date(data.end_date).toISOString().split('T')[0] : '',
-                    adults: data.number_of_people || data.travelers || 2
+                    adults: data.pax_adult || data.number_of_people || pax.adults,
+                    children: data.pax_child !== undefined && data.pax_child !== null ? Number(data.pax_child) : pax.children
                 }));
                 if (data.total_price || data.amount) {
                     setItems([{ id: generateId(), description: 'Tour Package', quantity: 1, total_days_km: '1', unit_price: Number(data.total_price || data.amount), tax_rate: 0 }]);
@@ -286,13 +289,15 @@ export const DocumentEditor: React.FC = () => {
             const res = await fetch(`/api/crud/leads/${lId}`, { headers: { 'Authorization': `Bearer ${token}` } });
             if (res.ok) {
                 const { data } = await res.json();
+                const pax = parsePaxString(data.pax_adult || data.travelers);
                 setDocData(prev => ({
                     ...prev,
                     client_name: data.name || '',
                     email: data.email || '',
                     // Fix: leads stores phone as `phone`; no address/GSTIN on leads
                     phone: data.phone || prev.phone || '',
-                    adults: data.travelers && data.travelers !== 'N/A' ? data.travelers : 2,
+                    adults: data.pax_adult || pax.adults,
+                    children: data.pax_child !== undefined && data.pax_child !== null ? Number(data.pax_child) : pax.children,
                     travel_dates: data.start_date || data.travelDate ? new Date(data.start_date || data.travelDate).toISOString().split('T')[0] : '',
                     travel_date_from: data.start_date ? new Date(data.start_date).toISOString().split('T')[0] : (data.travelDate ? new Date(data.travelDate).toISOString().split('T')[0] : ''),
                     travel_date_to: data.end_date ? new Date(data.end_date).toISOString().split('T')[0] : '',

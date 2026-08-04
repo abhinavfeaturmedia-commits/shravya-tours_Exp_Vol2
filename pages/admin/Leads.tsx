@@ -22,6 +22,7 @@ import { exportToExcel, ExportColumn } from '../../src/lib/exportUtils';
 import { DataImportModal, ColumnMapping } from '../../src/components/admin/DataImportModal';
 import { SendEmailModal } from '../../components/admin/SendEmailModal';
 import { normalisePhone } from '../../utils/phoneUtils';
+import { parsePaxString, formatPaxString } from '../../utils/paxUtils';
 // import { BulkImportLeadsModal } from '../../components/admin/BulkImportLeadsModal'; // Commented out unused
 
 // Status Badge Component
@@ -671,6 +672,12 @@ export const Leads: React.FC = () => {
             targetCustomerId = newCustomerId;
         }
 
+        const parsedPax = parsePaxString(selectedLead.travelers);
+        const finalAdults = selectedLead.paxAdult !== undefined ? selectedLead.paxAdult : parsedPax.adults;
+        const finalChildren = selectedLead.paxChild !== undefined ? selectedLead.paxChild : parsedPax.children;
+        const finalInfants = selectedLead.paxInfant !== undefined ? selectedLead.paxInfant : parsedPax.infants;
+        const finalGuestsStr = selectedLead.travelers || formatPaxString(finalAdults, finalChildren, finalInfants);
+
         try {
             const newBooking = await addBooking({
                 id: '', // Will be set by DB (UUID auto-generated)
@@ -685,7 +692,7 @@ export const Leads: React.FC = () => {
                 amount: selectedLead.potentialValue || 0,
                 status: BookingStatus.PENDING,
                 payment: 'Unpaid',
-                guests: selectedLead.travelers,
+                guests: finalGuestsStr,
                 details: `Converted from Lead. Destination: ${selectedLead.destination}. Budget: ${formatPrice(selectedLead.potentialValue || 0)}.`,
                 notes: inheritedBookingNotes,
                 assignedTo: selectedLead.assignedTo || staff?.id || currentUser?.id,
@@ -696,9 +703,9 @@ export const Leads: React.FC = () => {
                 whatsapp: selectedLead.whatsapp,
                 isWhatsappSame: selectedLead.isWhatsappSame,
                 altPhone: selectedLead.altPhone,
-                paxAdult: selectedLead.paxAdult,
-                paxChild: selectedLead.paxChild,
-                paxInfant: selectedLead.paxInfant,
+                paxAdult: finalAdults,
+                paxChild: finalChildren,
+                paxInfant: finalInfants,
                 serviceType: selectedLead.serviceType,
                 residentialAddress: selectedLead.residentialAddress,
                 officeAddress: selectedLead.officeAddress
@@ -785,6 +792,7 @@ export const Leads: React.FC = () => {
             return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
         };
 
+        const parsedPax = parsePaxString(selectedLead.travelers);
         setModalMode('edit');
         setLeadForm({ 
             ...selectedLead, 
@@ -794,7 +802,10 @@ export const Leads: React.FC = () => {
             endDate: formatLocalIso(selectedLead.endDate),
             altPhone: selectedLead.altPhone || '',
             whatsapp: selectedLead.whatsapp || '',
-            isWhatsappSame: selectedLead.isWhatsappSame !== undefined ? selectedLead.isWhatsappSame : true
+            isWhatsappSame: selectedLead.isWhatsappSame !== undefined ? selectedLead.isWhatsappSame : true,
+            paxAdult: selectedLead.paxAdult !== undefined ? selectedLead.paxAdult : parsedPax.adults,
+            paxChild: selectedLead.paxChild !== undefined ? selectedLead.paxChild : parsedPax.children,
+            paxInfant: selectedLead.paxInfant !== undefined ? selectedLead.paxInfant : parsedPax.infants
         });
         setIsModalOpen(true);
     };
@@ -2627,7 +2638,8 @@ export const Leads: React.FC = () => {
                                 <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Travelers</label>
                                 <TravelerSelector
                                     value={leadForm.travelers || '2 Adults'}
-                                    onChange={(val) => setLeadForm({ ...leadForm, travelers: val })}
+                                    onChange={(val) => setLeadForm(prev => ({ ...prev, travelers: val }))}
+                                    onCountsChange={(counts) => setLeadForm(prev => ({ ...prev, paxAdult: counts.adults, paxChild: counts.children, paxInfant: counts.infants }))}
                                 />
                             </div>
                             <div className="grid grid-cols-2 gap-3">

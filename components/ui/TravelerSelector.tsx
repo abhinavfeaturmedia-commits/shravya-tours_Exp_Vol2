@@ -1,68 +1,49 @@
 import React, { useEffect, useState } from 'react';
+import { formatPaxString, parsePaxString, PaxCounts } from '../../utils/paxUtils';
 
 interface TravelerSelectorProps {
     value: string;
     onChange: (value: string) => void;
+    onCountsChange?: (counts: PaxCounts) => void;
     className?: string;
 }
 
-export const TravelerSelector: React.FC<TravelerSelectorProps> = ({ value, onChange, className = '' }) => {
-    // Parse initial value "X Adults, Y Children, Z Infants"
-    const parseValue = (val: string) => {
-        const adultsMatch = val.match(/(\d+)\s*Adults?/i);
-        const childrenMatch = val.match(/(\d+)\s*Child(ren)?/i);
-        const infantsMatch = val.match(/(\d+)\s*Infants?/i);
-
-        return {
-            adults: adultsMatch ? parseInt(adultsMatch[1]) : 2,
-            children: childrenMatch ? parseInt(childrenMatch[1]) : 0,
-            infants: infantsMatch ? parseInt(infantsMatch[1]) : 0
-        };
-    };
-
-    const [counts, setCounts] = useState(parseValue(value));
+export const TravelerSelector: React.FC<TravelerSelectorProps> = ({ value, onChange, onCountsChange, className = '' }) => {
+    const [counts, setCounts] = useState<PaxCounts>(parsePaxString(value));
 
     // Update internal state if external value changes significantly
     useEffect(() => {
-        const currentString = formatString(counts.adults, counts.children, counts.infants);
+        const currentString = formatPaxString(counts.adults, counts.children, counts.infants);
         if (value !== currentString && value) {
-            setCounts(parseValue(value));
+            const parsed = parsePaxString(value);
+            setCounts(parsed);
+            onCountsChange?.(parsed);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [value]);
 
-    const formatString = (a: number, c: number, i: number) => {
-        const parts = [];
-        parts.push(`${a} Adult${a !== 1 ? 's' : ''}`);
-        if (c > 0) {
-            parts.push(`${c} Child${c !== 1 ? 'ren' : ''}`);
-        }
-        if (i > 0) {
-            parts.push(`${i} Infant${i !== 1 ? 's' : ''}`);
-        }
-        return parts.join(', ');
-    };
-
-    const updateCounts = (type: 'adults' | 'children' | 'infants', delta: number) => {
+    const updateCounts = (type: keyof PaxCounts, delta: number) => {
         setCounts(prev => {
             const newVal = Math.max(0, Math.min(500, prev[type] + delta));
             // Ensure at least 1 adult
             if (type === 'adults' && newVal < 1) return prev;
 
             const newCounts = { ...prev, [type]: newVal };
-            const newString = formatString(newCounts.adults, newCounts.children, newCounts.infants);
+            const newString = formatPaxString(newCounts.adults, newCounts.children, newCounts.infants);
             onChange(newString);
+            onCountsChange?.(newCounts);
             return newCounts;
         });
     };
 
-    const handleInputChange = (type: 'adults' | 'children' | 'infants', value: number) => {
+    const handleInputChange = (type: keyof PaxCounts, value: number) => {
         const minVal = type === 'adults' ? 1 : 0;
         const clampedVal = Math.max(minVal, Math.min(500, value));
         setCounts(prev => {
             const newCounts = { ...prev, [type]: clampedVal };
-            const newString = formatString(newCounts.adults, newCounts.children, newCounts.infants);
+            const newString = formatPaxString(newCounts.adults, newCounts.children, newCounts.infants);
             onChange(newString);
+            onCountsChange?.(newCounts);
             return newCounts;
         });
     };

@@ -21,6 +21,7 @@ import autoTable from 'jspdf-autotable';
 import { exportToExcel, ExportColumn } from '../../src/lib/exportUtils';
 import { formatPrice } from '../../utils/packageUtils';
 import { Plus, X, Edit2, Trash2 } from 'lucide-react';
+import { parsePaxString, formatPaxString } from '../../utils/paxUtils';
 
 export const Bookings: React.FC = () => {
     const { packages, customers, leads, refreshData, coupons, applyCoupon, detachCoupon, tasks, updateTask, addTask, deleteTask } = useData();
@@ -388,6 +389,7 @@ export const Bookings: React.FC = () => {
         isWhatsappSame: true,
         altPhone: '',
         paxAdult: 2,
+        paxChild: 0,
         paxInfant: 0,
         serviceType: 'Full package',
         residentialAddress: '',
@@ -399,7 +401,7 @@ export const Bookings: React.FC = () => {
 
     // Sync guestCounts to formData.guests
     useEffect(() => {
-        const guestsStr = `${guestCounts.adults} Adults, ${guestCounts.children} Children${guestCounts.infants > 0 ? `, ${guestCounts.infants} Infants` : ''}`;
+        const guestsStr = formatPaxString(guestCounts.adults, guestCounts.children, guestCounts.infants);
         setFormData(prev => {
             let updatedAmount = prev.amount;
             if (prev.packageId && !isEditMode) {
@@ -424,6 +426,7 @@ export const Bookings: React.FC = () => {
                 ...prev, 
                 guests: guestsStr,
                 paxAdult: guestCounts.adults,
+                paxChild: guestCounts.children,
                 paxInfant: guestCounts.infants,
                 amount: (prev.packageId && !isEditMode) ? updatedAmount : prev.amount
             };
@@ -450,6 +453,11 @@ export const Bookings: React.FC = () => {
     useEffect(() => {
         if (location.state && location.state.prefill && !isModalOpen) {
             const prefill = location.state.prefill;
+            const parsedPax = parsePaxString(prefill.guests);
+            const a = prefill.paxAdult !== undefined ? prefill.paxAdult : parsedPax.adults;
+            const c = prefill.paxChild !== undefined ? prefill.paxChild : parsedPax.children;
+            const inf = prefill.paxInfant !== undefined ? prefill.paxInfant : parsedPax.infants;
+
             setFormData(prev => ({
                 ...prev,
                 id: '', // Reset ID for new booking
@@ -459,11 +467,15 @@ export const Bookings: React.FC = () => {
                 phone: prefill.phone || '',
                 amount: prefill.amount || '',
                 details: prefill.details || '',
-                guests: prefill.guests || '2 Adults',
+                guests: prefill.guests || formatPaxString(a, c, inf),
+                paxAdult: a,
+                paxChild: c,
+                paxInfant: inf,
                 type: 'Tour', // Defaulting to Tour for converted leads
                 title: `Booking for ${prefill.customer}`,
                 status: BookingStatus.PENDING
             }));
+            setGuestCounts({ adults: a, children: c, infants: inf });
             setIsEditMode(false);
             setIsModalOpen(true);
             // Clean up location state to prevent re-triggering (optional but good practice)
@@ -600,6 +612,12 @@ export const Bookings: React.FC = () => {
 
     const openEditModal = (booking: Booking) => {
         setIsEditMode(true);
+        const parsedPax = parsePaxString(booking.guests);
+        const a = booking.paxAdult !== undefined ? booking.paxAdult : parsedPax.adults;
+        const c = booking.paxChild !== undefined ? booking.paxChild : parsedPax.children;
+        const inf = booking.paxInfant !== undefined ? booking.paxInfant : parsedPax.infants;
+        const guestsStr = booking.guests || formatPaxString(a, c, inf);
+
         setFormData({
             id: booking.id,
             customerId: booking.customerId || '',
@@ -613,29 +631,22 @@ export const Bookings: React.FC = () => {
             status: booking.status,
             payment: booking.payment as string,
             packageId: booking.packageId || '',
-            guests: booking.guests || '2 Adults',
+            guests: guestsStr,
             endDate: booking.endDate || booking.date,
             durationDays: booking.durationDays || null,
             details: booking.details || '',
             whatsapp: booking.whatsapp || '',
             isWhatsappSame: booking.isWhatsappSame !== undefined ? booking.isWhatsappSame : true,
             altPhone: booking.altPhone || '',
-            paxAdult: booking.paxAdult || 2,
-            paxInfant: booking.paxInfant || 0,
+            paxAdult: a,
+            paxChild: c,
+            paxInfant: inf,
             serviceType: booking.serviceType || 'Full package',
             residentialAddress: booking.residentialAddress || '',
             officeAddress: booking.officeAddress || ''
         });
 
-        const parts = (booking.guests || '2 Adults').split(',');
-        let a = 2, c = 0, inf = 0;
-        parts.forEach(p => {
-            if (p.toLowerCase().includes('adult')) a = parseInt(p) || 2;
-            if (p.toLowerCase().includes('child')) c = parseInt(p) || 0;
-            if (p.toLowerCase().includes('infant')) inf = parseInt(p) || 0;
-        });
         setGuestCounts({ adults: a, children: c, infants: inf });
-
         setIsModalOpen(true);
     };
 
@@ -734,8 +745,9 @@ export const Bookings: React.FC = () => {
             whatsapp: formData.isWhatsappSame ? formData.phone : formData.whatsapp,
             isWhatsappSame: formData.isWhatsappSame,
             altPhone: formData.altPhone,
-            paxAdult: Number(formData.paxAdult) || guestCounts.adults,
-            paxInfant: Number(formData.paxInfant) || guestCounts.infants,
+            paxAdult: guestCounts.adults,
+            paxChild: guestCounts.children,
+            paxInfant: guestCounts.infants,
             serviceType: formData.serviceType,
             residentialAddress: formData.residentialAddress,
             officeAddress: formData.officeAddress

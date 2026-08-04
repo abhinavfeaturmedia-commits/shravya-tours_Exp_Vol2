@@ -1,6 +1,7 @@
 import imageCompression from 'browser-image-compression';
-import { Package, Booking, Lead, LeadLog, BookingStatus, StaffMember, Customer, MasterRoomType, MasterMealPlan, MasterActivity, MasterTransport, MasterPlan, MasterLeadSource, MasterTermsTemplate, CMSBanner, CMSTestimonial, CMSGalleryImage, CMSPost, FollowUp, Proposal, DailyTarget, TimeSession, AssignmentRule, UserActivity, Campaign, MasterHotel, Task, AuditLog, Expense, AttendanceLog, Coupon, DailyMarketingLog, MarketingTarget, LogComment, LogReaction, InAppNotification, BookingDailyDeliverable, DailySlot, MembershipPlan, Account, AccountTransaction } from '../../types';
+import { Package, Booking, Lead, LeadLog, BookingStatus, BookingType, StaffMember, Customer, MasterRoomType, MasterMealPlan, MasterActivity, MasterTransport, MasterPlan, MasterLeadSource, MasterTermsTemplate, CMSBanner, CMSTestimonial, CMSGalleryImage, CMSPost, FollowUp, Proposal, DailyTarget, TimeSession, AssignmentRule, UserActivity, Campaign, MasterHotel, Task, AuditLog, Expense, AttendanceLog, Coupon, DailyMarketingLog, MarketingTarget, LogComment, LogReaction, InAppNotification, BookingDailyDeliverable, DailySlot, MembershipPlan, Account, AccountTransaction } from '../../types';
 import { normalisePhone } from '../../utils/phoneUtils';
+import { parsePaxString, formatPaxString } from '../../utils/paxUtils';
 
 // ─── BASE API URL ───
 // In dev mode, use Vite proxy (empty string) so request goes to the same origin.
@@ -590,18 +591,24 @@ export const api = {
             const formattedDate = toLocalISO(rawDate);
             const formattedEndDate = toLocalISO(rawEndDate);
 
+            const parsedPaxRow = parsePaxString(row.guests || (row.number_of_people ? `${row.number_of_people} Adults, ${row.pax_child || 0} Children` : ''));
+            const pAdult = (row.pax_adult !== null && row.pax_adult !== undefined) ? Number(row.pax_adult) : (row.number_of_people ? Number(row.number_of_people) : parsedPaxRow.adults);
+            const pChild = (row.pax_child !== null && row.pax_child !== undefined) ? Number(row.pax_child) : parsedPaxRow.children;
+            const pInfant = (row.pax_infant !== null && row.pax_infant !== undefined) ? Number(row.pax_infant) : parsedPaxRow.infants;
+
             return {
                 id: row.id,
-                bookingNumber: row.booking_number || undefined,
-                type: row.type || 'Tour',
-                customer: row.customer_name,
-                email: row.customer_email || row.email,
-                phone: row.customer_phone || row.phone,
+                bookingNumber: row.booking_number ? Number(row.booking_number) : undefined,
+                type: (row.type ? row.type : 'Tour') as BookingType,
+                customerId: row.customer_id ? String(row.customer_id) : undefined,
+                customer: row.customer_name || 'Anonymous',
+                email: row.customer_email || '',
+                phone: row.customer_phone || '',
                 assignedTo: row.assigned_to ? Number(row.assigned_to) : undefined,
                 title: row.title || row.package_title || 'Unknown Package',
                 date: formattedDate,
                 endDate: formattedEndDate || formattedDate,
-                guests: row.number_of_people ? `${row.number_of_people} Adults, ${row.pax_child || 0} Children` : undefined,
+                guests: formatPaxString(pAdult, pChild, pInfant),
                 amount: totalAmount,
                 status: (row.status ? row.status.charAt(0).toUpperCase() + row.status.slice(1) : 'Pending') as BookingStatus,
                 payment: dynamicPayment as any,
@@ -612,7 +619,7 @@ export const api = {
                 notes: parseJsonFieldSafe(row.booking_notes, []),
                 // Live Operations fields from MySQL
                 durationDays: row.duration_days ? Number(row.duration_days) : undefined,
-                paxCount: row.pax_count ? Number(row.pax_count) : undefined,
+                paxCount: row.pax_count ? Number(row.pax_count) : (pAdult + pChild),
                 whatsappGroupUrl: row.whatsapp_group_url || undefined,
                 liveStatus: (row.live_status && row.live_status !== 'Auto') ? (row.live_status as any) : undefined,
                 partnerId: row.partner_id || undefined,
@@ -624,9 +631,9 @@ export const api = {
                 whatsapp: row.whatsapp || undefined,
                 isWhatsappSame: row.is_whatsapp_same !== null ? !!row.is_whatsapp_same : undefined,
                 altPhone: row.alt_phone || undefined,
-                paxAdult: row.pax_adult !== null ? Number(row.pax_adult) : undefined,
-                paxChild: row.pax_child !== null ? Number(row.pax_child) : undefined,
-                paxInfant: row.pax_infant !== null ? Number(row.pax_infant) : undefined,
+                paxAdult: pAdult,
+                paxChild: pChild,
+                paxInfant: pInfant,
                 serviceType: row.service_type || undefined,
                 residentialAddress: row.residential_address || undefined,
                 officeAddress: row.office_address || undefined,
@@ -680,19 +687,10 @@ export const api = {
         await crud.remove('supplier_bookings', id);
     },
     createBooking: async (booking: Partial<Booking>) => {
-        let adultsCount = 1;
-        let childCount = 0;
-        if (booking.guests) {
-            const parts = booking.guests.split(',');
-            parts.forEach(p => {
-                if (p.toLowerCase().includes('adult')) adultsCount = parseInt(p) || 1;
-                if (p.toLowerCase().includes('child')) childCount = parseInt(p) || 0;
-            });
-        }
-
-        const finalAdults = booking.paxAdult !== undefined ? booking.paxAdult : adultsCount;
-        const finalChildren = booking.paxChild !== undefined ? booking.paxChild : childCount;
-        const finalInfants = booking.paxInfant !== undefined ? booking.paxInfant : 0;
+        const parsedPax = parsePaxString(booking.guests);
+        const finalAdults = booking.paxAdult !== undefined ? booking.paxAdult : parsedPax.adults;
+        const finalChildren = booking.paxChild !== undefined ? booking.paxChild : parsedPax.children;
+        const finalInfants = booking.paxInfant !== undefined ? booking.paxInfant : parsedPax.infants;
 
         const dbBooking: any = {
             customer_name: booking.customer,
@@ -769,19 +767,17 @@ export const api = {
         if (updates.leadId !== undefined) {
             dbUpdates.lead_id = updates.leadId || null;
         }
-        if (updates.guests !== undefined) {
-            let adultsCount = 1;
-            let childCount = 0;
-            if (updates.guests) {
-                const parts = updates.guests.split(',');
-                parts.forEach(p => {
-                    if (p.toLowerCase().includes('adult')) adultsCount = parseInt(p) || 1;
-                    if (p.toLowerCase().includes('child')) childCount = parseInt(p) || 0;
-                });
-            }
-            dbUpdates.number_of_people = adultsCount;
-            dbUpdates.pax_child = childCount;
-            dbUpdates.pax_count = adultsCount + childCount;
+        if (updates.guests !== undefined || updates.paxAdult !== undefined || updates.paxChild !== undefined || updates.paxInfant !== undefined) {
+            const parsedPax = parsePaxString(updates.guests);
+            const a = updates.paxAdult !== undefined ? updates.paxAdult : parsedPax.adults;
+            const c = updates.paxChild !== undefined ? updates.paxChild : parsedPax.children;
+            const inf = updates.paxInfant !== undefined ? updates.paxInfant : parsedPax.infants;
+            
+            dbUpdates.pax_adult = a;
+            dbUpdates.pax_child = c;
+            dbUpdates.pax_infant = inf;
+            dbUpdates.number_of_people = a;
+            dbUpdates.pax_count = a + c;
         }
         if (updates.payment !== undefined) {
             const tempMap: any = { 'Paid': 'paid', 'Unpaid': 'pending', 'Deposit': 'deposit', 'Refunded': 'refunded' };
@@ -805,9 +801,6 @@ export const api = {
         if (updates.whatsapp !== undefined) dbUpdates.whatsapp = updates.whatsapp || null;
         if (updates.isWhatsappSame !== undefined) dbUpdates.is_whatsapp_same = updates.isWhatsappSame ? 1 : 0;
         if (updates.altPhone !== undefined) dbUpdates.alt_phone = updates.altPhone || null;
-        if (updates.paxAdult !== undefined) dbUpdates.pax_adult = updates.paxAdult;
-        if (updates.paxChild !== undefined) dbUpdates.pax_child = updates.paxChild;
-        if (updates.paxInfant !== undefined) dbUpdates.pax_infant = updates.paxInfant;
         if (updates.serviceType !== undefined) dbUpdates.service_type = updates.serviceType || null;
         if (updates.residentialAddress !== undefined) dbUpdates.residential_address = updates.residentialAddress || null;
         if (updates.officeAddress !== undefined) dbUpdates.office_address = updates.officeAddress || null;
@@ -930,9 +923,9 @@ export const api = {
             whatsapp: lead.whatsapp,
             is_whatsapp_same: lead.isWhatsappSame,
             service_type: lead.serviceType,
-            pax_adult: lead.paxAdult,
-            pax_child: lead.paxChild,
-            pax_infant: lead.paxInfant,
+            pax_adult: (lead.paxAdult !== undefined ? lead.paxAdult : parsePaxString(lead.travelers).adults),
+            pax_child: (lead.paxChild !== undefined ? lead.paxChild : parsePaxString(lead.travelers).children),
+            pax_infant: (lead.paxInfant !== undefined ? lead.paxInfant : parsePaxString(lead.travelers).infants),
             residential_address: lead.residentialAddress,
             office_address: lead.officeAddress,
             package_id: lead.packageId || null,          // Link back to source package
@@ -961,10 +954,16 @@ export const api = {
         if (updates.destination !== undefined) dbUpdates.destination = updates.destination;
         if (updates.startDate !== undefined) dbUpdates.start_date = updates.startDate || null;
         if (updates.endDate !== undefined) dbUpdates.end_date = updates.endDate || null;
-        if (updates.travelers !== undefined) dbUpdates.travelers = updates.travelers;
-        if (updates.paxAdult !== undefined) dbUpdates.pax_adult = updates.paxAdult;
-        if (updates.paxChild !== undefined) dbUpdates.pax_child = updates.paxChild;
-        if (updates.paxInfant !== undefined) dbUpdates.pax_infant = updates.paxInfant;
+        if (updates.travelers !== undefined || updates.paxAdult !== undefined || updates.paxChild !== undefined || updates.paxInfant !== undefined) {
+            const parsedPax = parsePaxString(updates.travelers);
+            const a = updates.paxAdult !== undefined ? updates.paxAdult : parsedPax.adults;
+            const c = updates.paxChild !== undefined ? updates.paxChild : parsedPax.children;
+            const inf = updates.paxInfant !== undefined ? updates.paxInfant : parsedPax.infants;
+            dbUpdates.travelers = updates.travelers || formatPaxString(a, c, inf);
+            dbUpdates.pax_adult = a;
+            dbUpdates.pax_child = c;
+            dbUpdates.pax_infant = inf;
+        }
         if (updates.budget !== undefined) dbUpdates.budget = updates.budget;
         if (updates.type !== undefined) dbUpdates.type = updates.type;
         if (updates.status !== undefined) dbUpdates.status = updates.status;
