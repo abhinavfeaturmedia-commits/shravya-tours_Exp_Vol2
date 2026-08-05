@@ -1,100 +1,169 @@
-
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { useSettings } from '../../context/SettingsContext';
 import { toast } from 'sonner';
-import { SuggestPopup, isDismissed, isSnoozed, dismissSuggestion, snoozeSuggestion } from '../../components/ui/SuggestPopup';
+import { SuggestPopup, isDismissed, isSnoozed } from '../../components/ui/SuggestPopup';
 import { getPaymentDueBookings } from '../../src/hooks/useSuggestions';
 import { api } from '../../src/lib/api';
 import { InAppNotification } from '../../types';
 
-const NAV_GROUPS = [
+interface NavItem {
+  name: string;
+  path: string;
+  icon: string;
+  module: string;
+  desc?: string;
+  tag?: string;
+}
+
+interface NavCategory {
+  key: string;
+  title: string;
+  icon: string;
+  altShortcut: string;
+  colorTheme: 'indigo' | 'blue' | 'purple' | 'emerald' | 'amber';
+  quickAction: { label: string; icon: string; path: string; module: string };
+  items: NavItem[];
+}
+
+const TOP_NAV_CATEGORIES: NavCategory[] = [
   {
+    key: 'overview',
     title: 'Overview',
+    icon: 'dashboard',
+    altShortcut: 'Alt+1',
+    colorTheme: 'indigo',
+    quickAction: { label: 'Go to Analytics', icon: 'bar_chart', path: '/admin/analytics', module: 'reports' },
     items: [
-      { name: 'Dashboard', path: '/admin', icon: 'dashboard', module: 'dashboard' },
-      { name: 'Analytics', path: '/admin/analytics', icon: 'bar_chart', module: 'reports' },
+      { name: 'Dashboard', path: '/admin', icon: 'dashboard', module: 'dashboard', desc: 'Real-time metrics, revenue KPIs & quick ops', tag: '#Realtime' },
+      { name: 'Analytics', path: '/admin/analytics', icon: 'bar_chart', module: 'reports', desc: 'Revenue breakdown, growth & sales insights', tag: '#Reports' },
     ]
   },
   {
+    key: 'operations',
     title: 'Operations',
+    icon: 'grid_view',
+    altShortcut: 'Alt+2',
+    colorTheme: 'blue',
+    quickAction: { label: '+ New Booking', icon: 'add_circle', path: '/admin/bookings', module: 'bookings' },
     items: [
-      { name: 'Bookings', path: '/admin/bookings', icon: 'airplane_ticket', module: 'bookings' },
-      { name: 'Inventory', path: '/admin/inventory', icon: 'calendar_month', module: 'inventory' },
-      { name: 'Vendors', path: '/admin/vendors', icon: 'storefront', module: 'vendors' },
-      { name: 'Itineraries', path: '/admin/itineraries', icon: 'auto_stories', module: 'itinerary' },
-      { name: 'Itinerary Builder', path: '/admin/itinerary-builder', icon: 'map', module: 'itinerary' },
-      { name: 'Live Operations', path: '/admin/operations', icon: 'traffic', module: 'operations' },
-      { name: 'Car Rentals', path: '/admin/car-rental', icon: 'directions_car', module: 'operations' },
-      { name: 'Masters', path: '/admin/masters', icon: 'dataset', module: 'masters' },
+      { name: 'Bookings', path: '/admin/bookings', icon: 'airplane_ticket', module: 'bookings', desc: 'Trip reservations, ticketing & customer bookings', tag: '#Trips' },
+      { name: 'Inventory', path: '/admin/inventory', icon: 'calendar_month', module: 'inventory', desc: 'Hotel room & vehicle allotment schedule', tag: '#Rooms' },
+      { name: 'Vendors', path: '/admin/vendors', icon: 'storefront', module: 'vendors', desc: 'Suppliers, hotel contracts & vendor profiles', tag: '#Hotels' },
+      { name: 'Itineraries', path: '/admin/itineraries', icon: 'auto_stories', module: 'itinerary', desc: 'Saved customer itineraries & PDF proposals', tag: '#PDFs' },
+      { name: 'Itinerary Builder', path: '/admin/itinerary-builder', icon: 'map', module: 'itinerary', desc: 'Interactive day-by-day tour planner', tag: '#Builder' },
+      { name: 'Live Operations', path: '/admin/operations', icon: 'traffic', module: 'operations', desc: 'Real-time driver, vehicle & trip tracking', tag: '#LiveOps' },
+      { name: 'Car Rentals', path: '/admin/car-rental', icon: 'directions_car', module: 'operations', desc: 'Vehicle rentals, fleet schedule & driver roster', tag: '#Cars' },
+      { name: 'Masters Catalog', path: '/admin/masters', icon: 'dataset', module: 'masters', desc: 'Destinations, hotels, activities & pricing catalogs', tag: '#Catalog' },
     ]
   },
   {
-    title: 'Growth',
+    key: 'crm',
+    title: 'CRM & Growth',
+    icon: 'rocket_launch',
+    altShortcut: 'Alt+3',
+    colorTheme: 'purple',
+    quickAction: { label: '+ Add Lead', icon: 'person_add', path: '/admin/leads', module: 'leads' },
     items: [
-      { name: 'Leads CRM', path: '/admin/leads', icon: 'groups', module: 'leads' },
-      { name: 'Customers', path: '/admin/customers', icon: 'face', module: 'customers' },
-      { name: 'Memberships', path: '/admin/memberships', icon: 'card_membership', module: 'memberships' },
-      { name: 'Support Inbox', path: '/admin/support-inbox', icon: 'forum', module: 'memberships' },
-      { name: 'Associates', path: '/admin/partners', icon: 'handshake', module: 'partners' },
-      { name: 'KYC Management', path: '/admin/kyc', icon: 'verified_user', module: 'partners' },
-      { name: 'Coupons', path: '/admin/coupons', icon: 'local_offer', module: 'marketing' },
-      { name: 'Marketing Logs', path: '/admin/marketing-logs', icon: 'edit_note', module: 'marketing' },
-      { name: 'Accounts', path: '/admin/accounts', icon: 'account_balance', module: 'finance' },
-      { name: 'Expenses', path: '/admin/expenses', icon: 'receipt_long', module: 'finance' },
-      { name: 'Payment Approvals', path: '/admin/finance-verification', icon: 'fact_check', module: 'invoices' },
-      { name: 'Proposals', path: '/admin/proposals', icon: 'description', module: 'proposals' },
-      { name: 'Invoices', path: '/admin/invoices', icon: 'receipt', module: 'invoices' },
+      { name: 'Leads CRM', path: '/admin/leads', icon: 'groups', module: 'leads', desc: 'Sales funnel, inquiries & follow-up reminders', tag: '#Pipeline' },
+      { name: 'Customers', path: '/admin/customers', icon: 'face', module: 'customers', desc: 'Traveler profiles, history & loyalty details', tag: '#Travelers' },
+      { name: 'Memberships', path: '/admin/memberships', icon: 'card_membership', module: 'memberships', desc: 'VIP membership & loyalty privileges', tag: '#VIP' },
+      { name: 'Support Inbox', path: '/admin/support-inbox', icon: 'forum', module: 'memberships', desc: 'Customer support tickets & messaging', tag: '#Tickets' },
+      { name: 'Associates / Partners', path: '/admin/partners', icon: 'handshake', module: 'partners', desc: 'B2B agent network & partner directory', tag: '#B2B' },
+      { name: 'KYC Management', path: '/admin/kyc', icon: 'verified_user', module: 'partners', desc: 'Document verification for partners & drivers', tag: '#Verification' },
+      { name: 'Coupons', path: '/admin/coupons', icon: 'local_offer', module: 'marketing', desc: 'Discount vouchers, promo codes & deals', tag: '#Discounts' },
+      { name: 'Marketing Logs', path: '/admin/marketing-logs', icon: 'edit_note', module: 'marketing', desc: 'Campaign broadcasting & email/SMS logs', tag: '#Campaigns' },
     ]
   },
   {
-    title: 'People & Content',
+    key: 'finance',
+    title: 'Finance & Billing',
+    icon: 'account_balance_wallet',
+    altShortcut: 'Alt+4',
+    colorTheme: 'emerald',
+    quickAction: { label: '+ Create Invoice', icon: 'receipt', path: '/admin/invoices', module: 'invoices' },
     items: [
-      { name: 'Staff', path: '/admin/staff', icon: 'badge', module: 'staff' },
-      { name: 'Team Performance', path: '/admin/team-performance', icon: 'monitoring', module: 'staff' },
-      { name: 'Packages', path: '/admin/packages', icon: 'inventory_2', module: 'inventory' },
-      { name: 'Testimonials', path: '/admin/testimonials', icon: 'rate_review', module: 'testimonials' },
-      { name: 'Trending Destinations', path: '/admin/trending', icon: 'trending_up', module: 'cms' },
-      { name: 'Offer Banners', path: '/admin/offer-banners', icon: 'local_offer', module: 'cms' },
-      { name: 'Video Training Manager', path: '/admin/training', icon: 'video_library', module: 'staff' },
-      { name: 'Staff Training Hub', path: '/admin/staff-training', icon: 'school', module: 'staff' },
+      { name: 'Bank Accounts', path: '/admin/accounts', icon: 'account_balance', module: 'finance', desc: 'Bank accounts, ledgers & cash balances', tag: '#Banks' },
+      { name: 'Expenses', path: '/admin/expenses', icon: 'receipt_long', module: 'finance', desc: 'Vendor payouts, operational costs & vouchers', tag: '#Payouts' },
+      { name: 'Payment Approvals', path: '/admin/finance-verification', icon: 'fact_check', module: 'invoices', desc: 'Bank transaction matching & payment verification', tag: '#Audit' },
+      { name: 'Proposals', path: '/admin/proposals', icon: 'description', module: 'proposals', desc: 'Client travel quotes & proposal drafts', tag: '#Quotes' },
+      { name: 'Invoices', path: '/admin/invoices', icon: 'receipt', module: 'invoices', desc: 'GST invoices, billing & payment receipts', tag: '#GST' },
     ]
   },
   {
-    title: 'System',
+    key: 'system',
+    title: 'Team & System',
+    icon: 'tune',
+    altShortcut: 'Alt+5',
+    colorTheme: 'amber',
+    quickAction: { label: '+ Add Master Data', icon: 'dataset', path: '/admin/masters', module: 'masters' },
     items: [
-      { name: 'Activity Feed', path: '/admin/activity', icon: 'pending_actions', module: 'audit' },
-      { name: 'Audit Logs', path: '/admin/audit', icon: 'history', module: 'audit' },
-      { name: 'Productivity', path: '/admin/productivity', icon: 'insights', module: 'staff' },
-      { name: 'Settings', path: '/admin/settings', icon: 'settings', module: 'settings' },
+      { name: 'Staff Members', path: '/admin/staff', icon: 'badge', module: 'staff', desc: 'Employee accounts, roles & access permissions', tag: '#Roles' },
+      { name: 'Team Performance', path: '/admin/team-performance', icon: 'monitoring', module: 'staff', desc: 'Sales targets, agent KPIs & productivity', tag: '#KPIs' },
+      { name: 'Tour Packages', path: '/admin/packages', icon: 'inventory_2', module: 'inventory', desc: 'Tour package catalog & holiday offerings', tag: '#Tours' },
+      { name: 'Testimonials', path: '/admin/testimonials', icon: 'rate_review', module: 'testimonials', desc: 'Client reviews & website testimonials', tag: '#Reviews' },
+      { name: 'Trending Spots', path: '/admin/trending', icon: 'trending_up', module: 'cms', desc: 'Homepage featured destinations & spots', tag: '#Spots' },
+      { name: 'Offer Banners', path: '/admin/offer-banners', icon: 'local_offer', module: 'cms', desc: 'Homepage promotional banners', tag: '#Banners' },
+      { name: 'Video Training', path: '/admin/training', icon: 'video_library', module: 'staff', desc: 'Video training content & tutorials', tag: '#Videos' },
+      { name: 'Staff Training Hub', path: '/admin/staff-training', icon: 'school', module: 'staff', desc: 'Employee onboarding & learning center', tag: '#Hub' },
+      { name: 'Activity Feed', path: '/admin/activity', icon: 'pending_actions', module: 'audit', desc: 'Live system user activity stream', tag: '#Feed' },
+      { name: 'Audit Logs', path: '/admin/audit', icon: 'history', module: 'audit', desc: 'Security logs, system changes & history', tag: '#Audit' },
+      { name: 'System Settings', path: '/admin/settings', icon: 'settings', module: 'settings', desc: 'Global settings, branding & preferences', tag: '#Config' },
     ]
   }
 ];
 
 export const AdminLayout: React.FC = () => {
-  const { currentUser, logout, isAuthenticated, isLoading, isMasquerading, stopMasquerading, realUser, hasPermission } = useAuth();
-  const { bookings, leads, followUps, updateFollowUp, packages, vendors } = useData();
+  const { currentUser, logout, isAuthenticated, isLoading, isMasquerading, stopMasquerading, hasPermission } = useAuth();
+  const { bookings, leads, followUps, updateFollowUp } = useData();
   const { settings } = useSettings();
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  
+  const [activeMegaCategory, setActiveMegaCategory] = useState<string | null>(null);
+  const [mobileExpandedCat, setMobileExpandedCat] = useState<string | null>(null);
+  const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isFabOpen, setIsFabOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [commandSearch, setCommandSearch] = useState('');
+  
   const [notifiedIds, setNotifiedIds] = useState<Set<string>>(new Set());
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
-  // Smart popup state
+  
   const [showMorningBriefing, setShowMorningBriefing] = useState(false);
-  const [paymentNudgeDismissed, setPaymentNudgeDismissed] = useState(false);
   const [vendorAlertIdx, setVendorAlertIdx] = useState(0);
   const [isUserIdle, setIsUserIdle] = useState(false);
   const [sessionBookingsProcessed, setSessionBookingsProcessed] = useState(0);
   const [showPositiveReinforcement, setShowPositiveReinforcement] = useState(false);
   const [inAppNotifications, setInAppNotifications] = useState<InAppNotification[]>([]);
+  
   const location = useLocation();
   const navigate = useNavigate();
+  const megaMenuRef = useRef<HTMLDivElement>(null);
+  const profileMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (megaMenuRef.current && !megaMenuRef.current.contains(event.target as Node)) {
+        setActiveMegaCategory(null);
+      }
+      if (profileMenuRef.current && !profileMenuRef.current.contains(event.target as Node)) {
+        setIsProfileMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    setActiveMegaCategory(null);
+    setIsMobileDrawerOpen(false);
+    setIsProfileMenuOpen(false);
+    setIsNotificationsOpen(false);
+  }, [location.pathname]);
 
   const fetchNotifications = useCallback(async () => {
     if (!currentUser?.staffId) return;
@@ -103,18 +172,13 @@ export const AdminLayout: React.FC = () => {
       const myNotifs = data.filter(n => n.staffId === currentUser.staffId);
       setInAppNotifications(myNotifs);
 
-      // Trigger standard notifications toast for any new unread notifications
       const unread = myNotifs.filter(n => !n.isRead && !notifiedIds.has(n.id));
       unread.forEach(n => {
         toast.info(n.title, {
           description: n.message,
           duration: 8000
         });
-        setNotifiedIds(prev => {
-          const next = new Set(prev);
-          next.add(n.id);
-          return next;
-        });
+        setNotifiedIds(prev => new Set(prev).add(n.id));
       });
     } catch (e) {
       console.error("Failed to load in-app notifications:", e);
@@ -128,9 +192,8 @@ export const AdminLayout: React.FC = () => {
     return () => clearInterval(interval);
   }, [isAuthenticated, fetchNotifications]);
 
-  // Global Notification Check for Follow-ups — guarded by isAuthenticated
   useEffect(() => {
-    if (!isAuthenticated) return; // Do NOT fire toasts before login
+    if (!isAuthenticated) return;
     const checkFollowUps = () => {
       const now = new Date();
       const pendingFollowUps = followUps.filter(f =>
@@ -144,10 +207,7 @@ export const AdminLayout: React.FC = () => {
       pendingFollowUps.forEach(f => {
         toast.info(`Follow-up Due: ${f.leadName || 'Unknown Lead'}`, {
           description: f.description || f.notes || 'No notes provided',
-          action: {
-            label: 'View',
-            onClick: () => navigate('/admin/leads')
-          },
+          action: { label: 'View', onClick: () => navigate('/admin/leads') },
           duration: 10000,
         });
         setNotifiedIds(prev => new Set(prev).add(f.id));
@@ -159,25 +219,21 @@ export const AdminLayout: React.FC = () => {
     return () => clearInterval(timer);
   }, [isAuthenticated, followUps, notifiedIds, navigate]);
 
-  // Morning briefing — show once per day after login
   useEffect(() => {
     if (!isAuthenticated) return;
     const today = new Date().toDateString();
     const lastShown = localStorage.getItem('morning_briefing_last_shown');
     if (lastShown !== today) {
-      // Slight delay so dashboard data has time to load
       const t = setTimeout(() => setShowMorningBriefing(true), 1500);
       return () => clearTimeout(t);
     }
   }, [isAuthenticated]);
 
-  // Vendor alert cycling
   useEffect(() => {
     const interval = setInterval(() => setVendorAlertIdx(i => i + 1), 15000);
     return () => clearInterval(interval);
   }, []);
 
-  // Idle detection — triggers after 20 minutes of no interaction
   useEffect(() => {
     if (!isAuthenticated) return;
     let idleTimer: ReturnType<typeof setTimeout>;
@@ -188,14 +244,13 @@ export const AdminLayout: React.FC = () => {
     };
     const events = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
     events.forEach(e => window.addEventListener(e, resetIdle, { passive: true }));
-    resetIdle(); // Start timer
+    resetIdle();
     return () => {
       events.forEach(e => window.removeEventListener(e, resetIdle));
       clearTimeout(idleTimer);
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, settings.staffRoles.idleTimeoutMinutes]);
 
-  // Track bookings processed this session for positive reinforcement
   useEffect(() => {
     const key = 'session_bookings_count';
     const stored = parseInt(sessionStorage.getItem(key) || '0');
@@ -216,31 +271,16 @@ export const AdminLayout: React.FC = () => {
     }
   }, [bookings.length]);
 
-  // Route Protection: Redirect if not logged in (wait for auth to finish loading first)
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
       navigate('/login', { replace: true, state: { from: location } });
     }
-  }, [isLoading, isAuthenticated, navigate]);
-
-  const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
-  const closeSidebar = () => setIsSidebarOpen(false);
+  }, [isLoading, isAuthenticated, navigate, location]);
 
   const handleLogout = () => {
-    toast.dismiss(); // Clear any active toasts before leaving admin
+    toast.dismiss();
     logout();
     navigate('/', { replace: true });
-  };
-
-  const handleSearch = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      setIsCommandPaletteOpen(true);
-      setCommandSearch((e.target as HTMLInputElement).value);
-    }
-  };
-
-  const handleNotifications = () => {
-    setIsNotificationsOpen((prev) => !prev);
   };
 
   const handleMarkNotificationRead = async (id: string, e?: React.MouseEvent) => {
@@ -263,10 +303,92 @@ export const AdminLayout: React.FC = () => {
     }
   };
 
+  const visibleCategories = useMemo(() => {
+    return TOP_NAV_CATEGORIES.map(category => ({
+      ...category,
+      items: category.items.filter(item => hasPermission(item.module as any, 'view'))
+    })).filter(category => category.items.length > 0);
+  }, [hasPermission]);
+
+  const allNavItems = useMemo(() => visibleCategories.flatMap(c => c.items), [visibleCategories]);
+
+  const activeCategoryInfo = useMemo(() => {
+    for (const cat of visibleCategories) {
+      for (const item of cat.items) {
+        const isMatch = item.path === '/admin'
+          ? location.pathname === '/admin'
+          : location.pathname === item.path || location.pathname.startsWith(item.path + '/');
+        if (isMatch) return { activeCat: cat, activeItem: item };
+      }
+    }
+    return { activeCat: visibleCategories[0] || TOP_NAV_CATEGORIES[0], activeItem: (visibleCategories[0] || TOP_NAV_CATEGORIES[0]).items[0] };
+  }, [visibleCategories, location.pathname]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    const sortedRoutes = [...allNavItems].sort((a, b) => b.path.length - a.path.length);
+    const matchedRoute = sortedRoutes.find(route =>
+      location.pathname === route.path || location.pathname.startsWith(route.path + '/')
+    );
+    if (matchedRoute && !hasPermission(matchedRoute.module as any, 'view')) {
+      toast.error(`Access Denied: You do not have permission to view ${matchedRoute.name}.`);
+      navigate('/admin', { replace: true });
+    }
+  }, [location.pathname, currentUser, hasPermission, navigate, allNavItems]);
+
+  useEffect(() => {
+    const handleAltNav = (e: KeyboardEvent) => {
+      if (e.altKey && ['1', '2', '3', '4', '5'].includes(e.key)) {
+        e.preventDefault();
+        const idx = parseInt(e.key) - 1;
+        if (visibleCategories[idx] && visibleCategories[idx].items.length > 0) {
+          navigate(visibleCategories[idx].items[0].path);
+          toast.info(`Switched to ${visibleCategories[idx].title}`, { duration: 2000 });
+        }
+      }
+    };
+    window.addEventListener('keydown', handleAltNav);
+    return () => window.removeEventListener('keydown', handleAltNav);
+  }, [visibleCategories, navigate]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setIsCommandPaletteOpen(prev => !prev);
+        setCommandSearch('');
+      }
+      if (e.key === 'Escape') {
+        setIsCommandPaletteOpen(false);
+        setIsFabOpen(false);
+        setIsNotificationsOpen(false);
+        setActiveMegaCategory(null);
+        setIsProfileMenuOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  const getCategoryStatBadge = useCallback((categoryKey: string) => {
+    switch (categoryKey) {
+      case 'operations': return `${bookings.length} Bookings`;
+      case 'crm': return `${leads.length} Leads`;
+      case 'finance': return `₹45.8k Due`;
+      case 'system': return `11 Modules`;
+      default: return `2 Reports`;
+    }
+  }, [bookings.length, leads.length]);
+
+  const quickActions = useMemo(() => [
+    { name: 'New Booking', icon: 'add_circle', path: '/admin/bookings', color: 'from-blue-500 to-indigo-600', module: 'bookings' },
+    { name: 'Add Lead', icon: 'person_add', path: '/admin/leads', color: 'from-purple-500 to-pink-600', module: 'leads' },
+    { name: 'Create Package', icon: 'travel_explore', path: '/admin/itinerary-builder', color: 'from-emerald-500 to-teal-600', module: 'inventory' },
+    { name: 'Add Master Data', icon: 'dataset', path: '/admin/masters', color: 'from-orange-500 to-rose-500', module: 'masters' },
+  ].filter(action => hasPermission(action.module as any, 'manage')), [hasPermission]);
+
   const unifiedItems = useMemo(() => {
     const list: any[] = [];
-    
-    // 1. Follow-ups
     const pendingFollowUps = followUps.filter(f =>
       f.status === 'Pending' &&
       f.reminderEnabled &&
@@ -285,8 +407,6 @@ export const AdminLayout: React.FC = () => {
         rawItem: f
       });
     });
-
-    // 2. In-app Notifications
     inAppNotifications.forEach(n => {
       list.push({
         id: n.id,
@@ -298,90 +418,13 @@ export const AdminLayout: React.FC = () => {
         rawItem: n
       });
     });
-
-    // Sort by date descending
     return list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [followUps, dismissedIds, inAppNotifications]);
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Cmd/Ctrl + K for command palette
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        setIsCommandPaletteOpen(prev => !prev);
-        setCommandSearch('');
-      }
-      // Escape to close modals
-      if (e.key === 'Escape') {
-        setIsCommandPaletteOpen(false);
-        setIsFabOpen(false);
-        setIsNotificationsOpen(false);
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
-
-  const isActive = (path: string) => {
-    const active = path === '/admin'
-      ? location.pathname === '/admin'
-      : location.pathname.startsWith(path);
-
-    return active
-      ? "bg-slate-900 text-white shadow-lg shadow-slate-900/20 dark:bg-white dark:text-slate-900"
-      : "text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white";
-  };
-
-  // Route Protection: Permission Check
-  useEffect(() => {
-    if (!currentUser) return;
-
-    // Find the closest matching route definition
-    const allRoutes = NAV_GROUPS.flatMap(g => g.items)
-      .sort((a, b) => b.path.length - a.path.length); // Match specific paths first
-
-    const activeRoute = allRoutes.find(route =>
-      location.pathname === route.path ||
-      location.pathname.startsWith(route.path + '/')
-    );
-
-    if (activeRoute) {
-      if (!hasPermission(activeRoute.module as any, 'view')) {
-        toast.error(`Access Denied: You do not have permission to view ${activeRoute.name}.`);
-        navigate('/admin', { replace: true });
-      }
-    }
-  }, [location.pathname, currentUser, hasPermission, navigate]);
-
-  const navGroups = NAV_GROUPS;
-
-  // Filter Nav Groups based on permissions
-  const visibleNavGroups = navGroups.map(group => ({
-    ...group,
-    items: group.items.filter(item => hasPermission(item.module as any, 'view'))
-  })).filter(group => group.items.length > 0);
-
-  // Flatten nav items for command palette search
-  const allNavItems = visibleNavGroups.flatMap(g => g.items);
-
-  // Quick actions for FAB
-  const quickActions = [
-    { name: 'New Booking', icon: 'add_circle', path: '/admin/bookings', color: 'from-blue-500 to-indigo-600', module: 'bookings' },
-    { name: 'Add Lead', icon: 'person_add', path: '/admin/leads', color: 'from-purple-500 to-pink-600', module: 'leads' },
-    { name: 'Create Package', icon: 'travel_explore', path: '/admin/itinerary-builder', color: 'from-emerald-500 to-teal-600', module: 'inventory' },
-    { name: 'Add Master Data', icon: 'dataset', path: '/admin/masters', color: 'from-orange-500 to-rose-500', module: 'masters' },
-  ].filter(action => hasPermission(action.module as any, 'manage'));
-
-  // Filter nav items for command palette
   const filteredNavItems = commandSearch
-    ? allNavItems.filter(item =>
-      item.name.toLowerCase().includes(commandSearch.toLowerCase())
-    )
+    ? allNavItems.filter(item => item.name.toLowerCase().includes(commandSearch.toLowerCase()))
     : allNavItems;
 
-  // Show loading state while auth is initializing
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-screen bg-slate-50 dark:bg-[#0B1116]">
@@ -389,7 +432,7 @@ export const AdminLayout: React.FC = () => {
           <div className="size-12 rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center text-white shadow-lg shadow-indigo-500/30 animate-pulse">
             <span className="material-symbols-outlined text-[24px]">travel_explore</span>
           </div>
-          <p className="text-sm font-semibold text-slate-400">Loading...</p>
+          <p className="text-sm font-semibold text-slate-400">Loading SHRAWELLO Admin...</p>
         </div>
       </div>
     );
@@ -398,8 +441,8 @@ export const AdminLayout: React.FC = () => {
   if (!isAuthenticated || !currentUser) return null;
 
   return (
-    <div className="bg-slate-50 dark:bg-[#0B1116] text-slate-900 dark:text-slate-100 flex min-h-screen print:h-auto print:overflow-visible font-sans relative">
-      {/* Masquerade Banner */}
+    <div className="bg-slate-50 dark:bg-[#0B1116] text-slate-900 dark:text-slate-100 flex flex-col min-h-screen print:h-auto font-sans relative">
+      
       {isMasquerading && (
         <div className="fixed top-0 left-0 right-0 h-8 bg-amber-400 text-amber-900 z-[200] flex items-center justify-center text-xs font-bold gap-4 shadow-sm animate-in slide-in-from-top">
           <span className="flex items-center gap-1">
@@ -411,368 +454,283 @@ export const AdminLayout: React.FC = () => {
           </button>
         </div>
       )}
-      {/* Mobile Sidebar Backdrop */}
-      {isSidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] lg:hidden animate-in fade-in"
-          onClick={closeSidebar}
-        />
-      )}
 
-      {/* Side Navigation - Modernized */}
-      <aside className={`print:hidden
-        fixed lg:sticky lg:top-0 lg:h-screen inset-y-0 left-0 w-[280px] bg-white/95 dark:bg-[#0F172A]/95 backdrop-blur-xl border-r border-slate-200/50 dark:border-slate-800/50 
-        transform transition-transform duration-300 ease-[cubic-bezier(0.25,0.1,0.25,1.0)] z-[110] flex flex-col shrink-0
-        ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
-      `}>
-        {/* Logo Area */}
-        <div className="h-20 flex items-center justify-between px-6 shrink-0">
-          <Link to="/" className="flex items-center gap-3 group">
-            <div className="h-12 w-auto flex items-center justify-center transition-transform hover:scale-105">
-              <img src="/logo.png" alt="SHRAWELLO Travel Hub Logo" className="h-full object-contain drop-shadow-sm" />
-            </div>
-            <div className="flex flex-col">
-              <span className="font-black text-xl tracking-tight leading-none text-slate-900 dark:text-white">SHRAWELLO</span>
-              <span className="text-[10px] font-bold text-transparent bg-clip-text bg-gradient-to-r from-indigo-500 to-purple-500 uppercase tracking-[0.2em] mt-0.5">Admin Panel</span>
-            </div>
-          </Link>
-          <button className="lg:hidden p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-colors" onClick={closeSidebar}>
-            <span className="material-symbols-outlined">close</span>
-          </button>
-        </div>
-
-        {/* Navigation Items */}
-        <nav className="flex-1 overflow-y-auto py-6 px-4 space-y-6 scrollbar-thin">
-          {visibleNavGroups.map((group, idx) => (
-            <div key={idx} className="space-y-1">
-              <p className="px-4 text-[10px] font-black uppercase tracking-[0.15em] text-slate-400 dark:text-slate-500 mb-2">
-                {group.title}
-              </p>
-              <div className="space-y-1">
-                {group.items.map(item => {
-                  const active = isActive(item.path).includes('bg-slate-900');
-                  return (
-                    <Link
-                      key={item.path}
-                      to={item.path}
-                      onClick={closeSidebar}
-                      className={`relative flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-semibold text-sm group overflow-hidden
-                        ${active
-                          ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-500/25'
-                          : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-white'
-                        }
-                      `}
-                    >
-                      {active && (
-                        <div className="absolute inset-0 bg-gradient-to-r from-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                      )}
-                      <span className={`material-symbols-outlined text-[20px] transition-all duration-200 ${active ? 'text-white' : 'text-slate-400 group-hover:text-indigo-500 group-hover:scale-110'}`}>
-                        {item.icon}
-                      </span>
-                      <span className="relative z-10">{item.name}</span>
-                      {active && (
-                        <div className="ml-auto flex items-center gap-1">
-                          <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-                        </div>
-                      )}
-                    </Link>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-        </nav>
-
-        {/* User Profile & Footer */}
-        <div className="p-4 border-t border-slate-100 dark:border-slate-800/50 space-y-3">
-          {/* Quick Stats */}
-          <div className="flex gap-2 mb-3">
-            <div className="flex-1 bg-gradient-to-br from-emerald-50 to-emerald-100 dark:from-emerald-900/20 dark:to-emerald-900/10 rounded-xl p-3 text-center">
-              <p className="text-lg font-black text-emerald-600 dark:text-emerald-400">{bookings.length}</p>
-              <p className="text-[9px] font-bold text-emerald-600/70 uppercase">Bookings</p>
-            </div>
-            <div className="flex-1 bg-gradient-to-br from-amber-50 to-amber-100 dark:from-amber-900/20 dark:to-amber-900/10 rounded-xl p-3 text-center">
-              <p className="text-lg font-black text-amber-600 dark:text-amber-400">{leads.length}</p>
-              <p className="text-[9px] font-bold text-amber-600/70 uppercase">Leads</p>
-            </div>
-          </div>
-
-          <Link to="/" target="_blank" className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/50 font-semibold transition-all text-xs group">
-            <span className="material-symbols-outlined text-[18px] group-hover:text-indigo-500 transition-colors">open_in_new</span>
-            <span>View Live Website</span>
-          </Link>
-          <button type="button" onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 font-semibold transition-all text-xs cursor-pointer group">
-            <span className="material-symbols-outlined text-[18px] group-hover:scale-110 transition-transform">logout</span>
-            <span>Log Out</span>
-          </button>
-        </div>
-      </aside>
-
-      {/* Main Content Wrapper */}
-      <div className="flex-1 flex flex-col min-h-screen print:h-auto overflow-y-auto print:overflow-visible relative bg-slate-50 dark:bg-[#0B1116] print:bg-white pb-20 lg:pb-0">
-
-        {/* Sticky Top Header */}
-        <header className="print:hidden h-20 flex items-center justify-between px-4 lg:px-8 border-b border-slate-200/60 dark:border-slate-800 bg-white/80 dark:bg-[#151d29]/80 backdrop-blur-xl z-20 shrink-0">
-          <div className="flex items-center gap-3">
+      <header className={`print:hidden sticky ${isMasquerading ? 'top-8' : 'top-0'} z-[110] bg-white/95 dark:bg-[#0F172A]/95 backdrop-blur-xl border-b border-slate-200/80 dark:border-slate-800/80 shadow-sm transition-all`}>
+        <div className="max-w-[1700px] mx-auto h-16 px-4 lg:px-8 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3 shrink-0 pr-3 xl:pr-5 border-r border-slate-200/60 dark:border-slate-800/60">
             <button
-              className="lg:hidden p-2.5 -ml-1 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors active:scale-95 flex items-center justify-center"
-              onClick={toggleSidebar}
+              onClick={() => setIsMobileDrawerOpen(true)}
+              className="lg:hidden p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
               title="Open Navigation Menu"
             >
               <span className="material-symbols-outlined text-2xl">menu</span>
             </button>
 
-            {/* Mobile Header Branding */}
-            <div className="flex lg:hidden items-center gap-2">
-              <img src="/logo.png" alt="Logo" className="h-7 w-auto object-contain" />
-              <span className="font-black text-base tracking-tight text-slate-900 dark:text-white">SHRAWELLO</span>
-            </div>
+            <Link to="/admin" className="flex items-center gap-2.5 group">
+              <div className="h-9 w-auto flex items-center justify-center transition-transform group-hover:scale-105">
+                <img src="/logo.png" alt="SHRAWELLO Logo" className="h-full object-contain drop-shadow-sm" />
+              </div>
+              <div className="flex flex-col">
+                <span className="font-black text-base tracking-tight leading-none text-slate-900 dark:text-white">SHRAWELLO</span>
+                <span className="text-[9px] font-bold text-transparent bg-clip-text bg-gradient-to-r from-indigo-500 to-purple-500 uppercase tracking-[0.18em] mt-0.5">Admin Hub</span>
+              </div>
+            </Link>
           </div>
 
-          <div className="flex items-center gap-2 lg:gap-6">
-            {/* Mobile Search Icon Trigger */}
+          {/* Desktop Top Primary Categories Navigation Tabs */}
+          <nav ref={megaMenuRef} className="hidden lg:flex items-center gap-1 xl:gap-2 relative h-full shrink-0">
+            {visibleCategories.map((category, catIdx) => {
+              const isCategoryActive = category.items.some(item =>
+                item.path === '/admin'
+                  ? location.pathname === '/admin'
+                  : location.pathname === item.path || location.pathname.startsWith(item.path + '/')
+              );
+              const isOpen = activeMegaCategory === category.key;
+              const liveStatBadge = getCategoryStatBadge(category.key);
+              const isRightAligned = catIdx >= Math.floor(visibleCategories.length / 2);
+
+              return (
+                <div
+                  key={category.key}
+                  className="relative h-full flex items-center shrink-0"
+                  onMouseEnter={() => setActiveMegaCategory(category.key)}
+                >
+                  <button
+                    onClick={() => setActiveMegaCategory(isOpen ? null : category.key)}
+                    className={`group flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer ${
+                      isCategoryActive || isOpen
+                        ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-md ring-2 ring-indigo-500/20'
+                        : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <span className={`material-symbols-outlined text-[18px] transition-transform group-hover:scale-110 ${
+                      isCategoryActive || isOpen ? 'text-indigo-400 dark:text-indigo-600' : 'text-slate-400'
+                    }`}>
+                      {category.icon}
+                    </span>
+                    <span className="whitespace-nowrap">{category.title}</span>
+                    
+                    {/* Live Stat Badge Pill (Displayed cleanly on 2xl screens) */}
+                    <span className={`hidden 2xl:inline-block text-[10px] font-black px-1.5 py-0.5 rounded-md transition-all ${
+                      isCategoryActive || isOpen
+                        ? 'bg-indigo-500/30 text-indigo-200 dark:bg-indigo-100 dark:text-indigo-800'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
+                    }`}>
+                      {liveStatBadge}
+                    </span>
+
+                    <span className={`material-symbols-outlined text-[16px] transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}>
+                      expand_more
+                    </span>
+                  </button>
+
+                  {/* 2-Column Pro Max Mega-Menu Dropdown Popover with Smart Alignment */}
+                  {isOpen && (
+                    <div
+                      onMouseLeave={() => setActiveMegaCategory(null)}
+                      className={`absolute top-full mt-1.5 w-[660px] max-w-[calc(100vw-2rem)] bg-white dark:bg-[#0F172A] rounded-3xl shadow-2xl border border-slate-200/80 dark:border-slate-800 z-[150] animate-in fade-in zoom-in-95 overflow-hidden flex ${
+                        isRightAligned ? 'right-0' : 'left-0'
+                      }`}
+                    >
+                      {/* Left Column: Category Summary & Quick Action Card */}
+                      <div className="w-56 bg-gradient-to-b from-slate-50 to-indigo-50/30 dark:from-slate-900 dark:to-slate-800/40 p-4 border-r border-slate-100 dark:border-slate-800 flex flex-col justify-between shrink-0">
+                        <div>
+                          <div className="flex items-center gap-2 mb-3">
+                            <div className="size-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-md">
+                              <span className="material-symbols-outlined text-[18px]">{category.icon}</span>
+                            </div>
+                            <div>
+                              <p className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-wider">{category.title}</p>
+                              <p className="text-[10px] font-semibold text-slate-400">{category.items.length} Active Modules</p>
+                            </div>
+                          </div>
+
+                          <div className="p-3 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/70 dark:border-slate-700/70 shadow-sm space-y-1 mb-3">
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Live Metric</p>
+                            <p className="text-sm font-black text-indigo-600 dark:text-indigo-400">{liveStatBadge}</p>
+                            <p className="text-[10px] text-slate-500 dark:text-slate-400">Synced with MySQL tables</p>
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          {/* Quick Action Trigger */}
+                          {hasPermission(category.quickAction.module as any, 'manage') && (
+                            <button
+                              onClick={() => {
+                                navigate(category.quickAction.path);
+                                setActiveMegaCategory(null);
+                              }}
+                              className="w-full flex items-center justify-center gap-2 py-2.5 px-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-xs font-bold rounded-xl shadow-md hover:opacity-90 transition-opacity cursor-pointer"
+                            >
+                              <span className="material-symbols-outlined text-[16px]">{category.quickAction.icon}</span>
+                              <span className="truncate">{category.quickAction.label}</span>
+                            </button>
+                          )}
+
+                          <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 px-1">
+                            <span>Shortcut</span>
+                            <span className="bg-slate-200 dark:bg-slate-700 px-1.5 py-0.5 rounded text-slate-700 dark:text-slate-300">{category.altShortcut}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Right Column: Subcategories Grid */}
+                      <div className="flex-1 p-3 grid grid-cols-2 gap-2 max-h-[440px] overflow-y-auto overscroll-contain">
+                        {category.items.map((item) => {
+                          const isItemActive = item.path === '/admin'
+                            ? location.pathname === '/admin'
+                            : location.pathname === item.path || location.pathname.startsWith(item.path + '/');
+
+                          return (
+                            <Link
+                              key={item.path}
+                              to={item.path}
+                              onClick={() => setActiveMegaCategory(null)}
+                              className={`flex items-start gap-2.5 p-2.5 rounded-2xl transition-all duration-150 group text-left ${
+                                isItemActive
+                                  ? 'bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/50 shadow-sm'
+                                  : 'hover:bg-slate-50 dark:hover:bg-slate-800/50 border border-transparent'
+                              }`}
+                            >
+                              <div className={`size-8 rounded-xl flex items-center justify-center shrink-0 transition-transform group-hover:scale-110 ${
+                                isItemActive ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 group-hover:bg-indigo-500 group-hover:text-white'
+                              }`}>
+                                <span className="material-symbols-outlined text-[16px]">{item.icon}</span>
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center justify-between">
+                                  <p className={`text-xs font-bold truncate ${
+                                    isItemActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-900 dark:text-white group-hover:text-indigo-500'
+                                  }`}>
+                                    {item.name}
+                                  </p>
+                                  {item.tag && (
+                                    <span className="text-[9px] font-bold text-slate-400 dark:text-slate-500 ml-1 shrink-0">
+                                      {item.tag}
+                                    </span>
+                                  )}
+                                </div>
+                                {item.desc && (
+                                  <p className="text-[10px] text-slate-400 dark:text-slate-500 line-clamp-1 mt-0.5">
+                                    {item.desc}
+                                  </p>
+                                )}
+                              </div>
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </nav>
+
+          {/* Right Section Header Controls (Anchored & Shrink-0) */}
+          <div className="flex items-center gap-1.5 lg:gap-3 shrink-0">
+            
+            {/* Search Bar Input Trigger */}
             <button
               onClick={() => setIsCommandPaletteOpen(true)}
-              className="lg:hidden p-2.5 rounded-full text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors border border-transparent hover:border-slate-200 dark:hover:border-slate-700"
-              title="Search"
+              className="flex items-center gap-2 h-10 px-3 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-xs font-medium border border-transparent"
+              title="Search System (Cmd/Ctrl + K)"
             >
-              <span className="material-symbols-outlined text-[22px]">search</span>
+              <span className="material-symbols-outlined text-[18px]">search</span>
+              <span className="hidden xl:inline text-slate-400">Search...</span>
+              <span className="hidden xl:inline-flex text-[9px] font-bold text-slate-400 bg-white dark:bg-slate-700 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-600">
+                ⌘K
+              </span>
             </button>
 
-            {/* Modern Search Bar */}
-            <div className="hidden lg:flex relative group">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 material-symbols-outlined text-[20px] group-focus-within:text-primary transition-colors">search</span>
-              <input
-                className="h-11 w-80 bg-slate-100 dark:bg-slate-800 border-none rounded-full pl-12 pr-12 text-sm font-semibold focus:ring-2 focus:ring-primary/20 placeholder:text-slate-400 transition-all focus:w-96 focus:bg-white dark:focus:bg-slate-900 shadow-sm"
-                placeholder="Search anything..."
-                type="text"
-                onKeyDown={handleSearch}
-              />
-              <div className="absolute right-4 top-1/2 -translate-y-1/2 flex gap-1 pointer-events-none">
-                <span className="text-[10px] font-bold text-slate-400 bg-white dark:bg-slate-700 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-600">/</span>
+            {/* Quick KPI Stats Pills (Shown on 2xl+ monitors) */}
+            <div className="hidden 2xl:flex items-center gap-2">
+              <div className="bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-emerald-200/50 dark:border-emerald-800/30">
+                <span className="material-symbols-outlined text-[14px]">confirmation_number</span>
+                <span>{bookings.length} Bookings</span>
+              </div>
+              <div className="bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-amber-200/50 dark:border-amber-800/30">
+                <span className="material-symbols-outlined text-[14px]">groups</span>
+                <span>{leads.length} Leads</span>
               </div>
             </div>
 
-            {/* Notification Bell */}
-            <div className="relative">
-              <button onClick={handleNotifications} className="relative p-2.5 rounded-full text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors border border-transparent hover:border-slate-200 dark:hover:border-slate-700">
+            {/* Notification Bell Dropdown */}
+            <div className="relative shrink-0">
+              <button
+                onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
+                className="relative size-10 rounded-full text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors border border-transparent"
+                title="Notifications"
+              >
                 <span className="material-symbols-outlined text-[22px]">notifications</span>
                 {(followUps.some(f => f.status === 'Pending' && f.reminderEnabled && f.scheduledAt && new Date(f.scheduledAt) <= new Date() && !dismissedIds.has(f.id)) ||
                   inAppNotifications.some(n => !n.isRead)) && (
-                  <span className="absolute top-2.5 right-2.5 size-2.5 bg-red-500 rounded-full border-2 border-white dark:border-[#151d29] animate-pulse"></span>
+                  <span className="absolute top-2 right-2 size-2.5 bg-red-500 rounded-full border-2 border-white dark:border-[#0F172A] animate-pulse" />
                 )}
               </button>
 
-              {/* Notifications Dropdown */}
+              {/* Notifications Popover */}
               {isNotificationsOpen && (
                 <>
                   <div className="fixed inset-0 z-[140]" onClick={() => setIsNotificationsOpen(false)} />
-                  <div className="absolute right-0 mt-2 w-96 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden z-[150] animate-in slide-in-from-top-2">
-                    {/* Header */}
+                  <div className="absolute right-0 mt-2 w-96 max-w-[calc(100vw-2rem)] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden z-[150] animate-in slide-in-from-top-2">
                     <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20">
                       <div className="flex items-center gap-2">
                         <span className="material-symbols-outlined text-[18px] text-indigo-500">notifications_active</span>
                         <h3 className="font-bold text-slate-900 dark:text-white text-sm">Notifications</h3>
                       </div>
-                      <div className="flex items-center gap-2">
-                        {(() => {
-                          const count = followUps.filter(f => f.status === 'Pending' && f.reminderEnabled && f.scheduledAt && new Date(f.scheduledAt) <= new Date() && !dismissedIds.has(f.id)).length;
-                          const unreadNotifs = inAppNotifications.filter(n => !n.isRead).length;
-                          const total = count + unreadNotifs;
-                          return total > 0 ? (
-                            <span className="text-xs font-bold px-2 py-0.5 bg-red-500 text-white rounded-full">{total} new</span>
-                          ) : null;
-                        })()}
-                      </div>
+                      {unifiedItems.length > 0 && (
+                        <span className="text-xs font-bold px-2 py-0.5 bg-red-500 text-white rounded-full">
+                          {unifiedItems.length} active
+                        </span>
+                      )}
                     </div>
 
-                    {/* Notification List */}
                     <div className="max-h-[60vh] overflow-y-auto overscroll-contain divide-y divide-slate-50 dark:divide-slate-800/50">
-                      {(() => {
-                        const getRelativeTime = (dateStr: string) => {
-                          if (!dateStr) return '';
-                          const diff = Date.now() - new Date(dateStr).getTime();
-                          const mins = Math.floor(diff / 60000);
-                          const hrs = Math.floor(mins / 60);
-                          const days = Math.floor(hrs / 24);
-                          if (days > 0) return `${days}d ago`;
-                          if (hrs > 0) return `${hrs}h ago`;
-                          if (mins > 0) return `${mins}m ago`;
-                          return 'Just now';
-                        };
-
-                        if (unifiedItems.length === 0) {
-                          return (
-                            <div className="py-10 text-center flex flex-col items-center justify-center gap-2">
-                              <div className="size-14 rounded-2xl bg-gradient-to-br from-emerald-100 to-teal-100 dark:from-emerald-900/20 dark:to-teal-900/20 flex items-center justify-center">
-                                <span className="material-symbols-outlined text-3xl text-emerald-500">check_circle</span>
+                      {unifiedItems.length === 0 ? (
+                        <div className="py-10 text-center flex flex-col items-center justify-center gap-2">
+                          <div className="size-14 rounded-2xl bg-gradient-to-br from-emerald-100 to-teal-100 dark:from-emerald-900/20 dark:to-teal-900/20 flex items-center justify-center">
+                            <span className="material-symbols-outlined text-3xl text-emerald-500">check_circle</span>
+                          </div>
+                          <p className="text-sm font-bold text-slate-700 dark:text-slate-200 mt-1">All caught up!</p>
+                          <p className="text-xs text-slate-400 dark:text-slate-500">No pending notifications</p>
+                        </div>
+                      ) : (
+                        unifiedItems.map((item) => (
+                          <div
+                            key={item.id}
+                            onClick={() => {
+                              if (item.type === 'followup') {
+                                navigate('/admin/leads');
+                                setIsNotificationsOpen(false);
+                              } else {
+                                handleMarkNotificationRead(item.id);
+                              }
+                            }}
+                            className="p-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer"
+                          >
+                            <div className="flex gap-3">
+                              <div className="size-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shrink-0 shadow-sm">
+                                <span className="material-symbols-outlined text-[16px]">
+                                  {item.type === 'followup' ? 'alarm' : 'notifications'}
+                                </span>
                               </div>
-                              <p className="text-sm font-bold text-slate-700 dark:text-slate-200 mt-1">All caught up!</p>
-                              <p className="text-xs text-slate-400 dark:text-slate-500">No pending notifications</p>
-                            </div>
-                          );
-                        }
-
-                        return unifiedItems.map((item, idx) => {
-                          const isFollowUp = item.type === 'followup';
-                          const isUnread = !item.isRead;
-
-                          // Icon styling
-                          let iconName = 'notifications';
-                          let iconBg = 'bg-gradient-to-br from-blue-500 to-indigo-600';
-                          
-                          if (isFollowUp) {
-                            const p = item.rawItem.priority;
-                            iconName = 'alarm';
-                            iconBg = p === 'High'
-                              ? 'bg-gradient-to-br from-red-500 to-rose-600'
-                              : p === 'Low'
-                              ? 'bg-gradient-to-br from-emerald-400 to-teal-500'
-                              : 'bg-gradient-to-br from-indigo-500 to-purple-600';
-                          } else {
-                            if (item.type === 'nudge') {
-                              iconName = 'campaign';
-                              iconBg = 'bg-gradient-to-br from-amber-500 to-orange-600';
-                            } else if (item.type === 'milestone') {
-                              iconName = 'celebration';
-                              iconBg = 'bg-gradient-to-br from-emerald-500 to-teal-600';
-                            } else if (item.type === 'alert') {
-                              iconName = 'warning';
-                              iconBg = 'bg-gradient-to-br from-red-500 to-rose-600';
-                            }
-                          }
-
-                          return (
-                            <div
-                              key={item.id}
-                              onClick={() => {
-                                if (!isFollowUp && isUnread) {
-                                  handleMarkNotificationRead(item.id);
-                                }
-                                if (isFollowUp) {
-                                  navigate('/admin/leads');
-                                  setIsNotificationsOpen(false);
-                                }
-                              }}
-                              className={`p-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group cursor-pointer ${
-                                isUnread || (isFollowUp && idx === 0) ? 'bg-indigo-50/40 dark:bg-indigo-900/10' : ''
-                              }`}
-                            >
-                              <div className="flex gap-3">
-                                {/* Icon */}
-                                <div className={`size-9 rounded-xl flex items-center justify-center text-white shrink-0 shadow-sm ${iconBg}`}>
-                                  <span className="material-symbols-outlined text-[16px]">{iconName}</span>
-                                </div>
-
-                                {/* Content */}
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-start justify-between gap-1">
-                                    <p className={`text-sm leading-tight text-slate-900 dark:text-white ${isUnread || isFollowUp ? 'font-bold' : 'font-medium'}`}>
-                                      {item.title}
-                                    </p>
-                                    {/* Dismiss / Mark Read X */}
-                                    {isFollowUp ? (
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setDismissedIds(prev => new Set(prev).add(item.id));
-                                        }}
-                                        className="shrink-0 size-5 rounded-full text-slate-300 hover:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-center transition-colors opacity-0 group-hover:opacity-100"
-                                        title="Dismiss"
-                                      >
-                                        <span className="material-symbols-outlined text-[14px]">close</span>
-                                      </button>
-                                    ) : (
-                                      isUnread && (
-                                        <button
-                                          onClick={(e) => handleMarkNotificationRead(item.id, e)}
-                                          className="shrink-0 size-5 rounded-full text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50 dark:hover:bg-indigo-950 flex items-center justify-center transition-colors"
-                                          title="Mark Read"
-                                        >
-                                          <span className="material-symbols-outlined text-[14px]">check</span>
-                                        </button>
-                                      )
-                                    )}
-                                  </div>
-
-                                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2 leading-relaxed">
-                                    {item.message}
-                                  </p>
-
-                                  <div className="flex items-center justify-between mt-2">
-                                    <div className="flex items-center gap-1.5">
-                                      {isFollowUp && (
-                                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${
-                                          item.rawItem.priority === 'High' ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400'
-                                          : item.rawItem.priority === 'Low' ? 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400'
-                                          : 'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400'
-                                        }`}>
-                                          {item.rawItem.priority || 'Med'}
-                                        </span>
-                                      )}
-                                      {!isFollowUp && (
-                                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400`}>
-                                          {item.type}
-                                        </span>
-                                      )}
-                                      <span className="text-[10px] font-semibold text-slate-400 flex items-center gap-0.5">
-                                        <span className="material-symbols-outlined text-[11px]">schedule</span>
-                                        {getRelativeTime(item.date)}
-                                      </span>
-                                    </div>
-
-                                    {/* Action button */}
-                                    {isFollowUp && (
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          updateFollowUp(item.id, { 
-                                            status: 'Done', 
-                                            completedAt: new Date().toISOString() 
-                                          });
-                                        }}
-                                        className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 bg-emerald-50 dark:bg-emerald-900/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 px-2 py-1 rounded-lg transition-colors flex items-center gap-1"
-                                        title="Mark as Done"
-                                      >
-                                        <span className="material-symbols-outlined text-[12px]">check</span>
-                                        Done
-                                      </button>
-                                    )}
-                                  </div>
-                                </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-bold text-slate-900 dark:text-white line-clamp-1">{item.title}</p>
+                                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2">{item.message}</p>
                               </div>
                             </div>
-                          );
-                        });
-                      })()}
+                          </div>
+                        ))
+                      )}
                     </div>
 
-                    {/* Footer */}
                     <div className="p-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 flex items-center gap-2">
                       <button
-                        onClick={() => {
-                          // Mark all visible followups as Completed
-                          followUps
-                            .filter(f => f.status === 'Pending' && f.reminderEnabled && f.scheduledAt && new Date(f.scheduledAt) <= new Date() && !dismissedIds.has(f.id))
-                            .forEach(f => updateFollowUp(f.id, { 
-                              status: 'Done', 
-                              completedAt: new Date().toISOString() 
-                            }));
-                          // Mark all unread notifications as read
-                          handleMarkAllNotificationsRead();
-                        }}
-                        className="flex-1 py-2 text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-xl transition-all border border-emerald-200 dark:border-emerald-800/50"
+                        onClick={handleMarkAllNotificationsRead}
+                        className="flex-1 py-2 text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 rounded-xl transition-all border border-emerald-200"
                       >
-                        ✓ Mark All Done/Read
-                      </button>
-                      <button
-                        onClick={() => {
-                          navigate('/admin/leads');
-                          setIsNotificationsOpen(false);
-                        }}
-                        className="flex-1 py-2 text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all border border-slate-200 dark:border-slate-700"
-                      >
-                        View Leads →
+                        ✓ Mark All Read
                       </button>
                     </div>
                   </div>
@@ -780,239 +738,362 @@ export const AdminLayout: React.FC = () => {
               )}
             </div>
 
-            {/* User Profile */}
-            <div className="flex items-center gap-3 pl-6 border-l border-slate-200 dark:border-slate-700 h-8">
-              <div className="text-right hidden lg:block leading-tight">
-                <p className="text-sm font-bold text-slate-900 dark:text-white">{currentUser.name}</p>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">{currentUser.role} ({currentUser.userType})</p>
-              </div>
-              <div className={`size-10 rounded-full bg-${currentUser.color}-100 dark:bg-${currentUser.color}-900 flex items-center justify-center font-bold text-${currentUser.color}-600 dark:text-${currentUser.color}-400 text-sm ring-4 ring-slate-100 dark:ring-slate-800 shadow-md cursor-pointer hover:ring-primary/20 transition-all`}>
-                {currentUser.initials}
-              </div>
-            </div>
-          </div>
-        </header>
+            {/* User Profile Avatar & Dropdown (Always Anchored & Visible) */}
+            <div ref={profileMenuRef} className="relative shrink-0">
+              <button
+                onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
+                className="flex items-center gap-2 p-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                title={`${currentUser.name} (${currentUser.role})`}
+              >
+                <div className="size-9 lg:size-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white font-bold flex items-center justify-center text-xs lg:text-sm shadow-md ring-2 ring-indigo-500/20 shrink-0">
+                  {currentUser.initials}
+                </div>
+                <div className="hidden xl:flex flex-col text-left leading-tight pr-1">
+                  <span className="text-xs font-bold text-slate-900 dark:text-white truncate max-w-[120px]">{currentUser.name}</span>
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">{currentUser.role}</span>
+                </div>
+                <span className="hidden xl:inline material-symbols-outlined text-[18px] text-slate-400">expand_more</span>
+              </button>
 
-        {/* ── Payment Collection Nudge Banner ── */}
-        {(() => {
-          const dueBookings = getPaymentDueBookings(bookings, 15);
-          const nudgeId = 'payment-nudge-global';
-          if (dueBookings.length === 0 || isDismissed(nudgeId) || isSnoozed(nudgeId)) return null;
-          const first = dueBookings[0];
-          const daysLeft = Math.ceil((new Date(first.date).getTime() - Date.now()) / 86_400_000);
-          return (
-            <div className="px-6 pt-3">
-              <SuggestPopup
-                id={nudgeId}
-                variant="banner"
-                icon="payments"
-                color="red"
-                title={`${dueBookings.length} booking${dueBookings.length > 1 ? 's' : ''} with unpaid balance before departure!`}
-                description={`${first.customer}'s trip departs in ${daysLeft} day${daysLeft !== 1 ? 's' : ''} — collect ₹${(first.amount - (first.payment === 'Deposit' ? Math.round(first.amount * 0.3) : 0)).toLocaleString()} now.`}
-                primaryAction={{ label: 'View Bookings', icon: 'open_in_new', onClick: () => navigate('/admin/bookings?filter=unpaid') }}
-                snoozeMinutes={60 * 4}
-              />
-            </div>
-          );
-        })()}
-
-        {/* ── Dashboard Intelligence Banners (only shown on /admin dashboard) ── */}
-        {location.pathname === '/admin' && (() => {
-          // #8: Revenue drop — compare this month vs last month
-          const now = new Date();
-          const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-          const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().split('T')[0];
-          const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().split('T')[0];
-          const thisMonthRevenue = bookings.filter(b => b.date >= thisMonthStart && b.payment !== 'Refunded').reduce((s, b) => s + (b.amount || 0), 0);
-          const lastMonthRevenue = bookings.filter(b => b.date >= lastMonthStart && b.date <= lastMonthEnd && b.payment !== 'Refunded').reduce((s, b) => s + (b.amount || 0), 0);
-          const revenueDrop = lastMonthRevenue > 0 ? Math.round(((lastMonthRevenue - thisMonthRevenue) / lastMonthRevenue) * 100) : 0;
-
-          // #9: Zero new leads this week
-          const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString().split('T')[0];
-          const newLeadsThisWeek = leads.filter(l => (l.createdAt || '').split('T')[0] >= weekAgo).length;
-
-          // #10: Low conversion rate (<10% of leads converted)
-          const totalLeads = leads.length;
-          const convertedLeads = leads.filter(l => l.status === 'Converted').length;
-          const conversionRate = totalLeads > 0 ? Math.round((convertedLeads / totalLeads) * 100) : 0;
-
-          return (
-            <div className="px-6 pt-2 space-y-2">
-              {/* #8 Revenue Drop */}
-              {revenueDrop >= 15 && !isSnoozed('dashboard-revenue-drop') && !isDismissed('dashboard-revenue-drop') && (
-                <SuggestPopup
-                  id="dashboard-revenue-drop"
-                  variant="banner"
-                  icon="trending_down"
-                  color="red"
-                  title={`Revenue is ${revenueDrop}% below last month`}
-                  description="Consider launching a promotional offer or following up with warm leads to boost this month's numbers."
-                  primaryAction={{ label: 'View Analytics', icon: 'bar_chart', onClick: () => navigate('/admin/analytics') }}
-                  snoozeMinutes={60 * 24}
-                />
-              )}
-              {/* #9 Zero new leads this week */}
-              {newLeadsThisWeek === 0 && totalLeads > 0 && !isSnoozed('dashboard-no-leads-week') && !isDismissed('dashboard-no-leads-week') && (
-                <SuggestPopup
-                  id="dashboard-no-leads-week"
-                  variant="banner"
-                  icon="person_search"
-                  color="amber"
-                  title="No new leads this week!"
-                  description="Your pipeline is dry. Consider running a WhatsApp campaign or promoting a new package to generate inquiries."
-                  primaryAction={{ label: 'Go to Marketing', icon: 'campaign', onClick: () => navigate('/admin/marketing') }}
-                  snoozeMinutes={60 * 24 * 3}
-                />
-              )}
-              {/* #10 Low conversion rate */}
-              {totalLeads >= 10 && conversionRate < 10 && !isSnoozed('dashboard-low-conversion') && !isDismissed('dashboard-low-conversion') && (
-                <SuggestPopup
-                  id="dashboard-low-conversion"
-                  variant="banner"
-                  icon="funnel"
-                  color="purple"
-                  title={`Only ${conversionRate}% of leads are converting`}
-                  description="Review your proposal quality and follow-up frequency. Hot leads older than 3 days with no contact are likely going cold."
-                  primaryAction={{ label: 'View Leads', icon: 'groups', onClick: () => navigate('/admin/leads') }}
-                  snoozeMinutes={60 * 24 * 7}
-                />
-              )}
-            </div>
-          );
-        })()}
-
-        {/* Content Area */}
-        <div className="flex-1 print:overflow-visible scroll-smooth pb-6 lg:pb-0 overflow-x-hidden min-w-0">
-          <ErrorBoundary fallbackTitle="Page failed to load">
-            <Outlet />
-          </ErrorBoundary>
-        </div>
-
-        {/* ── Vendor Payment Due – Floating Alert (bottom-left) ── */}
-        {(() => {
-          // Gather supplier bookings with unpaid payment due within 7 days
-          // We use bookings.supplierBookings which may exist on some bookings
-          const vendorDue: Array<{ name: string; amount: number; daysLeft: number }> = [];
-          bookings.forEach(b => {
-            (b as any).supplierBookings?.forEach((sb: any) => {
-              if (sb.paymentStatus === 'Unpaid' && sb.paymentDueDate) {
-                const d = Math.ceil((new Date(sb.paymentDueDate).getTime() - Date.now()) / 86_400_000);
-                if (d >= 0 && d <= 7) vendorDue.push({ name: sb.vendorName || 'Vendor', amount: sb.totalCost || 0, daysLeft: d });
-              }
-            });
-          });
-          if (vendorDue.length === 0) return null;
-          const v = vendorDue[vendorAlertIdx % vendorDue.length];
-          const nudgeId = `vendor-due-${v.name}-${v.daysLeft}`;
-          if (isDismissed(nudgeId)) return null;
-          return (
-            <div className="fixed bottom-6 left-4 right-4 md:left-[300px] md:right-auto z-[49]">
-              <SuggestPopup
-                id={nudgeId}
-                variant="float"
-                icon="storefront"
-                color="amber"
-                title={`Vendor payment due in ${v.daysLeft} day${v.daysLeft !== 1 ? 's' : ''}!`}
-                description={`₹${v.amount.toLocaleString()} owed to ${v.name}. Pay before the deadline to avoid issues.`}
-                primaryAction={{ label: 'View Vendors', icon: 'open_in_new', onClick: () => navigate('/admin/vendors') }}
-                snoozeMinutes={60 * 24}
-                autoDismissMs={15000}
-              />
-            </div>
-          );
-        })()}
-
-        {/* ── #15: Overdue Backlog Warning (staff login) ── */}
-        {(() => {
-          if (!currentUser) return null;
-          const isStaff = currentUser.role === 'Staff';
-          const myOverdue = followUps.filter(f =>
-            f.status === 'Pending' &&
-            f.scheduledAt &&
-            new Date(f.scheduledAt) <= new Date()
-          ).length;
-          const nudgeId = `overdue-backlog-${currentUser.id}`;
-          if (myOverdue < 10 || isDismissed(nudgeId) || isSnoozed(nudgeId)) return null;
-          return (
-            <div className="fixed bottom-20 lg:bottom-6 right-4 lg:right-6 z-[48]">
-              <SuggestPopup
-                id={nudgeId}
-                variant="float"
-                icon="warning"
-                color="red"
-                title={`${myOverdue} overdue follow-ups!`}
-                description="Your backlog is growing. Clear overdue items before adding new leads to maintain quality."
-                primaryAction={{ label: 'View Follow-ups', icon: 'alarm', onClick: () => navigate('/admin/leads?filter=overdue') }}
-                snoozeMinutes={60 * 4}
-              />
-            </div>
-          );
-        })()}
-
-        {/* ── #16: Idle Session Warning ── */}
-        {isUserIdle && !isSnoozed('idle-session-warning') && !isDismissed('idle-session-warning') && (
-          <div className="fixed bottom-6 left-4 right-4 md:left-[300px] md:right-auto z-[47]">
-            <SuggestPopup
-              id="idle-session-warning"
-              variant="float"
-              icon="timer"
-              color="amber"
-              title="Still working?"
-              description="You've been inactive for 20 minutes. Save any unsaved changes — your session may expire soon."
-              primaryAction={{ label: "I'm still here", icon: 'check', onClick: () => setIsUserIdle(false) }}
-              snoozeMinutes={30}
-              autoDismissMs={60000}
-            />
-          </div>
-        )}
-
-        {/* ── #17: Positive Reinforcement ── */}
-        {showPositiveReinforcement && (
-          <div className="fixed bottom-6 left-4 right-4 md:left-[300px] md:right-auto z-[46]">
-            <SuggestPopup
-              id={`positive-reinforcement-${sessionBookingsProcessed}`}
-              variant="float"
-              icon="celebration"
-              color="emerald"
-              title={`${sessionBookingsProcessed} bookings processed today! 🔥`}
-              description="You're on a roll! Great work keeping the pipeline moving. Keep it up!"
-              autoDismissMs={8000}
-            />
-          </div>
-        )}
-
-        {/* Floating Action Button (FAB) */}
-        <div className="fixed bottom-6 right-4 lg:right-6 z-50">
-          {/* FAB Menu */}
-          {isFabOpen && (
-            <div className="absolute bottom-16 right-0 mb-2 space-y-2 animate-slide-up">
-              {quickActions.map((action, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => { navigate(action.path); setIsFabOpen(false); }}
-                  className={`flex items-center gap-3 px-4 py-3 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-100 dark:border-slate-700 hover:scale-105 transition-all group whitespace-nowrap`}
-                  style={{ animationDelay: `${idx * 50}ms` }}
-                >
-                  <div className={`size-10 rounded-xl bg-gradient-to-br ${action.color} flex items-center justify-center text-white shadow-lg`}>
-                    <span className="material-symbols-outlined text-[20px]">{action.icon}</span>
+              {/* Profile Menu Popover */}
+              {isProfileMenuOpen && (
+                <div className="absolute right-0 mt-2 w-64 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden z-[150] animate-in slide-in-from-top-2 p-2 space-y-1">
+                  <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
+                    <p className="text-sm font-bold text-slate-900 dark:text-white">{currentUser.name}</p>
+                    <p className="text-xs text-slate-500">{currentUser.email || currentUser.role}</p>
                   </div>
-                  <span className="font-semibold text-slate-700 dark:text-slate-200 text-sm">{action.name}</span>
-                </button>
-              ))}
+                  <Link
+                    to="/"
+                    target="_blank"
+                    className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  >
+                    <span className="material-symbols-outlined text-[18px] text-indigo-500">open_in_new</span>
+                    <span>View Live Website</span>
+                  </Link>
+                  <Link
+                    to="/admin/settings"
+                    className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  >
+                    <span className="material-symbols-outlined text-[18px] text-purple-500">settings</span>
+                    <span>Account Settings</span>
+                  </Link>
+                  <div className="border-t border-slate-100 dark:border-slate-800 pt-1">
+                    <button
+                      onClick={handleLogout}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">logout</span>
+                      <span>Log Out</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <div className="print:hidden bg-slate-100/80 dark:bg-[#0B1116] border-b border-slate-200/70 dark:border-slate-800/70 px-4 lg:px-8 py-2">
+        <div className="max-w-[1700px] mx-auto flex flex-col md:flex-row md:items-center justify-between gap-2 text-xs text-slate-500 font-medium">
+          <div className="flex items-center gap-2 shrink-0">
+            <Link to="/admin" className="hover:text-indigo-600 transition-colors flex items-center gap-1 font-semibold">
+              <span className="material-symbols-outlined text-[16px]">home</span>
+              <span>Admin</span>
+            </Link>
+            <span className="text-slate-300 dark:text-slate-700">/</span>
+            <span className="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1">
+              <span className="material-symbols-outlined text-[15px] text-indigo-500">{activeCategoryInfo.activeCat.icon}</span>
+              {activeCategoryInfo.activeCat.title}
+            </span>
+            <span className="text-slate-300 dark:text-slate-700">/</span>
+            <span className="font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 px-2 py-0.5 rounded-md">
+              {activeCategoryInfo.activeItem.name}
+            </span>
+          </div>
+
+          {activeCategoryInfo.activeCat.items.length > 1 && (
+            <div className="flex items-center gap-1.5 overflow-x-auto py-0.5 scrollbar-none">
+              {activeCategoryInfo.activeCat.items.map((subItem) => {
+                const isSubActive = subItem.path === '/admin'
+                  ? location.pathname === '/admin'
+                  : location.pathname === subItem.path || location.pathname.startsWith(subItem.path + '/');
+                return (
+                  <Link
+                    key={subItem.path}
+                    to={subItem.path}
+                    className={`px-3 py-1 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 ${
+                      isSubActive
+                        ? 'bg-indigo-600 text-white shadow-sm ring-2 ring-indigo-500/30'
+                        : 'bg-white/80 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-slate-700 hover:text-indigo-600'
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-[14px]">{subItem.icon}</span>
+                    <span>{subItem.name}</span>
+                  </Link>
+                );
+              })}
             </div>
           )}
-
-          {/* Main FAB Button */}
-          <button
-            onClick={() => setIsFabOpen(!isFabOpen)}
-            className={`size-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-xl shadow-indigo-500/30 flex items-center justify-center transition-all duration-300 hover:shadow-indigo-500/50 hover:scale-105 btn-press ${isFabOpen ? 'rotate-45' : ''}`}
-          >
-            <span className="material-symbols-outlined text-[28px]">{isFabOpen ? 'close' : 'add'}</span>
-          </button>
         </div>
       </div>
 
-      {/* ── Morning Briefing Modal ── */}
+      {isMobileDrawerOpen && (
+        <div className="fixed inset-0 z-[200] lg:hidden">
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setIsMobileDrawerOpen(false)} />
+          <div className="fixed inset-y-0 left-0 w-[300px] bg-white dark:bg-[#0F172A] shadow-2xl flex flex-col z-[210] animate-in slide-in-from-left">
+            <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <img src="/logo.png" alt="Logo" className="h-8 w-auto" />
+                <span className="font-black text-base tracking-tight text-slate-900 dark:text-white">SHRAWELLO</span>
+              </div>
+              <button onClick={() => setIsMobileDrawerOpen(false)} className="p-2 text-slate-400 hover:text-slate-600">
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-thin">
+              {visibleCategories.map((category) => {
+                const isExpanded = mobileExpandedCat === category.key;
+                return (
+                  <div key={category.key} className="border border-slate-100 dark:border-slate-800 rounded-2xl overflow-hidden">
+                    <button
+                      onClick={() => setMobileExpandedCat(isExpanded ? null : category.key)}
+                      className="w-full flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800/50 font-bold text-xs text-slate-900 dark:text-white"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="material-symbols-outlined text-indigo-500 text-[18px]">{category.icon}</span>
+                        <span>{category.title}</span>
+                      </div>
+                      <span className={`material-symbols-outlined text-[18px] transition-transform ${isExpanded ? 'rotate-180' : ''}`}>
+                        expand_more
+                      </span>
+                    </button>
+                    {isExpanded && (
+                      <div className="p-2 space-y-1 bg-white dark:bg-[#0F172A]">
+                        {category.items.map((item) => (
+                          <Link
+                            key={item.path}
+                            to={item.path}
+                            onClick={() => setIsMobileDrawerOpen(false)}
+                            className="flex items-center gap-3 p-2.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 hover:text-indigo-600"
+                          >
+                            <span className="material-symbols-outlined text-[18px] text-slate-400">{item.icon}</span>
+                            <span>{item.name}</span>
+                          </Link>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <div className="p-4 border-t border-slate-100 dark:border-slate-800 space-y-2">
+              <button
+                onClick={handleLogout}
+                className="w-full flex items-center justify-center gap-2 p-3 bg-red-50 text-red-600 font-bold text-xs rounded-xl"
+              >
+                <span className="material-symbols-outlined text-[18px]">logout</span>
+                Log Out
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {(() => {
+        const dueBookings = getPaymentDueBookings(bookings, 15);
+        const nudgeId = 'payment-nudge-global';
+        if (dueBookings.length === 0 || isDismissed(nudgeId) || isSnoozed(nudgeId)) return null;
+        const first = dueBookings[0];
+        const daysLeft = Math.ceil((new Date(first.date).getTime() - Date.now()) / 86_400_000);
+        return (
+          <div className="max-w-[1700px] mx-auto w-full px-4 lg:px-8 pt-3">
+            <SuggestPopup
+              id={nudgeId}
+              variant="banner"
+              icon="payments"
+              color="red"
+              title={`${dueBookings.length} booking${dueBookings.length > 1 ? 's' : ''} with unpaid balance before departure!`}
+              description={`${first.customer}'s trip departs in ${daysLeft} day${daysLeft !== 1 ? 's' : ''} — collect ₹${(first.amount - (first.payment === 'Deposit' ? Math.round(first.amount * 0.3) : 0)).toLocaleString()} now.`}
+              primaryAction={{ label: 'View Bookings', icon: 'open_in_new', onClick: () => navigate('/admin/bookings?filter=unpaid') }}
+              snoozeMinutes={60 * 4}
+            />
+          </div>
+        );
+      })()}
+
+      {location.pathname === '/admin' && (() => {
+        const now = new Date();
+        const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+        const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().split('T')[0];
+        const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().split('T')[0];
+        const thisMonthRevenue = bookings.filter(b => b.date >= thisMonthStart && b.payment !== 'Refunded').reduce((s, b) => s + (b.amount || 0), 0);
+        const lastMonthRevenue = bookings.filter(b => b.date >= lastMonthStart && b.date <= lastMonthEnd && b.payment !== 'Refunded').reduce((s, b) => s + (b.amount || 0), 0);
+        const revenueDrop = lastMonthRevenue > 0 ? Math.round(((lastMonthRevenue - thisMonthRevenue) / lastMonthRevenue) * 100) : 0;
+        const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString().split('T')[0];
+        const newLeadsThisWeek = leads.filter(l => (l.createdAt || '').split('T')[0] >= weekAgo).length;
+        const totalLeads = leads.length;
+        const convertedLeads = leads.filter(l => l.status === 'Converted').length;
+        const conversionRate = totalLeads > 0 ? Math.round((convertedLeads / totalLeads) * 100) : 0;
+        return (
+          <div className="max-w-[1700px] mx-auto w-full px-4 lg:px-8 pt-2 space-y-2">
+            {revenueDrop >= 15 && !isSnoozed('dashboard-revenue-drop') && !isDismissed('dashboard-revenue-drop') && (
+              <SuggestPopup
+                id="dashboard-revenue-drop"
+                variant="banner"
+                icon="trending_down"
+                color="red"
+                title={`Revenue is ${revenueDrop}% below last month`}
+                description="Consider launching a promotional offer or following up with warm leads to boost this month's numbers."
+                primaryAction={{ label: 'View Analytics', icon: 'bar_chart', onClick: () => navigate('/admin/analytics') }}
+                snoozeMinutes={60 * 24}
+              />
+            )}
+            {newLeadsThisWeek === 0 && totalLeads > 0 && !isSnoozed('dashboard-no-leads-week') && !isDismissed('dashboard-no-leads-week') && (
+              <SuggestPopup
+                id="dashboard-no-leads-week"
+                variant="banner"
+                icon="person_search"
+                color="amber"
+                title="No new leads this week!"
+                description="Your pipeline is dry. Consider running a WhatsApp campaign or promoting a new package to generate inquiries."
+                primaryAction={{ label: 'Go to Marketing', icon: 'campaign', onClick: () => navigate('/admin/marketing') }}
+                snoozeMinutes={60 * 24 * 3}
+              />
+            )}
+            {totalLeads >= 10 && conversionRate < 10 && !isSnoozed('dashboard-low-conversion') && !isDismissed('dashboard-low-conversion') && (
+              <SuggestPopup
+                id="dashboard-low-conversion"
+                variant="banner"
+                icon="funnel"
+                color="purple"
+                title={`Only ${conversionRate}% of leads are converting`}
+                description="Review your proposal quality and follow-up frequency. Hot leads older than 3 days with no contact are likely going cold."
+                primaryAction={{ label: 'View Leads', icon: 'groups', onClick: () => navigate('/admin/leads') }}
+                snoozeMinutes={60 * 24 * 7}
+              />
+            )}
+          </div>
+        );
+      })()}
+
+      <main className="flex-1 max-w-[1700px] w-full mx-auto px-4 lg:px-8 py-6 print:p-0 scroll-smooth overflow-x-hidden min-w-0">
+        <ErrorBoundary fallbackTitle="Page failed to load">
+          <Outlet />
+        </ErrorBoundary>
+      </main>
+
+      {(() => {
+        const vendorDue: Array<{ name: string; amount: number; daysLeft: number }> = [];
+        bookings.forEach(b => {
+          (b as any).supplierBookings?.forEach((sb: any) => {
+            if (sb.paymentStatus === 'Unpaid' && sb.paymentDueDate) {
+              const d = Math.ceil((new Date(sb.paymentDueDate).getTime() - Date.now()) / 86_400_000);
+              if (d >= 0 && d <= 7) vendorDue.push({ name: sb.vendorName || 'Vendor', amount: sb.totalCost || 0, daysLeft: d });
+            }
+          });
+        });
+        if (vendorDue.length === 0) return null;
+        const v = vendorDue[vendorAlertIdx % vendorDue.length];
+        const nudgeId = `vendor-due-${v.name}-${v.daysLeft}`;
+        if (isDismissed(nudgeId)) return null;
+        return (
+          <div className="fixed bottom-6 left-4 right-4 md:left-[300px] md:right-auto z-[49]">
+            <SuggestPopup
+              id={nudgeId}
+              variant="float"
+              icon="storefront"
+              color="amber"
+              title={`Vendor payment due in ${v.daysLeft} day${v.daysLeft !== 1 ? 's' : ''}!`}
+              description={`₹${v.amount.toLocaleString()} owed to ${v.name}. Pay before the deadline to avoid issues.`}
+              primaryAction={{ label: 'View Vendors', icon: 'open_in_new', onClick: () => navigate('/admin/vendors') }}
+              snoozeMinutes={60 * 24}
+              autoDismissMs={15000}
+            />
+          </div>
+        );
+      })()}
+
+      {(() => {
+        if (!currentUser) return null;
+        const myOverdue = followUps.filter(f =>
+          f.status === 'Pending' &&
+          f.scheduledAt &&
+          new Date(f.scheduledAt) <= new Date()
+        ).length;
+        const nudgeId = `overdue-backlog-${currentUser.id}`;
+        if (myOverdue < 10 || isDismissed(nudgeId) || isSnoozed(nudgeId)) return null;
+        return (
+          <div className="fixed bottom-20 lg:bottom-6 right-4 lg:right-6 z-[48]">
+            <SuggestPopup
+              id={nudgeId}
+              variant="float"
+              icon="warning"
+              color="red"
+              title={`${myOverdue} overdue follow-ups!`}
+              description="Your backlog is growing. Clear overdue items before adding new leads to maintain quality."
+              primaryAction={{ label: 'View Follow-ups', icon: 'alarm', onClick: () => navigate('/admin/leads?filter=overdue') }}
+              snoozeMinutes={60 * 4}
+            />
+          </div>
+        );
+      })()}
+
+      {isUserIdle && !isSnoozed('idle-session-warning') && !isDismissed('idle-session-warning') && (
+        <div className="fixed bottom-6 left-4 right-4 md:left-[300px] md:right-auto z-[47]">
+          <SuggestPopup
+            id="idle-session-warning"
+            variant="float"
+            icon="timer"
+            color="amber"
+            title="Still working?"
+            description="You've been inactive for 20 minutes. Save any unsaved changes — your session may expire soon."
+            primaryAction={{ label: "I'm still here", icon: 'check', onClick: () => setIsUserIdle(false) }}
+            snoozeMinutes={30}
+            autoDismissMs={60000}
+          />
+        </div>
+      )}
+
+      {showPositiveReinforcement && (
+        <div className="fixed bottom-6 left-4 right-4 md:left-[300px] md:right-auto z-[46]">
+          <SuggestPopup
+            id={`positive-reinforcement-${sessionBookingsProcessed}`}
+            variant="float"
+            icon="celebration"
+            color="emerald"
+            title={`${sessionBookingsProcessed} bookings processed today! 🔥`}
+            description="You're on a roll! Great work keeping the pipeline moving. Keep it up!"
+            autoDismissMs={8000}
+          />
+        </div>
+      )}
+
+      <div className="fixed bottom-6 right-4 lg:right-6 z-50">
+        {isFabOpen && (
+          <div className="absolute bottom-16 right-0 mb-2 space-y-2 animate-slide-up">
+            {quickActions.map((action, idx) => (
+              <button
+                key={idx}
+                onClick={() => { navigate(action.path); setIsFabOpen(false); }}
+                className="flex items-center gap-3 px-4 py-3 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-100 dark:border-slate-700 hover:scale-105 transition-all group whitespace-nowrap"
+                style={{ animationDelay: `${idx * 50}ms` }}
+              >
+                <div className={`size-10 rounded-xl bg-gradient-to-br ${action.color} flex items-center justify-center text-white shadow-lg`}>
+                  <span className="material-symbols-outlined text-[20px]">{action.icon}</span>
+                </div>
+                <span className="font-semibold text-slate-700 dark:text-slate-200 text-sm">{action.name}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        <button
+          onClick={() => setIsFabOpen(!isFabOpen)}
+          className={`size-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-xl shadow-indigo-500/30 flex items-center justify-center transition-all duration-300 hover:shadow-indigo-500/50 hover:scale-105 ${isFabOpen ? 'rotate-45' : ''}`}
+        >
+          <span className="material-symbols-outlined text-[28px]">{isFabOpen ? 'close' : 'add'}</span>
+        </button>
+      </div>
+
       {showMorningBriefing && (() => {
         const overdueFollowUps = followUps.filter(f => f.status === 'Pending' && f.scheduledAt && new Date(f.scheduledAt) <= new Date()).length;
         const todayDepartures = bookings.filter(b => b.date === new Date().toISOString().split('T')[0] && b.status === 'Confirmed').length;
@@ -1028,7 +1109,7 @@ export const AdminLayout: React.FC = () => {
                     <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">
                       {new Date().getHours() < 12 ? 'Good morning' : new Date().getHours() < 18 ? 'Good afternoon' : 'Good evening'}
                     </p>
-                    <h3 className="text-xl font-black text-slate-900 dark:text-white">{currentUser.name.split(' ')[0]}! Here's your day {new Date().getHours() < 18 ? '☀️' : '🌙'}</h3>
+                    <h3 className="text-xl font-black text-slate-900 dark:text-white">{currentUser.name.split(' ')[0]}! Here's your day ☀️</h3>
                   </div>
                   <button onClick={() => { setShowMorningBriefing(false); localStorage.setItem('morning_briefing_last_shown', new Date().toDateString()); }} className="size-8 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors">
                     <span className="material-symbols-outlined text-[18px]">close</span>
@@ -1053,7 +1134,7 @@ export const AdminLayout: React.FC = () => {
                       </div>
                       <div>
                         <p className="text-sm font-bold text-slate-900 dark:text-white">{todayDepartures} booking{todayDepartures > 1 ? 's' : ''} departing today</p>
-                        <p className="text-xs text-slate-500">Check itineraries are shared</p>
+                        <p className="text-xs text-slate-500 font-medium">Check itineraries are shared</p>
                       </div>
                     </div>
                   )}
@@ -1079,12 +1160,6 @@ export const AdminLayout: React.FC = () => {
                       </div>
                     </div>
                   )}
-                  {overdueFollowUps === 0 && todayDepartures === 0 && unpaidBookings === 0 && hotLeads === 0 && (
-                    <div className="flex items-center gap-3 p-4 bg-emerald-50 dark:bg-emerald-900/10 rounded-xl border border-emerald-100 dark:border-emerald-800/30">
-                      <span className="material-symbols-outlined text-emerald-500 text-[28px]">check_circle</span>
-                      <p className="text-sm font-bold text-slate-900 dark:text-white">All clear! No urgent items today. Great work!</p>
-                    </div>
-                  )}
                 </div>
                 <div className="flex gap-2">
                   <button
@@ -1106,38 +1181,25 @@ export const AdminLayout: React.FC = () => {
         );
       })()}
 
-      {/* Command Palette Modal */}
       {isCommandPaletteOpen && (
         <div className="fixed inset-0 z-[200] flex items-start justify-center pt-[15vh]">
-          {/* Backdrop */}
-          <div
-            className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-fade-in"
-            onClick={() => setIsCommandPaletteOpen(false)}
-          />
-
-          {/* Palette */}
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-fade-in" onClick={() => setIsCommandPaletteOpen(false)} />
           <div className="relative w-full max-w-xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden animate-scale-in">
-            {/* Search Input */}
             <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-100 dark:border-slate-800">
               <span className="material-symbols-outlined text-slate-400">search</span>
               <input
                 type="text"
                 value={commandSearch}
                 onChange={(e) => setCommandSearch(e.target.value)}
-                placeholder="Search pages, actions, or type a command..."
+                placeholder="Search modules, pages or actions..."
                 className="flex-1 bg-transparent border-none outline-none text-lg font-medium placeholder:text-slate-400 text-slate-900 dark:text-white"
                 autoFocus
               />
-              <div className="flex items-center gap-1">
-                <span className="text-[10px] font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded">ESC</span>
-              </div>
+              <span className="text-[10px] font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded">ESC</span>
             </div>
-
-            {/* Results */}
             <div className="max-h-80 overflow-y-auto p-2">
-              {/* Pages Section */}
               <div className="px-3 py-2">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Pages</p>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Modules & Pages</p>
                 <div className="space-y-1">
                   {filteredNavItems.map((item, idx) => (
                     <button
@@ -1146,46 +1208,12 @@ export const AdminLayout: React.FC = () => {
                       className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors group text-left"
                     >
                       <span className="material-symbols-outlined text-slate-400 group-hover:text-indigo-500 transition-colors text-[20px]">{item.icon}</span>
-                      <span className="font-medium text-slate-700 dark:text-slate-200">{item.name}</span>
+                      <span className="font-medium text-slate-700 dark:text-slate-200 text-sm">{item.name}</span>
                       <span className="ml-auto text-xs text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity">Go →</span>
                     </button>
                   ))}
                 </div>
               </div>
-
-              {/* Quick Actions Section */}
-              {!commandSearch && (
-                <div className="px-3 py-2 border-t border-slate-100 dark:border-slate-800 mt-2">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Quick Actions</p>
-                  <div className="space-y-1">
-                    {quickActions.map((action, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => { navigate(action.path); setIsCommandPaletteOpen(false); }}
-                        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors group text-left"
-                      >
-                        <div className={`size-8 rounded-lg bg-gradient-to-br ${action.color} flex items-center justify-center text-white`}>
-                          <span className="material-symbols-outlined text-[16px]">{action.icon}</span>
-                        </div>
-                        <span className="font-medium text-slate-700 dark:text-slate-200">{action.name}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Footer */}
-            <div className="px-5 py-3 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-400">
-              <div className="flex items-center gap-4">
-                <span className="flex items-center gap-1">
-                  <span className="text-[10px] font-bold bg-slate-200 dark:bg-slate-700 px-1.5 py-0.5 rounded">↑↓</span> Navigate
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="text-[10px] font-bold bg-slate-200 dark:bg-slate-700 px-1.5 py-0.5 rounded">↵</span> Select
-                </span>
-              </div>
-              <span className="font-semibold text-indigo-500">⌘K to toggle</span>
             </div>
           </div>
         </div>

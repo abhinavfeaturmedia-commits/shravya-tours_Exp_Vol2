@@ -93,15 +93,15 @@ export const PillNav: React.FC<PillNavProps> = ({
         </Link>
 
         {/* Desktop Links */}
-        <ul className="hidden md:flex items-center gap-1 mx-2">
+        <ul className="hidden md:flex flex-nowrap items-center gap-0.5 lg:gap-1 mx-1 lg:mx-2 shrink-0">
           {items.map((item) => {
             const isActive = activeHref === item.href;
             return (
-              <li key={item.href}>
+              <li key={item.href} className="shrink-0">
                 <Link
                   to={item.href}
                   className={`
-                    relative px-5 py-2.5 rounded-full text-sm font-bold transition-all duration-300
+                    relative inline-flex items-center justify-center whitespace-nowrap px-3 py-2 lg:px-4 lg:py-2.5 rounded-full text-xs lg:text-sm font-bold tracking-tight transition-all duration-300
                     ${isActive 
                       ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-md transform scale-105' 
                       : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
@@ -127,8 +127,8 @@ export const PillNav: React.FC<PillNavProps> = ({
         </button>
 
         {/* CTA Button (Desktop) */}
-        <div className="hidden md:block">
-           <Link to="/contact" className="h-11 px-5 flex items-center justify-center rounded-full bg-primary text-white font-bold text-sm shadow-lg shadow-primary/20 hover:bg-primary-dark transition-all hover:-translate-y-0.5 active:translate-y-0">
+        <div className="hidden md:block shrink-0">
+           <Link to="/contact" className="h-9 lg:h-11 px-3.5 lg:px-5 flex items-center justify-center whitespace-nowrap rounded-full bg-primary text-white font-bold text-xs lg:text-sm shadow-lg shadow-primary/20 hover:bg-primary-dark transition-all hover:-translate-y-0.5 active:translate-y-0">
               Get Quote
            </Link>
         </div>
