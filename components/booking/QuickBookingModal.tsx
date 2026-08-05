@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -52,6 +53,18 @@ export const QuickBookingModal: React.FC<QuickBookingModalProps> = ({
     const [isSubmitting, setIsSubmitting] = useState(false);
     const today = new Date().toISOString().split('T')[0];
 
+    // Lock body scroll when modal is open
+    useEffect(() => {
+        if (isOpen) {
+            document.body.style.overflow = 'hidden';
+        } else {
+            document.body.style.overflow = '';
+        }
+        return () => {
+            document.body.style.overflow = '';
+        };
+    }, [isOpen]);
+
     const {
         register,
         handleSubmit,
@@ -67,12 +80,10 @@ export const QuickBookingModal: React.FC<QuickBookingModalProps> = ({
             phone: '',
             isWhatsappSame: true,
             whatsapp: '',
-            travelers: defaultTravelers || '2 Adults',
-            date: defaultDate || ''
+            travelers: defaultTravelers,
+            date: defaultDate,
         }
     });
-
-    const isWhatsappSame = watch('isWhatsappSame');
 
     useEffect(() => {
         if (isOpen) {
@@ -87,6 +98,8 @@ export const QuickBookingModal: React.FC<QuickBookingModalProps> = ({
             });
         }
     }, [isOpen, defaultDate, defaultTravelers, reset]);
+
+    const isWhatsappSame = watch('isWhatsappSame');
 
     const onSubmit = async (data: BookingFormData) => {
         setIsSubmitting(true);
@@ -159,8 +172,8 @@ export const QuickBookingModal: React.FC<QuickBookingModalProps> = ({
 
     if (!isOpen) return null;
 
-    return (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in">
+    const modalContent = (
+        <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in">
             <div className="bg-white dark:bg-[#1A2633] w-full max-w-md rounded-3xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden animate-in zoom-in-95 ring-1 ring-white/10">
                 {/* Fixed Header */}
                 <div className="flex justify-between items-center px-6 py-5 md:px-8 md:py-6 border-b border-slate-100 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-800/20">
@@ -278,6 +291,8 @@ export const QuickBookingModal: React.FC<QuickBookingModalProps> = ({
             </div>
         </div>
     );
+
+    return typeof document !== 'undefined' ? createPortal(modalContent, document.body) : null;
 };
 
 export default QuickBookingModal;

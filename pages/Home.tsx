@@ -14,6 +14,7 @@ import {
   FlightBookingForm,
   QuickBookingModal,
   HotelBookingData,
+  TourBookingData,
   CarBookingData,
   BusBookingData,
   TrainBookingData,
@@ -498,9 +499,16 @@ export const Home: React.FC = () => {
     setIsBookingModalOpen(true);
   };
 
-  const handleTourSubmit = (data: { destination: string }) => {
-    const query = encodeURIComponent(data.destination.trim());
-    navigate(`/packages?search=${query}`);
+  const handleTourSubmit = (data: TourBookingData) => {
+    setBookingType('Tour');
+    const paxStr = `${data.travelers.adults} Adult${data.travelers.adults > 1 ? 's' : ''}${data.travelers.children > 0 ? `, ${data.travelers.children} Child${data.travelers.children > 1 ? 'ren' : ''}` : ''}, ${data.travelers.rooms} Room${data.travelers.rooms > 1 ? 's' : ''}`;
+    
+    setBookingDetails(`${data.selectedPackageName} (${data.duration}) - ${data.tourCategory} Theme [${data.tripType}]: From ${data.departureCity || 'City'} to ${data.destination}. ${paxStr}, Hotel: ${data.hotelClass}`);
+    setBookingOrigin(data.departureCity || '');
+    setBookingDestination(data.destination);
+    setBookingDate(data.startDate);
+    setBookingTravelers(paxStr);
+    setIsBookingModalOpen(true);
   };
 
   const handleCarSubmit = (data: CarBookingData) => {

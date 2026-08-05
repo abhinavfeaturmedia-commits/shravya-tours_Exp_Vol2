@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { VEHICLE_CATEGORIES, VEHICLE_MODELS, VehicleCategoryType, VehicleModel } from '../../constants/vehicleCatalog';
 import { VehicleCardImage } from '../ui/VehicleCardImage';
 
@@ -20,6 +21,18 @@ export const VehicleSelectorModal: React.FC<VehicleSelectorModalProps> = ({
   const [activeTab, setActiveTab] = useState<VehicleCategoryType | 'All'>(selectedCategory || 'All');
   const [searchTerm, setSearchTerm] = useState('');
 
+  // Lock body scroll when modal is open to prevent background scrolling & overlapping elements
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   const filteredModels = VEHICLE_MODELS.filter((model) => {
@@ -31,8 +44,8 @@ export const VehicleSelectorModal: React.FC<VehicleSelectorModalProps> = ({
     return matchesTab && matchesSearch;
   });
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 md:p-10 bg-slate-950/70 backdrop-blur-md animate-in fade-in duration-300">
+  const modalContent = (
+    <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 sm:p-6 md:p-10 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-300">
       <div className="relative w-full max-w-5xl max-h-[90vh] bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden animate-in zoom-in-95 duration-300">
         
         {/* Modal Header */}
@@ -294,4 +307,6 @@ export const VehicleSelectorModal: React.FC<VehicleSelectorModalProps> = ({
       </div>
     </div>
   );
+
+  return typeof document !== 'undefined' ? createPortal(modalContent, document.body) : null;
 };
