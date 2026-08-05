@@ -6,6 +6,7 @@ import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { Link } from 'react-router-dom';
 import { downloadCouponAsImage, downloadCouponAsPDF } from '../../utils/couponDownloader';
+import { ActionMenu } from '../../components/ui/ActionMenu';
 
 const safeFormatDate = (dateVal: any, fmtStr: string = 'MMM dd, yyyy', fallback: string = 'No Limit'): string => {
   if (!dateVal) return fallback;
@@ -200,7 +201,8 @@ export const CouponManager: React.FC = () => {
   const handleToggleUsed = async (c: Coupon) => {
     try {
       const newUsedStatus = !c.isUsed;
-      const newUseCount = newUsedStatus ? c.useCount + 1 : Math.max(0, c.useCount - 1);
+      const currentCount = Number(c.useCount) || 0;
+      const newUseCount = newUsedStatus ? currentCount + 1 : Math.max(0, currentCount - 1);
       
       await updateCoupon(c.id, { 
         isUsed: newUsedStatus,
@@ -1149,7 +1151,7 @@ export const CouponManager: React.FC = () => {
                           <span className={`size-1.5 rounded-full ${c.isUsed ? 'bg-amber-500' : 'bg-emerald-500'} animate-pulse`} />
                           {c.isUsed ? 'Used' : 'Available'}
                         </button>
-                        <span className="text-[10px] text-slate-400 font-bold block">({c.useCount} times)</span>
+                        <span className="text-[10px] text-slate-400 font-bold block">({c.useCount ?? 0} times)</span>
                       </div>
                     </td>
 
@@ -1174,62 +1176,74 @@ export const CouponManager: React.FC = () => {
                       </div>
                     </td>
 
-                    {/* Action buttons */}
+                    {/* Action menu */}
                     <td className="p-4 pr-6 text-right">
-                      <div className="flex justify-end gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                        
-                        {/* Apply Coupon button */}
-                        <button
-                          onClick={() => {
-                            setSelectedCouponToApply(c);
-                            setIsApplyModalOpen(true);
-                            setSelectedBookingId('');
-                            setApplySearchQuery('');
-                          }}
-                          className="p-2 bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-indigo-500 rounded-xl transition-all"
-                          title="Apply Coupon to Booking"
-                        >
-                          <span className="material-symbols-outlined text-[18px]">local_offer</span>
-                        </button>
+                      <div className="flex justify-end">
+                        <ActionMenu>
+                          {/* Apply Coupon to Booking */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedCouponToApply(c);
+                              setIsApplyModalOpen(true);
+                              setSelectedBookingId('');
+                              setApplySearchQuery('');
+                            }}
+                            className="flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors w-full text-left"
+                          >
+                            <span className="material-symbols-outlined text-[18px] text-indigo-500">local_offer</span>
+                            Apply to Booking
+                          </button>
 
-                        {/* Toggle used option shortcut */}
-                        <button
-                          onClick={() => handleToggleUsed(c)}
-                          className="p-2 bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-amber-500 rounded-xl transition-all"
-                          title={c.isUsed ? 'Mark as Unused' : 'Mark as Used'}
-                        >
-                          <span className="material-symbols-outlined text-[18px]">rule</span>
-                        </button>
+                          {/* Toggle used option shortcut */}
+                          <button
+                            type="button"
+                            onClick={() => handleToggleUsed(c)}
+                            className="flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors w-full text-left"
+                          >
+                            <span className="material-symbols-outlined text-[18px] text-amber-500">
+                              {c.isUsed ? 'lock_open' : 'rule'}
+                            </span>
+                            {c.isUsed ? 'Mark as Unused' : 'Mark as Used'}
+                          </button>
 
-                        <button
-                          onClick={() => handleEditClick(c)}
-                          className="p-2 bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-primary rounded-xl transition-all"
-                          title="Edit Settings"
-                        >
-                          <span className="material-symbols-outlined text-[18px]">edit</span>
-                        </button>
+                          {/* Edit Settings */}
+                          <button
+                            type="button"
+                            onClick={() => handleEditClick(c)}
+                            className="flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors w-full text-left"
+                          >
+                            <span className="material-symbols-outlined text-[18px] text-teal-600 dark:text-teal-400">edit</span>
+                            Edit Settings
+                          </button>
 
-                        {/* PDF Download from table row */}
-                        <button
-                          onClick={() => handleRowDownloadPDF(c)}
-                          disabled={downloadingId === c.id + '-pdf'}
-                          className="p-2 bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-indigo-500 rounded-xl transition-all disabled:opacity-50"
-                          title="Download as PDF"
-                        >
-                          {downloadingId === c.id + '-pdf' ? (
-                            <span className="material-symbols-outlined text-[18px] animate-spin">progress_activity</span>
-                          ) : (
-                            <span className="material-symbols-outlined text-[18px]">picture_as_pdf</span>
-                          )}
-                        </button>
+                          {/* PDF Download */}
+                          <button
+                            type="button"
+                            onClick={() => handleRowDownloadPDF(c)}
+                            disabled={downloadingId === c.id + '-pdf'}
+                            className="flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors w-full text-left disabled:opacity-50"
+                          >
+                            {downloadingId === c.id + '-pdf' ? (
+                              <span className="material-symbols-outlined text-[18px] animate-spin text-indigo-500">progress_activity</span>
+                            ) : (
+                              <span className="material-symbols-outlined text-[18px] text-indigo-500">picture_as_pdf</span>
+                            )}
+                            Download PDF
+                          </button>
 
-                        <button
-                          onClick={() => handleDeleteClick(c)}
-                          className="p-2 bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-red-500 rounded-xl transition-all"
-                          title="Delete Coupon"
-                        >
-                          <span className="material-symbols-outlined text-[18px]">delete</span>
-                        </button>
+                          <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
+
+                          {/* Delete Coupon */}
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteClick(c)}
+                            className="flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/10 transition-colors w-full text-left"
+                          >
+                            <span className="material-symbols-outlined text-[18px]">delete</span>
+                            Delete Coupon
+                          </button>
+                        </ActionMenu>
                       </div>
                     </td>
                   </tr>

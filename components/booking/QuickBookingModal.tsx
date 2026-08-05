@@ -100,9 +100,19 @@ export const QuickBookingModal: React.FC<QuickBookingModalProps> = ({
         const paxChild = childrenMatch ? parseInt(childrenMatch[1]) : 0;
         const paxInfant = infantsMatch ? parseInt(infantsMatch[1]) : 0;
 
-        // Scale potential value by passenger counts (excluding infants)
+        // Scale potential value by vehicle tier and passenger counts
         const totalPax = paxAdult + paxChild;
-        const baseRate = bookingType === 'Car' ? 3500 : bookingType === 'Bus' ? 1200 : bookingType === 'Train' ? 2500 : bookingType === 'Flight' ? 15000 : 8000;
+        let baseRate = 3500;
+        if (bookingType === 'Car') {
+            if (bookingDetails.includes('Bus')) baseRate = 18000;
+            else if (bookingDetails.includes('Van') || bookingDetails.includes('Traveller') || bookingDetails.includes('Urbania')) baseRate = 12000;
+            else if (bookingDetails.includes('MPV') || bookingDetails.includes('Innova') || bookingDetails.includes('Crysta')) baseRate = 6500;
+            else if (bookingDetails.includes('SUV') || bookingDetails.includes('Creta') || bookingDetails.includes('Seltos')) baseRate = 5000;
+            else if (bookingDetails.includes('Hatchback') || bookingDetails.includes('Swift')) baseRate = 2800;
+            else baseRate = 3800; // Sedan default
+        } else {
+            baseRate = bookingType === 'Bus' ? 1200 : bookingType === 'Train' ? 2500 : bookingType === 'Flight' ? 15000 : 8000;
+        }
         const potentialValue = baseRate * (totalPax > 0 ? totalPax : 1);
 
         const newLead: Lead = {

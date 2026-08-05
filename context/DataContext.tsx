@@ -582,7 +582,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (bulkRes.user_activities) setUserActivities(bulkRes.user_activities);
         if (bulkRes.audit_logs) setAuditLogs(bulkRes.audit_logs);
         if (bulkRes.customer_memberships) setCustomerMemberships(bulkRes.customer_memberships.map(api.mapCustomerMembership));
-        if (bulkRes.coupons) setCoupons(bulkRes.coupons);
+        if (bulkRes.coupons) setCoupons(bulkRes.coupons.map(api.mapCoupon));
       }
     } catch (e) {
       console.warn("Error refreshing data:", e);

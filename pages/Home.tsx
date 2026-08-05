@@ -505,11 +505,12 @@ export const Home: React.FC = () => {
 
   const handleCarSubmit = (data: CarBookingData) => {
     setBookingType('Car');
-    setBookingDetails(`${data.vehicleType} Rental: ${data.pickupLocation} ${data.sameDropOff ? '(Round Trip)' : `to ${data.dropoffLocation}`}`);
+    const seatingInfo = data.seating ? ` (${data.seating})` : '';
+    setBookingDetails(`${data.vehicleCategory} - ${data.vehicleType}${seatingInfo}: ${data.pickupLocation} ${data.sameDropOff ? '(Round Trip)' : `to ${data.dropoffLocation}`} on ${data.pickupDate} at ${data.pickupTime}`);
     setBookingOrigin(data.pickupLocation);
     setBookingDestination(data.dropoffLocation || data.pickupLocation);
     setBookingDate(data.pickupDate);
-    setBookingTravelers('2 Adults');
+    setBookingTravelers(data.seating || '4 Adults');
     setIsBookingModalOpen(true);
   };
 
@@ -991,14 +992,14 @@ export const Home: React.FC = () => {
       {/* ═══════════════════════════════════════════════════════════ */}
       <section
         id="booking-widget"
-        className={`relative bg-gradient-to-br ${
+        className={`relative z-10 bg-gradient-to-br ${
           activeTab === 'hotel-booking' ? 'from-[#FFFDF9] via-[#FFF5EC] to-[#F7ECD8] dark:from-[#09110B] dark:via-[#0F1D13] dark:to-[#16291C]' :
           activeTab === 'tour-packages' ? 'from-[#FAFDFB] via-[#EDFAF5] to-[#E2F5EE] dark:from-[#08100C] dark:via-[#0C1B14] dark:to-[#12271C]' :
           activeTab === 'flight-booking' ? 'from-[#FAFBFD] via-[#EFF4FA] to-[#E2EDFA] dark:from-[#0A1016] dark:via-[#0F1E29] dark:to-[#152B3C]' :
           activeTab === 'train-booking' ? 'from-[#FDFDFB] via-[#FAF6EE] to-[#F2EADA] dark:from-[#0C100C] dark:via-[#141A13] dark:to-[#1C251C]' :
           activeTab === 'car-booking' ? 'from-[#FAFDF9] via-[#F1FAF2] to-[#E5F5E7] dark:from-[#08100C] dark:via-[#0E1F15] dark:to-[#142B1E]' :
           'from-[#FCFAF7] via-[#FAF4E9] to-[#F1E8D5] dark:from-[#0E100D] dark:via-[#171E14] dark:to-[#212B1E]'
-        } pb-16 pt-4 overflow-hidden xl:overflow-visible transition-all duration-700`}
+        } pb-16 pt-4 overflow-visible transition-all duration-700`}
       >
         {/* Ambient paper planes */}
         <div className="absolute top-10 left-[15%] w-8 h-8 opacity-25 dark:opacity-20 hidden xl:block animate-drift-plane-1 pointer-events-none">
@@ -1015,10 +1016,10 @@ export const Home: React.FC = () => {
         </div>
 
         <div className="container mx-auto px-3 sm:px-4 md:px-10 relative z-20">
-          <div className="w-full max-w-5xl mx-auto -mt-12 sm:-mt-20 md:-mt-32 animate-in slide-in-from-bottom-8 duration-700 relative z-30">
+          <div className="w-full max-w-5xl mx-auto -mt-10 sm:-mt-16 md:-mt-28 animate-in slide-in-from-bottom-8 duration-700 relative z-30">
             
             {/* Elevated Floating Header Card */}
-            <div className="bg-white/95 dark:bg-[#15202B]/95 backdrop-blur-xl p-5 sm:p-8 rounded-3xl sm:rounded-[2.5rem] shadow-xl sm:shadow-[0_20px_50px_-10px_rgba(0,0,0,0.18)] border border-slate-200/60 dark:border-white/10 mb-6">
+            <div className="bg-white/95 dark:bg-[#15202B]/95 backdrop-blur-xl pt-7 px-5 pb-5 sm:p-8 rounded-3xl sm:rounded-[2.5rem] shadow-xl sm:shadow-[0_20px_50px_-10px_rgba(0,0,0,0.18)] border border-slate-200/60 dark:border-white/10 mb-6">
               {/* Section Eyebrow */}
               <div className="flex justify-center mb-3">
                 <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-[#C9732A]/10 text-[#C9732A] dark:bg-white/10 dark:text-amber-300 text-[11px] font-black uppercase tracking-[0.2em]">

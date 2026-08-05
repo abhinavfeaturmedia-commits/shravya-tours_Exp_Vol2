@@ -35,7 +35,20 @@ export const Bookings: React.FC = () => {
     const navigate = useNavigate();
     const [viewMode, setViewMode] = useState<'list' | 'board'>('list');
     const [activeTab, setActiveTab] = useState('All');
-    const [search, setSearch] = useState('');
+    const [search, setSearch] = useState(() => {
+        try {
+            return new URLSearchParams(window.location.search).get('search') || '';
+        } catch {
+            return '';
+        }
+    });
+
+    useEffect(() => {
+        const querySearch = new URLSearchParams(location.search).get('search');
+        if (querySearch !== null) {
+            setSearch(querySearch);
+        }
+    }, [location.search]);
 
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isEditMode, setIsEditMode] = useState(false);
@@ -488,13 +501,15 @@ export const Bookings: React.FC = () => {
         const searchParams = new URLSearchParams(location.search);
         const statusParam = searchParams.get('status');
         if (statusParam) {
-            // Find matching status enum logic - simple string match for now
-            // Assuming statusParam matches the enum values (Pending, Confirmed, etc.)
-            setActiveTab(statusParam);
+            if (statusParam.toLowerCase() === 'payment_pending' || statusParam.toLowerCase() === 'payment-pending' || statusParam.toLowerCase() === 'unpaid') {
+                setActiveTab('Payment Pending');
+            } else {
+                setActiveTab(statusParam);
+            }
         }
         const filterParam = searchParams.get('filter');
-        if (filterParam === 'unpaid') {
-            setSearch('unpaid');
+        if (filterParam === 'unpaid' || filterParam === 'payment_pending') {
+            setActiveTab('Payment Pending');
         }
         const searchParam = searchParams.get('search');
         if (searchParam) {
@@ -809,13 +824,36 @@ export const Bookings: React.FC = () => {
         navigate(`/admin/invoices/new?booking_id=${booking.id}&type=Invoice`);
     };
 
+    // Helper to evaluate if a booking has pending payment (Unpaid, Deposit, Partial)
+    const isPaymentPendingBooking = (b: Booking) => {
+        const bTxs = b.transactions || [];
+        const vPaid = bTxs.filter(t => t.type === 'Payment' && t.status === 'Verified').reduce((s, t) => s + t.amount, 0);
+        const vRefunded = bTxs.filter(t => t.type === 'Refund' && t.status === 'Verified').reduce((s, t) => s + t.amount, 0);
+        const net = vPaid - vRefunded;
+        
+        if (bTxs.length > 0) {
+            const liveP = b.amount > 0 && net >= b.amount ? 'Paid' : net > 0 ? 'Deposit' : net < 0 ? 'Refunded' : 'Unpaid';
+            return liveP === 'Unpaid' || liveP === 'Deposit';
+        }
+        
+        const p = String(b.payment || '').toLowerCase();
+        return p === 'unpaid' || p === 'deposit' || p === 'partially paid' || p === 'part paid' || p === 'pending' || (b.amount > 0 && p !== 'paid' && p !== 'refunded');
+    };
+
+    const paymentPendingCount = useMemo(() => {
+        return bookings.filter(b => isPaymentPendingBooking(b)).length;
+    }, [bookings]);
+
     // --- Filters ---
 
     const filteredBookings = bookings.filter(b => {
         const isOngoing = b.status === BookingStatus.CONFIRMED && today >= b.date && today <= (b.endDate || b.date);
+        const isPaymentPending = isPaymentPendingBooking(b);
         
         const matchesTab = activeTab === 'All' || 
-                         (activeTab === 'Ongoing' ? isOngoing : b.status === activeTab);
+                         (activeTab === 'Ongoing' ? isOngoing : 
+                          (activeTab === 'Payment Pending' || activeTab === 'payment_pending' || activeTab === 'unpaid') ? isPaymentPending : 
+                          b.status === activeTab);
                          
         const matchesSearch = b.customer.toLowerCase().includes(search.toLowerCase()) ||
             b.id.toLowerCase().includes(search.toLowerCase()) ||
@@ -2479,18 +2517,30 @@ export const Bookings: React.FC = () => {
                 {/* Toolbar */}
                 <div className="mt-6 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
                     <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl w-full sm:w-auto overflow-x-auto hide-scrollbar">
-                        {['All', 'Ongoing', BookingStatus.PENDING, BookingStatus.CONFIRMED, BookingStatus.COMPLETED, BookingStatus.CANCELLED].map((tab) => (
-                            <button
-                                key={tab}
-                                onClick={() => setActiveTab(tab)}
-                                className={`px-4 py-2 text-xs font-bold uppercase tracking-wider rounded-lg transition-all whitespace-nowrap ${activeTab === tab
-                                    ? 'bg-white dark:bg-[#1A2633] text-primary shadow-sm'
-                                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                                    }`}
-                            >
-                                {tab === 'All' ? 'All Bookings' : tab}
-                            </button>
-                        ))}
+                        {['All', 'Ongoing', BookingStatus.PENDING, BookingStatus.CONFIRMED, BookingStatus.COMPLETED, BookingStatus.CANCELLED, 'Payment Pending'].map((tab) => {
+                            const isActive = activeTab === tab || (tab === 'Payment Pending' && (activeTab === 'payment_pending' || activeTab === 'unpaid'));
+                            return (
+                                <button
+                                    key={tab}
+                                    onClick={() => setActiveTab(tab)}
+                                    className={`px-4 py-2 text-xs font-bold uppercase tracking-wider rounded-lg transition-all whitespace-nowrap flex items-center gap-2 ${isActive
+                                        ? tab === 'Payment Pending'
+                                            ? 'bg-amber-500 text-white shadow-md shadow-amber-500/20'
+                                            : 'bg-white dark:bg-[#1A2633] text-primary shadow-sm'
+                                        : tab === 'Payment Pending'
+                                            ? 'text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40 font-extrabold'
+                                            : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                                        }`}
+                                >
+                                    <span>{tab === 'All' ? 'All Bookings' : tab === 'Payment Pending' ? 'Payment Pending Bookings' : tab}</span>
+                                    {tab === 'Payment Pending' && paymentPendingCount > 0 && (
+                                        <span className={`px-2 py-0.5 text-[10px] font-black rounded-full transition-colors ${isActive ? 'bg-white text-amber-700' : 'bg-amber-200 dark:bg-amber-900/80 text-amber-800 dark:text-amber-200'}`}>
+                                            {paymentPendingCount}
+                                        </span>
+                                    )}
+                                </button>
+                            );
+                        })}
                     </div>
 
                     <div className="flex items-center gap-3 w-full lg:w-auto">

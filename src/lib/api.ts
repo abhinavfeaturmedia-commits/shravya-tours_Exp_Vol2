@@ -2568,24 +2568,26 @@ export const api = {
     },
 
     // --- COUPONS ---
+    mapCoupon: (r: any): Coupon => ({
+        id: r.id,
+        code: r.code,
+        type: r.type || 'ToursOnly',
+        discountType: r.discount_type || r.discountType || 'Percentage',
+        discountValue: r.discount_value !== null && r.discount_value !== undefined ? Number(r.discount_value) : (Number(r.discountValue) || 0),
+        minBookingAmount: r.min_booking_amount !== null && r.min_booking_amount !== undefined ? Number(r.min_booking_amount) : (r.minBookingAmount !== undefined ? Number(r.minBookingAmount) : undefined),
+        validFrom: r.valid_from ? (typeof r.valid_from === 'string' ? r.valid_from.split('T')[0] : new Date(r.valid_from).toISOString().split('T')[0]) : (r.validFrom || undefined),
+        validTo: r.valid_to ? (typeof r.valid_to === 'string' ? r.valid_to.split('T')[0] : new Date(r.valid_to).toISOString().split('T')[0]) : (r.validTo || undefined),
+        status: r.status || 'Active',
+        isUsed: Boolean(r.is_used !== undefined ? r.is_used : r.isUsed),
+        useCount: Number(r.use_count !== undefined ? r.use_count : r.useCount) || 0,
+        downloadCount: Number(r.download_count !== undefined ? r.download_count : r.downloadCount) || 0,
+        createdAt: r.created_at || r.createdAt,
+        updatedAt: r.updated_at || r.updatedAt
+    }),
+
     getCoupons: async (): Promise<Coupon[]> => {
         const { data } = await crud.getAll('coupons', { order: 'created_at', asc: false });
-        return (data || []).map((r: any) => ({
-            id: r.id,
-            code: r.code,
-            type: r.type,
-            discountType: r.discount_type,
-            discountValue: Number(r.discount_value) || 0,
-            minBookingAmount: r.min_booking_amount !== null && r.min_booking_amount !== undefined ? Number(r.min_booking_amount) : undefined,
-            validFrom: r.valid_from ? r.valid_from.split('T')[0] : undefined,
-            validTo: r.valid_to ? r.valid_to.split('T')[0] : undefined,
-            status: r.status || 'Active',
-            isUsed: Boolean(r.is_used),
-            useCount: Number(r.use_count) || 0,
-            downloadCount: Number(r.download_count) || 0,
-            createdAt: r.created_at,
-            updatedAt: r.updated_at
-        }));
+        return (data || []).map((r: any) => api.mapCoupon(r));
     },
 
     createCoupon: async (c: any) => {

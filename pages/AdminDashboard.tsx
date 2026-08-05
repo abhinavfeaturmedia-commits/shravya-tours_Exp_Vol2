@@ -160,7 +160,7 @@ export const AdminDashboard: React.FC = () => {
                 type: 'warning',
                 message: `${unpaidBookings} booking${unpaidBookings > 1 ? 's' : ''} pending payment`,
                 action: 'Collect Payment',
-                path: '/admin/bookings'
+                path: '/admin/bookings?status=payment_pending'
             });
         }
 
