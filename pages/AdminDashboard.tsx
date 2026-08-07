@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
 import { api } from '../src/lib/api';
 import { toast } from 'sonner';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Bar, ComposedChart, Line } from 'recharts';
 import { formatPrice, formatPriceCompact } from '../utils/packageUtils';
 
 export const AdminDashboard: React.FC = () => {
@@ -414,71 +414,170 @@ export const AdminDashboard: React.FC = () => {
             .slice(0, 4);
     }, [leads]);
 
-    // --- 7. Revenue Chart Data ---
-    const revenueData = useMemo(() => {
-        const yearOffset = selectedYear === 'This Year' ? 0 : 1;
-        const targetYear = new Date().getFullYear() - yearOffset;
+    // --- 7. Enhanced Revenue & Financial Intelligence Calculations ---
+    const [chartMetricMode, setChartMetricMode] = useState<'collected' | 'comparison' | 'profit'>('collected');
 
-        const monthlyData = [
-            { name: 'Jan', revenue: 0, bookingValue: 0, bookings: 0 },
-            { name: 'Feb', revenue: 0, bookingValue: 0, bookings: 0 },
-            { name: 'Mar', revenue: 0, bookingValue: 0, bookings: 0 },
-            { name: 'Apr', revenue: 0, bookingValue: 0, bookings: 0 },
-            { name: 'May', revenue: 0, bookingValue: 0, bookings: 0 },
-            { name: 'Jun', revenue: 0, bookingValue: 0, bookings: 0 },
-            { name: 'Jul', revenue: 0, bookingValue: 0, bookings: 0 },
-            { name: 'Aug', revenue: 0, bookingValue: 0, bookings: 0 },
-            { name: 'Sep', revenue: 0, bookingValue: 0, bookings: 0 },
-            { name: 'Oct', revenue: 0, bookingValue: 0, bookings: 0 },
-            { name: 'Nov', revenue: 0, bookingValue: 0, bookings: 0 },
-            { name: 'Dec', revenue: 0, bookingValue: 0, bookings: 0 },
-        ];
+    const revenueAnalytics = useMemo(() => {
+        const yearOffset = selectedYear === 'This Year' ? 0 : selectedYear === 'Last Year' ? 1 : 0;
+        const currentYear = new Date().getFullYear();
+        const targetYear = currentYear - yearOffset;
+        const prevYear = targetYear - 1;
+
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        
+        const monthlyData = months.map(m => ({
+            name: m,
+            revenue: 0,        // Cash collected from verified transactions
+            bookingValue: 0,   // Invoice total value
+            vendorCosts: 0,    // Supplier payouts
+            netProfit: 0,      // Estimated margin
+            bookings: 0,
+            monthIndex: months.indexOf(m)
+        }));
+
+        let totalYearCollected = 0;
+        let totalYearInvoiced = 0;
+        let totalYearVendorCosts = 0;
+        let prevYearCollected = 0;
 
         bookings.forEach(b => {
             if (b.status === 'Cancelled') return;
             const d = new Date(b.date);
-            if (d.getFullYear() === targetYear) {
-                const month = d.getMonth();
-                // Fix #4 & #5 — Chart shows actual cash collected, not invoice total
-                monthlyData[month].revenue += getNetPaid(b);
-                monthlyData[month].bookingValue += b.amount || 0;
+            const bYear = d.getFullYear();
+            const month = d.getMonth();
+            const paid = getNetPaid(b);
+
+            let vCost = 0;
+            if (b.supplierBookings) {
+                b.supplierBookings.forEach(sb => {
+                    if (sb.bookingStatus !== 'Cancelled') vCost += (sb.cost || 0);
+                });
+            }
+
+            if (bYear === targetYear) {
+                monthlyData[month].revenue += paid;
+                monthlyData[month].bookingValue += (b.amount || 0);
+                monthlyData[month].vendorCosts += vCost;
+                monthlyData[month].netProfit += Math.max(0, (b.amount || 0) - vCost);
                 monthlyData[month].bookings += 1;
+
+                totalYearCollected += paid;
+                totalYearInvoiced += (b.amount || 0);
+                totalYearVendorCosts += vCost;
+            } else if (bYear === prevYear) {
+                prevYearCollected += paid;
             }
         });
 
-        return monthlyData;
+        const yoyGrowth = prevYearCollected > 0
+            ? Math.round(((totalYearCollected - prevYearCollected) / prevYearCollected) * 100)
+            : totalYearCollected > 0 ? 100 : 0;
+
+        const collectionEfficiency = totalYearInvoiced > 0
+            ? Math.min(100, Math.round((totalYearCollected / totalYearInvoiced) * 100))
+            : 100;
+
+        let peakMonth = monthlyData[0];
+        monthlyData.forEach(m => {
+            if (m.revenue > peakMonth.revenue) peakMonth = m;
+        });
+
+        const estYearProfit = Math.max(0, totalYearInvoiced - totalYearVendorCosts);
+
+        return {
+            monthlyData,
+            totalYearCollected,
+            totalYearInvoiced,
+            totalYearVendorCosts,
+            estYearProfit,
+            yoyGrowth,
+            collectionEfficiency,
+            peakMonth,
+            targetYear
+        };
     }, [bookings, selectedYear]);
+
+    const revenueData = revenueAnalytics.monthlyData;
+
+    const handleExportRevenueCSV = () => {
+        const headers = ['Month', 'Cash Collected (INR)', 'Gross Invoiced (INR)', 'Vendor Dues (INR)', 'Est Net Profit (INR)', 'Bookings Count'];
+        const rows = revenueData.map(d => [
+            d.name,
+            d.revenue,
+            d.bookingValue,
+            d.vendorCosts,
+            d.netProfit,
+            d.bookings
+        ]);
+        const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        link.setAttribute('download', `Revenue_Overview_${selectedYear.replace(/\s+/g, '_')}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        toast.success('Revenue report exported to CSV!');
+    };
+
+    const handleChartPointClick = (dataState: any) => {
+        if (dataState && dataState.activePayload && dataState.activePayload.length) {
+            const pointData = dataState.activePayload[0].payload;
+            navigate(`/admin/bookings?month=${pointData.name}&year=${revenueAnalytics.targetYear}`);
+            toast.info(`Filtered bookings for ${pointData.name} ${revenueAnalytics.targetYear}`);
+        }
+    };
 
     const CustomTooltip = ({ active, payload, label }: any) => {
         if (active && payload && payload.length) {
             const d = payload[0].payload;
+            const eff = d.bookingValue > 0 ? Math.min(100, Math.round((d.revenue / d.bookingValue) * 100)) : 100;
             return (
-                <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 shadow-xl z-50 min-w-[200px]">
-                    <p className="font-bold text-slate-900 dark:text-white mb-2">{label}</p>
-                    <div className="space-y-1.5">
-                        <p className="text-sm flex items-center justify-between gap-4">
-                            <span className="flex items-center gap-1.5">
-                                <span className="w-3 h-3 rounded-full bg-indigo-500"></span>
-                                <span className="text-slate-500 dark:text-slate-400">Collected</span>
+                <div className="bg-slate-900/95 dark:bg-slate-900/95 backdrop-blur-xl p-4 rounded-2xl border border-slate-700/80 shadow-2xl text-white z-50 min-w-[240px] animate-in fade-in zoom-in-95">
+                    <div className="flex items-center justify-between border-b border-slate-700/60 pb-2 mb-3">
+                        <p className="font-bold text-sm tracking-wide text-indigo-300">{label} {revenueAnalytics.targetYear}</p>
+                        <span className="text-[10px] font-extrabold bg-indigo-500/30 text-indigo-200 px-2 py-0.5 rounded-full border border-indigo-500/30">
+                            {d.bookings} {d.bookings === 1 ? 'Booking' : 'Bookings'}
+                        </span>
+                    </div>
+
+                    <div className="space-y-2 text-xs">
+                        <div className="flex items-center justify-between gap-4">
+                            <span className="flex items-center gap-1.5 text-slate-300">
+                                <span className="size-2.5 rounded-full bg-indigo-500 ring-2 ring-indigo-500/30"></span>
+                                <span>Collected Cash</span>
                             </span>
-                            <span className="font-bold text-slate-900 dark:text-white">{formatPrice(payload[0].value)}</span>
-                        </p>
-                        {d.bookingValue > 0 && d.bookingValue !== payload[0].value && (
-                            <p className="text-sm flex items-center justify-between gap-4">
-                                <span className="flex items-center gap-1.5">
-                                    <span className="w-3 h-3 rounded-full bg-slate-300 dark:bg-slate-600"></span>
-                                    <span className="text-slate-500 dark:text-slate-400">Invoice Total</span>
+                            <span className="font-black text-indigo-400">{formatPrice(d.revenue)}</span>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-4">
+                            <span className="flex items-center gap-1.5 text-slate-300">
+                                <span className="size-2.5 rounded-full bg-amber-400 ring-2 ring-amber-400/30"></span>
+                                <span>Gross Invoiced</span>
+                            </span>
+                            <span className="font-bold text-amber-300">{formatPrice(d.bookingValue)}</span>
+                        </div>
+
+                        {d.netProfit > 0 && (
+                            <div className="flex items-center justify-between gap-4">
+                                <span className="flex items-center gap-1.5 text-slate-300">
+                                    <span className="size-2.5 rounded-full bg-emerald-400 ring-2 ring-emerald-400/30"></span>
+                                    <span>Est. Net Margin</span>
                                 </span>
-                                <span className="font-medium text-slate-500 dark:text-slate-400">{formatPrice(d.bookingValue)}</span>
-                            </p>
+                                <span className="font-bold text-emerald-400">{formatPrice(d.netProfit)}</span>
+                            </div>
                         )}
-                        <p className="text-sm flex items-center justify-between gap-4">
-                            <span className="flex items-center gap-1.5">
-                                <span className="w-3 h-3 rounded-full bg-emerald-500"></span>
-                                <span className="text-slate-500 dark:text-slate-400">Bookings</span>
-                            </span>
-                            <span className="font-bold text-slate-900 dark:text-white">{d.bookings}</span>
-                        </p>
+
+                        <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-[10px] text-slate-400">
+                            <span>Collection Rate</span>
+                            <span className="font-extrabold text-white">{eff}%</span>
+                        </div>
+                    </div>
+
+                    <div className="mt-3 pt-2 border-t border-slate-800/80 text-[10px] text-indigo-300 font-semibold flex items-center justify-center gap-1">
+                        <span className="material-symbols-outlined text-[14px]">touch_app</span>
+                        <span>Click point to filter bookings</span>
                     </div>
                 </div>
             );
@@ -678,60 +777,232 @@ export const AdminDashboard: React.FC = () => {
                 {/* 3. Main Chart & Table Area */}
                 <div className="xl:col-span-2 flex flex-col gap-8">
 
-                    {/* Revenue Chart Placeholder */}
-                    <div className="bg-white dark:bg-[#151d29] p-8 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-sm">
-                        <div className="flex justify-between items-center mb-8">
+                    {/* Modern Executive Revenue Overview Chart Card */}
+                    <div className="bg-white dark:bg-[#151d29] p-6 lg:p-8 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col gap-6">
+                        
+                        {/* Header Toolbar: Title, View Segment Toggles, Controls */}
+                        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800/80 pb-5">
                             <div>
-                                <h3 className="text-xl font-bold text-slate-900 dark:text-white">Revenue Overview</h3>
-                                <p className="text-slate-500 text-sm font-medium mt-1">Monthly performance statistics</p>
+                                <div className="flex items-center gap-2">
+                                    <div className="size-8 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold">
+                                        <span className="material-symbols-outlined text-[20px]">show_chart</span>
+                                    </div>
+                                    <h3 className="text-xl font-bold text-slate-900 dark:text-white">Revenue Overview</h3>
+                                    
+                                    {revenueAnalytics.yoyGrowth !== 0 && (
+                                        <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full flex items-center gap-0.5 ${
+                                            revenueAnalytics.yoyGrowth > 0
+                                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300'
+                                                : 'bg-rose-100 text-rose-700 dark:bg-rose-950/80 dark:text-rose-300'
+                                        }`}>
+                                            <span className="material-symbols-outlined text-[12px]">
+                                                {revenueAnalytics.yoyGrowth > 0 ? 'trending_up' : 'trending_down'}
+                                            </span>
+                                            {revenueAnalytics.yoyGrowth > 0 ? `+${revenueAnalytics.yoyGrowth}%` : `${revenueAnalytics.yoyGrowth}%`} YoY
+                                        </span>
+                                    )}
+                                </div>
+                                <p className="text-slate-500 text-xs font-medium mt-1">
+                                    Real-time financial collection, invoice volume & margin statistics
+                                </p>
                             </div>
-                            <select
-                                value={selectedYear}
-                                onChange={(e) => setSelectedYear(e.target.value)}
-                                className="bg-slate-50 dark:bg-slate-900 border-none text-sm font-bold rounded-xl px-4 py-2 text-slate-600 dark:text-slate-300 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors focus:ring-2 focus:ring-indigo-500 outline-none"
-                            >
-                                <option value="This Year">This Year</option>
-                                <option value="Last Year">Last Year</option>
-                            </select>
+
+                            {/* View Mode Segmented Controls & Export Action */}
+                            <div className="flex flex-wrap items-center gap-2">
+                                <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
+                                    <button
+                                        onClick={() => setChartMetricMode('collected')}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                            chartMetricMode === 'collected'
+                                                ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm'
+                                                : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                                        }`}
+                                    >
+                                        Cash Collected
+                                    </button>
+                                    <button
+                                        onClick={() => setChartMetricMode('comparison')}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                            chartMetricMode === 'comparison'
+                                                ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm'
+                                                : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                                        }`}
+                                    >
+                                        Cash vs Invoiced
+                                    </button>
+                                    <button
+                                        onClick={() => setChartMetricMode('profit')}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                            chartMetricMode === 'profit'
+                                                ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-sm'
+                                                : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                                        }`}
+                                    >
+                                        Est. Margin
+                                    </button>
+                                </div>
+
+                                <select
+                                    value={selectedYear}
+                                    onChange={(e) => setSelectedYear(e.target.value)}
+                                    className="bg-slate-100 dark:bg-slate-800/80 border border-slate-200/60 dark:border-slate-700/60 text-xs font-bold rounded-xl px-3 py-2 text-slate-700 dark:text-slate-300 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors focus:ring-2 focus:ring-indigo-500 outline-none"
+                                >
+                                    <option value="This Year">This Year ({new Date().getFullYear()})</option>
+                                    <option value="Last Year">Last Year ({new Date().getFullYear() - 1})</option>
+                                </select>
+
+                                <button
+                                    onClick={handleExportRevenueCSV}
+                                    className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                                    title="Export Monthly Financial Data to CSV"
+                                >
+                                    <span className="material-symbols-outlined text-[18px]">file_download</span>
+                                </button>
+                            </div>
                         </div>
 
-                        {/* Interactive Recharts Visualization */}
-                        <div className="relative h-[300px] w-full mt-4">
+                        {/* Executive Metric Highlights Strip */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50/70 dark:bg-slate-900/40 p-4 rounded-2xl border border-slate-100 dark:border-slate-800/60">
+                            <div>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Collected Cash</p>
+                                <p className="text-lg font-black text-indigo-600 dark:text-indigo-400 mt-0.5">
+                                    {formatPriceCompact(revenueAnalytics.totalYearCollected)}
+                                </p>
+                            </div>
+                            <div>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Gross Invoiced</p>
+                                <p className="text-lg font-black text-amber-500 mt-0.5">
+                                    {formatPriceCompact(revenueAnalytics.totalYearInvoiced)}
+                                </p>
+                            </div>
+                            <div>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Collection Efficiency</p>
+                                <p className="text-lg font-black text-emerald-500 mt-0.5">
+                                    {revenueAnalytics.collectionEfficiency}%
+                                </p>
+                            </div>
+                            <div>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Peak Performance</p>
+                                <p className="text-xs font-bold text-slate-800 dark:text-slate-200 mt-1 flex items-center gap-1">
+                                    <span className="bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 px-1.5 py-0.5 rounded font-black">{revenueAnalytics.peakMonth.name}</span>
+                                    <span>{formatPriceCompact(revenueAnalytics.peakMonth.revenue)}</span>
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Interactive Recharts Visualization Container */}
+                        <div className="relative h-[320px] w-full mt-2">
                             <ResponsiveContainer width="100%" height="100%">
-                                <AreaChart data={revenueData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                                <ComposedChart 
+                                    data={revenueData} 
+                                    margin={{ top: 15, right: 10, left: -10, bottom: 0 }}
+                                    onClick={handleChartPointClick}
+                                >
                                     <defs>
-                                        <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
-                                            <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                                        <linearGradient id="colorCollected" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor="#6366f1" stopOpacity={0.4}/>
+                                            <stop offset="95%" stopColor="#6366f1" stopOpacity={0.0}/>
+                                        </linearGradient>
+                                        <linearGradient id="colorInvoiced" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.3}/>
+                                            <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.0}/>
+                                        </linearGradient>
+                                        <linearGradient id="colorProfit" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor="#10b981" stopOpacity={0.4}/>
+                                            <stop offset="95%" stopColor="#10b981" stopOpacity={0.0}/>
                                         </linearGradient>
                                     </defs>
+
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" className="dark:stroke-slate-800" />
+                                    
                                     <XAxis 
                                         dataKey="name" 
                                         axisLine={false} 
                                         tickLine={false} 
-                                        tick={{ fill: '#94a3b8', fontSize: 12, fontWeight: 600 }}
+                                        tick={{ fill: '#94a3b8', fontSize: 12, fontWeight: 700 }}
                                         dy={10}
                                     />
+                                    
                                     <YAxis 
                                         axisLine={false} 
                                         tickLine={false} 
-                                        tick={{ fill: '#94a3b8', fontSize: 12, fontWeight: 600 }}
+                                        tick={{ fill: '#94a3b8', fontSize: 11, fontWeight: 600 }}
                                         tickFormatter={(value) => formatPriceCompact(value)}
-                                        dx={-10}
+                                        dx={-5}
                                     />
+                                    
                                     <Tooltip content={<CustomTooltip />} />
-                                    <Area 
-                                        type="monotone" 
-                                        dataKey="revenue" 
-                                        stroke="#6366f1" 
-                                        strokeWidth={4}
-                                        fillOpacity={1} 
-                                        fill="url(#colorRevenue)" 
-                                        activeDot={{ r: 8, strokeWidth: 0, fill: '#6366f1' }}
-                                    />
-                                </AreaChart>
+
+                                    {/* Primary Cash Collected Area */}
+                                    {(chartMetricMode === 'collected' || chartMetricMode === 'comparison') && (
+                                        <Area 
+                                            type="monotone" 
+                                            dataKey="revenue" 
+                                            stroke="#6366f1" 
+                                            strokeWidth={4}
+                                            fillOpacity={1} 
+                                            fill="url(#colorCollected)" 
+                                            activeDot={{ r: 8, strokeWidth: 2, stroke: '#ffffff', fill: '#6366f1' }}
+                                        />
+                                    )}
+
+                                    {/* Comparison Mode: Gross Invoiced Line */}
+                                    {chartMetricMode === 'comparison' && (
+                                        <Line 
+                                            type="monotone" 
+                                            dataKey="bookingValue" 
+                                            stroke="#f59e0b" 
+                                            strokeWidth={3}
+                                            strokeDasharray="4 4"
+                                            dot={{ r: 4, fill: '#f59e0b' }}
+                                            activeDot={{ r: 7, strokeWidth: 2, stroke: '#ffffff', fill: '#f59e0b' }}
+                                        />
+                                    )}
+
+                                    {/* Est Net Margin Mode */}
+                                    {chartMetricMode === 'profit' && (
+                                        <Area 
+                                            type="monotone" 
+                                            dataKey="netProfit" 
+                                            stroke="#10b981" 
+                                            strokeWidth={4}
+                                            fillOpacity={1} 
+                                            fill="url(#colorProfit)" 
+                                            activeDot={{ r: 8, strokeWidth: 2, stroke: '#ffffff', fill: '#10b981' }}
+                                        />
+                                    )}
+                                </ComposedChart>
                             </ResponsiveContainer>
+                        </div>
+
+                        {/* Chart Footer Links & Deep-Links */}
+                        <div className="flex items-center justify-between border-t border-slate-100 dark:border-slate-800/80 pt-4 text-xs font-semibold text-slate-500">
+                            <div className="flex items-center gap-4">
+                                <span className="flex items-center gap-1.5">
+                                    <span className="size-2.5 rounded-full bg-indigo-500"></span>
+                                    <span>Collected</span>
+                                </span>
+                                {chartMetricMode === 'comparison' && (
+                                    <span className="flex items-center gap-1.5">
+                                        <span className="size-2.5 rounded-full bg-amber-500"></span>
+                                        <span>Invoiced Total</span>
+                                    </span>
+                                )}
+                                {chartMetricMode === 'profit' && (
+                                    <span className="flex items-center gap-1.5">
+                                        <span className="size-2.5 rounded-full bg-emerald-500"></span>
+                                        <span>Est. Net Profit</span>
+                                    </span>
+                                )}
+                            </div>
+
+                            <Link 
+                                to="/admin/analytics" 
+                                className="text-indigo-600 dark:text-indigo-400 hover:underline font-bold flex items-center gap-1"
+                            >
+                                <span>Full Financial Analytics</span>
+                                <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
+                            </Link>
                         </div>
                     </div>
 

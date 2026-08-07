@@ -476,9 +476,8 @@ export const AdminLayout: React.FC = () => {
               </div>
             </Link>
           </div>
-
           {/* Desktop Top Primary Categories Navigation Tabs */}
-          <nav ref={megaMenuRef} className="hidden lg:flex items-center gap-1 xl:gap-2 relative h-full shrink-0">
+          <nav ref={megaMenuRef} className="hidden lg:flex items-center gap-1 xl:gap-1.5 relative h-full shrink-0">
             {visibleCategories.map((category, catIdx) => {
               const isCategoryActive = category.items.some(item =>
                 item.path === '/admin'
@@ -497,29 +496,31 @@ export const AdminLayout: React.FC = () => {
                 >
                   <button
                     onClick={() => setActiveMegaCategory(isOpen ? null : category.key)}
-                    className={`group flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer ${
+                    className={`group flex items-center gap-2 px-3.5 py-2 rounded-2xl text-xs font-bold transition-all duration-200 cursor-pointer ${
                       isCategoryActive || isOpen
-                        ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-md ring-2 ring-indigo-500/20'
-                        : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
+                        ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-md ring-2 ring-indigo-500/30 scale-[1.02]'
+                        : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/80 hover:text-slate-900 dark:hover:text-white'
                     }`}
                   >
-                    <span className={`material-symbols-outlined text-[18px] transition-transform group-hover:scale-110 ${
-                      isCategoryActive || isOpen ? 'text-indigo-400 dark:text-indigo-600' : 'text-slate-400'
+                    <span className={`material-symbols-outlined text-[18px] transition-transform duration-200 group-hover:scale-110 ${
+                      isCategoryActive || isOpen ? 'text-indigo-400 dark:text-indigo-600' : 'text-slate-400 dark:text-slate-500'
                     }`}>
                       {category.icon}
                     </span>
-                    <span className="whitespace-nowrap">{category.title}</span>
+                    <span className="whitespace-nowrap tracking-tight">{category.title}</span>
                     
-                    {/* Live Stat Badge Pill (Displayed cleanly on 2xl screens) */}
-                    <span className={`hidden 2xl:inline-block text-[10px] font-black px-1.5 py-0.5 rounded-md transition-all ${
+                    {/* Live Stat Badge Pill */}
+                    <span className={`hidden 2xl:inline-flex text-[10px] font-extrabold px-2 py-0.5 rounded-full transition-all ${
                       isCategoryActive || isOpen
-                        ? 'bg-indigo-500/30 text-indigo-200 dark:bg-indigo-100 dark:text-indigo-800'
-                        : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
+                        ? 'bg-indigo-500/30 text-indigo-200 dark:bg-indigo-100 dark:text-indigo-900'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200/50 dark:border-slate-700/50'
                     }`}>
                       {liveStatBadge}
                     </span>
 
-                    <span className={`material-symbols-outlined text-[16px] transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}>
+                    <span className={`material-symbols-outlined text-[16px] transition-transform duration-200 ${
+                      isOpen ? 'rotate-180 text-indigo-400' : 'text-slate-400'
+                    }`}>
                       expand_more
                     </span>
                   </button>
@@ -528,15 +529,15 @@ export const AdminLayout: React.FC = () => {
                   {isOpen && (
                     <div
                       onMouseLeave={() => setActiveMegaCategory(null)}
-                      className={`absolute top-full mt-1.5 w-[660px] max-w-[calc(100vw-2rem)] bg-white dark:bg-[#0F172A] rounded-3xl shadow-2xl border border-slate-200/80 dark:border-slate-800 z-[150] animate-in fade-in zoom-in-95 overflow-hidden flex ${
+                      className={`absolute top-full mt-2 w-[680px] max-w-[calc(100vw-2rem)] bg-white/95 dark:bg-[#0F172A]/95 backdrop-blur-2xl rounded-3xl shadow-2xl shadow-indigo-950/20 border border-slate-200/90 dark:border-slate-800 z-[150] animate-in fade-in zoom-in-95 overflow-hidden flex ${
                         isRightAligned ? 'right-0' : 'left-0'
                       }`}
                     >
                       {/* Left Column: Category Summary & Quick Action Card */}
-                      <div className="w-56 bg-gradient-to-b from-slate-50 to-indigo-50/30 dark:from-slate-900 dark:to-slate-800/40 p-4 border-r border-slate-100 dark:border-slate-800 flex flex-col justify-between shrink-0">
+                      <div className="w-56 bg-gradient-to-b from-slate-50/80 to-indigo-50/40 dark:from-slate-900 dark:to-slate-800/50 p-4 border-r border-slate-100 dark:border-slate-800 flex flex-col justify-between shrink-0">
                         <div>
-                          <div className="flex items-center gap-2 mb-3">
-                            <div className="size-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-md">
+                          <div className="flex items-center gap-2.5 mb-3">
+                            <div className="size-9 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white flex items-center justify-center shadow-md">
                               <span className="material-symbols-outlined text-[18px]">{category.icon}</span>
                             </div>
                             <div>
@@ -545,7 +546,7 @@ export const AdminLayout: React.FC = () => {
                             </div>
                           </div>
 
-                          <div className="p-3 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/70 dark:border-slate-700/70 shadow-sm space-y-1 mb-3">
+                          <div className="p-3 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md rounded-2xl border border-slate-200/70 dark:border-slate-700/70 shadow-sm space-y-1 mb-3">
                             <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Live Metric</p>
                             <p className="text-sm font-black text-indigo-600 dark:text-indigo-400">{liveStatBadge}</p>
                             <p className="text-[10px] text-slate-500 dark:text-slate-400">Synced with MySQL tables</p>
@@ -560,7 +561,7 @@ export const AdminLayout: React.FC = () => {
                                 navigate(category.quickAction.path);
                                 setActiveMegaCategory(null);
                               }}
-                              className="w-full flex items-center justify-center gap-2 py-2.5 px-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-xs font-bold rounded-xl shadow-md hover:opacity-90 transition-opacity cursor-pointer"
+                              className="w-full flex items-center justify-center gap-2 py-2.5 px-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-xs font-bold rounded-xl shadow-md hover:opacity-95 active:scale-95 transition-all cursor-pointer"
                             >
                               <span className="material-symbols-outlined text-[16px]">{category.quickAction.icon}</span>
                               <span className="truncate">{category.quickAction.label}</span>
@@ -569,7 +570,7 @@ export const AdminLayout: React.FC = () => {
 
                           <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 px-1">
                             <span>Shortcut</span>
-                            <span className="bg-slate-200 dark:bg-slate-700 px-1.5 py-0.5 rounded text-slate-700 dark:text-slate-300">{category.altShortcut}</span>
+                            <span className="bg-slate-200/70 dark:bg-slate-700/70 px-1.5 py-0.5 rounded text-slate-700 dark:text-slate-300 font-mono">{category.altShortcut}</span>
                           </div>
                         </div>
                       </div>
@@ -588,7 +589,7 @@ export const AdminLayout: React.FC = () => {
                               onClick={() => setActiveMegaCategory(null)}
                               className={`flex items-start gap-2.5 p-2.5 rounded-2xl transition-all duration-150 group text-left ${
                                 isItemActive
-                                  ? 'bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/50 shadow-sm'
+                                  ? 'bg-indigo-50/80 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800/60 shadow-sm'
                                   : 'hover:bg-slate-50 dark:hover:bg-slate-800/50 border border-transparent'
                               }`}
                             >
@@ -792,46 +793,63 @@ export const AdminLayout: React.FC = () => {
           </div>
         </div>
       </header>
-
-      <div className="print:hidden bg-slate-100/80 dark:bg-[#0B1116] border-b border-slate-200/70 dark:border-slate-800/70 px-4 lg:px-8 py-2">
-        <div className="max-w-[1700px] mx-auto flex flex-col md:flex-row md:items-center justify-between gap-2 text-xs text-slate-500 font-medium">
-          <div className="flex items-center gap-2 shrink-0">
-            <Link to="/admin" className="hover:text-indigo-600 transition-colors flex items-center gap-1 font-semibold">
-              <span className="material-symbols-outlined text-[16px]">home</span>
+      {/* Secondary Horizontal Sub-Navigation Bar */}
+      <div className="print:hidden bg-slate-100/90 dark:bg-[#0B1116] border-b border-slate-200/80 dark:border-slate-800/80 px-4 lg:px-8 py-2 transition-all">
+        <div className="max-w-[1700px] mx-auto flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+          
+          {/* Breadcrumb Context Path */}
+          <div className="flex items-center gap-2 shrink-0 overflow-x-auto text-slate-500 font-medium py-0.5 scrollbar-none">
+            <Link to="/admin" className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors flex items-center gap-1 font-semibold text-slate-600 dark:text-slate-400">
+              <span className="material-symbols-outlined text-[16px] text-slate-400">home</span>
               <span>Admin</span>
             </Link>
             <span className="text-slate-300 dark:text-slate-700">/</span>
-            <span className="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1">
+            <div className="flex items-center gap-1.5 font-bold text-slate-800 dark:text-slate-200 bg-slate-200/60 dark:bg-slate-800/60 px-2.5 py-1 rounded-lg border border-slate-200/70 dark:border-slate-700/60">
               <span className="material-symbols-outlined text-[15px] text-indigo-500">{activeCategoryInfo.activeCat.icon}</span>
-              {activeCategoryInfo.activeCat.title}
-            </span>
-            <span className="text-slate-300 dark:text-slate-700">/</span>
-            <span className="font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 px-2 py-0.5 rounded-md">
-              {activeCategoryInfo.activeItem.name}
+              <span>{activeCategoryInfo.activeCat.title}</span>
+            </div>
+            
+            {/* Vertical Separator */}
+            <div className="hidden sm:block h-4 w-px bg-slate-300 dark:bg-slate-700/70 mx-0.5" />
+
+            {/* Active Page Indicator */}
+            <span className="hidden sm:inline-flex items-center gap-1 text-[11px] font-bold text-slate-400 dark:text-slate-500">
+              <span>{activeCategoryInfo.activeCat.items.length} Modules</span>
             </span>
           </div>
 
+          {/* Floating Segmented Control Track for Sub-Navigation Tabs */}
           {activeCategoryInfo.activeCat.items.length > 1 && (
-            <div className="flex items-center gap-1.5 overflow-x-auto py-0.5 scrollbar-none">
-              {activeCategoryInfo.activeCat.items.map((subItem) => {
-                const isSubActive = subItem.path === '/admin'
-                  ? location.pathname === '/admin'
-                  : location.pathname === subItem.path || location.pathname.startsWith(subItem.path + '/');
-                return (
-                  <Link
-                    key={subItem.path}
-                    to={subItem.path}
-                    className={`px-3 py-1 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 ${
-                      isSubActive
-                        ? 'bg-indigo-600 text-white shadow-sm ring-2 ring-indigo-500/30'
-                        : 'bg-white/80 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-slate-700 hover:text-indigo-600'
-                    }`}
-                  >
-                    <span className="material-symbols-outlined text-[14px]">{subItem.icon}</span>
-                    <span>{subItem.name}</span>
-                  </Link>
-                );
-              })}
+            <div className="relative flex-1 md:flex-initial min-w-0 max-w-full">
+              <div className="flex items-center gap-1 p-1 bg-slate-200/70 dark:bg-slate-800/80 rounded-2xl border border-slate-200/80 dark:border-slate-700/60 overflow-x-auto scrollbar-none shadow-inner">
+                {activeCategoryInfo.activeCat.items.map((subItem) => {
+                  const isSubActive = subItem.path === '/admin'
+                    ? location.pathname === '/admin'
+                    : location.pathname === subItem.path || location.pathname.startsWith(subItem.path + '/');
+                  return (
+                    <Link
+                      key={subItem.path}
+                      to={subItem.path}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all duration-200 flex items-center gap-1.5 shrink-0 select-none ${
+                        isSubActive
+                          ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-md ring-1 ring-slate-200 dark:ring-slate-700 transform scale-[1.02]'
+                          : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-700/50'
+                      }`}
+                    >
+                      <span className={`material-symbols-outlined text-[15px] transition-colors ${
+                        isSubActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-500'
+                      }`}>
+                        {subItem.icon}
+                      </span>
+                      <span className="whitespace-nowrap">{subItem.name}</span>
+                      
+                      {isSubActive && (
+                        <span className="size-1.5 rounded-full bg-indigo-500 animate-pulse ml-0.5" />
+                      )}
+                    </Link>
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>

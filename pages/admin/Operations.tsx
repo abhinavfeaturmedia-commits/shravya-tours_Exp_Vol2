@@ -23,13 +23,35 @@ const AVATAR_PALETTE: Record<string, string> = {
 const getAvatarBg = (color: string) => AVATAR_PALETTE[color] ?? '#64748b';
 
 // ─── Timezone-safe helpers ───────────────────────────────────────────────────
-/** Parse a YYYY-MM-DD string into a local midnight Date without UTC shifting */
+/** Parse a date string into a local midnight Date without UTC shifting */
 const parseLocalDate = (dateStr: string): Date | null => {
-    const parts = dateStr ? dateStr.split('-') : [];
-    if (parts.length < 3) return null;
-    const d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
-    d.setHours(0, 0, 0, 0);
-    return d;
+    if (!dateStr) return null;
+    const cleanStr = String(dateStr).split('T')[0].trim();
+    const parts = cleanStr.split(/[-/]/);
+    if (parts.length >= 3) {
+        let year = parseInt(parts[0], 10);
+        let month = parseInt(parts[1], 10) - 1;
+        let day = parseInt(parts[2], 10);
+
+        // Handle DD-MM-YYYY or DD/MM/YYYY
+        if (parts[0].length <= 2 && parts[2].length === 4) {
+            day = parseInt(parts[0], 10);
+            month = parseInt(parts[1], 10) - 1;
+            year = parseInt(parts[2], 10);
+        }
+
+        if (!isNaN(year) && !isNaN(month) && !isNaN(day) && year > 1900 && month >= 0 && month <= 11 && day >= 1 && day <= 31) {
+            const d = new Date(year, month, day);
+            d.setHours(0, 0, 0, 0);
+            return d;
+        }
+    }
+    const fallback = new Date(dateStr);
+    if (!isNaN(fallback.getTime())) {
+        fallback.setHours(0, 0, 0, 0);
+        return fallback;
+    }
+    return null;
 };
 
 /** Format a YYYY-MM-DD string for display without UTC shifting */
@@ -317,8 +339,6 @@ export const Operations: React.FC = () => {
         const completedIds = new Set<string>();
 
         bookings.forEach((b: Booking) => {
-            if (b.type && b.type !== 'Tour') return;
-
             const start = parseLocalDate(b.date);
             if (!start) return;
 
@@ -331,6 +351,15 @@ export const Operations: React.FC = () => {
                     || packages.find((p: any) => b.packageId && p.title === b.title);
                 if (pkg?.days && pkg.days > 0) {
                     duration = pkg.days;
+                } else if (b.endDate) {
+                    const startD = parseLocalDate(b.date);
+                    const endD = parseLocalDate(b.endDate);
+                    if (startD && endD && endD >= startD) {
+                        duration = Math.round((endD.getTime() - startD.getTime()) / 86_400_000) + 1;
+                    } else {
+                        duration = 1;
+                        durationEstimated = true;
+                    }
                 } else {
                     duration = 1;
                     durationEstimated = true;
@@ -399,6 +428,15 @@ export const Operations: React.FC = () => {
 
         return { live, upcoming, completed };
     }, [bookings, packages, upcomingDays]);
+
+    // ─── Pre-fetch deliverables for active live tours ──────────────────────────
+    React.useEffect(() => {
+        tourStats.live.forEach(t => {
+            if (deliverables[t.id] === undefined && !loadingDeliverables[t.id]) {
+                fetchDeliverableForBooking(t.id);
+            }
+        });
+    }, [tourStats.live, deliverables, loadingDeliverables, fetchDeliverableForBooking]);
 
     // ─── Fault Detection ──────────────────────────────────────────────────────
     const faults = useMemo(() => {
@@ -853,12 +891,12 @@ export const Operations: React.FC = () => {
                                 </div>
                                 <div className="flex items-baseline gap-2 mt-1">
                                     <span className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">
-                                        {kpiSummary.totalDeliverablesCount > 0 ? `${Math.round((kpiSummary.verifiedDeliverablesCount / kpiSummary.totalDeliverablesCount) * 100)}%` : '100%'}
+                                        {kpiSummary.totalDeliverablesCount > 0 ? `${Math.round((kpiSummary.verifiedDeliverablesCount / kpiSummary.totalDeliverablesCount) * 100)}%` : '0%'}
                                     </span>
                                     <span className="text-xs font-bold text-slate-500 dark:text-slate-400">({kpiSummary.verifiedDeliverablesCount}/{kpiSummary.totalDeliverablesCount})</span>
                                 </div>
                                 <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full mt-3 overflow-hidden">
-                                    <div className="bg-indigo-500 h-full rounded-full" style={{ width: `${kpiSummary.totalDeliverablesCount > 0 ? (kpiSummary.verifiedDeliverablesCount / kpiSummary.totalDeliverablesCount) * 100 : 100}%` }}></div>
+                                    <div className="bg-indigo-500 h-full rounded-full" style={{ width: `${kpiSummary.totalDeliverablesCount > 0 ? (kpiSummary.verifiedDeliverablesCount / kpiSummary.totalDeliverablesCount) * 100 : 0}%` }}></div>
                                 </div>
                             </div>
 
