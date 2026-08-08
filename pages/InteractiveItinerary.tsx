@@ -8,7 +8,7 @@ import {
     AlertTriangle, ArrowRight, Phone
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { formatPrice, getLocationName } from '../utils/packageUtils';
+import { formatPrice, getLocationName, formatTripDuration } from '../utils/packageUtils';
 import { PaymentLogos } from '../components/ui/PaymentLogos';
 
 // ─── Print Styles (injected once) ────────────────────────────────────────────
@@ -294,8 +294,7 @@ export const InteractiveItinerary: React.FC = () => {
                             </span>
                         )}
                         <span className="flex items-center gap-1.5"><Users size={15} /> {guestCount} Guests</span>
-                        <span className="flex items-center gap-1.5"><Moon size={15} /> {pkg.days - 1} Nights</span>
-                        <span className="flex items-center gap-1.5"><Sun size={15} /> {pkg.days} Days</span>
+                        <span className="flex items-center gap-1.5"><Clock size={15} /> {formatTripDuration({ nights: Math.max(0, pkg.days - 1), days: pkg.days })}</span>
                     </div>
                 </div>
             </div>
@@ -475,7 +474,7 @@ export const InteractiveItinerary: React.FC = () => {
                         <div className="space-y-2">
                             <h4 className="text-[9px] font-black uppercase tracking-widest text-stone-500">Snapshot</h4>
                             {[
-                                { label: 'Duration', value: `${pkg.days} Days / ${pkg.days - 1} Nights` },
+                                { label: 'Duration', value: formatTripDuration({ nights: Math.max(0, pkg.days - 1), days: pkg.days }) },
                                 { label: 'Guests', value: `${guestCount} person${guestCount > 1 ? 's' : ''}` },
                                 { label: 'Destinations', value: `${tripDetails?.destinations?.length || 1} location${(tripDetails?.destinations?.length || 1) > 1 ? 's' : ''}` },
                             ].map(row => (

@@ -1,6 +1,7 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Proposal, Lead, ProposalOption, MasterHotel, MasterActivity } from '../types';
+import { formatTripDuration } from './packageUtils';
 
 const loadLogo = (logoUrl: string = '/logo.png'): Promise<HTMLImageElement | null> => {
     return new Promise((resolve) => {
@@ -822,7 +823,7 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
                 const toDate = new Date(docData.travel_date_to).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
                 const diffMs = new Date(docData.travel_date_to).getTime() - new Date(docData.travel_date_from).getTime();
                 const nights = Math.round(diffMs / (1000 * 60 * 60 * 24));
-                const daysLabel = nights > 0 ? ` (${nights}N/${nights + 1}D)` : '';
+                const daysLabel = ` (${formatTripDuration({ nights, days: nights + 1 })})`;
                 travelLabel = `${fromDate} - ${toDate}${daysLabel}`;
             } else {
                 travelLabel = `From: ${fromDate}`;

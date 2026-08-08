@@ -10,7 +10,7 @@ import { TravelerSelector } from '../components/ui/TravelerSelector';
 import { PhoneInput } from '../components/ui/PhoneInput';
 import { api } from '../src/lib/api';
 import { ImageUpload } from '../components/ui/ImageUpload';
-import { formatPrice, formatPriceCompact, getLocationName } from '../utils/packageUtils';
+import { formatPrice, formatPriceCompact, getLocationName, formatTripDuration } from '../utils/packageUtils';
 import { getEmbedUrl, getVideoThumbnail } from '../utils/videoUtils';
 import { copyToClipboard } from '../utils/clipboard';
 import { useCustomerAuth, CUSTOMER_JWT_KEY } from '../context/CustomerAuthContext';
@@ -1621,7 +1621,7 @@ export const PackageDetail: React.FC = () => {
                       <span className="text-slate-300 dark:text-slate-700 font-light">•</span>
                       <div className="flex items-center gap-1.5">
                         <span className="material-symbols-outlined text-base text-slate-400">schedule</span>
-                        <span>{tour.days} Days / {Math.max(1, tour.days - 1)} Nights</span>
+                        <span>{formatTripDuration({ nights: Math.max(0, tour.days - 1), days: tour.days })}</span>
                       </div>
                       <span className="text-slate-300 dark:text-slate-700 font-light">•</span>
                       <div className="flex items-center gap-1.5">
@@ -2089,23 +2089,25 @@ export const PackageDetail: React.FC = () => {
                   {/* Top Rate details */}
                   <div className="p-6 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/20 shrink-0">
                     <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Starting from</p>
-                    <div className="flex items-baseline gap-1 mb-2">
-                      <span className="text-4xl font-black text-slate-900 dark:text-white tracking-tight">
-                        {formatPrice(tour.pricingMode === 'group' ? activeOccupancy.price : perPersonPrice)}
+                    <div className="flex items-baseline gap-1.5 mb-1.5">
+                      <span className="text-3xl sm:text-4xl font-black text-slate-900 dark:text-white tracking-tight">
+                        {formatPrice(perPersonPrice)}
                       </span>
                       <span className="text-sm font-bold text-slate-500">
-                        {tour.pricingMode === 'group' ? '/ group' : '/ person'}
+                        / person
                       </span>
                     </div>
-                    {tour.originalPrice && tour.originalPrice > activeOccupancy.price && (
-                      <div className="flex items-center gap-2 mb-3">
+                    {perPersonOriginalPrice > perPersonPrice && (
+                      <div className="flex items-center gap-2 mb-2.5">
                         <span className="text-sm text-slate-400 line-through decoration-slate-300 dark:decoration-slate-600">
-                          {formatPrice(tour.pricingMode === 'group' ? tour.originalPrice : perPersonOriginalPrice)}
+                          {formatPrice(perPersonOriginalPrice)}
                         </span>
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 uppercase tracking-wider">Save {Math.round(((tour.originalPrice - activeOccupancy.price) / tour.originalPrice) * 100)}%</span>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 uppercase tracking-wider">
+                          Save {Math.round(((perPersonOriginalPrice - perPersonPrice) / perPersonOriginalPrice) * 100)}%
+                        </span>
                       </div>
                     )}
-                    <div className="text-[11px] font-black text-slate-500 bg-slate-200/50 dark:bg-slate-800/60 px-3.5 py-1.5 rounded-xl w-fit mt-1 select-none">
+                    <div className="text-[11px] font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800/70 border border-slate-200/60 dark:border-slate-700/50 px-3.5 py-1.5 rounded-xl w-fit mt-1 select-none">
                       Total: {formatPrice(calculateTotal())} for {guests}
                     </div>
                     {tour.remainingSeats && tour.remainingSeats < 10 && (
@@ -2387,20 +2389,21 @@ export const PackageDetail: React.FC = () => {
           <div className="flex items-center justify-between max-w-lg mx-auto gap-4">
             <div className="shrink-0">
               <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1">
-                {tour.pricingMode === 'group' ? 'Total Price' : 'Price per person'}
+                Starting from
               </p>
               <div className="flex items-baseline gap-1.5">
                 <p className="text-xl font-black text-slate-900 dark:text-white">
-                  {formatPrice(tour.pricingMode === 'group' ? calculateTotal() : perPersonPrice)}
+                  {formatPrice(perPersonPrice)}
                 </p>
-                {tour.originalPrice && tour.originalPrice > activeOccupancy.price && (
+                <span className="text-[11px] font-bold text-slate-500">/ person</span>
+                {perPersonOriginalPrice > perPersonPrice && (
                   <span className="text-[11px] text-slate-400 line-through">
-                    {formatPriceCompact(tour.pricingMode === 'group' ? calculateOriginalTotal() : perPersonOriginalPrice)}
+                    {formatPriceCompact(perPersonOriginalPrice)}
                   </span>
                 )}
               </div>
               <p className="text-[9px] text-slate-500 font-bold">
-                {tour.pricingMode === 'group' ? `Based on ${guests}` : `Total: ${formatPrice(calculateTotal())}`}
+                Total: {formatPrice(calculateTotal())} for {guests}
               </p>
             </div>
             <div className="flex items-center gap-2 flex-1 justify-end">

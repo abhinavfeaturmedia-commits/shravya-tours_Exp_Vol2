@@ -19,7 +19,7 @@ import { Pagination, usePagination } from '../../components/ui/Pagination';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { exportToExcel, ExportColumn } from '../../src/lib/exportUtils';
-import { formatPrice } from '../../utils/packageUtils';
+import { formatPrice, calculateTripDuration, formatTripDuration } from '../../utils/packageUtils';
 import { Plus, X, Edit2, Trash2 } from 'lucide-react';
 import { parsePaxString, formatPaxString } from '../../utils/paxUtils';
 
@@ -1013,9 +1013,8 @@ export const Bookings: React.FC = () => {
 
             {/* Booking Detail View Modal */}
             {viewingBooking && (() => {
-                const startD = viewingBooking.date ? new Date(viewingBooking.date) : null;
-                const endD = viewingBooking.endDate ? new Date(viewingBooking.endDate) : startD;
-                const durationDays = startD && endD ? Math.max(1, Math.round((endD.getTime() - startD.getTime()) / 86400000) + 1) : null;
+                const tripDurationInfo = calculateTripDuration(viewingBooking.date, viewingBooking.endDate, viewingBooking.durationDays);
+                const formattedDuration = formatTripDuration(tripDurationInfo);
                 // Derive payment totals from actual transaction records — Verified txs only
                 // (same logic as LedgerManagementModal and api.getBookings dynamicPayment)
                 const viewTxs = viewingBooking.transactions || [];
@@ -1140,7 +1139,7 @@ export const Bookings: React.FC = () => {
                             </div>
                             <div className="px-4 py-3 text-center">
                                 <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">Duration</p>
-                                <p className="text-sm font-bold text-slate-700 dark:text-slate-300">{durationDays ? `${durationDays}N` : '—'}</p>
+                                <p className="text-sm font-bold text-slate-700 dark:text-slate-300">{formattedDuration}</p>
                             </div>
                             <div className="px-4 py-3 text-center">
                                 <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">Amount</p>
@@ -1909,7 +1908,7 @@ export const Bookings: React.FC = () => {
                                             </div>
                                             <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700">
                                                 <p className="text-[10px] text-slate-400 font-bold uppercase mb-1 flex items-center gap-1"><span className="material-symbols-outlined text-[12px]">schedule</span>Duration</p>
-                                                <p className="text-sm font-bold text-slate-800 dark:text-slate-200">{durationDays ? `${durationDays} Night${durationDays > 1 ? 's' : ''}` : '—'}</p>
+                                                <p className="text-sm font-bold text-slate-800 dark:text-slate-200">{formattedDuration}</p>
                                             </div>
                                         </div>
                                         {viewingBooking.serviceType && (

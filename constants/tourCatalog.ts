@@ -1,3 +1,5 @@
+import { formatTripDuration } from '../utils/packageUtils';
+
 export type TourCategoryType = 'Heritage' | 'Hills' | 'Beach' | 'Spiritual' | 'Wildlife' | 'Honeymoon';
 
 export interface TourPackage {
@@ -382,7 +384,7 @@ export function getTourCatalogFromPackages(realPackages: any[] = []): { categori
       categoryId = 'Heritage';
     }
 
-    const durationStr = p.days ? `${p.days} Days / ${Math.max(1, p.days - 1)} Nights` : '5 Days / 4 Nights';
+    const durationStr = formatTripDuration({ nights: p.days ? Math.max(0, p.days - 1) : 4, days: p.days || 5 });
     
     // Normalize inclusions
     const inclusionsList = Array.isArray(p.included) && p.included.length > 0

@@ -4,7 +4,7 @@ import { useData } from '../context/DataContext';
 import { SEO } from '../components/ui/SEO';
 import { OptimizedImage } from '../components/ui/OptimizedImage';
 import { LeadCaptureModal } from '../components/ui/LeadCaptureModal';
-import { formatPrice } from '../utils/packageUtils';
+import { formatPrice, getPackagePricingInfo } from '../utils/packageUtils';
 import {
   HotelBookingForm,
   TourBookingForm,
@@ -1576,12 +1576,23 @@ export const Home: React.FC = () => {
                     </div>
                     <div className="p-6">
                       <h3 className="text-lg font-bold text-slate-900 dark:text-white leading-tight group-hover:text-primary transition-colors line-clamp-2 mb-3">{tour.title}</h3>
-                      <div className="flex items-center justify-between border-t border-slate-100 dark:border-white/10 pt-4">
-                        <span className="text-lg font-black text-slate-900 dark:text-white">{formatPrice(tour.price)}</span>
-                        <div className="size-9 rounded-full bg-slate-100 dark:bg-white/10 flex items-center justify-center text-slate-700 dark:text-white group-hover:bg-primary group-hover:text-white transition-colors">
-                          <span className="material-symbols-outlined text-sm">arrow_forward</span>
-                        </div>
-                      </div>
+                      {(() => {
+                        const pricing = getPackagePricingInfo(tour);
+                        return (
+                          <div className="flex items-center justify-between border-t border-slate-100 dark:border-white/10 pt-4">
+                            <div>
+                              <div className="flex items-baseline gap-1">
+                                <span className="text-base font-black text-slate-900 dark:text-white">{pricing.perPersonFormatted}</span>
+                                <span className="text-[11px] font-bold text-slate-500">/ person</span>
+                              </div>
+                              <span className="text-[10px] text-slate-400 font-semibold block">Total: {pricing.totalFormatted} for {pricing.paxCount} pax</span>
+                            </div>
+                            <div className="size-9 rounded-full bg-slate-100 dark:bg-white/10 flex items-center justify-center text-slate-700 dark:text-white group-hover:bg-primary group-hover:text-white transition-colors shrink-0">
+                              <span className="material-symbols-outlined text-sm">arrow_forward</span>
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
                   </Link>
                 </div>

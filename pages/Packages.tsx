@@ -3,7 +3,7 @@ import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import { SEO } from '../components/ui/SEO';
 import { OptimizedImage } from '../components/ui/OptimizedImage';
-import { getLocationName, formatPriceCompact } from '../utils/packageUtils';
+import { getLocationName, formatPriceCompact, getPackagePricingInfo, formatTripDuration } from '../utils/packageUtils';
 import { useCustomerAuth, CUSTOMER_JWT_KEY } from '../context/CustomerAuthContext';
 
 export const Packages: React.FC = () => {
@@ -463,88 +463,91 @@ export const Packages: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 lg:gap-8">
                 {sortedPackages.length > 0 ? (
-                  sortedPackages.map((pkg, pkgIdx) => (
-                    <div key={pkg.id} className="animate-in fade-in slide-in-from-bottom-3 duration-500" style={{ animationDelay: `${pkgIdx * 60}ms`, animationFillMode: 'both' }}>
-                      <Link
-                        to={`/packages/${pkg.id}`}
-                        className="group relative flex flex-col rounded-[1.75rem] sm:rounded-[2rem] overflow-hidden shadow-md hover:shadow-2xl transition-all duration-500 transform hover:-translate-y-2 hover:scale-[1.015] cursor-pointer"
-                      >
-                        {/* ── FULL-BLEED IMAGE HERO ── */}
-                        <div className="relative h-[280px] sm:h-[340px] w-full overflow-hidden">
+                  sortedPackages.map((pkg, pkgIdx) => {
+                    const pricing = getPackagePricingInfo(pkg);
+                    return (
+                      <div key={pkg.id} className="animate-in fade-in slide-in-from-bottom-3 duration-500" style={{ animationDelay: `${pkgIdx * 60}ms`, animationFillMode: 'both' }}>
+                        <Link
+                          to={`/packages/${pkg.id}`}
+                          className="group relative flex flex-col rounded-[1.75rem] sm:rounded-[2rem] overflow-hidden shadow-md hover:shadow-2xl transition-all duration-500 transform hover:-translate-y-2 hover:scale-[1.015] cursor-pointer"
+                        >
+                          {/* ── FULL-BLEED IMAGE HERO ── */}
+                          <div className="relative h-[280px] sm:h-[340px] w-full overflow-hidden">
 
-                          {/* Background image */}
-                          <OptimizedImage
-                            src={pkg.image}
-                            alt={pkg.title}
-                            className="absolute inset-0 h-full w-full object-cover group-hover:scale-110 transition-transform duration-700 ease-out"
-                          />
+                            {/* Background image */}
+                            <OptimizedImage
+                              src={pkg.image}
+                              alt={pkg.title}
+                              className="absolute inset-0 h-full w-full object-cover group-hover:scale-110 transition-transform duration-700 ease-out"
+                            />
 
-                          {/* Dark gradient overlay — covers bottom 60% */}
-                          <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent pointer-events-none" />
+                            {/* Dark gradient overlay — covers bottom 60% */}
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent pointer-events-none" />
 
-                          {/* ── TOP ROW: Single unified flex bar — left badge + right controls ── */}
-                          {/* Both sides share one absolute row so they can NEVER overlap.        */}
-                          {/* Left side (min-w-0 flex-1) yields space; right side (shrink-0) never compresses. */}
-                          <div className="absolute top-0 left-0 right-0 z-30 px-3 pt-3 flex items-start justify-between gap-2">
+                            {/* ── TOP ROW: Single unified flex bar — left badge + right controls ── */}
+                            <div className="absolute top-0 left-0 right-0 z-30 px-3 pt-3 flex items-start justify-between gap-2">
 
-                            {/* LEFT: tag/theme badge + optional scarcity stacked below */}
-                            <div className="flex flex-col gap-1.5 min-w-0 flex-1">
-                              {pkg.tag ? (
-                                <div className={`${pkg.tagColor || 'bg-white/95 text-slate-900'} backdrop-blur-xl text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-xl shadow-xl flex items-center gap-1.5 w-fit max-w-full`}>
-                                  <span className="text-amber-500 shrink-0">★</span>
-                                  <span className="truncate">{pkg.tag}</span>
-                                </div>
-                              ) : (
-                                pkg.theme && (
-                                  <div className="bg-white/90 backdrop-blur-xl text-slate-900 text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-xl shadow-xl flex items-center gap-1.5 w-fit max-w-full">
-                                    <span className="text-primary shrink-0">★</span>
-                                    <span className="truncate">{pkg.theme}</span>
+                              {/* LEFT: tag/theme badge + optional scarcity stacked below */}
+                              <div className="flex flex-col gap-1.5 min-w-0 flex-1">
+                                {pkg.tag ? (
+                                  <div className={`${pkg.tagColor || 'bg-white/95 text-slate-900'} backdrop-blur-xl text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-xl shadow-xl flex items-center gap-1.5 w-fit max-w-full`}>
+                                    <span className="text-amber-500 shrink-0">★</span>
+                                    <span className="truncate">{pkg.tag}</span>
                                   </div>
-                                )
-                              )}
-                              {pkg.remainingSeats && pkg.remainingSeats < 10 && (
-                                <div className="bg-red-600/90 backdrop-blur-xl text-white text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-xl shadow-xl flex items-center gap-1.5 w-fit">
-                                  <span className="material-symbols-outlined text-[12px] shrink-0">local_fire_department</span>
-                                  <span>Only {pkg.remainingSeats} Left</span>
-                                </div>
-                              )}
-                            </div>
+                                ) : (
+                                  pkg.theme && (
+                                    <div className="bg-white/90 backdrop-blur-xl text-slate-900 text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-xl shadow-xl flex items-center gap-1.5 w-fit max-w-full">
+                                      <span className="text-primary shrink-0">★</span>
+                                      <span className="truncate">{pkg.theme}</span>
+                                    </div>
+                                  )
+                                )}
+                                {pkg.remainingSeats && pkg.remainingSeats < 10 && (
+                                  <div className="bg-red-600/90 backdrop-blur-xl text-white text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-xl shadow-xl flex items-center gap-1.5 w-fit">
+                                    <span className="material-symbols-outlined text-[12px] shrink-0">local_fire_department</span>
+                                    <span>Only {pkg.remainingSeats} Left</span>
+                                  </div>
+                                )}
+                              </div>
 
-                            {/* RIGHT: Wishlist heart + Duration pill — shrink-0 so they're always fully visible */}
-                            <div className="flex items-center gap-2 shrink-0">
-                              <button
-                                onClick={(e) => handleToggleWishlist(e, pkg.id)}
-                                className="size-8 rounded-full bg-white/85 backdrop-blur-xl flex items-center justify-center shadow-lg hover:scale-110 hover:bg-white active:scale-95 transition-all text-red-500"
-                              >
-                                <span
-                                  className="material-symbols-outlined text-[18px]"
-                                  style={{ fontVariationSettings: wishlistIds.includes(pkg.id) ? "'FILL' 1" : "'FILL' 0" }}
+                              {/* RIGHT: Wishlist heart + Duration pill */}
+                              <div className="flex items-center gap-2 shrink-0">
+                                <button
+                                  onClick={(e) => handleToggleWishlist(e, pkg.id)}
+                                  className="size-8 rounded-full bg-white/85 backdrop-blur-xl flex items-center justify-center shadow-lg hover:scale-110 hover:bg-white active:scale-95 transition-all text-red-500"
                                 >
-                                  favorite
-                                </span>
-                              </button>
-                              <div className="bg-white/85 backdrop-blur-xl text-slate-900 text-[10px] font-bold px-2.5 py-1.5 rounded-full shadow-lg flex items-center gap-1 shrink-0">
-                                <span className="material-symbols-outlined text-[13px] text-slate-600">schedule</span>
-                                {pkg.days}D / {pkg.days - 1}N
+                                  <span
+                                    className="material-symbols-outlined text-[18px]"
+                                    style={{ fontVariationSettings: wishlistIds.includes(pkg.id) ? "'FILL' 1" : "'FILL' 0" }}
+                                  >
+                                    favorite
+                                  </span>
+                                </button>
+                                <div className="bg-white/85 backdrop-blur-xl text-slate-900 text-[10px] font-bold px-2.5 py-1.5 rounded-full shadow-lg flex items-center gap-1 shrink-0">
+                                  <span className="material-symbols-outlined text-[13px] text-slate-600">schedule</span>
+                                  {formatTripDuration({ days: pkg.days })}
+                                </div>
                               </div>
                             </div>
-                          </div>
 
-                          {/* ── BOTTOM OVERLAY: Price + Title + Meta ── */}
-                          <div className="absolute bottom-0 left-0 right-0 z-10 px-5 pt-8 pb-4">
+                            {/* ── BOTTOM OVERLAY: Price + Title + Meta ── */}
+                            <div className="absolute bottom-0 left-0 right-0 z-10 px-5 pt-8 pb-4">
 
-                            {/* Large price — mirrors "List: $250,000" */}
-                            <div className="flex items-baseline gap-2 mb-1">
-                              <span className="text-2xl font-black text-white tracking-tight drop-shadow-lg">
-                                {formatPriceCompact(pkg.price)}
-                              </span>
-                              {pkg.originalPrice && pkg.originalPrice > pkg.price && (
-                                <span className="text-sm text-white/50 line-through font-medium">
-                                  {formatPriceCompact(pkg.originalPrice)}
+                              {/* Large price — Per Person Primary, Total Secondary */}
+                              <div className="flex items-baseline gap-2 mb-0.5">
+                                <span className="text-2xl font-black text-white tracking-tight drop-shadow-lg">
+                                  {pricing.perPersonCompact}
                                 </span>
-                              )}
-                              <span className="text-xs text-white/60 font-medium ml-auto">per person</span>
-                            </div>
+                                {pricing.perPersonOriginalPrice && pricing.perPersonOriginalPrice > pricing.perPersonPrice && (
+                                  <span className="text-sm text-white/50 line-through font-medium">
+                                    {formatPriceCompact(pricing.perPersonOriginalPrice)}
+                                  </span>
+                                )}
+                                <span className="text-xs text-white/80 font-bold ml-auto">per person</span>
+                              </div>
+                              <div className="text-[10px] text-white/60 font-semibold mb-2 drop-shadow">
+                                Total: {pricing.totalCompact} for {pricing.paxCount} pax
+                              </div>
 
                             {/* Package title */}
                             <h3 className="text-sm font-semibold text-white/90 leading-snug line-clamp-1 mb-3 drop-shadow">
@@ -599,7 +602,8 @@ export const Packages: React.FC = () => {
                         </div>
                       </Link>
                     </div>
-                  ))
+                  );
+                })
                 ) : (
                   <div className="col-span-full py-32 text-center">
                     <div className="size-24 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-6">

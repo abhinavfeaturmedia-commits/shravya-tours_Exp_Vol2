@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { usePartnerAuth } from '../../context/PartnerAuthContext';
 import { copyToClipboard } from '../../utils/clipboard';
 import { toast } from '../../components/ui/Toast';
+import { formatTripDuration, getPackagePricingInfo } from '../../utils/packageUtils';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -358,7 +359,7 @@ export const PartnerPackages: React.FC = () => {
 
                       {/* Right Duration Badge */}
                       <span className="absolute top-4 right-4 z-10 bg-black/40 backdrop-blur-md text-white text-[10px] font-black px-3 py-1.5 rounded-full border border-white/10">
-                        {pkg.days} Days / {pkg.days - 1} Nights
+                        {formatTripDuration({ nights: Math.max(0, pkg.days - 1), days: pkg.days })}
                       </span>
 
                       {/* Dynamic Commission Earning Ribbon */}
@@ -390,45 +391,54 @@ export const PartnerPackages: React.FC = () => {
                       </div>
 
                       {/* Pricing Footer */}
-                      <div className="flex items-center justify-between border-t border-white/5 pt-4 mt-4">
-                        <div className="space-y-0.5">
-                          <span className="text-[10px] text-white/40 uppercase tracking-wider block font-bold">Standard Cost</span>
-                          <span className="text-base font-black text-white">
-                            ₹{Number(pkg.price).toLocaleString('en-IN')}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          {/* Copy Link Button */}
-                          <button
-                            onClick={() => copyReferralLink(pkg)}
-                            className="h-9 px-3 bg-white/5 hover:bg-white/10 text-white rounded-xl flex items-center justify-center border border-white/10 transition-all hover:scale-105 active:scale-95"
-                            title="Copy shareable affiliate link"
-                          >
-                            <span className="material-symbols-outlined text-[18px]">
-                              {copiedPkgId === pkg.id ? 'check_circle' : 'link'}
-                            </span>
-                            {copiedPkgId === pkg.id && (
-                              <span className="text-[10px] font-bold ml-1 text-emerald-400">Copied</span>
-                            )}
-                          </button>
+                      {(() => {
+                        const pricing = getPackagePricingInfo(pkg);
+                        return (
+                          <div className="flex items-center justify-between border-t border-white/5 pt-4 mt-4">
+                            <div className="space-y-0.5">
+                              <span className="text-[10px] text-white/40 uppercase tracking-wider block font-bold">Starting Rate</span>
+                              <div className="flex items-baseline gap-1">
+                                <span className="text-base font-black text-white">
+                                  {pricing.perPersonFormatted}
+                                </span>
+                                <span className="text-[11px] font-semibold text-white/50">/ person</span>
+                              </div>
+                              <span className="text-[10px] text-white/50 block font-medium">Total: {pricing.totalFormatted} for {pricing.paxCount} pax</span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              {/* Copy Link Button */}
+                              <button
+                                onClick={() => copyReferralLink(pkg)}
+                                className="h-9 px-3 bg-white/5 hover:bg-white/10 text-white rounded-xl flex items-center justify-center border border-white/10 transition-all hover:scale-105 active:scale-95"
+                                title="Copy shareable affiliate link"
+                              >
+                                <span className="material-symbols-outlined text-[18px]">
+                                  {copiedPkgId === pkg.id ? 'check_circle' : 'link'}
+                                </span>
+                                {copiedPkgId === pkg.id && (
+                                  <span className="text-[10px] font-bold ml-1 text-emerald-400">Copied</span>
+                                )}
+                              </button>
 
-                          {/* Quick View */}
-                          <button
-                            onClick={() => setActivePkg(pkg)}
-                            className="h-9 px-4 bg-white/5 hover:bg-white/10 text-white rounded-xl text-xs font-bold border border-white/10 transition-all"
-                          >
-                            Quick View
-                          </button>
+                              {/* Quick View */}
+                              <button
+                                onClick={() => setActivePkg(pkg)}
+                                className="h-9 px-4 bg-white/5 hover:bg-white/10 text-white rounded-xl text-xs font-bold border border-white/10 transition-all"
+                              >
+                                Quick View
+                              </button>
 
-                          {/* Refer Client */}
-                          <button
-                            onClick={() => referClient(pkg)}
-                            className="h-9 px-4 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white rounded-xl text-xs font-bold shadow shadow-violet-600/25 transition-all hover:scale-105 active:scale-95"
-                          >
-                            Refer Client
-                          </button>
-                        </div>
-                      </div>
+                              {/* Refer Client */}
+                              <button
+                                onClick={() => referClient(pkg)}
+                                className="h-9 px-4 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white rounded-xl text-xs font-bold shadow shadow-violet-600/25 transition-all hover:scale-105 active:scale-95"
+                              >
+                                Refer Client
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
                 );
@@ -476,11 +486,11 @@ export const PartnerPackages: React.FC = () => {
                 <div className="absolute bottom-4 left-4 flex gap-4 text-xs font-bold text-white">
                   <span className="bg-black/30 backdrop-blur-md px-3 py-1 rounded-lg flex items-center gap-1 border border-white/10">
                     <span className="material-symbols-outlined text-[14px]">schedule</span>
-                    {activePkg.days} Days / {activePkg.days - 1} Nights
+                    {formatTripDuration({ nights: Math.max(0, activePkg.days - 1), days: activePkg.days })}
                   </span>
                   <span className="bg-black/30 backdrop-blur-md px-3 py-1 rounded-lg flex items-center gap-1 border border-white/10">
                     <span className="material-symbols-outlined text-[14px]">payments</span>
-                    ₹{Number(activePkg.price).toLocaleString('en-IN')}
+                    {getPackagePricingInfo(activePkg).perPersonFormatted} / person ({getPackagePricingInfo(activePkg).totalFormatted} total)
                   </span>
                 </div>
               </div>

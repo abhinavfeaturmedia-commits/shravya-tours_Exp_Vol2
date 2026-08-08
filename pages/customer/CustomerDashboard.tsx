@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom';
 import { useCustomerAuth, CUSTOMER_JWT_KEY } from '../../context/CustomerAuthContext';
 import { useData } from '../../context/DataContext';
-import { getLocationName, formatPrice, formatPriceCompact } from '../../utils/packageUtils';
+import { getLocationName, formatPrice, formatPriceCompact, formatTripDuration } from '../../utils/packageUtils';
 import { generatePackingChecklist, OPENROUTER_FREE_MODELS } from '../../src/lib/gemini';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -1846,8 +1846,8 @@ export const CustomerDashboard: React.FC = () => {
                         if (activeBooking.travel_date && (activeBooking as any).end_date) {
                           const start = new Date(activeBooking.travel_date);
                           const end = new Date((activeBooking as any).end_date);
-                          const days = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-                          return `${days} Days Trip`;
+                          const nights = Math.max(0, Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+                          return formatTripDuration({ nights, days: nights + 1 });
                         }
                         return activeBooking.pax_count ? `${activeBooking.pax_count} Travelers` : 'Trip';
                       })()}

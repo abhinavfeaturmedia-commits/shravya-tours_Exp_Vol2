@@ -7,6 +7,7 @@ import { useData } from '../../context/DataContext';
 
 import { generateTrueInvoicePDF } from '../../utils/pdfGenerator';
 import { parsePaxString } from '../../utils/paxUtils';
+import { formatTripDuration } from '../../utils/packageUtils';
 
 const ones = ['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen'];
 const tens = ['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
@@ -157,7 +158,7 @@ export const DocumentEditor: React.FC = () => {
     const addFromCatalog = (pkg: any) => {
         setItems([...items, {
             id: 'temp-' + generateId(),
-            description: `${pkg.title}\nDestination: ${pkg.destination}\nDuration: ${pkg.days} Days / ${pkg.nights} Nights`,
+            description: `${pkg.title}\nDestination: ${pkg.destination}\nDuration: ${formatTripDuration({ nights: pkg.nights, days: pkg.days })}`,
             quantity: 1,
             total_days_km: String(pkg.days || '1'),
             unit_price: Number(pkg.price || 0),
@@ -971,7 +972,7 @@ export const DocumentEditor: React.FC = () => {
                                             <div className="min-w-0 flex-1 pr-3">
                                                 <p className="font-bold text-slate-800 dark:text-slate-250 text-xs truncate leading-snug">{r.title}</p>
                                                 <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold mt-1 tracking-wide uppercase">
-                                                    {r.days} Days / {r.nights} Nights • {r.destination}
+                                                    {formatTripDuration({ nights: r.nights, days: r.days })} • {r.destination}
                                                 </p>
                                             </div>
                                             <div className="text-right flex-shrink-0 flex items-center gap-2">
@@ -1420,7 +1421,7 @@ export const DocumentEditor: React.FC = () => {
                                         🏁 Travel Date To
                                         {docData.travel_date_from && docData.travel_date_to && (() => {
                                             const diff = Math.round((new Date(docData.travel_date_to).getTime() - new Date(docData.travel_date_from).getTime()) / (1000 * 60 * 60 * 24));
-                                            return diff > 0 ? <span className="ml-auto text-[9px] bg-orange-100 dark:bg-orange-500/10 text-orange-600 dark:text-orange-400 px-1.5 py-0.5 rounded-md font-black">{diff}N/{diff+1}D</span> : null;
+                                            return diff > 0 ? <span className="ml-auto text-[9px] bg-orange-100 dark:bg-orange-500/10 text-orange-600 dark:text-orange-400 px-1.5 py-0.5 rounded-md font-black">{formatTripDuration({ nights: diff, days: diff + 1 })}</span> : null;
                                         })()}
                                     </span>
                                     <div className="flex items-center gap-1.5">

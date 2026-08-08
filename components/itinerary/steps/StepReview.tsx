@@ -6,6 +6,7 @@ import { Package } from '../../../types';
 import { Save, ArrowLeft, MapPin, Calendar, Users, Printer, Share2, Check, DollarSign, ArrowRight, Loader2, Hotel, Car, FileText, Receipt, Tag, Clock, Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { copyToClipboard } from '../../../utils/clipboard';
+import { formatTripDuration } from '../../../utils/packageUtils';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -90,7 +91,7 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
                 price: finalPrice,
                 image: tripDetails.coverImage,
                 theme: 'Custom',
-                overview: `A ${tripDetails.nights} Nights / ${tripDetails.days} Days journey to ${destinationName}.`,
+                overview: `A ${formatTripDuration({ nights: tripDetails.nights, days: tripDetails.days })} journey to ${destinationName}.`,
                 highlights: items.slice(0, 4).map(i => ({ icon: 'star', label: i.title })),
                 itinerary: generatePackageItinerary(),
                 gallery,
@@ -154,7 +155,7 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
             title: tripDetails.title,
             clientName: tripDetails.clientName || '',
             amount: finalPrice,
-            description: `Travel Itinerary: ${tripDetails.title} — ${tripDetails.nights}N/${tripDetails.days}D to ${destinationName}`,
+            description: `Travel Itinerary: ${tripDetails.title} — ${formatTripDuration({ nights: tripDetails.nights, days: tripDetails.days })} to ${destinationName}`,
             packageId: editPackageId,
             adults: tripDetails.adults,
             children: tripDetails.children,
@@ -454,7 +455,7 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
             doc.setFont('helvetica', 'bold');
             doc.setFontSize(8);
             doc.setTextColor(30, 41, 59);
-            doc.text(`${tripDetails.nights} NIGHTS / ${tripDetails.days} DAYS`, 25, pillY + 8.5);
+            doc.text(`${formatTripDuration({ nights: tripDetails.nights, days: tripDetails.days }).toUpperCase()}`, 25, pillY + 8.5);
 
             // B. Total Investment Price Card (right-aligned, starts at y=22)
             const priceCardTop = 22;
@@ -1189,7 +1190,7 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
                                 <span className="flex items-center gap-1"><MapPin size={12} /> {destinationName}</span>
                                 <span className="flex items-center gap-1"><Calendar size={12} /> {tripDetails.startDate}</span>
                                 <span className="flex items-center gap-1"><Users size={12} /> {guestCount} Guests</span>
-                                <span>🌙 {tripDetails.nights}N / ☀️ {tripDetails.days}D</span>
+                                <span>🗓️ {formatTripDuration({ nights: tripDetails.nights, days: tripDetails.days })}</span>
                             </div>
                             {validUntilDate && (
                                 <p className="text-[10px] font-bold text-amber-600 mt-1.5 flex items-center gap-1">
@@ -1198,17 +1199,14 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
                             )}
                         </div>
                         <div className="text-left md:text-right">
-                            <div className="text-[10px] font-black uppercase tracking-widest text-stone-400 mb-0.5">Total Cost</div>
-                            <div className="text-xl md:text-2xl font-black text-amber-600">{formatCurrency(finalPrice)}</div>
-                            {/* Per-pax pricing — Fix #8 */}
-                            {pricePerPax > 0 && (
-                                <div className="text-[10px] text-stone-400 mt-1 space-y-0.5">
-                                    <div>Per Person: <span className="font-bold text-stone-600">{formatCurrency(pricePerPax)}</span></div>
-                                    {tripDetails.children > 0 && (
-                                        <div>Per Adult: <span className="font-bold text-stone-600">{formatCurrency(pricePerAdult)}</span></div>
-                                    )}
-                                </div>
-                            )}
+                            <div className="text-[10px] font-black uppercase tracking-widest text-amber-600 mb-0.5">Starting Per Person</div>
+                            <div className="text-xl md:text-2xl font-black text-amber-600">
+                                {formatCurrency(pricePerPax > 0 ? pricePerPax : Math.round(finalPrice / (guestCount > 0 ? guestCount : 1)))}
+                                <span className="text-xs font-bold text-stone-500 ml-1">/ person</span>
+                            </div>
+                            <div className="text-[10px] font-bold text-stone-500 mt-1 bg-stone-100 px-2.5 py-1 rounded-lg inline-block">
+                                Total Investment: <span className="font-bold text-stone-800">{formatCurrency(finalPrice)}</span> ({guestCount} Guests)
+                            </div>
                         </div>
                     </div>
 
@@ -1471,7 +1469,7 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
                     <div className="flex gap-2">
                         <button
                             onClick={() => {
-                                const text = `🏝️ *Trip to ${destinationName}*\n📅 ${tripDetails.nights}N/${tripDetails.days}D | ${guestCount} Guests\n💰 ₹${finalPrice.toLocaleString()}\n\n*Itinerary:*\n${items.map(item => `Day ${item.day}: ${item.title}`).join('\n')}\n\nBook now with SHRAWELLO Travel Hub! 🚀`;
+                                const text = `🏝️ *Trip to ${destinationName}*\n📅 ${formatTripDuration({ nights: tripDetails.nights, days: tripDetails.days })} | ${guestCount} Guests\n💰 ₹${finalPrice.toLocaleString()}\n\n*Itinerary:*\n${items.map(item => `Day ${item.day}: ${item.title}`).join('\n')}\n\nBook now with SHRAWELLO Travel Hub! 🚀`;
                                 copyToClipboard(text).then(success => {
                                     if (success) {
                                         toast.success('Itinerary copied to clipboard!');
