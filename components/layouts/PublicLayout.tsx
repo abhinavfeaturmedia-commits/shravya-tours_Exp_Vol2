@@ -82,6 +82,7 @@ export const PublicLayout: React.FC = () => {
   const navItems: PillNavItem[] = [
     { label: 'Home', href: '/' },
     { label: 'Destinations', href: '/packages' },
+    { label: 'Blogs', href: '/blog' },
     { label: 'About', href: '/about' },
     { label: 'Contact', href: '/contact' },
     { label: 'My Account', href: isAuthenticated ? '/my-account' : '/customer/login' },
@@ -222,6 +223,7 @@ export const PublicLayout: React.FC = () => {
               <h4 className="font-bold text-slate-900 dark:text-white mb-6 uppercase text-xs tracking-[0.2em]">Company</h4>
               <ul className="space-y-3 text-sm text-slate-500 dark:text-slate-400 font-medium">
                 <li><Link to="/about" className="hover:text-primary transition-colors">About Us</Link></li>
+                <li><Link to="/blog" className="hover:text-primary transition-colors">Travel Guides & Blogs</Link></li>
                 <li><Link to="/careers" className="hover:text-primary transition-colors">Careers</Link></li>
               </ul>
             </div>

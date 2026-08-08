@@ -27,6 +27,9 @@ const Privacy = lazy(() => import('./pages/Privacy').then(module => ({ default: 
 const Cancellation = lazy(() => import('./pages/Cancellation').then(module => ({ default: module.Cancellation })));
 const Careers = lazy(() => import('./pages/Careers').then(module => ({ default: module.Careers })));
 const InteractiveItinerary = lazy(() => import('./pages/InteractiveItinerary').then(module => ({ default: module.InteractiveItinerary })));
+const BlogList = lazy(() => import('./pages/BlogList').then(module => ({ default: module.BlogList })));
+const BlogPostDetail = lazy(() => import('./pages/BlogPostDetail').then(module => ({ default: module.BlogPostDetail })));
+
 
 
 
@@ -124,6 +127,8 @@ const App: React.FC = () => {
                   <Route path="privacy" element={<Privacy />} />
                   <Route path="cancellation" element={<Cancellation />} />
                   <Route path="careers" element={<Careers />} />
+                  <Route path="blog" element={<BlogList />} />
+                  <Route path="blog/:slug" element={<BlogPostDetail />} />
                 </Route>
 
                 <Route path="/login" element={<Login />} />
