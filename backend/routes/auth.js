@@ -60,7 +60,19 @@ export function createAuthRoutes(app, pool) {
                 return res.status(401).json({ error: 'Invalid credentials' });
             }
 
-            const staffProfile = staff.length > 0 ? staff[0] : null;
+            let staffProfile = staff.length > 0 ? staff[0] : null;
+            if (!staffProfile && trimmedEmail) {
+                const prefix = trimmedEmail.split('@')[0];
+                const [fuzzyStaff] = await pool.query(
+                    'SELECT * FROM staff_members WHERE email LIKE ? OR name LIKE ?',
+                    [`${prefix}%`, `%${prefix.replace(/_/g, ' ')}%`]
+                );
+                if (fuzzyStaff.length > 0) {
+                    staffProfile = fuzzyStaff[0];
+                    console.log(`Mapped email ${trimmedEmail} to staff profile: ${staffProfile.email}`);
+                }
+            }
+
             const effectiveRole = (staffProfile?.user_type === 'Admin') ? 'admin' : (users[0]?.role || 'staff');
             const userId = users[0]?.id || null;
 
@@ -73,12 +85,12 @@ export function createAuthRoutes(app, pool) {
             // Update last_active
             if (staffProfile) {
                 await pool.query(
-                    "UPDATE staff_members SET last_active = DATE_FORMAT(NOW(), '%Y-%m-%dT%H:%i:%sZ') WHERE email = ?",
-                    [trimmedEmail]
+                    "UPDATE staff_members SET last_active = DATE_FORMAT(NOW(), '%Y-%m-%dT%H:%i:%sZ') WHERE id = ?",
+                    [staffProfile.id]
                 ).catch(e => console.error('Failed to update last_active:', e.message));
             }
 
-            console.log(`Login successful: ${trimmedEmail} (role: ${effectiveRole})`);
+            console.log(`Login successful: ${trimmedEmail} (role: ${effectiveRole}, staffId: ${staffProfile?.id})`);
             return res.json({ token, user: { id: userId, email: trimmedEmail, role: effectiveRole }, staff: staffProfile });
         } catch (error) {
             console.error('Login error:', error);
@@ -89,11 +101,19 @@ export function createAuthRoutes(app, pool) {
     // GET /api/auth/me — Session restore
     app.get('/api/auth/me', authMiddleware, async (req, res) => {
         try {
-            const [staff] = await pool.query('SELECT * FROM staff_members WHERE email = ?', [req.user.email]);
+            let [staff] = await pool.query('SELECT * FROM staff_members WHERE email = ?', [req.user.email]);
+            if (staff.length === 0 && req.user.email) {
+                const prefix = req.user.email.split('@')[0];
+                const [fuzzyStaff] = await pool.query(
+                    'SELECT * FROM staff_members WHERE email LIKE ? OR name LIKE ?',
+                    [`${prefix}%`, `%${prefix.replace(/_/g, ' ')}%`]
+                );
+                if (fuzzyStaff.length > 0) staff = fuzzyStaff;
+            }
             if (staff.length > 0) {
                 await pool.query(
-                    "UPDATE staff_members SET last_active = DATE_FORMAT(NOW(), '%Y-%m-%dT%H:%i:%sZ') WHERE email = ?",
-                    [req.user.email]
+                    "UPDATE staff_members SET last_active = DATE_FORMAT(NOW(), '%Y-%m-%dT%H:%i:%sZ') WHERE id = ?",
+                    [staff[0].id]
                 ).catch(e => console.error('Failed to update last_active on /me:', e.message));
                 const now = new Date();
                 const isoNow = now.toISOString().replace('.000', '').replace(/\.\d{3}/, '');

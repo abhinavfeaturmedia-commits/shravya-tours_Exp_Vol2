@@ -57,17 +57,22 @@ export const AdminDashboard: React.FC = () => {
     };
 
     // --- RBAC Scoping ---
-    const isRestricted = currentUser?.queryScope === 'Show Assigned Query Only';
+    const isRestricted = currentUser?.queryScope === 'Show Assigned Query Only' && currentUser?.userType !== 'Admin';
+
+    const matchesUserAssigned = (assignedTo: any) => {
+        if (!assignedTo || !currentUser) return false;
+        return String(assignedTo) === String(currentUser.id) || String(assignedTo) === String((currentUser as any).staffId);
+    };
 
     const bookings = useMemo(() => {
         if (!isRestricted) return globalBookings;
-        return globalBookings.filter(b => b.assignedTo === currentUser?.id);
-    }, [globalBookings, isRestricted, currentUser?.id]);
+        return globalBookings.filter(b => matchesUserAssigned(b.assignedTo));
+    }, [globalBookings, isRestricted, currentUser]);
 
     const leads = useMemo(() => {
         if (!isRestricted) return globalLeads;
-        return globalLeads.filter(l => l.assignedTo === currentUser?.id);
-    }, [globalLeads, isRestricted, currentUser?.id]);
+        return globalLeads.filter(l => matchesUserAssigned(l.assignedTo));
+    }, [globalLeads, isRestricted, currentUser]);
 
     // --- Enhanced Business Intelligence Calculations ---
 
@@ -242,7 +247,7 @@ export const AdminDashboard: React.FC = () => {
 
         // Filter valid bookings within timeframe
         const validBookings = globalBookings.filter(b => {
-            if (isRestricted && b.assignedTo !== currentUser?.id) return false;
+            if (isRestricted && !matchesUserAssigned(b.assignedTo)) return false;
             if (b.status === 'Cancelled') return false;
             const bDate = new Date(b.date);
             return bDate >= cutoffDate;
@@ -613,7 +618,11 @@ export const AdminDashboard: React.FC = () => {
                             {greeting}, {currentUser?.name || 'there'}.
                         </h1>
                         <p className="text-base md:text-lg text-indigo-100 font-medium leading-relaxed opacity-90">
-                            Here's what's happening today. You have <span className="text-white font-bold underline decoration-indigo-400 decoration-2 underline-offset-4">{pendingBookings} pending bookings</span> and <span className="text-white font-bold underline decoration-green-400 decoration-2 underline-offset-4">{ongoingBookings} ongoing tours</span>.
+                            Here's what's happening today. {isRestricted ? (
+                                <>In your assigned queue, you have <span className="text-white font-bold underline decoration-indigo-400 decoration-2 underline-offset-4">{pendingBookings} assigned pending bookings</span> and <span className="text-white font-bold underline decoration-green-400 decoration-2 underline-offset-4">{ongoingBookings} ongoing tours</span>.</>
+                            ) : (
+                                <>You have <span className="text-white font-bold underline decoration-indigo-400 decoration-2 underline-offset-4">{pendingBookings} pending bookings</span> and <span className="text-white font-bold underline decoration-green-400 decoration-2 underline-offset-4">{ongoingBookings} ongoing tours</span>.</>
+                            )}
                         </p>
                     </div>
 

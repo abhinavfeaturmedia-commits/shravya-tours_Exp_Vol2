@@ -122,13 +122,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Ensures loaded permissions always have all keys — fills in new keys with defaults
     // if a staff record was created before new permissions were added.
-    const mergePermissions = useCallback((stored: Partial<StaffPermissions> | null | undefined): StaffPermissions => {
+    const mergePermissions = useCallback((stored: any): StaffPermissions => {
+        let parsed = stored;
+        while (typeof parsed === 'string') {
+            if (!parsed.trim()) break;
+            try {
+                parsed = JSON.parse(parsed);
+            } catch {
+                break;
+            }
+        }
+        const safeObj = (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
         const merged = { ...DEFAULT_PERMISSIONS };
-        if (stored && typeof stored === 'object') {
-            for (const key of Object.keys(DEFAULT_PERMISSIONS) as Array<keyof StaffPermissions>) {
-                if (key in stored && stored[key] !== undefined) {
-                    merged[key] = stored[key] as any;
-                }
+        for (const key of Object.keys(DEFAULT_PERMISSIONS) as Array<keyof StaffPermissions>) {
+            if (key in safeObj && safeObj[key] !== undefined) {
+                merged[key] = safeObj[key] as any;
             }
         }
         return merged;
@@ -149,13 +157,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     }
                 }
                 setCurrentUser(userProfile);
-                // Background fetch full list
+                // Background fetch full list — if staff lacks permission, fall back to own profile only
                 api.getStaff().then(all => setStaff(all.map(s => {
                     if (s.email.toLowerCase() === email.toLowerCase() && isAdminOverride) {
                         return { ...s, userType: 'Admin', role: 'Administrator', permissions: ADMIN_PERMISSIONS };
                     }
                     return { ...s, permissions: mergePermissions(s.permissions) };
-                }))).catch(console.warn);
+                }))).catch(async () => {
+                    // 403 or network error — show at least the current user's own profile
+                    const selfProfile = { ...userProfile };
+                    setStaff([selfProfile]);
+                });
                 return;
             }
 
@@ -277,7 +289,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } finally {
             setLoading(false);
         }
-    }, [loadUserProfile]);
+    }, [loadUserProfile, mergePermissions]);
 
     // Force safety timeout
     useEffect(() => {
@@ -326,26 +338,53 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 // Also load staff list so Staff Management page works
                 api.getStaff().then(setStaff).catch(console.warn);
             } else {
-                // Load user profile from DB, fallback gracefully on error
+                // If backend returned staff profile on login, set it immediately
+                if (data.staff) {
+                    const mappedStaff: StaffMember = {
+                        id: data.staff.id,
+                        name: data.staff.name,
+                        email: data.staff.email,
+                        role: data.staff.role,
+                        userType: data.staff.user_type,
+                        department: data.staff.department,
+                        status: data.staff.status != null ? data.staff.status : 'Active',
+                        initials: data.staff.initials,
+                        color: data.staff.color,
+                        permissions: mergePermissions(data.staff.permissions),
+                        queryScope: data.staff.query_scope,
+                        whatsappScope: data.staff.whatsapp_scope,
+                        lastActive: data.staff.last_active,
+                        phone: data.staff.phone
+                    };
+                    if (data.user?.role === 'admin') {
+                        mappedStaff.userType = 'Admin';
+                        mappedStaff.permissions = ADMIN_PERMISSIONS;
+                    }
+                    setCurrentUser(mappedStaff);
+                }
+
+                // Load user profile from DB to complete state
                 try {
                     await loadUserProfile(email, data.user?.role === 'admin');
                 } catch (profileErr) {
-                    console.warn('Could not load staff profile, using basic user info:', profileErr);
-                    setCurrentUser({
-                        id: data.user.id,
-                        name: email.split('@')[0],
-                        email: email,
-                        role: data.user.role === 'admin' ? 'Administrator' : 'Agent',
-                        userType: data.user.role === 'admin' ? 'Admin' : 'Staff',
-                        initials: email.substring(0, 2).toUpperCase(),
-                        department: 'General',
-                        status: 'Active',
-                        lastActive: new Date().toISOString(),
-                        color: 'indigo',
-                        queryScope: 'Show All Queries',
-                        whatsappScope: 'All Messages',
-                        permissions: data.user.role === 'admin' ? ADMIN_PERMISSIONS : DEFAULT_PERMISSIONS,
-                    });
+                    console.warn('Could not load staff profile, keeping response user info:', profileErr);
+                    if (!data.staff) {
+                        setCurrentUser({
+                            id: data.user.id,
+                            name: email.split('@')[0],
+                            email: email,
+                            role: data.user.role === 'admin' ? 'Administrator' : 'Agent',
+                            userType: data.user.role === 'admin' ? 'Admin' : 'Staff',
+                            initials: email.substring(0, 2).toUpperCase(),
+                            department: 'General',
+                            status: 'Active',
+                            lastActive: new Date().toISOString(),
+                            color: 'indigo',
+                            queryScope: 'Show All Queries',
+                            whatsappScope: 'All Messages',
+                            permissions: data.user.role === 'admin' ? ADMIN_PERMISSIONS : DEFAULT_PERMISSIONS,
+                        });
+                    }
                 }
             }
 
@@ -441,8 +480,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
             const all = await api.getStaff();
             setStaff(all.map(s => ({ ...s, permissions: mergePermissions(s.permissions) })));
-        } catch (e) {
-            console.warn('refreshStaff failed:', e);
+        } catch (e: any) {
+            // If 403 (no staff.view permission), fall back to own profile only via /api/staff/me
+            if (e?.message?.includes('403') || e?.message?.includes('Unauthorized')) {
+                try {
+                    const me = await api.getStaffMe();
+                    if (me) {
+                        setStaff(prev => {
+                            // Merge own profile into staff list without clearing others
+                            const exists = prev.some(s => s.id === me.id);
+                            if (exists) return prev.map(s => s.id === me.id ? { ...me, permissions: mergePermissions(me.permissions) } : s);
+                            return [{ ...me, permissions: mergePermissions(me.permissions) }, ...prev];
+                        });
+                    }
+                } catch {
+                    console.warn('refreshStaff: could not fetch own profile via /api/staff/me');
+                }
+            } else {
+                console.warn('refreshStaff failed:', e);
+            }
         }
     }, [mergePermissions]);
 

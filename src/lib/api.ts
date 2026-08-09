@@ -92,6 +92,19 @@ const parseJsonFieldSafe = (field: any, defaultValue: any) => {
     return field || defaultValue;
 };
 
+export const parsePermissionsSafe = (raw: any): any => {
+    let parsed = raw;
+    while (typeof parsed === 'string') {
+        if (!parsed.trim()) break;
+        try {
+            parsed = JSON.parse(parsed);
+        } catch {
+            break;
+        }
+    }
+    return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
+};
+
 const mapPackage = (row: any): Package => {
     // Extract itinerary: prefer dedicated itinerary JSON column, then extract from builder_data.days
     let itinerary: { day: number; title: string; desc: string }[] = [];
@@ -692,6 +705,17 @@ export const api = {
         const finalChildren = booking.paxChild !== undefined ? booking.paxChild : parsedPax.children;
         const finalInfants = booking.paxInfant !== undefined ? booking.paxInfant : parsedPax.infants;
 
+        // Automatically calculate duration in days from date & endDate if available
+        let autoDuration = booking.durationDays || null;
+        if (booking.date && booking.endDate) {
+            const sD = new Date(booking.date);
+            const eD = new Date(booking.endDate);
+            if (!isNaN(sD.getTime()) && !isNaN(eD.getTime()) && eD >= sD) {
+                const calcSpan = Math.round((eD.getTime() - sD.getTime()) / 86_400_000) + 1;
+                autoDuration = Math.max(calcSpan, booking.durationDays || 1);
+            }
+        }
+
         const dbBooking: any = {
             customer_name: booking.customer,
             customer_email: booking.email || '',
@@ -705,7 +729,7 @@ export const api = {
             pax_child: finalChildren,
             pax_count: finalAdults + finalChildren,
             // Store explicit duration so Operations page doesn't need fragile package lookup
-            duration_days: booking.durationDays || null,
+            duration_days: autoDuration,
             status: booking.status === 'Confirmed' ? 'confirmed' : 'pending',
             payment_status: booking.payment === 'Paid' ? 'paid' : 'pending', // Enums: pending, paid, failed, refunded
             notes: booking.details || '',
@@ -795,6 +819,12 @@ export const api = {
         // Live Operations: allow updating tour duration directly from Operations page
         if (updates.durationDays !== undefined) {
             dbUpdates.duration_days = updates.durationDays || null;
+        } else if (updates.date && updates.endDate) {
+            const sD = new Date(updates.date);
+            const eD = new Date(updates.endDate);
+            if (!isNaN(sD.getTime()) && !isNaN(eD.getTime()) && eD >= sD) {
+                dbUpdates.duration_days = Math.max(1, Math.round((eD.getTime() - sD.getTime()) / 86_400_000) + 1);
+            }
         }
         
         // Serialize new carry-forward fields if present in updates
@@ -1268,11 +1298,12 @@ export const api = {
             status: s.status != null ? s.status : 'Active',
             initials: s.initials || (s.name ? s.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().substring(0, 2) : 'XX'),
             color: s.color || 'slate',
-            permissions: typeof s.permissions === 'string' ? JSON.parse(s.permissions) : (s.permissions || {}),
+            permissions: parsePermissionsSafe(s.permissions),
             queryScope: s.query_scope || 'Show Assigned Query Only',
             whatsappScope: s.whatsapp_scope || 'Assigned Queries Messages',
             lastActive: s.last_active || 'Never',
             phone: s.phone || '',
+            joinedDate: s.created_at || undefined,
             attendanceStatus: s.attendance_status || 'Absent',
             checkInTime: s.check_in_time && !isNaN(Date.parse(s.check_in_time))
                 ? new Date(s.check_in_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
@@ -1296,11 +1327,12 @@ export const api = {
             status: s.status != null ? s.status : 'Active',
             initials: s.initials,
             color: s.color,
-            permissions: typeof s.permissions === 'string' ? JSON.parse(s.permissions) : s.permissions,
+            permissions: parsePermissionsSafe(s.permissions),
             queryScope: s.query_scope,
             whatsappScope: s.whatsapp_scope,
             lastActive: s.last_active,
             phone: s.phone,
+            joinedDate: s.created_at || undefined,
             attendanceStatus: s.attendance_status || 'Absent',
             checkInTime: s.check_in_time && !isNaN(Date.parse(s.check_in_time))
                 ? new Date(s.check_in_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
@@ -1309,8 +1341,41 @@ export const api = {
         };
     },
 
+    // Get the currently logged-in staff member's own profile (no permission needed)
+    getStaffMe: async (): Promise<StaffMember | null> => {
+        try {
+            const { data: s } = await fetchApi('/api/staff/me');
+            if (!s) return null;
+            return {
+                id: s.id,
+                name: s.name || 'Unknown',
+                email: s.email || '',
+                role: s.role || 'Agent',
+                userType: s.user_type || 'Staff',
+                department: s.department || 'General',
+                status: s.status != null ? s.status : 'Active',
+                initials: s.initials || (s.name ? s.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().substring(0, 2) : 'XX'),
+                color: s.color || 'slate',
+                permissions: parsePermissionsSafe(s.permissions),
+                queryScope: s.query_scope || 'Show Assigned Query Only',
+                whatsappScope: s.whatsapp_scope || 'Assigned Queries Messages',
+                lastActive: s.last_active || 'Never',
+                phone: s.phone || '',
+                joinedDate: s.created_at || undefined,
+                attendanceStatus: s.attendance_status || 'Absent',
+                checkInTime: s.check_in_time && !isNaN(Date.parse(s.check_in_time))
+                    ? new Date(s.check_in_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+                    : '-',
+                currentLocation: s.current_location || ''
+            };
+        } catch {
+            return null;
+        }
+    },
+
     createStaff: async (staff: Partial<StaffMember>, password?: string) => {
         const trimmedEmail = staff.email?.trim();
+        const safePerms = parsePermissionsSafe(staff.permissions);
 
         // Use atomic endpoint when password is provided (new staff creation with login)
         if (password) {
@@ -1324,7 +1389,7 @@ export const api = {
                 status: staff.status,
                 initials: staff.initials,
                 color: staff.color,
-                permissions: staff.permissions,
+                permissions: safePerms,
                 query_scope: staff.queryScope,
                 whatsapp_scope: staff.whatsappScope,
                 phone: (staff as any).phone
@@ -1343,7 +1408,7 @@ export const api = {
                 status: data.status,
                 initials: data.initials,
                 color: data.color,
-                permissions: typeof data.permissions === 'string' ? JSON.parse(data.permissions) : data.permissions,
+                permissions: parsePermissionsSafe(data.permissions),
                 queryScope: data.query_scope,
                 whatsappScope: data.whatsapp_scope,
                 lastActive: data.last_active
@@ -1360,7 +1425,7 @@ export const api = {
             status: staff.status,
             initials: staff.initials,
             color: staff.color,
-            permissions: staff.permissions,
+            permissions: safePerms,
             query_scope: staff.queryScope,
             whatsapp_scope: staff.whatsappScope
         };
@@ -1377,7 +1442,7 @@ export const api = {
             status: data.status,
             initials: data.initials,
             color: data.color,
-            permissions: typeof data.permissions === 'string' ? JSON.parse(data.permissions) : data.permissions,
+            permissions: parsePermissionsSafe(data.permissions),
             queryScope: data.query_scope,
             whatsappScope: data.whatsapp_scope,
             lastActive: data.last_active
@@ -1401,7 +1466,7 @@ export const api = {
         if (updates.queryScope !== undefined) dbUpdates.query_scope = updates.queryScope;
         if (updates.whatsappScope !== undefined) dbUpdates.whatsapp_scope = updates.whatsappScope;
         if ((updates as any).phone !== undefined) dbUpdates.phone = (updates as any).phone;
-        if (updates.permissions !== undefined) dbUpdates.permissions = JSON.stringify(updates.permissions);
+        if (updates.permissions !== undefined) dbUpdates.permissions = parsePermissionsSafe(updates.permissions);
         await crud.update('staff_members', id, dbUpdates);
     },
 

@@ -2497,8 +2497,26 @@ const TABLE_TO_MODULE = {
 // permissions are cached for 60 seconds after first lookup.
 const _permissionsCache = new Map(); // email → { data, expiresAt }
 
+function parsePermissionsSafe(raw) {
+    let parsed = raw;
+    while (typeof parsed === 'string') {
+        if (!parsed.trim()) break;
+        try {
+            parsed = JSON.parse(parsed);
+        } catch {
+            break;
+        }
+    }
+    return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
+}
+
 async function getStaffPermissionsAndScope(email) {
     if (!email) return { permissions: {}, queryScope: 'Show Assigned Query Only', isAdmin: false };
+
+    // Bypass DB for the mock admin bypass account — always full admin
+    if (email.toLowerCase() === 'admin@shravyatours.com') {
+        return { permissions: {}, queryScope: 'Show All Queries', isAdmin: true };
+    }
 
     // Check cache first
     const cached = _permissionsCache.get(email);
@@ -2513,12 +2531,7 @@ async function getStaffPermissionsAndScope(email) {
         return empty;
     }
     const row = rows[0];
-    let permissions = {};
-    try {
-        permissions = typeof row.permissions === 'string' ? JSON.parse(row.permissions) : (row.permissions || {});
-    } catch (e) {
-        permissions = {};
-    }
+    const permissions = parsePermissionsSafe(row.permissions);
     const result = {
         permissions,
         queryScope: row.query_scope || 'Show Assigned Query Only',
@@ -6155,7 +6168,7 @@ app.get('/api/crud/staff_members', authMiddleware, async (req, res) => {
     // Check permission
     if (req.user?.role !== 'admin' && req.user?.role !== 'Admin') {
         // Allow if querying for their own email or ID (self-access bypass)
-        const isSelfQuery = (req.query.eq_email && req.query.eq_email === req.user.email) ||
+        const isSelfQuery = (req.query.eq_email && req.query.eq_email.toLowerCase() === req.user.email?.toLowerCase()) ||
                             (req.query.eq_id && String(req.query.eq_id) === String(req.user.staffId));
 
         if (!isSelfQuery) {
@@ -6232,22 +6245,30 @@ app.get('/api/crud/:table', optionalAuthMiddleware, injectPackageStatusFilter, v
         const whereClauses = [];
         
         // --- Strict RBAC Scoping & Ownership Validation ---
-        const { isAdmin } = await getStaffPermissionsAndScope(req.user?.email);
-        if (req.user && req.user.role !== 'admin' && req.user.role !== 'Admin' && !isAdmin) {
-            const staffId = req.user.staffId;
-            if (staffId) {
+        const { isAdmin, queryScope } = await getStaffPermissionsAndScope(req.user?.email);
+        const isRestrictedScope = (queryScope === 'Show Assigned Query Only') && !isAdmin && req.user?.role !== 'admin' && req.user?.role !== 'Admin';
+
+        if (isRestrictedScope) {
+            let staffIds = [];
+            if (req.user?.email) {
+                const [sRows] = await pool.query('SELECT id FROM staff_members WHERE email = ?', [req.user.email]);
+                staffIds = sRows.map(s => String(s.id));
+            }
+            if (req.user?.staffId && !staffIds.includes(String(req.user.staffId))) {
+                staffIds.push(String(req.user.staffId));
+            }
+
+            if (staffIds.length > 0) {
                 const myDataTables = ['leads', 'bookings', 'follow_ups', 'tasks'];
                 if (myDataTables.includes(table)) {
-                    whereClauses.push(`\`assigned_to\` = ?`);
-                    params.push(staffId);
+                    whereClauses.push(`\`assigned_to\` IN (${staffIds.map(() => '?').join(',')})`);
+                    params.push(...staffIds);
                 } else if (table === 'proposals' || table === 'lead_logs') {
-                    // Filter by lead ownership (optimized subquery)
-                    whereClauses.push(`\`lead_id\` IN (SELECT \`id\` FROM \`leads\` WHERE \`assigned_to\` = ?)`);
-                    params.push(staffId);
+                    whereClauses.push(`\`lead_id\` IN (SELECT \`id\` FROM \`leads\` WHERE \`assigned_to\` IN (${staffIds.map(() => '?').join(',')}))`);
+                    params.push(...staffIds);
                 } else if (table === 'booking_transactions' || table === 'supplier_bookings') {
-                    // Filter by booking ownership (optimized subquery)
-                    whereClauses.push(`\`booking_id\` IN (SELECT \`id\` FROM \`bookings\` WHERE \`assigned_to\` = ?)`);
-                    params.push(staffId);
+                    whereClauses.push(`\`booking_id\` IN (SELECT \`id\` FROM \`bookings\` WHERE \`assigned_to\` IN (${staffIds.map(() => '?').join(',')}))`);
+                    params.push(...staffIds);
                 }
             }
         }
@@ -6359,6 +6380,9 @@ app.put('/api/crud/staff_members/:id', authMiddleware, writeGuard, async (req, r
         if (!body || Object.keys(body).length === 0) {
             return res.status(400).json({ error: 'No fields to update' });
         }
+
+        // Invalidate permissions cache on any staff update
+        _permissionsCache.clear();
 
         // Fetch old staff details for sync before the update is applied
         const [oldStaffRows] = await pool.query('SELECT email, user_type FROM staff_members WHERE id = ?', [id]);
@@ -7757,7 +7781,7 @@ app.post('/api/sync-customers-from-bookings', authMiddleware, async (req, res) =
 
 app.get('/api/bookings-with-package', authMiddleware, async (req, res) => {
     // Check permission
-    const { permissions, isAdmin } = await getStaffPermissionsAndScope(req.user?.email);
+    const { permissions, queryScope, isAdmin } = await getStaffPermissionsAndScope(req.user?.email);
     if (req.user?.role !== 'admin' && req.user?.role !== 'Admin' && !isAdmin) {
         if (!permissions.bookings?.view) {
             return res.status(403).json({ error: 'Unauthorized: Bookings view access required.' });
@@ -7789,9 +7813,21 @@ app.get('/api/bookings-with-package', authMiddleware, async (req, res) => {
             LEFT JOIN partners p ON b.partner_id = p.id
         `;
         const params = [];
-        if (req.user?.role !== 'admin' && req.user?.role !== 'Admin' && !isAdmin) {
-            bookingsQuery += ' WHERE b.assigned_to = ?';
-            params.push(req.user.staffId);
+        const isRestrictedBookings = (queryScope === 'Show Assigned Query Only') && !isAdmin && req.user?.role !== 'admin' && req.user?.role !== 'Admin';
+
+        let staffIds = [];
+        if (isRestrictedBookings) {
+            if (req.user?.email) {
+                const [sRows] = await pool.query('SELECT id FROM staff_members WHERE email = ?', [req.user.email]);
+                staffIds = sRows.map(s => String(s.id));
+            }
+            if (req.user?.staffId && !staffIds.includes(String(req.user.staffId))) {
+                staffIds.push(String(req.user.staffId));
+            }
+            if (staffIds.length > 0) {
+                bookingsQuery += ` WHERE b.assigned_to IN (${staffIds.map(() => '?').join(',')})`;
+                params.push(...staffIds);
+            }
         }
         bookingsQuery += ' ORDER BY b.created_at DESC';
         const [bookings] = await pool.query(bookingsQuery, params);
@@ -7814,11 +7850,11 @@ app.get('/api/bookings-with-package', authMiddleware, async (req, res) => {
         let txParams = [];
         let sbParams = [];
 
-        if (req.user?.role !== 'admin' && req.user?.role !== 'Admin' && !isAdmin) {
-            txQuery = `SELECT t.* FROM booking_transactions t JOIN bookings b ON t.booking_id = b.id WHERE b.assigned_to = ? ORDER BY t.date DESC, t.created_at DESC`;
-            sbQuery = `SELECT sb.* FROM supplier_bookings sb JOIN bookings b ON sb.booking_id = b.id WHERE b.assigned_to = ? ORDER BY sb.created_at DESC`;
-            txParams = [req.user.staffId];
-            sbParams = [req.user.staffId];
+        if (isRestrictedBookings && staffIds.length > 0) {
+            txQuery = `SELECT t.* FROM booking_transactions t JOIN bookings b ON t.booking_id = b.id WHERE b.assigned_to IN (${staffIds.map(() => '?').join(',')}) ORDER BY t.date DESC, t.created_at DESC`;
+            sbQuery = `SELECT sb.* FROM supplier_bookings sb JOIN bookings b ON sb.booking_id = b.id WHERE b.assigned_to IN (${staffIds.map(() => '?').join(',')}) ORDER BY sb.created_at DESC`;
+            txParams = [...staffIds];
+            sbParams = [...staffIds];
         }
 
         const [transactions] = await pool.query(txQuery, txParams);
@@ -7853,7 +7889,7 @@ app.get('/api/bookings-with-package', authMiddleware, async (req, res) => {
 // Leads with logs
 app.get('/api/leads-with-logs', authMiddleware, async (req, res) => {
     // Check permission
-    const { permissions, isAdmin } = await getStaffPermissionsAndScope(req.user?.email);
+    const { permissions, queryScope, isAdmin } = await getStaffPermissionsAndScope(req.user?.email);
     if (req.user?.role !== 'admin' && req.user?.role !== 'Admin' && !isAdmin) {
         if (!permissions.leads?.view) {
             return res.status(403).json({ error: 'Unauthorized: Leads view access required.' });
@@ -7873,9 +7909,21 @@ app.get('/api/leads-with-logs', authMiddleware, async (req, res) => {
             LEFT JOIN customers c ON l.customer_id = c.id
         `;
         const params = [];
-        if (req.user?.role !== 'admin' && req.user?.role !== 'Admin' && !isAdmin) {
-            leadsQuery += ' WHERE l.assigned_to = ?';
-            params.push(req.user.staffId);
+        const isRestrictedLeads = (queryScope === 'Show Assigned Query Only') && !isAdmin && req.user?.role !== 'admin' && req.user?.role !== 'Admin';
+
+        if (isRestrictedLeads) {
+            let staffIds = [];
+            if (req.user?.email) {
+                const [sRows] = await pool.query('SELECT id FROM staff_members WHERE email = ?', [req.user.email]);
+                staffIds = sRows.map(s => String(s.id));
+            }
+            if (req.user?.staffId && !staffIds.includes(String(req.user.staffId))) {
+                staffIds.push(String(req.user.staffId));
+            }
+            if (staffIds.length > 0) {
+                leadsQuery += ` WHERE l.assigned_to IN (${staffIds.map(() => '?').join(',')})`;
+                params.push(...staffIds);
+            }
         }
         leadsQuery += ' ORDER BY l.created_at DESC';
         const [leads] = await pool.query(leadsQuery, params);
@@ -8527,6 +8575,37 @@ app.get('/api/follow-ups-with-lead', authMiddleware, async (req, res) => {
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: 'Failed to fetch follow-ups' });
+    }
+});
+
+// ─── GET /api/staff/me ─── (Self-profile: no permission check needed)
+// Any authenticated staff member can always retrieve their own full profile.
+// This is used by the frontend to populate the staff list with at least the current user.
+app.get('/api/staff/me', authMiddleware, async (req, res) => {
+    try {
+        const email = req.user?.email;
+        if (!email) return res.status(400).json({ error: 'No email in token' });
+
+        const [rows] = await pool.query(`
+            SELECT
+                s.*,
+                a.status AS attendance_status,
+                a.check_in_time,
+                a.check_out_time,
+                a.location AS current_location
+            FROM \`staff_members\` s
+            LEFT JOIN \`attendance_logs\` a
+                ON s.id = a.staff_id AND a.date = CURRENT_DATE()
+            WHERE s.email = ?
+        `, [email]);
+
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'Staff profile not found for this account' });
+        }
+        res.json({ data: rows[0] });
+    } catch (error) {
+        console.error('GET /api/staff/me error:', error);
+        res.status(500).json({ error: 'Failed to fetch staff profile' });
     }
 });
 

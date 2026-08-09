@@ -637,11 +637,21 @@ export const Analytics: React.FC = () => {
 
    // --- RBAC Scoping ---
    const isAdmin = currentUser?.userType === 'Admin';
-   
-   const bookings = useMemo(() => isAdmin ? globalBookings : globalBookings.filter(b => b.assignedTo === currentUser?.id), [isAdmin, globalBookings, currentUser?.id]);
-   const leads = useMemo(() => isAdmin ? globalLeads : globalLeads.filter(l => l.assignedTo === currentUser?.id), [isAdmin, globalLeads, currentUser?.id]);
-   const followUps = useMemo(() => isAdmin ? globalFollowUps : globalFollowUps.filter(f => f.assignedTo === currentUser?.id), [isAdmin, globalFollowUps, currentUser?.id]);
-   const customers = useMemo(() => isAdmin ? globalCustomers : globalCustomers.filter(c => bookings.some(b => b.customer === c.id || b.customerId === c.id) || leads.some(l => l.email === c.email || l.phone === c.phone)), [isAdmin, globalCustomers, bookings, leads]);
+   // Staff with 'Show All Queries' scope can see all company data, same as admin
+   const canSeeAll = isAdmin || currentUser?.queryScope === 'Show All Queries';
+
+   const bookings = useMemo(() => canSeeAll ? globalBookings : globalBookings.filter(b =>
+      String(b.assignedTo) === String(currentUser?.id) || String(b.assignedTo) === String((currentUser as any)?.staffId)
+   ), [canSeeAll, globalBookings, currentUser]);
+   const leads = useMemo(() => canSeeAll ? globalLeads : globalLeads.filter(l =>
+      String(l.assignedTo) === String(currentUser?.id) || String(l.assignedTo) === String((currentUser as any)?.staffId)
+   ), [canSeeAll, globalLeads, currentUser]);
+   const followUps = useMemo(() => canSeeAll ? globalFollowUps : globalFollowUps.filter(f =>
+      String(f.assignedTo) === String(currentUser?.id) || String(f.assignedTo) === String((currentUser as any)?.staffId)
+   ), [canSeeAll, globalFollowUps, currentUser]);
+   const customers = useMemo(() => canSeeAll ? globalCustomers : globalCustomers.filter(c =>
+      bookings.some(b => b.customer === c.id || b.customerId === c.id) || leads.some(l => l.email === c.email || l.phone === c.phone)
+   ), [canSeeAll, globalCustomers, bookings, leads]);
 
    // --- Data Processing (Filtered by Time Range) ---
    const isWithinRange = useCallback((dateStr: string) => {

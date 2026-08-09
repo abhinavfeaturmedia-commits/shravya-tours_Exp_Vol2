@@ -344,22 +344,26 @@ export const Operations: React.FC = () => {
 
             let duration: number;
             let durationEstimated = false;
-            if (b.durationDays && b.durationDays > 0) {
+
+            if (b.endDate) {
+                const startD = parseLocalDate(b.date);
+                const endD = parseLocalDate(b.endDate);
+                if (startD && endD && endD >= startD) {
+                    const calcSpan = Math.round((endD.getTime() - startD.getTime()) / 86_400_000) + 1;
+                    duration = Math.max(calcSpan, b.durationDays || 1);
+                } else if (b.durationDays && b.durationDays > 0) {
+                    duration = b.durationDays;
+                } else {
+                    duration = 1;
+                    durationEstimated = true;
+                }
+            } else if (b.durationDays && b.durationDays > 0) {
                 duration = b.durationDays;
             } else {
                 const pkg = packages.find((p: any) => p.id === b.packageId)
                     || packages.find((p: any) => b.packageId && p.title === b.title);
                 if (pkg?.days && pkg.days > 0) {
                     duration = pkg.days;
-                } else if (b.endDate) {
-                    const startD = parseLocalDate(b.date);
-                    const endD = parseLocalDate(b.endDate);
-                    if (startD && endD && endD >= startD) {
-                        duration = Math.round((endD.getTime() - startD.getTime()) / 86_400_000) + 1;
-                    } else {
-                        duration = 1;
-                        durationEstimated = true;
-                    }
                 } else {
                     duration = 1;
                     durationEstimated = true;
@@ -548,7 +552,8 @@ export const Operations: React.FC = () => {
     const isAdmin = currentUser?.role === 'admin' || currentUser?.userType === 'Admin';
 
     const handleStatusChange = async (empId: number, newStatus: string) => {
-        if (!isAdmin && currentUser?.id !== empId) {
+        const isSelf = Number(currentUser?.id) === empId || Number((currentUser as any)?.staffId) === empId;
+        if (!isAdmin && !isSelf) {
             toast.error('You can only update your own attendance.');
             return;
         }
@@ -570,7 +575,8 @@ export const Operations: React.FC = () => {
     };
 
     const handleCheckOut = async (empId: number) => {
-        if (!isAdmin && currentUser?.id !== empId) { toast.error('You can only check out yourself.'); return; }
+        const isSelfCO = Number(currentUser?.id) === empId || Number((currentUser as any)?.staffId) === empId;
+        if (!isAdmin && !isSelfCO) { toast.error('You can only check out yourself.'); return; }
         try {
             const today = new Date().toISOString().split('T')[0];
             const logId = `ATL-${empId}-${today}`;
@@ -581,7 +587,8 @@ export const Operations: React.FC = () => {
     };
 
     const handleLocationChange = async (id: number, newLocation: string) => {
-        if (!isAdmin && currentUser?.id !== id) return;
+        const isSelfLoc = Number(currentUser?.id) === id || Number((currentUser as any)?.staffId) === id;
+        if (!isAdmin && !isSelfLoc) return;
         try {
             const today = new Date().toISOString().split('T')[0];
             const logId = `ATL-${id}-${today}`;
@@ -1655,7 +1662,7 @@ export const Operations: React.FC = () => {
                                                 <select
                                                     value={emp.attendanceStatus || 'Absent'}
                                                     onChange={(e) => handleStatusChange(emp.id, e.target.value)}
-                                                    disabled={!isAdmin && currentUser?.id !== emp.id}
+                                                    disabled={!isAdmin && Number(currentUser?.id) !== emp.id && Number((currentUser as any)?.staffId) !== emp.id}
                                                     className={`px-3 py-1.5 rounded-xl text-xs font-black border-none outline-none cursor-pointer disabled:opacity-50
                                                         ${emp.attendanceStatus === 'Present' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300' :
                                                             emp.attendanceStatus === 'On Field' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300' :
@@ -1673,7 +1680,7 @@ export const Operations: React.FC = () => {
                                             <td className="px-6 py-4 text-sm font-mono text-slate-600 dark:text-slate-400">
                                                 <div className="flex items-center gap-2">
                                                     <span>{emp.checkInTime || '-'}</span>
-                                                    {emp.attendanceStatus && emp.attendanceStatus !== 'Absent' && emp.checkInTime && emp.checkInTime !== '-' && (isAdmin || currentUser?.id === emp.id) && (
+                                                    {emp.attendanceStatus && emp.attendanceStatus !== 'Absent' && emp.checkInTime && emp.checkInTime !== '-' && (isAdmin || Number(currentUser?.id) === emp.id || Number((currentUser as any)?.staffId) === emp.id) && (
                                                         <button onClick={() => handleCheckOut(emp.id)} className="text-[10px] text-red-500 hover:text-red-700 font-black flex items-center gap-0.5 bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded-md" title="Check Out">
                                                             <LogOut size={10} /> Out
                                                         </button>
@@ -1687,7 +1694,7 @@ export const Operations: React.FC = () => {
                                                         type="text"
                                                         defaultValue={emp.currentLocation || (emp.attendanceStatus === 'Present' ? 'Office' : '')}
                                                         onBlur={(e) => handleLocationChange(emp.id, e.target.value)}
-                                                        disabled={!isAdmin && currentUser?.id !== emp.id}
+                                                        disabled={!isAdmin && Number(currentUser?.id) !== emp.id && Number((currentUser as any)?.staffId) !== emp.id}
                                                         className="bg-transparent border-b border-transparent hover:border-slate-300 focus:border-blue-500 outline-none w-36 transition-colors text-xs font-semibold disabled:opacity-50 text-slate-800 dark:text-slate-200"
                                                         placeholder="Set Location..."
                                                     />

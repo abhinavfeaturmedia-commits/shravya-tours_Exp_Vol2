@@ -295,6 +295,19 @@ export function sanitizeDbBody(body) {
 // HELPERS
 // ═══════════════════════════════════════════
 
+function parsePermissionsSafe(raw) {
+    let parsed = raw;
+    while (typeof parsed === 'string') {
+        if (!parsed.trim()) break;
+        try {
+            parsed = JSON.parse(parsed);
+        } catch {
+            break;
+        }
+    }
+    return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
+}
+
 export async function getStaffPermissionsAndScope(pool, email) {
     if (!email) return { permissions: {}, queryScope: 'Show Assigned Query Only', isAdmin: false };
     const [rows] = await pool.query('SELECT permissions, query_scope, user_type FROM staff_members WHERE email = ?', [email]);
@@ -302,12 +315,7 @@ export async function getStaffPermissionsAndScope(pool, email) {
         return { permissions: {}, queryScope: 'Show Assigned Query Only', isAdmin: false };
     }
     const row = rows[0];
-    let permissions = {};
-    try {
-        permissions = typeof row.permissions === 'string' ? JSON.parse(row.permissions) : (row.permissions || {});
-    } catch (e) {
-        permissions = {};
-    }
+    const permissions = parsePermissionsSafe(row.permissions);
     return {
         permissions,
         queryScope: row.query_scope || 'Show Assigned Query Only',

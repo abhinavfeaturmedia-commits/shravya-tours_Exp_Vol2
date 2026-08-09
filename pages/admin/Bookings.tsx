@@ -862,8 +862,8 @@ export const Bookings: React.FC = () => {
             (b.payment && b.payment.toLowerCase() === search.toLowerCase());
 
         // Permission Filter
-        const isRestricted = currentUser?.queryScope === 'Show Assigned Query Only';
-        const matchesAssignment = !isRestricted || b.assignedTo === currentUser?.id;
+        const isRestricted = currentUser?.queryScope === 'Show Assigned Query Only' && currentUser?.userType !== 'Admin';
+        const matchesAssignment = !isRestricted || String(b.assignedTo) === String(currentUser?.id) || String(b.assignedTo) === String((currentUser as any)?.staffId);
 
         return matchesTab && matchesSearch && matchesAssignment;
     });
@@ -913,7 +913,7 @@ export const Bookings: React.FC = () => {
 
         // Filter by owner
         if (showOnlyMine && currentUser) {
-            items = items.filter(t => String(t.assignedTo) === String(currentUser.id));
+            items = items.filter(t => String(t.assignedTo) === String(currentUser.id) || String(t.assignedTo) === String((currentUser as any)?.staffId));
         }
 
         // Filter by state

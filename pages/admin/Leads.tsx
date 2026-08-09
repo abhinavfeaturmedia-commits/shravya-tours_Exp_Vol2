@@ -1817,7 +1817,7 @@ export const Leads: React.FC = () => {
                                 const progressColor = leadChecklistProgress >= 100 ? '#10b981' : leadChecklistProgress >= 70 ? '#34d399' : leadChecklistProgress >= 30 ? '#f59e0b' : '#f97316';
                                 // Fix #15: Filtered task list
                                 const filteredTasks = leadChecklist.filter(t => {
-                                    if (showOnlyMine && String(t.assignedTo) !== String(currentUser?.id)) return false; // Fix #18
+                                    if (showOnlyMine && String(t.assignedTo) !== String(currentUser?.id) && String(t.assignedTo) !== String((currentUser as any)?.staffId)) return false; // Fix #18
                                     if (taskFilter === 'pending') return t.status === 'Pending';
                                     if (taskFilter === 'inprogress') return t.status === 'In Progress';
                                     if (taskFilter === 'completed') return t.status === 'Completed';

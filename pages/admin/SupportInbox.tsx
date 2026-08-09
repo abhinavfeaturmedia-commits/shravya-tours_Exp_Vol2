@@ -221,7 +221,7 @@ export const SupportInbox: React.FC = () => {
     const matchAssignment = assignmentFilter === 'All'
       ? true
       : assignmentFilter === 'My'
-        ? String(c.assigned_staff_id) === String(currentUser?.id)
+        ? String(c.assigned_staff_id) === String(currentUser?.id) || String(c.assigned_staff_id) === String((currentUser as any)?.staffId)
         : !c.assigned_staff_id;
     return matchSearch && matchStatus && matchPriority && matchAssignment;
   }), [conversations, searchQuery, statusFilter, priorityFilter, assignmentFilter, currentUser]);

@@ -103,6 +103,14 @@ export const StaffManagement: React.FC = () => {
         refreshStaff();
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+    // Auto-select self or first staff member when list loads
+    useEffect(() => {
+        if (!selectedStaffId && staff.length > 0) {
+            const self = staff.find(s => String(s.id) === String(currentUser?.id) || (s.email && currentUser?.email && s.email.toLowerCase() === currentUser.email.toLowerCase()));
+            setSelectedStaffId(self ? self.id : staff[0].id);
+        }
+    }, [staff, currentUser, selectedStaffId]);
+
     // Stats
     const activeStaff = staff.filter(s => s.status === 'Active').length;
     const uniqueDepartments = Array.from(new Set(staff.map(s => s.department))).length;
@@ -900,7 +908,9 @@ export const StaffManagement: React.FC = () => {
                                         <span className="material-symbols-outlined text-4xl text-slate-400">person_off</span>
                                     </div>
                                     <h3 className="text-slate-900 dark:text-white font-bold mb-1">No staff members found</h3>
-                                    <p className="text-sm text-slate-500">Try adjusting your search or filters.</p>
+                                    <p className="text-sm text-slate-500 max-w-sm">
+                                        {currentUser?.userType !== 'Admin' ? 'Your account has limited view access for staff management. Ask your admin to enable full staff view permissions.' : 'Try adjusting your search or filters.'}
+                                    </p>
                                 </div>
                             )}
                         </div>
