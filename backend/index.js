@@ -6459,14 +6459,33 @@ app.post('/api/crud/:table', authMiddleware, validateTable, writeGuard, permissi
         const assignedDataTables = ['leads', 'bookings', 'follow_ups', 'tasks'];
         const { isAdmin } = await getStaffPermissionsAndScope(req.user?.email);
         if (assignedDataTables.includes(table) && req.user && req.user.role !== 'admin' && req.user.role !== 'Admin' && !isAdmin) {
-            if (body.assigned_to === undefined || body.assigned_to === null || body.assigned_to === '') {
-                if (req.user.staffId) {
-                    body.assigned_to = req.user.staffId;
+            // Coerce assigned_to: treat empty string as unset
+            const rawAssignedTo = body.assigned_to;
+            const isUnset = rawAssignedTo === undefined || rawAssignedTo === null || rawAssignedTo === '' || rawAssignedTo === 'undefined';
+            if (isUnset) {
+                // Priority 1: staffId in JWT (fastest, no DB round-trip)
+                if (req.user.staffId && !isNaN(Number(req.user.staffId))) {
+                    body.assigned_to = Number(req.user.staffId);
                 } else if (req.user.email) {
-                    const [staffRows] = await pool.query('SELECT id FROM staff_members WHERE email = ?', [req.user.email]);
-                    if (staffRows.length > 0) body.assigned_to = staffRows[0].id;
+                    // Priority 2: look up staff ID by email
+                    const [staffRows] = await pool.query('SELECT id FROM staff_members WHERE LOWER(email) = LOWER(?)', [req.user.email]);
+                    if (staffRows.length > 0) {
+                        body.assigned_to = Number(staffRows[0].id);
+                    } else {
+                        // No staff record found — leave assigned_to as null (allowed if column is nullable)
+                        body.assigned_to = null;
+                        console.warn(`[AutoAssign] No staff_members row for email: ${req.user.email} — leaving assigned_to null`);
+                    }
                 }
+            } else {
+                // Coerce existing assigned_to value to integer (or null)
+                const parsed = parseInt(rawAssignedTo, 10);
+                body.assigned_to = isNaN(parsed) ? null : parsed;
             }
+        } else if (assignedDataTables.includes(table) && body.assigned_to !== undefined && body.assigned_to !== null && body.assigned_to !== '') {
+            // Admin path: still coerce to integer to prevent type mismatches
+            const parsed = parseInt(body.assigned_to, 10);
+            body.assigned_to = isNaN(parsed) ? null : parsed;
         }
 
         // Convert JSON objects/arrays to strings for JSON columns
@@ -6594,9 +6613,12 @@ app.post('/api/crud/:table', authMiddleware, validateTable, writeGuard, permissi
 
         // Lead & Booking Playbook Triggers on Creation
         if (table === 'leads' && inserted[0]) {
-            await generateLeadPlaybook(fetchedId, inserted[0].status, inserted[0].assigned_to, req.user?.email);
+            // Non-fatal: playbook generation failure must NOT cause lead creation to fail
+            generateLeadPlaybook(fetchedId, inserted[0].status, inserted[0].assigned_to, req.user?.email)
+                .catch(playbookErr => console.warn('[Playbook] Lead playbook generation failed (non-fatal):', playbookErr.message));
         } else if (table === 'bookings' && inserted[0]) {
-            await generateBookingPlaybook(fetchedId, inserted[0].type, inserted[0].assigned_to, req.user?.email);
+            generateBookingPlaybook(fetchedId, inserted[0].type, inserted[0].assigned_to, req.user?.email)
+                .catch(playbookErr => console.warn('[Playbook] Booking playbook generation failed (non-fatal):', playbookErr.message));
         }
 
         // ─── Returning Customer Auto-Link for Admin-Created Leads (Rank 1 + Rank 3 + Rank 4) ───

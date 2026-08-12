@@ -949,7 +949,7 @@ export const api = {
             preferences: lead.preferences,
             notes: lead.notes || lead.preferences,
             avatar_color: lead.avatarColor,
-            assigned_to: lead.assignedTo,
+            assigned_to: lead.assignedTo || null,
             whatsapp: lead.whatsapp,
             is_whatsapp_same: lead.isWhatsappSame,
             service_type: lead.serviceType,
@@ -960,7 +960,10 @@ export const api = {
             office_address: lead.officeAddress,
             package_id: lead.packageId || null,          // Link back to source package
             partner_id: partnerRef,
-            alt_phone: lead.altPhone || null
+            alt_phone: lead.altPhone || null,
+            // Explicit customer link — set when creating a new enquiry from a customer profile
+            customer_id: lead.customerId || null,
+            is_returning_customer: lead.customerId ? 1 : (lead.isReturningCustomer ? 1 : 0),
         };
         
         if (!token) {

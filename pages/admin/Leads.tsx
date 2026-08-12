@@ -76,18 +76,36 @@ export const Leads: React.FC = () => {
         // Handle navigation from Customer Details Drawer -> New Inquiry
         if (location.state?.fromCustomer) {
             const customer = location.state.fromCustomer;
+            // Resolve assigned-to for the current staff member
+            const myStaffId = currentUser?.id ||
+                staff.find((s: any) => s.email === currentUser?.email)?.id ||
+                undefined;
             setLeadForm(prev => ({
                 ...prev,
-                customerId: customer.id, // Ensure we store customerId reference
-                name: customer.name,
-                email: customer.email,
-                phone: customer.phone,
-                location: customer.location,
-                source: 'Existing Customer'
+                // Contact info — all fields from customer profile
+                customerId:         customer.id,
+                name:               customer.name,
+                email:              customer.email,
+                phone:              customer.phone,
+                altPhone:           customer.altPhone       || '',
+                whatsapp:           customer.isWhatsappSame
+                                        ? customer.phone
+                                        : (customer.whatsapp || ''),
+                isWhatsappSame:     customer.isWhatsappSame !== undefined
+                                        ? customer.isWhatsappSame
+                                        : true,
+                // Addresses
+                location:           customer.location      || '',
+                residentialAddress: customer.address       || '',
+                officeAddress:      customer.officeAddress  || '',
+                // Meta
+                source:             'Existing Customer',
+                // Auto-assign to the staff member creating this lead
+                assignedTo:         myStaffId,
             }));
             setModalMode('add');
             setIsModalOpen(true);
-            
+
             // Clear the state so refresh doesn't reopen modal
             window.history.replaceState({}, document.title);
         }
@@ -518,6 +536,13 @@ export const Leads: React.FC = () => {
 
         const now = new Date().toISOString();
         if (modalMode === 'add') {
+            // Fallback: if assignedTo is still unset, assign to current staff
+            // This is the last safety net before the API call
+            const resolvedAssignedTo = leadForm.assignedTo ||
+                currentUser?.id ||
+                staff.find((s: any) => s.email === currentUser?.email)?.id ||
+                undefined;
+
             const newLead: Lead = {
                 id: '', // Will be set by DB (UUID auto-generated + lead_number)
                 addedOn: now,
@@ -534,7 +559,9 @@ export const Leads: React.FC = () => {
                 priority: 'Medium',
                 source: leadForm.source || 'Manual Entry',
                 potentialValue: Number(leadForm.potentialValue) || 0,
-                ...leadForm
+                ...leadForm,
+                // Override with resolved assignedTo (form spread above may overwrite with undefined)
+                assignedTo: resolvedAssignedTo,
             };
             addLead(newLead);
             toast.success('Lead added successfully');
@@ -739,9 +766,14 @@ export const Leads: React.FC = () => {
 
     const openAddModal = () => {
         setModalMode('add');
-        setLeadForm({ 
-            status: 'New', 
-            travelers: '2 Adults', 
+        // Default assigned-to to current staff member so non-admin staff
+        // always create leads assigned to themselves (prevents DB assign failure)
+        const myStaffId = currentUser?.id ||
+            staff.find((s: any) => s.email === currentUser?.email)?.id ||
+            undefined;
+        setLeadForm({
+            status: 'New',
+            travelers: '2 Adults',
             source: 'Manual Entry',
             altPhone: '',
             whatsapp: '',
@@ -750,7 +782,8 @@ export const Leads: React.FC = () => {
             officeAddress: '',
             paxAdult: 2,
             paxChild: 0,
-            paxInfant: 0
+            paxInfant: 0,
+            assignedTo: myStaffId,
         });
         setIsModalOpen(true);
     };

@@ -34,10 +34,17 @@ export const useLeads = () => {
         },
         onError: (err: any, newLead, context) => {
             queryClient.setQueryData(['leads'], context?.previousLeads);
-            toast.error(err.message || 'Failed to create lead');
+            // Provide a meaningful message for permission errors vs generic DB errors
+            const msg = err.message || '';
+            if (msg.toLowerCase().includes('permission') || msg.toLowerCase().includes('unauthorized') || msg.includes('403')) {
+                toast.error('You don\'t have permission to create leads. Contact your admin to enable Lead management access.');
+            } else {
+                toast.error(msg || 'Failed to create lead. Please try again.');
+            }
         },
         onSuccess: () => {
-            toast.success('Inquiry submitted successfully! Our travel expert will contact you shortly.');
+            // Success toast is shown by Leads.tsx ('Lead added successfully')
+            // so we just refresh the cache silently here
             queryClient.invalidateQueries({ queryKey: ['leads'] });
         },
     });

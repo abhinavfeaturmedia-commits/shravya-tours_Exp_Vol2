@@ -478,11 +478,17 @@ const CustomerDetailsDrawer: React.FC<{
         navigate('/admin/leads', {
             state: {
                 fromCustomer: {
-                    id: customer!.id,
-                    name: customer!.name,
-                    email: customer!.email,
-                    phone: customer!.phone,
-                    location: customer!.location
+                    id:             customer!.id,
+                    name:           customer!.name,
+                    email:          customer!.email,
+                    phone:          customer!.phone,
+                    altPhone:       customer!.altPhone   || '',
+                    whatsapp:       customer!.whatsapp   || '',
+                    isWhatsappSame: customer!.isWhatsappSame !== undefined ? customer!.isWhatsappSame : true,
+                    location:       customer!.location   || '',
+                    // customer.address → lead residentialAddress
+                    address:        customer!.address    || '',
+                    officeAddress:  customer!.officeAddress || '',
                 }
             }
         });
