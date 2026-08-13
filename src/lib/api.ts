@@ -946,8 +946,7 @@ export const api = {
             priority: lead.priority || 'Medium',
             potential_value: lead.potentialValue || 0,
             source: lead.source || 'Website',
-            preferences: lead.preferences,
-            notes: lead.notes || lead.preferences,
+            preferences: lead.preferences || lead.notes || null,
             avatar_color: lead.avatarColor,
             assigned_to: lead.assignedTo || null,
             whatsapp: lead.whatsapp,
@@ -1003,7 +1002,7 @@ export const api = {
         if (updates.priority !== undefined) dbUpdates.priority = updates.priority;
         if (updates.potentialValue !== undefined) dbUpdates.potential_value = updates.potentialValue;
         if (updates.source !== undefined) dbUpdates.source = updates.source;
-        if (updates.preferences !== undefined) dbUpdates.preferences = updates.preferences;
+        if (updates.preferences !== undefined || (updates as any).notes !== undefined) dbUpdates.preferences = updates.preferences !== undefined ? updates.preferences : (updates as any).notes;
         if (updates.assignedTo !== undefined) dbUpdates.assigned_to = updates.assignedTo;
         if (updates.whatsapp !== undefined) dbUpdates.whatsapp = updates.whatsapp;
         if (updates.isWhatsappSame !== undefined) dbUpdates.is_whatsapp_same = updates.isWhatsappSame;

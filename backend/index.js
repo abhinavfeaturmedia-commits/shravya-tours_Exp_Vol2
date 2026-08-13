@@ -6442,12 +6442,49 @@ function sanitizeDbBody(body) {
     }
     return sanitized;
 }
+
+const TABLE_COLUMNS_CACHE = {};
+async function filterDbBodyByTable(table, body) {
+    if (!body || typeof body !== 'object') return body;
+    const sanitized = { ...body };
+
+    // Table-specific field alias mapping (e.g., 'notes' -> 'preferences' for leads table)
+    if (table === 'leads') {
+        if ('notes' in sanitized) {
+            if (!sanitized.preferences && sanitized.notes) {
+                sanitized.preferences = sanitized.notes;
+            }
+            delete sanitized.notes;
+        }
+    }
+
+    // Filter out any keys that do not correspond to physical DB columns
+    try {
+        if (!TABLE_COLUMNS_CACHE[table]) {
+            const [cols] = await pool.query(`SHOW COLUMNS FROM \`${table}\``);
+            TABLE_COLUMNS_CACHE[table] = new Set(cols.map(c => c.Field));
+        }
+        const validCols = TABLE_COLUMNS_CACHE[table];
+        if (validCols && validCols.size > 0) {
+            for (const key of Object.keys(sanitized)) {
+                if (!validCols.has(key)) {
+                    delete sanitized[key];
+                }
+            }
+        }
+    } catch (e) {
+        console.warn(`[filterDbBodyByTable] Failed to fetch columns for table '${table}':`, e.message);
+    }
+
+    return sanitized;
+}
 // ─────────────────────────────────────────────────────────────────────────────
 
 // POST - Insert new row
 app.post('/api/crud/:table', authMiddleware, validateTable, writeGuard, permissionGuard, async (req, res) => {
     const { table } = req.params;
-    const body = sanitizeDbBody(req.body);
+    let body = sanitizeDbBody(req.body);
+    body = await filterDbBodyByTable(table, body);
     try {
         // Auto-generate UUID if missing for non-auto-increment tables
         const autoIncrementTables = ['users', 'staff_members', 'audit_logs', 'lead_logs', 'booking_transactions', 'account_transactions'];
@@ -6687,7 +6724,8 @@ async function cascadeLeadAssigneeToBookings(leadId, newAssignee) {
 // PUT - Update row by ID
 app.put('/api/crud/:table/:id', authMiddleware, validateTable, writeGuard, permissionGuard, async (req, res) => {
     const { table, id } = req.params;
-    const body = sanitizeDbBody(req.body);
+    let body = sanitizeDbBody(req.body);
+    body = await filterDbBodyByTable(table, body);
     try {
         // Lead, Booking & Proposal Playbook / Email Triggers on Update (fetch old record before update)
         let oldLead = null;
@@ -7358,7 +7396,8 @@ app.post('/api/transfer-requests/:id/reject', authMiddleware, async (req, res) =
 // UPSERT - Insert or update (for daily_inventory etc.)
 app.post('/api/crud/:table/upsert', authMiddleware, validateTable, writeGuard, async (req, res) => {
     const { table } = req.params;
-    const body = req.body;
+    let body = sanitizeDbBody(req.body);
+    body = await filterDbBodyByTable(table, body);
     try {
         // Auto-generate UUID if missing for non-auto-increment tables
         const autoIncrementTables = ['users', 'staff_members', 'audit_logs', 'bookings', 'tours', 'packages', 'booking_transactions', 'account_transactions', 'settings'];
