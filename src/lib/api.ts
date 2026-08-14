@@ -458,7 +458,7 @@ export const api = {
     },
 
     createBookingTransaction: async (bookingId: string, tx: any) => {
-        await crud.create('booking_transactions', {
+        const res = await crud.create('booking_transactions', {
             booking_id: bookingId,
             date: tx.date,
             amount: tx.amount,
@@ -472,11 +472,25 @@ export const api = {
             receipt_url: tx.receiptUrl,
             recorded_by: tx.recordedBy || 'System'
         });
+        return res?.data;
     },
 
     getFinanceTransactions: async () => {
         const { data } = await fetchApi('/api/finance/booking-transactions');
-        return (data || []).map((t: any) => ({
+        const rawList = data || [];
+        
+        // Defensive client-side deduplication by compound key (source + id)
+        const seenKeys = new Set<string>();
+        const uniqueList: any[] = [];
+        for (const item of rawList) {
+            const compoundKey = `${item.source || 'booking_payment'}-${item.id}`;
+            if (!seenKeys.has(compoundKey)) {
+                seenKeys.add(compoundKey);
+                uniqueList.push(item);
+            }
+        }
+
+        return uniqueList.map((t: any) => ({
             id: String(t.id),
             bookingId: t.bookingId,
             date: t.date,
@@ -494,7 +508,7 @@ export const api = {
             packageId: t.packageId,
             bookingName: t.bookingName,
             recordedBy: t.recordedByName || t.recorded_by || 'System',
-            source: t.source // 'booking_payment' | 'expense'
+            source: t.source // 'booking_payment' | 'expense' | 'vendor_payout' | 'partner_payout'
         }));
     },
 
@@ -659,7 +673,7 @@ export const api = {
     },
 
     createSupplierBooking: async (sb: any) => {
-        await crud.create('supplier_bookings', {
+        const res = await crud.create('supplier_bookings', {
             id: sb.id,
             booking_id: sb.bookingId,
             vendor_id: sb.vendorId,
@@ -676,6 +690,7 @@ export const api = {
             driver_phone: sb.driverPhone || null,
             vehicle_number: sb.vehicleNumber || null
         });
+        return res?.data;
     },
 
     updateSupplierBooking: async (id: string, sb: any) => {
@@ -1167,18 +1182,20 @@ export const api = {
                 bankDetails: parseJsonField(v.bank_details, {}),
                 notes: normalizedNotes,
                 // Use ledger_entries built from real supplier_bookings data (backend join)
-                // Fall back to the stale JSON blob only if no supplier bookings exist
-                transactions: Array.isArray(v.ledger_entries) && v.ledger_entries.length > 0
-                    ? v.ledger_entries.map((le: any) => ({
-                        id: le.id,
-                        date: le.date ? new Date(le.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-                        description: le.description,
-                        amount: Number(le.amount) || 0,
-                        type: le.type,
-                        reference: le.reference,
-                        bookingTitle: le.bookingTitle
-                    }))
-                    : parseJsonField(v.transactions, []),
+                // Fall back to the JSON blob only if no supplier bookings exist
+                transactions: (Array.isArray(v.ledger_entries) && v.ledger_entries.length > 0
+                    ? v.ledger_entries
+                    : parseJsonField(v.transactions, [])
+                ).map((le: any) => ({
+                    id: le.id || `tx-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+                    date: le.date ? (typeof le.date === 'string' ? le.date.split('T')[0] : new Date(le.date).toISOString().split('T')[0]) : new Date().toISOString().split('T')[0],
+                    description: le.description || 'Transaction',
+                    amount: Number(le.amount) || 0,
+                    type: le.type || 'Debit',
+                    reference: le.reference || '',
+                    bookingTitle: le.bookingTitle || '',
+                    status: le.status || 'Verified'
+                })),
                 services: parseJsonField(v.services, []),
                 documents: parseJsonField(v.documents, [])
             };
@@ -1694,20 +1711,20 @@ export const api = {
         return null;
     },
 
-    createCustomer: async (customer: Partial<Customer>) => {
-        const { data } = await crud.create('customers', {
+    createCustomer: async (customer: Partial<Customer>): Promise<Customer> => {
+        const payload: any = {
             id: customer.id,
-            name: customer.name,
-            email: customer.email,
-            phone: customer.phone,
-            location: customer.location,
+            name: customer.name ? customer.name.trim() : '',
+            email: customer.email ? customer.email.trim() : null,
+            phone: customer.phone ? customer.phone.trim() : null,
+            location: customer.location || null,
             type: customer.type || 'New',
             status: customer.status || 'Active',
             total_spent: customer.totalSpent || 0,
             bookings_count: customer.bookingsCount || 0,
-            notes: customer.notes ? JSON.stringify(customer.notes) : '[]',
-            tags: customer.tags ? JSON.stringify(customer.tags) : '[]',
-            preferences: customer.preferences ? JSON.stringify(customer.preferences) : '{}',
+            notes: customer.notes ? (typeof customer.notes === 'string' ? customer.notes : JSON.stringify(customer.notes)) : '[]',
+            tags: customer.tags ? (typeof customer.tags === 'string' ? customer.tags : JSON.stringify(customer.tags)) : '[]',
+            preferences: customer.preferences ? (typeof customer.preferences === 'string' ? customer.preferences : JSON.stringify(customer.preferences)) : '{}',
             prefix: customer.prefix || null,
             dob: customer.dob || null,
             alt_phone: customer.altPhone || null,
@@ -1717,23 +1734,48 @@ export const api = {
             office_address: customer.officeAddress || null,
             billing_address: customer.billingAddress || null,
             gstin: customer.gstin || null
-        });
-        return data;
+        };
+        const { data } = await crud.create('customers', payload);
+        const row = data || payload;
+        return {
+            id: String(row.id || customer.id || ''),
+            name: row.name || customer.name || '',
+            email: row.email || customer.email || '',
+            phone: row.phone || customer.phone || '',
+            location: row.location || customer.location || '',
+            type: row.type || customer.type || 'New',
+            status: row.status || customer.status || 'Active',
+            totalSpent: Number(row.total_spent ?? customer.totalSpent ?? 0),
+            bookingsCount: Number(row.bookings_count ?? customer.bookingsCount ?? 0),
+            joinedDate: row.created_at || customer.joinedDate || new Date().toISOString(),
+            notes: parseJsonFieldSafe(row.notes, customer.notes || []),
+            tags: parseJsonFieldSafe(row.tags, customer.tags || []),
+            preferences: parseJsonFieldSafe(row.preferences, customer.preferences || {}),
+            prefix: row.prefix ?? customer.prefix ?? '',
+            dob: row.dob ?? customer.dob ?? '',
+            altPhone: row.alt_phone ?? customer.altPhone ?? '',
+            whatsapp: row.whatsapp ?? customer.whatsapp ?? '',
+            isWhatsappSame: row.is_whatsapp_same === 1 || row.is_whatsapp_same === true || !!customer.isWhatsappSame,
+            address: row.address ?? customer.address ?? '',
+            officeAddress: row.office_address ?? customer.officeAddress ?? '',
+            billingAddress: row.billing_address ?? customer.billingAddress ?? '',
+            gstin: row.gstin ?? customer.gstin ?? ''
+        };
     },
 
     updateCustomer: async (id: string, updates: Partial<Customer>) => {
         const dbUpdates: any = {};
-        if (updates.name !== undefined) dbUpdates.name = updates.name;
-        if (updates.email !== undefined) dbUpdates.email = updates.email;
-        if (updates.phone !== undefined) dbUpdates.phone = updates.phone;
-        if (updates.location !== undefined) dbUpdates.location = updates.location;
+        if (updates.name !== undefined) dbUpdates.name = updates.name ? updates.name.trim() : '';
+        if (updates.email !== undefined) dbUpdates.email = updates.email ? updates.email.trim() : null;
+        if (updates.phone !== undefined) dbUpdates.phone = updates.phone ? updates.phone.trim() : null;
+        if (updates.location !== undefined) dbUpdates.location = updates.location || null;
         if (updates.type !== undefined) dbUpdates.type = updates.type;
         if (updates.status !== undefined) dbUpdates.status = updates.status;
         if (updates.totalSpent !== undefined) dbUpdates.total_spent = updates.totalSpent;
         if (updates.bookingsCount !== undefined) dbUpdates.bookings_count = updates.bookingsCount;
-        if (updates.notes !== undefined) dbUpdates.notes = JSON.stringify(updates.notes);
-        if (updates.tags !== undefined) dbUpdates.tags = JSON.stringify(updates.tags);
-        if (updates.preferences !== undefined) dbUpdates.preferences = JSON.stringify(updates.preferences);
+        if (updates.notes !== undefined) dbUpdates.notes = typeof updates.notes === 'string' ? updates.notes : JSON.stringify(updates.notes);
+        if (updates.tags !== undefined) dbUpdates.tags = typeof updates.tags === 'string' ? updates.tags : JSON.stringify(updates.tags);
+        if (updates.preferences !== undefined) dbUpdates.preferences = typeof updates.preferences === 'string' ? updates.preferences : JSON.stringify(updates.preferences);
         if (updates.prefix !== undefined) dbUpdates.prefix = updates.prefix || null;
         if (updates.dob !== undefined) dbUpdates.dob = updates.dob || null;
         if (updates.altPhone !== undefined) dbUpdates.alt_phone = updates.altPhone || null;

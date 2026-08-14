@@ -29,6 +29,13 @@ const getCustomerBookings = (customer: Customer, bookings: Booking[], includesCa
     });
 };
 
+const generateCustomerId = () => {
+    if (typeof window !== 'undefined' && window.crypto?.randomUUID) {
+        return window.crypto.randomUUID();
+    }
+    return `CUST-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+};
+
 // --- Sort & Filter Types ---
 type SortField = 'name' | 'totalSpent' | 'bookingsCount' | 'joinedDate' | 'lastActive';
 type SortOrder = 'asc' | 'desc';
@@ -83,8 +90,8 @@ export const Customers: React.FC = () => {
     // Data Processing
     const processedCustomers = useMemo(() => {
         let result = customers.filter(c =>
-            (c.name.toLowerCase().includes(search.toLowerCase()) ||
-                c.email.toLowerCase().includes(search.toLowerCase()) ||
+            ((c.name || '').toLowerCase().includes(search.toLowerCase()) ||
+                (c.email || '').toLowerCase().includes(search.toLowerCase()) ||
                 (c.phone || '').includes(search)) &&
             (activeTab === 'All' ||
              (activeTab === 'VIP'
@@ -160,7 +167,7 @@ export const Customers: React.FC = () => {
             { header: 'Total Spent (INR)', key: 'totalSpent', width: 20 },
             { header: 'Bookings', key: 'bookingsCount', width: 15 },
             { header: 'Joined Date', key: 'joinedDate', width: 15 },
-            { header: 'Tags', key: c => c.tags?.join('; ') || '', width: 30 }
+            { header: 'Tags', key: c => (Array.isArray(c.tags) ? c.tags.join('; ') : String(c.tags || '')), width: 30 }
         ];
 
         // Merge live stats into export so exported data is accurate
@@ -395,28 +402,34 @@ export const Customers: React.FC = () => {
                 {/* Add/Edit Modal */}
                 <AddEditCustomerModal
                     isOpen={isAddModalOpen}
-                    onClose={() => setIsAddModalOpen(false)}
+                    onClose={() => { setIsAddModalOpen(false); setEditingCustomer(null); }}
                     customer={editingCustomer}
-                    onSubmit={(data) => {
-                        if (editingCustomer) {
-                            // DataContext.updateCustomer already fires its own success toast
-                            updateCustomer(editingCustomer.id, data);
-                            if (selectedCustomer?.id === editingCustomer.id) {
-                                setSelectedCustomer(prev => prev ? { ...prev, ...data } : null);
+                    onSubmit={async (data) => {
+                        try {
+                            if (editingCustomer) {
+                                // DataContext.updateCustomer already fires its own success toast
+                                await updateCustomer(editingCustomer.id, data);
+                                if (selectedCustomer?.id === editingCustomer.id) {
+                                    setSelectedCustomer(prev => prev ? { ...prev, ...data } : null);
+                                }
+                            } else {
+                                const newId = generateCustomerId();
+                                await addCustomer({
+                                    id: newId,
+                                    ...data,
+                                    totalSpent: 0,
+                                    bookingsCount: 0,
+                                    joinedDate: new Date().toISOString().split('T')[0],
+                                    status: 'Active',
+                                    preferences: { dietary: [], flight: [], accommodation: [] },
+                                    notes: []
+                                });
                             }
-                        } else {
-                            addCustomer({
-                                id: crypto.randomUUID(),
-                                ...data,
-                                totalSpent: 0,
-                                bookingsCount: 0,
-                                joinedDate: new Date().toISOString().split('T')[0],
-                                status: 'Active',
-                                preferences: { dietary: [], flight: [], accommodation: [] },
-                                notes: []
-                            });
+                            setIsAddModalOpen(false);
+                            setEditingCustomer(null);
+                        } catch (err: any) {
+                            console.error('Failed to save customer:', err);
                         }
-                        setIsAddModalOpen(false);
                     }}
                 />
 
@@ -571,7 +584,7 @@ const CustomerDetailsDrawer: React.FC<{
                                 {customer.prefix ? `${customer.prefix} ` : ''}{customer.name}
                                 {customer.type === 'VIP' && <span className="text-[10px] uppercase bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">VIP CLIENT</span>}
                             </h2>
-                            <p className="text-sm text-slate-500">Frequent Flyer | ID: #{customer.id.split('-')[1]}</p>
+                            <p className="text-sm text-slate-500">Frequent Flyer | ID: #{customer.id.includes('-') ? customer.id.split('-')[1] : customer.id.slice(-6)}</p>
                         </div>
                     </div>
                     <button onClick={onClose} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors text-slate-400">
@@ -885,9 +898,9 @@ const CustomerDetailsDrawer: React.FC<{
 
 // --- Add/Edit Modal ---
 const customerSchema = z.object({
-    name: z.string().min(2, 'Name is required'),
-    email: z.string().email('Invalid email'),
-    phone: z.string().min(10, 'Invalid phone number'),
+    name: z.string().trim().min(2, 'Name is required'),
+    email: z.string().trim().email('Invalid email').or(z.literal('')).optional(),
+    phone: z.string().trim().min(7, 'Invalid phone number').or(z.literal('')).optional(),
     location: z.string().optional(),
     type: z.enum(['New', 'Returning', 'VIP']),
     tags: z.string().optional(),
@@ -908,8 +921,9 @@ const AddEditCustomerModal: React.FC<{
     isOpen: boolean;
     onClose: () => void;
     customer: Customer | null;
-    onSubmit: (data: CustomerFormData & { tags: string[] }) => void;
+    onSubmit: (data: CustomerFormData & { tags: string[] }) => Promise<void> | void;
 }> = ({ isOpen, onClose, customer, onSubmit }) => {
+    const [isSubmitting, setIsSubmitting] = useState(false);
     const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<CustomerFormData>({
         resolver: zodResolver(customerSchema),
         defaultValues: {
@@ -949,7 +963,7 @@ const AddEditCustomerModal: React.FC<{
                 phone: customer.phone || '',
                 location: customer.location || '',
                 type: customer.type || 'New',
-                tags: customer.tags?.join(', ') || '',
+                tags: Array.isArray(customer.tags) ? customer.tags.join(', ') : (customer.tags || ''),
                 prefix: customer.prefix || '',
                 dob: customer.dob || '',
                 altPhone: customer.altPhone || '',
@@ -981,9 +995,14 @@ const AddEditCustomerModal: React.FC<{
         }
     }, [customer, reset, isOpen]);
 
-    const handleFormSubmit = (data: CustomerFormData) => {
+    const handleFormSubmit = async (data: CustomerFormData) => {
         const tagsArray = data.tags ? data.tags.split(',').map(t => t.trim()).filter(Boolean) : [];
-        onSubmit({ ...data, tags: tagsArray });
+        setIsSubmitting(true);
+        try {
+            await onSubmit({ ...data, tags: tagsArray });
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     if (!isOpen) return null;
@@ -1104,7 +1123,14 @@ const AddEditCustomerModal: React.FC<{
                         <input {...register('tags')} className="w-full rounded-xl bg-slate-50 dark:bg-slate-800 border-none p-3 font-bold outline-none focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white" placeholder="e.g. High Value, Family..." />
                     </div>
 
-                    <button type="submit" className="w-full py-3 bg-primary text-white font-bold rounded-xl shadow-lg shadow-primary/20 hover:bg-primary-dark transition-all mt-4">Save Profile</button>
+                    <button
+                        type="submit"
+                        disabled={isSubmitting}
+                        className="w-full py-3 bg-primary text-white font-bold rounded-xl shadow-lg shadow-primary/20 hover:bg-primary-dark transition-all mt-4 disabled:opacity-60 flex items-center justify-center gap-2"
+                    >
+                        {isSubmitting && <span className="material-symbols-outlined animate-spin text-[18px]">progress_activity</span>}
+                        {isSubmitting ? 'Saving Profile...' : 'Save Profile'}
+                    </button>
                 </form>
             </div>
         </div>

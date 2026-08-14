@@ -516,7 +516,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         'membership_plans'
       ];
       const authTables = hasToken ? [
-        'vendors', 'accounts', 'campaigns', 'tasks',
+        'accounts', 'campaigns', 'tasks',
         'master_transports', 'master_plans', 'master_room_types', 'master_meal_plans',
         'master_lead_sources', 'master_terms_templates', 'proposals', 'daily_targets',
         'time_sessions', 'assignment_rules', 'user_activities', 'audit_logs',
@@ -536,8 +536,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           api.getLeads().catch(() => []),
           api.getCustomers().catch(() => []),
           api.getFollowUps().catch(() => []),
-          api.getInventory().catch(() => ({}))
-        ]) : Promise.resolve([[], [], [], [], {}])
+          api.getInventory().catch(() => ({})),
+          api.getVendors().catch(() => [])
+        ]) : Promise.resolve([[], [], [], [], {}, []])
       ]);
 
       const bulkRes: Record<string, any[]> = (bulkDataRaw || {}) as Record<string, any[]>;
@@ -558,14 +559,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // 2. Populate Authenticated State
       if (hasToken) {
-        const [b, l, c, fups, inv] = specializedAuthData;
+        const [b, l, c, fups, inv, vends] = specializedAuthData;
         setBookings(b);
         setLeads(l);
         setCustomers(c);
         setFollowUps(fups);
         if (inv && Object.keys(inv).length > 0) setInventory(inv);
-
-        if (bulkRes.vendors) setVendors(bulkRes.vendors as Vendor[]);
+        if (Array.isArray(vends)) setVendors(vends);
         if (bulkRes.accounts) setAccounts((bulkRes.accounts as any[]).map(api.mapAccount));
         if (bulkRes.campaigns) setCampaigns(bulkRes.campaigns);
         if (bulkRes.tasks) setTasks(bulkRes.tasks.map(api.mapTask));
@@ -861,7 +861,20 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const addBookingTransaction = useCallback(async (bookingId: string, tx: BookingTransaction) => {
     try {
       // 1. Save to DB
-      await api.createBookingTransaction(bookingId, tx);
+      const dbRow = await api.createBookingTransaction(bookingId, tx);
+      const createdTx: BookingTransaction = {
+        id: dbRow?.id ? String(dbRow.id) : (tx.id || `TX-${Date.now()}`),
+        bookingId,
+        amount: Number(tx.amount),
+        date: tx.date,
+        type: tx.type,
+        method: tx.method,
+        reference: tx.reference || '',
+        notes: tx.notes || '',
+        status: (dbRow?.status || tx.status || 'Pending') as any,
+        receiptUrl: dbRow?.receipt_url || tx.receiptUrl,
+        recordedBy: dbRow?.recorded_by || tx.recordedBy || 'System'
+      };
 
       const isCredit = tx.type === 'Payment';
       let accTxId = `TX-${Date.now()}`; // Just a UI placeholder, actual ID is generated in db
@@ -879,12 +892,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         };
 
         // Create the double-entry record
-        await api.createAccountTransaction(targetAccount.id, accTx);
+        await api.createAccountTransaction(targetAccount.id, accTx).catch(err => console.warn('Account tx error:', err));
 
         // 3. Update Account State
         const newBalance = isCredit ? targetAccount.currentBalance + tx.amount : targetAccount.currentBalance - tx.amount;
         
-        await api.updateAccount(targetAccount.id, { currentBalance: newBalance });
+        await api.updateAccount(targetAccount.id, { currentBalance: newBalance }).catch(err => console.warn('Account update error:', err));
 
         setAccounts(prevAccounts => prevAccounts.map(acc => {
           if (acc.id === targetAccount.id) {
@@ -899,35 +912,35 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       // 4. Update Booking State (optimistic UI update)
-      // Payments now start as 'Pending' so we do NOT update booking payment_status here.
-      // The status only changes after a finance manager approves on the Payment Approvals page.
-      const currentBooking = bookings.find(b => b.id === bookingId);
-      if (currentBooking) {
-        const newTransactions = [...(currentBooking.transactions || []), { ...tx, status: 'Pending' as any }];
+      setBookings(prev => prev.map(b => {
+        if (b.id === bookingId) {
+          const existingTxs = b.transactions || [];
+          const filtered = existingTxs.filter(t => String(t.id) !== String(createdTx.id));
+          return { ...b, transactions: [createdTx, ...filtered] };
+        }
+        return b;
+      }));
 
-        // Append transaction to local UI state so the Ledger modal shows it immediately
-        setBookings(prev => prev.map(b =>
-          b.id === bookingId ? { ...b, transactions: newTransactions } : b
-        ));
-
-        // Notify React Query cache to refetch so Bookings.tsx list stays in sync
-        window.dispatchEvent(new CustomEvent('booking-transactions-changed', { detail: { bookingId } }));
-      }
+      // 5. Notify React Query cache (and any listener) with the exact created transaction
+      window.dispatchEvent(new CustomEvent('booking-transactions-changed', {
+        detail: { bookingId, tx: createdTx }
+      }));
 
       logAction('Transaction', 'Finance', `Recorded ${tx.type} of amount ${tx.amount} for Booking ${bookingId} - Pending Approval`);
       toast.success("Transaction recorded — pending approval on Payment Approvals page.");
 
+      return createdTx;
     } catch (e: any) {
       toast.error(e.message || "Failed to record transaction");
       throw e;
     }
-  }, [accounts, bookings]);
+  }, [accounts, logAction]);
 
   const deleteBookingTransaction = useCallback(async (bookingId: string, txId: string) => {
     try {
       // Find the transaction BEFORE deleting so we can reverse the account entry
       const booking = bookings.find(b => b.id === bookingId);
-      const deletedTx = booking?.transactions?.find(t => t.id === txId);
+      const deletedTx = booking?.transactions?.find(t => String(t.id) === String(txId));
 
       await api.deleteBookingTransaction(txId);
 
@@ -940,7 +953,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             ? targetAccount.currentBalance - deletedTx.amount
             : targetAccount.currentBalance + deletedTx.amount;
 
-          await api.updateAccount(targetAccount.id, { currentBalance: reversedBalance });
+          await api.updateAccount(targetAccount.id, { currentBalance: reversedBalance }).catch(err => console.warn('Account reverse error:', err));
           setAccounts(prev => prev.map(acc =>
             acc.id === targetAccount.id ? { ...acc, currentBalance: reversedBalance } : acc
           ));
@@ -950,7 +963,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setBookings(prev => {
         const updated = prev.map(b => {
           if (b.id === bookingId) {
-            const newTransactions = (b.transactions || []).filter(t => t.id !== txId);
+            const newTransactions = (b.transactions || []).filter(t => String(t.id) !== String(txId));
             const totalPaid = newTransactions.filter(t => t.type === 'Payment').reduce((sum, t) => sum + t.amount, 0);
             const totalRefunded = newTransactions.filter(t => t.type === 'Refund').reduce((sum, t) => sum + t.amount, 0);
             const netPaid = totalPaid - totalRefunded;
@@ -971,27 +984,57 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
         return updated;
       });
+
+      window.dispatchEvent(new CustomEvent('booking-transaction-deleted', {
+        detail: { bookingId, txId }
+      }));
+
+      window.dispatchEvent(new CustomEvent('booking-transactions-changed', {
+        detail: { bookingId, deletedTxId: txId }
+      }));
+
+      logAction('Transaction', 'Finance', `Deleted transaction ${txId} for Booking ${bookingId}`);
       toast.success("Transaction deleted and account balance reversed");
     } catch (e: any) {
       toast.error(e.message || "Failed to delete transaction");
     }
-  }, [accounts, bookings]);
+  }, [accounts, bookings, logAction]);
 
   // Supplier Booking Handlers
   const addSupplierBooking = useCallback(async (bookingId: string, sb: SupplierBooking) => {
     try {
-      await api.createSupplierBooking({ ...sb, bookingId });
+      const created = await api.createSupplierBooking({ ...sb, bookingId });
+      const finalSb: SupplierBooking = created ? {
+        id: created.id || sb.id,
+        bookingId,
+        vendorId: created.vendor_id || sb.vendorId,
+        serviceType: created.service_type || sb.serviceType,
+        confirmationNumber: created.confirmation_number || sb.confirmationNumber,
+        cost: Number(created.cost ?? sb.cost),
+        paidAmount: Number(created.paid_amount ?? sb.paidAmount),
+        paymentStatus: created.payment_status || sb.paymentStatus,
+        bookingStatus: created.booking_status || sb.bookingStatus,
+        paymentDueDate: created.payment_due_date || sb.paymentDueDate,
+        notes: created.notes || sb.notes
+      } : sb;
+
       setBookings(prev => prev.map(b => {
         if (b.id === bookingId) {
-          return { ...b, supplierBookings: [...(b.supplierBookings || []), sb] };
+          return { ...b, supplierBookings: [...(b.supplierBookings || []), finalSb] };
         }
         return b;
       }));
+
+      window.dispatchEvent(new CustomEvent('supplier-bookings-changed', {
+        detail: { bookingId, supplierBooking: finalSb }
+      }));
+
       // Keep vendor financials in sync
       api.getVendors().then(setVendors).catch(console.error);
       
-      logAction('Create', 'Vendors', `Added supplier booking ${sb.id} for Booking ${bookingId}`);
+      logAction('Create', 'Vendors', `Added supplier booking ${finalSb.id} for Booking ${bookingId}`);
       toast.success("Supplier added successfully");
+      return finalSb;
     } catch (e: any) {
       toast.error(e.message || "Failed to add supplier");
     }
@@ -1009,6 +1052,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         return b;
       }));
+
+      window.dispatchEvent(new CustomEvent('supplier-bookings-changed', {
+        detail: { bookingId, supplierBooking: { id: sbId, ...sb } }
+      }));
+
       // Keep vendor financials in sync
       api.getVendors().then(setVendors).catch(console.error);
 
@@ -1031,6 +1079,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         return b;
       }));
+
+      window.dispatchEvent(new CustomEvent('supplier-bookings-changed', {
+        detail: { bookingId, deletedSbId: sbId }
+      }));
+
       // Keep vendor financials in sync
       api.getVendors().then(setVendors).catch(console.error);
 
@@ -1167,9 +1220,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Customer
   const addCustomer = useCallback(async (c: Customer) => {
     // Deduplication Check
-    if (c.email && customers.some(cust => cust.email?.toLowerCase() === c.email.toLowerCase())) {
-      toast.error("Customer with this email already exists!");
-      return;
+    const cleanEmail = c.email?.trim().toLowerCase();
+    if (cleanEmail && customers.some(cust => cust.email && cust.email.trim().toLowerCase() === cleanEmail)) {
+      const msg = "Customer with this email already exists!";
+      toast.error(msg);
+      throw new Error(msg);
     }
     setCustomers(p => [c, ...p]);
     try {
@@ -1177,9 +1232,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setCustomers(p => p.map(x => x.id === c.id ? { ...x, ...created } : x));
       logAction('Create', 'Customers', `Created Customer: ${c.name}`);
       toast.success("Customer added");
+      return created;
     } catch (e: any) {
       setCustomers(p => p.filter(x => x.id !== c.id));
       toast.error(e.message || "Failed to add customer");
+      throw e;
     }
   }, [customers, logAction]);
   const updateCustomer = useCallback(async (id: string, c: Partial<Customer>) => {
@@ -1192,6 +1249,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (e: any) {
       setCustomers(previousState);
       toast.error(e.message || "Failed to update customer");
+      throw e;
     }
   }, [customers, logAction]);
 

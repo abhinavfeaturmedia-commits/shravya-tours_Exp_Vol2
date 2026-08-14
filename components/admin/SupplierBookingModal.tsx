@@ -12,6 +12,7 @@ interface SupplierBookingModalProps {
 export const SupplierBookingModal: React.FC<SupplierBookingModalProps> = ({ isOpen, onClose, bookingId, existingBooking }) => {
     const { vendors, addSupplierBooking, updateSupplierBooking } = useData();
 
+    const [isSubmitting, setIsSubmitting] = useState(false);
     const [formData, setFormData] = useState<Partial<SupplierBooking>>({
         vendorId: '',
         serviceType: 'Hotel',
@@ -42,9 +43,11 @@ export const SupplierBookingModal: React.FC<SupplierBookingModalProps> = ({ isOp
         }
     }, [existingBooking, isOpen]);
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (isSubmitting) return;
 
+        setIsSubmitting(true);
         const newBooking: SupplierBooking = {
             id: existingBooking?.id || `SB-${Date.now()}`,
             bookingId,
@@ -59,12 +62,18 @@ export const SupplierBookingModal: React.FC<SupplierBookingModalProps> = ({ isOp
             notes: formData.notes
         };
 
-        if (existingBooking) {
-            updateSupplierBooking(bookingId, existingBooking.id, newBooking);
-        } else {
-            addSupplierBooking(bookingId, newBooking);
+        try {
+            if (existingBooking) {
+                await updateSupplierBooking(bookingId, existingBooking.id, newBooking);
+            } else {
+                await addSupplierBooking(bookingId, newBooking);
+            }
+            onClose();
+        } catch (error) {
+            console.error('Failed to save supplier booking:', error);
+        } finally {
+            setIsSubmitting(false);
         }
-        onClose();
     };
 
     if (!isOpen) return null;
@@ -194,8 +203,17 @@ export const SupplierBookingModal: React.FC<SupplierBookingModalProps> = ({ isOp
                     </div>
 
                     <div className="pt-4 flex justify-end gap-3">
-                        <button type="button" onClick={onClose} className="px-5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-50 transition-colors">Cancel</button>
-                        <button type="submit" className="px-5 py-2 rounded-xl bg-primary text-white font-bold hover:bg-primary-dark transition-colors">Save Supplier Booking</button>
+                        <button type="button" disabled={isSubmitting} onClick={onClose} className="px-5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-50 transition-colors disabled:opacity-50">Cancel</button>
+                        <button type="submit" disabled={isSubmitting} className="px-5 py-2 rounded-xl bg-primary text-white font-bold hover:bg-primary-dark transition-colors shadow-lg shadow-primary/20 disabled:opacity-60 flex items-center gap-2">
+                            {isSubmitting ? (
+                                <>
+                                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                                    Saving...
+                                </>
+                            ) : (
+                                'Save Supplier Booking'
+                            )}
+                        </button>
                     </div>
                 </form>
             </div>

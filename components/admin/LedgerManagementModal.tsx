@@ -62,6 +62,7 @@ export const LedgerManagementModal: React.FC<LedgerManagementModalProps> = ({ is
 
     // Form State
     const [isFormVisible, setIsFormVisible] = useState(false);
+    const [isSubmitting, setIsSubmitting] = useState(false);
     const [formData, setFormData] = useState<Partial<BookingTransaction>>({
         amount: '' as any,
         date: new Date().toISOString().split('T')[0],
@@ -73,20 +74,27 @@ export const LedgerManagementModal: React.FC<LedgerManagementModalProps> = ({ is
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (isSubmitting) return;
+        const amountNum = Number(formData.amount);
+        if (!amountNum || amountNum <= 0) {
+            toast.error('Please enter a valid amount greater than 0');
+            return;
+        }
+
+        setIsSubmitting(true);
         const newTx: BookingTransaction = {
             id: `TX-${Date.now()}`,
             bookingId: booking.id,
-            amount: Number(formData.amount),
+            amount: amountNum,
             date: formData.date!,
             type: formData.type as any,
             method: formData.method as any,
-            reference: formData.reference,
-            notes: formData.notes,
-            recordedBy: currentUser?.name
+            reference: formData.reference || '',
+            notes: formData.notes || '',
+            recordedBy: currentUser?.name || 'System'
         };
         try {
             await addBookingTransaction(booking.id, newTx);
-            toast.success('Payment recorded — pending approval on Payment Approvals page.');
             setIsFormVisible(false);
             setFormData({
                 amount: '' as any,
@@ -96,16 +104,16 @@ export const LedgerManagementModal: React.FC<LedgerManagementModalProps> = ({ is
                 reference: '',
                 notes: ''
             });
-        } catch (error) {
-            // Error is handled inside addBookingTransaction, but we prevent form close
-            console.error(error);
+        } catch (error: any) {
+            console.error('Failed to record transaction:', error);
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
-    const handleDelete = (txId: string) => {
+    const handleDelete = async (txId: string) => {
         if (window.confirm('Are you sure you want to delete this transaction?')) {
-            deleteBookingTransaction(booking.id, txId);
-            toast.success('Transaction deleted');
+            await deleteBookingTransaction(booking.id, txId);
         }
     };
 
@@ -220,8 +228,17 @@ export const LedgerManagementModal: React.FC<LedgerManagementModalProps> = ({ is
                                     <input type="text" value={formData.reference} onChange={e => setFormData({ ...formData, reference: e.target.value })} placeholder="Txn ID, Cheque No, etc." className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-primary" />
                                 </div>
                                 <div className="lg:col-span-3 flex justify-end gap-3 pt-2">
-                                    <button type="button" onClick={() => setIsFormVisible(false)} className="px-5 py-2 rounded-xl text-slate-500 font-bold hover:bg-slate-100 transition-colors">Cancel</button>
-                                    <button type="submit" className="px-6 py-2 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-600/20">Save Transaction</button>
+                                    <button type="button" disabled={isSubmitting} onClick={() => setIsFormVisible(false)} className="px-5 py-2 rounded-xl text-slate-500 font-bold hover:bg-slate-100 transition-colors disabled:opacity-50">Cancel</button>
+                                    <button type="submit" disabled={isSubmitting} className="px-6 py-2 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-600/20 disabled:opacity-60 flex items-center gap-2">
+                                        {isSubmitting ? (
+                                            <>
+                                                <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                                                Saving...
+                                            </>
+                                        ) : (
+                                            'Save Transaction'
+                                        )}
+                                    </button>
                                 </div>
                             </form>
                         </div>

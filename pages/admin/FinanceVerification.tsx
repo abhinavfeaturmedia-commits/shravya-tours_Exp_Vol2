@@ -238,7 +238,7 @@ export const FinanceVerification: React.FC = () => {
                                                                       {paginatedTransactions.length > 0 ? (
                                         paginatedTransactions.map((tx) => (
                                             <tr 
-                                                key={tx.id} 
+                                                key={`${tx.source}-${tx.id}`} 
                                                 className={`group hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-all border-l-4 ${
                                                     tx.source === 'booking_payment' ? 'border-l-emerald-500' :
                                                     tx.source === 'expense' ? 'border-l-amber-500' :

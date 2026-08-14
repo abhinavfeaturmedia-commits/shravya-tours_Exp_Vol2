@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useData } from '../../context/DataContext';
 import { Vendor, VendorService, VendorDocument } from '../../types';
 import { ImageUpload } from '../../components/ui/ImageUpload';
@@ -157,6 +157,24 @@ export const Vendors: React.FC = () => {
         setToast({ msg, type });
     };
 
+    // Safe helper to get accurate vendor balance
+    const getVendorBalance = useCallback((v: Vendor) => {
+        if (v.balanceDue && v.balanceDue > 0) return v.balanceDue;
+        const vendorSBookings = (bookings || []).flatMap(b =>
+            ((b as any).supplierBookings || [])
+                .filter((sb: any) => (String(sb.vendorId) === String(v.id) || (sb.vendorName && String(sb.vendorName).trim().toLowerCase() === String(v.name || '').trim().toLowerCase())) && sb.bookingStatus !== 'Cancelled')
+        );
+        const bookingsCost = vendorSBookings.reduce((sum: number, sb: any) => sum + (Number(sb.cost) || 0), 0);
+        const bookingsPaid = vendorSBookings.reduce((sum: number, sb: any) => sum + (Number(sb.paidAmount) || 0), 0);
+        const rawTx = v.transactions;
+        let pureManualTransactions: any[] = [];
+        if (Array.isArray(rawTx)) {
+            pureManualTransactions = rawTx.filter(tx => !tx.id || (!tx.id.includes('-cost') && !tx.id.includes('-paid')));
+        }
+        const manualPaid = pureManualTransactions.reduce((sum: number, tx: any) => tx.type === 'Debit' ? sum + (Number(tx.amount) || 0) : sum - (Number(tx.amount) || 0), 0);
+        return Math.max(0, bookingsCost - (bookingsPaid + manualPaid));
+    }, [bookings]);
+
     // Filter and Sort
     const filteredVendors = useMemo(() => {
         return vendors.filter(v => {
@@ -183,6 +201,11 @@ export const Vendors: React.FC = () => {
 
             return matchesCategory;
         }).sort((a, b) => {
+            if (sortConfig.key === 'balanceDue') {
+                const aBal = getVendorBalance(a);
+                const bBal = getVendorBalance(b);
+                return sortConfig.direction === 'asc' ? aBal - bBal : bBal - aBal;
+            }
             const aValue = a[sortConfig.key];
             const bValue = b[sortConfig.key];
             if (aValue === undefined || bValue === undefined) return 0;
@@ -191,7 +214,7 @@ export const Vendors: React.FC = () => {
             if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
             return 0;
         });
-    }, [vendors, search, categoryFilter, complianceFilter, sortConfig, bookings]);
+    }, [vendors, search, categoryFilter, complianceFilter, sortConfig, bookings, getVendorBalance]);
 
     // Compliance expiring count
     const expiringCount = useMemo(() => {
@@ -346,8 +369,109 @@ export const Vendors: React.FC = () => {
 
     const vendorTransactions = useMemo(() => {
         if (!selectedVendor) return [];
-        return Array.isArray(selectedVendor.transactions) ? selectedVendor.transactions : [];
-    }, [selectedVendor]);
+
+        const vendorIdStr = String(selectedVendor.id).toLowerCase();
+        const vendorNameStr = String(selectedVendor.name || '').trim().toLowerCase();
+
+        // 1. Base transactions attached to vendor (e.g. backend /api/vendors-with-stats or manual payouts)
+        let baseTx: any[] = [];
+        const rawTx = selectedVendor.transactions;
+        if (Array.isArray(rawTx)) {
+            baseTx = rawTx;
+        } else if (typeof rawTx === 'string') {
+            try {
+                const parsed = JSON.parse(rawTx);
+                if (Array.isArray(parsed)) baseTx = parsed;
+            } catch {}
+        }
+
+        const map = new Map<string, any>();
+
+        baseTx.forEach((tx: any, idx: number) => {
+            const id = tx.id || `vtx-${idx}`;
+            map.set(id, {
+                id,
+                date: tx.date ? (typeof tx.date === 'string' ? (tx.date.includes('T') ? tx.date.split('T')[0] : tx.date) : new Date(tx.date).toISOString().split('T')[0]) : new Date().toISOString().split('T')[0],
+                description: tx.description || 'Transaction',
+                amount: Number(tx.amount) || 0,
+                type: tx.type || 'Debit',
+                reference: tx.reference || '',
+                bookingTitle: tx.bookingTitle || '',
+                status: tx.status || 'Verified'
+            });
+        });
+
+        // 2. Synthesize and merge all supplier bookings from bookings
+        (bookings || []).forEach(b => {
+            const sbs = (b as any).supplierBookings || [];
+            sbs.forEach((sb: any) => {
+                const matchesId = sb.vendorId && String(sb.vendorId).toLowerCase() === vendorIdStr;
+                const matchesName = sb.vendorName && String(sb.vendorName).trim().toLowerCase() === vendorNameStr;
+                if (!matchesId && !matchesName) return;
+                if (sb.bookingStatus === 'Cancelled') return;
+
+                const cost = Number(sb.cost) || 0;
+                const paidAmount = Number(sb.paidAmount) || 0;
+                const customerLabel = b.customerName || b.customer || 'Booking';
+                const serviceLabel = sb.serviceType || 'Service';
+                const bookingRef = b.bookingNumber ? `BK-${String(b.bookingNumber).padStart(4, '0')}` : (b.id ? b.id.substring(0, 8) : 'Booking');
+                const bookingDateStr = sb.bookingDate || b.travelStartDate || b.bookingDate || b.createdAt || new Date().toISOString();
+                const cleanDate = typeof bookingDateStr === 'string' ? (bookingDateStr.includes('T') ? bookingDateStr.split('T')[0] : bookingDateStr) : new Date(bookingDateStr).toISOString().split('T')[0];
+
+                // Cost entry (Credit to vendor ledger / Payable)
+                if (cost > 0) {
+                    const costId = `${sb.id}-cost`;
+                    if (!map.has(costId)) {
+                        map.set(costId, {
+                            id: costId,
+                            date: cleanDate,
+                            description: `${serviceLabel} for ${customerLabel}${sb.confirmationNumber ? ` (${sb.confirmationNumber})` : ''}`,
+                            amount: cost,
+                            type: 'Credit',
+                            reference: bookingRef,
+                            bookingTitle: b.title || customerLabel,
+                            status: sb.bookingStatus === 'Pending' ? 'Pending' : 'Verified'
+                        });
+                    }
+                }
+
+                // Paid entry (Debit / Payment to vendor)
+                if (paidAmount > 0) {
+                    const paidId = `${sb.id}-paid`;
+                    if (!map.has(paidId)) {
+                        const paidDateStr = sb.updatedAt || sb.createdAt || cleanDate;
+                        const cleanPaidDate = typeof paidDateStr === 'string' ? (paidDateStr.includes('T') ? paidDateStr.split('T')[0] : paidDateStr) : new Date(paidDateStr).toISOString().split('T')[0];
+                        map.set(paidId, {
+                            id: paidId,
+                            date: cleanPaidDate,
+                            description: `Payment for ${serviceLabel} (${customerLabel})`,
+                            amount: paidAmount,
+                            type: 'Debit',
+                            reference: bookingRef,
+                            bookingTitle: b.title || customerLabel,
+                            status: 'Verified'
+                        });
+                    }
+                }
+            });
+        });
+
+        // 3. Return sorted chronologically descending (newest first)
+        return Array.from(map.values()).sort((a, b) => {
+            const dateA = new Date(a.date).getTime() || 0;
+            const dateB = new Date(b.date).getTime() || 0;
+            return dateB - dateA;
+        });
+    }, [selectedVendor, bookings]);
+
+    const selectedVendorBalance = useMemo(() => {
+        if (!selectedVendor) return 0;
+        const totalCredits = vendorTransactions.filter(tx => tx.type === 'Credit' && tx.status !== 'Rejected').reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
+        const totalDebits = vendorTransactions.filter(tx => tx.type === 'Debit' && tx.status !== 'Rejected').reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
+        const calculated = Math.max(0, totalCredits - totalDebits);
+        if (calculated > 0 || vendorTransactions.length > 0) return calculated;
+        return getVendorBalance(selectedVendor);
+    }, [selectedVendor, vendorTransactions, getVendorBalance]);
 
     // --- Actions ---
 
@@ -964,7 +1088,7 @@ export const Vendors: React.FC = () => {
                                                     <span className="text-[10px] text-slate-400 font-bold uppercase">Balance</span>
                                                     <div className="flex items-center gap-1.5 font-bold text-slate-900 dark:text-white">
                                                         <span className="cursor-pointer hover:underline" onClick={() => setSelectedVendorId(vendor.id)}>
-                                                            {formatPrice(vendor.balanceDue || 0)}
+                                                            {formatPrice(getVendorBalance(vendor))}
                                                         </span>
                                                         {(() => {
                                                             // Filter outstanding bookings for this vendor
@@ -1124,7 +1248,7 @@ export const Vendors: React.FC = () => {
                                                     <td className="px-6 py-4 relative" onClick={e => e.stopPropagation()}>
                                                         <div className="flex items-center gap-1.5 font-medium text-slate-900 dark:text-white">
                                                             <span className="cursor-pointer hover:underline" onClick={() => setSelectedVendorId(vendor.id)}>
-                                                                {formatPrice(vendor.balanceDue || 0)}
+                                                                {formatPrice(getVendorBalance(vendor))}
                                                             </span>
                                                             {(() => {
                                                                 // Filter outstanding bookings for this vendor
@@ -1663,7 +1787,7 @@ export const Vendors: React.FC = () => {
                                             <div className="relative z-10 flex justify-between items-start">
                                                 <div>
                                                     <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] mb-2">Total Outstanding Balance</p>
-                                                    <h3 className="text-5xl font-black tracking-tighter">₹{(selectedVendor.balanceDue || 0).toLocaleString()}</h3>
+                                                    <h3 className="text-5xl font-black tracking-tighter">₹{selectedVendorBalance.toLocaleString()}</h3>
                                                 </div>
                                                 <div className="size-12 bg-white/10 rounded-2xl flex items-center justify-center backdrop-blur-xl border border-white/10">
                                                     <span className="material-symbols-outlined">account_balance_wallet</span>
@@ -1672,7 +1796,7 @@ export const Vendors: React.FC = () => {
                                             <div className="relative z-10">
                                                 <button
                                                     onClick={() => setIsPaymentModalOpen(true)}
-                                                    disabled={(selectedVendor.balanceDue || 0) <= 0}
+                                                    disabled={selectedVendorBalance <= 0}
                                                     className="w-full py-4 bg-white text-slate-900 text-xs font-black uppercase tracking-[0.2em] rounded-xl shadow-lg hover:bg-slate-50 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
                                                 >
                                                     Process Payout
@@ -1746,7 +1870,9 @@ export const Vendors: React.FC = () => {
                                                                     )}
                                                                 </div>
                                                                 <div className="flex items-center gap-2 mt-0.5">
-                                                                    <span className="text-[10px] font-bold text-slate-400 uppercase">{tx.date}</span>
+                                                                    <span className="text-[10px] font-bold text-slate-400 uppercase">
+                                                                        {tx.date ? (tx.date.includes('T') ? tx.date.split('T')[0] : tx.date) : 'N/A'}
+                                                                    </span>
                                                                     {tx.reference && <span className="text-[10px] font-mono text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">{tx.reference}</span>}
                                                                 </div>
                                                             </div>

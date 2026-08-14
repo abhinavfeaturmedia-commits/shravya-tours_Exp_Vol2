@@ -221,6 +221,7 @@ export async function sendAgentIntroductionEmail(leadId) {
             FROM leads l 
             LEFT JOIN staff_members sm ON (l.assigned_to = sm.id OR l.assigned_to = sm.name) 
             WHERE l.id = ?
+            LIMIT 1
         `, [leadId]);
 
         if (rows.length === 0) return;
@@ -287,6 +288,7 @@ export async function sendProposalEmail(proposalId) {
             JOIN leads l ON p.lead_id = l.id 
             LEFT JOIN staff_members sm ON (l.assigned_to = sm.id OR l.assigned_to = sm.name) 
             WHERE p.id = ?
+            LIMIT 1
         `, [proposalId]);
 
         if (rows.length === 0) return;

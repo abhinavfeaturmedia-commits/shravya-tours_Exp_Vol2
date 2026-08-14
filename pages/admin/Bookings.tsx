@@ -58,6 +58,7 @@ export const Bookings: React.FC = () => {
     const [printingTxId, setPrintingTxId] = useState<string | null>(null);
     const [activePaymentPopoverId, setActivePaymentPopoverId] = useState<string | null>(null);
     const [activeVendorPaymentPopoverId, setActiveVendorPaymentPopoverId] = useState<string | null>(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     const handlePrintReceiptInBookings = async (tx: any, booking: Booking) => {
         setPrintingTxId(tx.id);
@@ -727,8 +728,9 @@ export const Bookings: React.FC = () => {
         }
     };
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (isSubmitting) return;
 
         // Validation
         if (Number(formData.amount) <= 0) {
@@ -741,45 +743,52 @@ export const Bookings: React.FC = () => {
             return;
         }
 
-        const bookingData: Partial<Booking> = {
-            type: formData.type,
-            customerId: formData.customerId,
-            customer: formData.customer,
-            email: formData.email,
-            phone: formData.phone,
-            packageId: formData.packageId,
-            title: formData.title || `${formData.type} Booking`,
-            date: formData.date,
-            endDate: formData.endDate,
-            durationDays: formData.durationDays || (packages.find(p => p.id === formData.packageId)?.days) || 1,
-            amount: Number(formData.amount) || 0,
-            status: formData.status,
-            payment: formData.payment as any,
-            guests: formData.guests,
-            details: formData.details,
-            whatsapp: formData.isWhatsappSame ? formData.phone : formData.whatsapp,
-            isWhatsappSame: formData.isWhatsappSame,
-            altPhone: formData.altPhone,
-            paxAdult: guestCounts.adults,
-            paxChild: guestCounts.children,
-            paxInfant: guestCounts.infants,
-            serviceType: formData.serviceType,
-            residentialAddress: formData.residentialAddress,
-            officeAddress: formData.officeAddress
-        };
-
-        if (isEditMode && formData.id) {
-            updateBooking(formData.id, bookingData);
-        } else {
-            const newBooking: Booking = {
-                id: '', // Will be set by DB (UUID auto-generated)
-                assignedTo: currentUser?.id,
-                ...bookingData as any // safely cast for new object
+        setIsSubmitting(true);
+        try {
+            const bookingData: Partial<Booking> = {
+                type: formData.type,
+                customerId: formData.customerId,
+                customer: formData.customer,
+                email: formData.email,
+                phone: formData.phone,
+                packageId: formData.packageId,
+                title: formData.title || `${formData.type} Booking`,
+                date: formData.date,
+                endDate: formData.endDate,
+                durationDays: formData.durationDays || (packages.find(p => p.id === formData.packageId)?.days) || 1,
+                amount: Number(formData.amount) || 0,
+                status: formData.status,
+                payment: formData.payment as any,
+                guests: formData.guests,
+                details: formData.details,
+                whatsapp: formData.isWhatsappSame ? formData.phone : formData.whatsapp,
+                isWhatsappSame: formData.isWhatsappSame,
+                altPhone: formData.altPhone,
+                paxAdult: guestCounts.adults,
+                paxChild: guestCounts.children,
+                paxInfant: guestCounts.infants,
+                serviceType: formData.serviceType,
+                residentialAddress: formData.residentialAddress,
+                officeAddress: formData.officeAddress
             };
-            addBooking(newBooking);
-        }
 
-        setIsModalOpen(false);
+            if (isEditMode && formData.id) {
+                await updateBooking(formData.id, bookingData);
+            } else {
+                const newBooking: Booking = {
+                    id: '', // Will be set by DB (UUID auto-generated)
+                    assignedTo: currentUser?.id,
+                    ...bookingData as any // safely cast for new object
+                };
+                await addBooking(newBooking);
+            }
+
+            setIsModalOpen(false);
+        } catch (err: any) {
+            toast.error(err.message || 'Failed to save booking');
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     const handleExport = () => {
@@ -2485,7 +2494,22 @@ export const Bookings: React.FC = () => {
                                 <div className="flex gap-3">
                                     <button type="button" onClick={() => setIsModalOpen(false)} className="px-6 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">Cancel</button>
                                     {hasPermission('bookings', 'manage') && (
-                                        <button type="submit" className="px-6 py-2.5 rounded-xl bg-primary text-white font-bold shadow-lg shadow-primary/20 hover:bg-primary-dark transition-colors">{isEditMode ? 'Save Changes' : 'Create Booking'}</button>
+                                        <button
+                                            type="submit"
+                                            disabled={isSubmitting}
+                                            className={`px-6 py-2.5 rounded-xl font-bold shadow-lg shadow-primary/20 transition-colors ${
+                                                isSubmitting ? 'bg-primary/70 text-white cursor-wait' : 'bg-primary text-white hover:bg-primary-dark'
+                                            }`}
+                                        >
+                                            {isSubmitting ? (
+                                                <span className="flex items-center gap-2">
+                                                    <span className="size-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                                                    Saving...
+                                                </span>
+                                            ) : (
+                                                isEditMode ? 'Save Changes' : 'Create Booking'
+                                            )}
+                                        </button>
                                     )}
                                 </div>
                             </div>

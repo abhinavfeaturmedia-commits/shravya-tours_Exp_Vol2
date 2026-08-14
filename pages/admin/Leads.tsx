@@ -60,6 +60,7 @@ export const Leads: React.FC = () => {
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const [isAgendaExpanded, setIsAgendaExpanded] = useState(false);
     const [emailModalLead, setEmailModalLead] = useState<Lead | null>(null);
+    const [isConverting, setIsConverting] = useState(false);
 
     const location = useLocation();
     useEffect(() => {
@@ -584,7 +585,7 @@ export const Leads: React.FC = () => {
     };
 
     const handleConvertToBooking = async () => {
-        if (!selectedLead) return;
+        if (!selectedLead || isConverting) return;
 
         // Guard against accidental double conversion
         if (selectedLead.status === 'Converted' || selectedLead.convertedBookingId) {
@@ -602,6 +603,8 @@ export const Leads: React.FC = () => {
             toast.error('Please set a start date before converting this lead.');
             return;
         }
+
+        setIsConverting(true);
 
         // 1. Deep Logic: Check for existing Customer using normalized phone/email
         let targetCustomerId: string | undefined;
@@ -743,11 +746,11 @@ export const Leads: React.FC = () => {
 
             // Only mark lead as converted AFTER booking is saved successfully
             // Also store the booking ID so the Convert button locks and won't re-fire
-            updateLead(selectedLead.id, {
+            await updateLead(selectedLead.id, {
                 status: 'Converted',
                 convertedBookingId: newBookingId
             });
-            addLeadLog(selectedLead.id, {
+            await addLeadLog(selectedLead.id, {
                 id: `lg-conv-${Date.now()}`,
                 type: 'System',
                 content: `Lead converted to Booking${newBookingId ? ` (ID: ${newBookingId})` : ''}. Customer profile ${existingCustomer ? 'linked and synced' : 'created and synced'}.`,
@@ -756,6 +759,8 @@ export const Leads: React.FC = () => {
             toast.success('Lead converted to Booking! Now visible in Pending bookings.');
         } catch (err: any) {
             toast.error(err.message || 'Failed to convert lead to booking.');
+        } finally {
+            setIsConverting(false);
         }
     };
 
@@ -2422,9 +2427,23 @@ export const Leads: React.FC = () => {
                                         // ACTIVE: ready to convert
                                         <button
                                             onClick={handleConvertToBooking}
-                                            className="w-full py-3 rounded-xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-bold text-sm hover:opacity-90 flex items-center justify-center gap-2 transition-all shadow-lg btn-glow"
+                                            disabled={isConverting}
+                                            className={`w-full py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-lg ${
+                                                isConverting
+                                                    ? 'bg-slate-400 text-white cursor-wait opacity-80'
+                                                    : 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 hover:opacity-90 btn-glow'
+                                            }`}
                                         >
-                                            <CheckCircle2 size={16} /> Convert to Booking
+                                            {isConverting ? (
+                                                <>
+                                                    <div className="size-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                                                    Converting to Booking...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <CheckCircle2 size={16} /> Convert to Booking
+                                                </>
+                                            )}
                                         </button>
                                     )}
                                     {/* ─────────────────────────── */}

@@ -876,6 +876,13 @@ export const DocumentEditor: React.FC = () => {
                 payment_status: newStatus,
                 balance_due: newBalanceDue
             }));
+
+            if (docData.booking_id) {
+                window.dispatchEvent(new CustomEvent('booking-transactions-changed', {
+                    detail: { bookingId: docData.booking_id }
+                }));
+            }
+
             setShowPaymentModal(false);
             setPaymentAmount(0);
             setPaymentNote('');
@@ -1242,7 +1249,7 @@ export const DocumentEditor: React.FC = () => {
                             <Mail size={15} />
                         </button>
                         <button 
-                            onClick={() => generateTrueInvoicePDF({ ...docData, id, subtotal, tax_total: taxTotal, discount: discountAmt, total_amount: totalAmount }, items, co, fi)} 
+                            onClick={() => generateTrueInvoicePDF({ ...docData, id, subtotal, tax_total: taxTotal, discount: discountAmt, total_amount: totalAmount }, items, co, fi, customFields, fieldLabels)} 
                             title="Download Premium PDF"
                             className="p-2 hover:bg-orange-500/10 text-slate-500 hover:text-orange-500 dark:text-slate-400 dark:hover:text-orange-400 rounded-lg transition-all hover:scale-105 active:scale-95"
                         >

@@ -23,14 +23,88 @@ export const useBookings = () => {
         return Array.from(seen.values());
     }, [data]);
 
-    // Listen for transaction changes from DataContext and invalidate the bookings cache
-    // This bridges the gap between DataContext (addBookingTransaction) and React Query (useBookings)
+    // Listen for transaction changes from DataContext / Modals and update React Query cache optimistically + refetch
     useEffect(() => {
-        const handler = () => {
+        const handler = (e: any) => {
+            const detail = e?.detail;
+            if (detail?.bookingId) {
+                queryClient.setQueryData<Booking[]>(['bookings'], (old) => {
+                    if (!old) return old;
+                    return old.map(b => {
+                        if (b.id === detail.bookingId) {
+                            let txs = b.transactions || [];
+                            if (detail.tx) {
+                                const newTx = detail.tx;
+                                const filtered = txs.filter(t => String(t.id) !== String(newTx.id));
+                                txs = [newTx, ...filtered];
+                            } else if (detail.deletedTxId) {
+                                txs = txs.filter(t => String(t.id) !== String(detail.deletedTxId));
+                            }
+                            return { ...b, transactions: txs };
+                        }
+                        return b;
+                    });
+                });
+            }
             queryClient.invalidateQueries({ queryKey: ['bookings'] });
         };
         window.addEventListener('booking-transactions-changed', handler);
         return () => window.removeEventListener('booking-transactions-changed', handler);
+    }, [queryClient]);
+
+    // Listen for transaction deletion
+    useEffect(() => {
+        const handler = (e: any) => {
+            const detail = e?.detail;
+            if (detail?.bookingId && detail?.txId) {
+                queryClient.setQueryData<Booking[]>(['bookings'], (old) => {
+                    if (!old) return old;
+                    return old.map(b => {
+                        if (b.id === detail.bookingId) {
+                            const newTxs = (b.transactions || []).filter(t => String(t.id) !== String(detail.txId));
+                            return { ...b, transactions: newTxs };
+                        }
+                        return b;
+                    });
+                });
+            }
+            queryClient.invalidateQueries({ queryKey: ['bookings'] });
+        };
+        window.addEventListener('booking-transaction-deleted', handler);
+        return () => window.removeEventListener('booking-transaction-deleted', handler);
+    }, [queryClient]);
+
+    // Listen for supplier booking changes (add/edit/delete)
+    useEffect(() => {
+        const handler = (e: any) => {
+            const detail = e?.detail;
+            if (detail?.bookingId) {
+                queryClient.setQueryData<Booking[]>(['bookings'], (old) => {
+                    if (!old) return old;
+                    return old.map(b => {
+                        if (b.id === detail.bookingId) {
+                            let sbs = b.supplierBookings || [];
+                            if (detail.supplierBooking) {
+                                const sb = detail.supplierBooking;
+                                const idx = sbs.findIndex(s => s.id === sb.id);
+                                if (idx >= 0) {
+                                    sbs = sbs.map(s => s.id === sb.id ? { ...s, ...sb } : s);
+                                } else {
+                                    sbs = [...sbs, sb];
+                                }
+                            } else if (detail.deletedSbId) {
+                                sbs = sbs.filter(s => s.id !== detail.deletedSbId);
+                            }
+                            return { ...b, supplierBookings: sbs };
+                        }
+                        return b;
+                    });
+                });
+            }
+            queryClient.invalidateQueries({ queryKey: ['bookings'] });
+        };
+        window.addEventListener('supplier-bookings-changed', handler);
+        return () => window.removeEventListener('supplier-bookings-changed', handler);
     }, [queryClient]);
 
     // Listen for any booking CRUD from DataContext (add/update/delete) and invalidate cache

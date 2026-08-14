@@ -561,84 +561,25 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
         doc.line(15, 39, 45, 39);
     }
 
-    // ── FIX #9: Invoice type label (TAX INVOICE / PROFORMA INVOICE / QUOTATION / RETAIL INVOICE) ──
+    // ── Invoice type label (TAX INVOICE / PROFORMA INVOICE / QUOTATION / RETAIL INVOICE) ──
     const invoiceTypeLabel = isProforma
         ? 'PROFORMA INVOICE'
         : isQuote
             ? 'QUOTATION'
             : (docData.is_gst === 0 ? 'RETAIL INVOICE' : 'TAX INVOICE');
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(10);
+    doc.setFontSize(13);
     doc.setTextColor(9, 28, 59);
-    doc.text(invoiceTypeLabel, 105, 10, { align: 'center' });
-
-    // ── Status Badge ──
-    const paymentStatus = docData.payment_status || 'Unpaid';
-    let badgeBg = [243, 244, 246];
-    let badgeText = [107, 114, 128];
-    let badgeBorder = [209, 213, 219];
-    let badgeLabel = paymentStatus.toUpperCase();
-    let hasIcon = false;
-
-    if (paymentStatus === 'Paid') {
-        badgeBg = [240, 253, 244]; badgeText = [22, 163, 74]; badgeBorder = [187, 247, 208];
-        badgeLabel = "INVOICE PAID"; hasIcon = true;
-    } else if (paymentStatus === 'Partially Paid') {
-        badgeBg = [255, 247, 237]; badgeText = [234, 88, 12]; badgeBorder = [254, 215, 170];
-        badgeLabel = "PARTIALLY PAID";
-    } else if (paymentStatus === 'Unpaid') {
-        badgeBg = [254, 242, 242]; badgeText = [220, 38, 38]; badgeBorder = [254, 202, 202];
-        badgeLabel = "INVOICE UNPAID"; hasIcon = true;
-    } else if (docData.status === 'Draft') {
-        badgeBg = [243, 244, 246]; badgeText = [107, 114, 128]; badgeBorder = [229, 231, 235];
-        badgeLabel = "DRAFT";
-    }
-
-    const badgeW = 50, badgeX = 105 - badgeW / 2;
-    doc.setFillColor(badgeBg[0], badgeBg[1], badgeBg[2]);
-    doc.setDrawColor(badgeBorder[0], badgeBorder[1], badgeBorder[2]);
-    doc.setLineWidth(0.3);
-    doc.roundedRect(badgeX, 14, badgeW, 8, 4, 4, 'FD');
-
-    // ── FIX #13: Icon placement using measured offset, works for all badge types ──
-    const iconX = badgeX + 6;
-    if (paymentStatus === 'Paid') {
-        doc.setFillColor(22, 163, 74);
-        doc.circle(iconX, 18, 2.2, 'F');
-        doc.setDrawColor(255, 255, 255);
-        doc.setLineWidth(0.5);
-        doc.line(iconX - 1.2, 18, iconX - 0.2, 19.2);
-        doc.line(iconX - 0.2, 19.2, iconX + 1.2, 16.8);
-    } else if (paymentStatus === 'Unpaid') {
-        doc.setFillColor(220, 38, 38);
-        doc.circle(iconX, 18, 2.2, 'F');
-        doc.setDrawColor(255, 255, 255);
-        doc.setLineWidth(0.5);
-        doc.line(iconX - 1, 17, iconX + 1, 19);
-        doc.line(iconX + 1, 17, iconX - 1, 19);
-    }
-
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(7.5);
-    doc.setTextColor(badgeText[0], badgeText[1], badgeText[2]);
-    // ── FIX #13: center label within badge accounting for icon space ──
-    const labelAreaX = hasIcon ? iconX + 4 : badgeX;
-    const labelAreaW = hasIcon ? (badgeX + badgeW) - (iconX + 4) : badgeW;
-    doc.text(badgeLabel, labelAreaX + labelAreaW / 2, 18.5, { align: 'center' });
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8);
-    doc.setTextColor(100, 116, 139);
-    doc.text(`${prefix}-${docId}`, 105, 26.5, { align: 'center' });
+    doc.text(invoiceTypeLabel, 105, 23, { align: 'center' });
 
     // ── Meta card ──
-    const metaCardH = hasDueDate ? 34 : 26; // tighter, more elegant height
+    const metaCardH = hasDueDate ? 31 : 24;
     doc.setFillColor(252, 252, 252);
     doc.setDrawColor(226, 232, 240);
     doc.setLineWidth(0.3);
-    doc.roundedRect(148, 12, 47, metaCardH, 1.5, 1.5, 'FD');
+    doc.roundedRect(148, 11, 47, metaCardH, 1.5, 1.5, 'FD');
 
-    let metaY = 17.5;
+    let metaY = 16.5;
     
     // Row 1: INVOICE NO
     doc.setFont("helvetica", "normal");
@@ -650,7 +591,7 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
     doc.setTextColor(9, 28, 59);
     const invNoStr = `${prefix}-${docId}`;
     doc.text(invNoStr.length > 13 ? invNoStr.slice(0, 13) + '…' : invNoStr, 191, metaY, { align: 'right' });
-    metaY += 7.5;
+    metaY += 6.5;
 
     // Row 2: INVOICE DATE
     doc.setFont("helvetica", "normal");
@@ -661,7 +602,7 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
     doc.setFontSize(7.5);
     doc.setTextColor(9, 28, 59);
     doc.text(new Date(docData.issue_date || new Date()).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }), 191, metaY, { align: 'right' });
-    metaY += 7.5;
+    metaY += 6.5;
 
     if (hasDueDate) {
         // Row 3: DUE DATE
@@ -673,7 +614,7 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
         doc.setFontSize(7.5);
         doc.setTextColor(220, 38, 38);
         doc.text(new Date(docData.due_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }), 191, metaY, { align: 'right' });
-        metaY += 7.5;
+        metaY += 6.5;
     }
 
     // Row 4 (or 3): PAGE
@@ -689,9 +630,9 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
     // ═══════════════════════════════════════════════════════════
     // BILLED BY & BILLED TO CARDS
     // ═══════════════════════════════════════════════════════════
-    const cardY = hasDueDate ? 58 : 46;
+    const cardY = 44;
     const cardWidth = (pageWidth - 30 - 8) / 2; // ~86mm
-    const cardHeight = 54; // taller to accommodate GSTIN
+    const cardHeight = 46;
 
     // ── BILLED BY ──
     doc.setFillColor(252, 252, 252);
@@ -702,11 +643,11 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
     doc.setFont("helvetica", "bold");
     doc.setFontSize(7);
     doc.setTextColor(242, 98, 34); // Accent Orange
-    doc.text("BILLED BY", 22, cardY + 6.5);
+    doc.text("BILLED BY", 22, cardY + 6);
 
     // Subtle divider inside card
     doc.setDrawColor(241, 245, 249);
-    doc.line(15, cardY + 9.5, 15 + cardWidth, cardY + 9.5);
+    doc.line(15, cardY + 8.5, 15 + cardWidth, cardY + 8.5);
 
     // Company Name
     doc.setFontSize(8.5);
@@ -714,41 +655,39 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
     doc.setTextColor(9, 28, 59);
     const compNameRaw = company.companyName || "SHRAWELLO Travel Hub and Events LLP";
     const compNameLines = doc.splitTextToSize(compNameRaw, cardWidth - 14);
-    doc.text(compNameLines.slice(0, 2), 22, cardY + 15.5);
+    doc.text(compNameLines.slice(0, 2), 22, cardY + 14);
     const compNameShift = (Math.min(compNameLines.length, 2) - 1) * 3.5;
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(7.5);
     doc.setTextColor(71, 85, 105);
 
-    let addrY = cardY + 20 + compNameShift;
+    let addrY = cardY + 18 + compNameShift;
     if (company.registeredAddress) {
-        company.registeredAddress.split('\n').slice(0, 3).forEach((line: string) => {
+        company.registeredAddress.split('\n').slice(0, 2).forEach((line: string) => {
             doc.text(line.trim(), 22, addrY);
-            addrY += 3.8;
+            addrY += 3.5;
         });
     } else {
-        doc.text("Pimpri Chinchwad, Pune,", 22, addrY); addrY += 3.8;
-        doc.text("Maharashtra, India - 411062", 22, addrY); addrY += 3.8;
+        doc.text("Pimpri Chinchwad, Pune,", 22, addrY); addrY += 3.5;
+        doc.text("Maharashtra, India - 411062", 22, addrY); addrY += 3.5;
     }
 
     // GSTIN & PAN Display
     const compGst = company.gstNumber || '27AFXFS7018E1ZH';
     const compPan = 'AFXFS7018E';
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(7);
+    doc.setFontSize(6.8);
     doc.setTextColor(100, 116, 139);
-    doc.text(`GSTIN: ${compGst}`, 22, addrY);
+    doc.text(`GSTIN: ${compGst}   PAN: ${compPan}`, 22, addrY);
     addrY += 3.8;
-    doc.text(`PAN: ${compPan}`, 22, addrY);
-    addrY += 4.2;
 
     // Email & Phone
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(7.5);
+    doc.setFontSize(7.2);
     doc.setTextColor(71, 85, 105);
     doc.text(`Email: ${company.email || "hello@shrawello.com"}`, 22, addrY);
-    addrY += 4;
+    addrY += 3.5;
     doc.text(`Phone: ${company.phone || "+91 80109 55675"}`, 22, addrY);
 
     // ── BILLED TO ──
@@ -760,11 +699,11 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
     doc.setFont("helvetica", "bold");
     doc.setFontSize(7);
     doc.setTextColor(242, 98, 34); // Accent Orange
-    doc.text("BILLED TO", 116, cardY + 6.5);
+    doc.text("BILLED TO", 116, cardY + 6);
 
     // Subtle divider inside card
     doc.setDrawColor(241, 245, 249);
-    doc.line(109, cardY + 9.5, 109 + cardWidth, cardY + 9.5);
+    doc.line(109, cardY + 8.5, 109 + cardWidth, cardY + 8.5);
 
     // Client Name
     doc.setFontSize(8.5);
@@ -772,35 +711,35 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
     doc.setTextColor(9, 28, 59);
     const clientNameRaw = cleanText(docData.client_name || 'Valued Customer');
     const clientNameLines = doc.splitTextToSize(clientNameRaw, cardWidth - 14);
-    doc.text(clientNameLines.slice(0, 2), 116, cardY + 15.5);
+    doc.text(clientNameLines.slice(0, 2), 116, cardY + 14);
     const clientNameShift = (Math.min(clientNameLines.length, 2) - 1) * 3.5;
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(7.5);
     doc.setTextColor(71, 85, 105);
 
-    let clientY = cardY + 20 + clientNameShift;
+    let clientY = cardY + 18 + clientNameShift;
     if (docData.address) {
         const addrLines = doc.splitTextToSize(cleanText(docData.address), cardWidth - 14);
         addrLines.slice(0, 2).forEach((line: string) => {
             doc.text(line.trim(), 116, clientY);
-            clientY += 3.8;
+            clientY += 3.5;
         });
     } else {
         doc.text("Address not specified", 116, clientY);
-        clientY += 3.8;
+        clientY += 3.5;
     }
 
     // Email & Phone
     const clientEmail = cleanText(docData.email || "client@email.com");
     doc.text(`Email: ${clientEmail.length > 28 ? clientEmail.substring(0, 28) + '...' : clientEmail}`, 116, clientY);
-    clientY += 4;
+    clientY += 3.5;
     doc.text(`Phone: ${cleanText(docData.phone || "+91 00000 00000")}`, 116, clientY);
 
     if (docData.is_gst === 1 && docData.client_gst) {
-        clientY += 4;
+        clientY += 3.5;
         doc.setFont("helvetica", "bold");
-        doc.setFontSize(7);
+        doc.setFontSize(6.8);
         doc.setTextColor(100, 116, 139);
         doc.text(`GSTIN: ${cleanText(docData.client_gst.toUpperCase())}`, 116, clientY);
         doc.setFont("helvetica", "normal");
@@ -811,9 +750,9 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
     // Travel Dates & Pax (pinned to bottom of card)
     if (docData.travel_date_from || docData.travel_dates || docData.adults) {
         doc.setFont("helvetica", "bold");
-        doc.setFontSize(7);
+        doc.setFontSize(6.8);
         doc.setTextColor(9, 28, 59);
-        const travelY = cardY + cardHeight - 11;
+        const travelY = cardY + cardHeight - 8;
 
         // Build travel date label: prefer date range over single legacy date
         let travelLabel = '';
@@ -833,7 +772,7 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
         }
 
         if (travelLabel) doc.text(`Travel Dates: ${travelLabel}`, 116, travelY);
-        doc.text(`Pax: ${docData.adults || 0} Adults, ${docData.children || 0} Children`, 116, travelY + 4);
+        doc.text(`Pax: ${docData.adults || 0} Adults, ${docData.children || 0} Children`, 116, travelY + 3.5);
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -954,7 +893,7 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
             `Rs. ${Math.round(subtotalAmount).toLocaleString('en-IN')}`]);
     }
 
-    const tableStartY = cardY + cardHeight + 5;
+    const tableStartY = cardY + cardHeight + 4;
 
     autoTable(doc, {
         startY: tableStartY,
@@ -966,8 +905,8 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
             lineColor: [200, 200, 200],
             lineWidth: 0.2
         },
-        headStyles: { fillColor: [255, 255, 255], textColor: [9, 28, 59], fontStyle: 'bold', fontSize: 8, halign: 'center', valign: 'middle', cellPadding: 3.5, lineWidth: 0.2, lineColor: [200, 200, 200] },
-        bodyStyles: { fontSize: 7.5, valign: 'middle', halign: 'center', cellPadding: 3.5, textColor: [30, 41, 59] },
+        headStyles: { fillColor: [255, 255, 255], textColor: [9, 28, 59], fontStyle: 'bold', fontSize: 7.5, halign: 'center', valign: 'middle', cellPadding: 3, lineWidth: 0.2, lineColor: [200, 200, 200] },
+        bodyStyles: { fontSize: 7.5, valign: 'middle', halign: 'center', cellPadding: 3, textColor: [30, 41, 59] },
         columnStyles: tableColStyles,
         didParseCell: (data) => {
             if (data.row.index === bodyData.length - 1) {
@@ -977,7 +916,7 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
                 if (data.column.index === 1) data.cell.styles.halign = 'left';
             }
         },
-        // ── FIX #18 & #19: compact header + stripe on every continuation page ──
+        // ── Compact header + stripe on every continuation page ──
         didDrawPage: (data) => {
             if (data.pageNumber > 1) drawCompactHeader();
             drawBottomStripe();
@@ -985,123 +924,26 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
     });
 
     // @ts-ignore
-    let yPos = doc.lastAutoTable.finalY + 8;
-
-    // ── FIX #20: tighter overflow threshold (need ~65mm for bottom section) ──
-    if (yPos > 170) {
-        doc.addPage();
-        drawCompactHeader();
-        yPos = 22;
-    }
+    let yPos = doc.lastAutoTable.finalY + 5;
 
     // ═══════════════════════════════════════════════════════════
-    // TOTAL (IN WORDS) — FIX #1: dynamic height
+    // TOTAL (IN WORDS) — Dynamic height calculation
     // ═══════════════════════════════════════════════════════════
     const words = numberToWords(finalTotal).toUpperCase();
     const wrappedWords = doc.splitTextToSize(words, 78);
-    const wordsBoxH = Math.max(13, 8 + wrappedWords.length * 4.5);
-
-    doc.setFillColor(255, 255, 255);
-    doc.setDrawColor(226, 232, 240);
-    doc.setLineWidth(0.3);
-    doc.roundedRect(15, yPos, 95, wordsBoxH, 1.5, 1.5, 'FD');
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(6);
-    doc.setTextColor(100, 116, 139);
-    doc.text("TOTAL (IN WORDS)", 27, yPos + 4.5);
-
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(7.5);
-    doc.setTextColor(9, 28, 59);
-    doc.text(wrappedWords, 27, yPos + 8.5);
+    const wordsBoxH = Math.max(12, 7 + wrappedWords.length * 4.0);
 
     // ═══════════════════════════════════════════════════════════
-    // QR CODE + BANK DETAILS — FIX #2: dynamic card height
+    // QR CODE + BANK DETAILS — Dynamic card height
     // ═══════════════════════════════════════════════════════════
-    const leftRowY = yPos + wordsBoxH + 4;
     const accountName = finance?.bankAccountName || 'SHRAWELLO TRAVELHUB AND EVENTS LLP';
-    doc.setFontSize(accountName.length > 25 ? 5.8 : 6.5);
     const wrappedAccountName = doc.splitTextToSize(accountName, 30);
     const nameLines = wrappedAccountName.length;
     const nameShift = (nameLines - 1) * 3.5;
-    const bankCardH = Math.max(42, 34 + nameShift);
-
-    // QR Code Card — FIX #12: real dynamic UPI QR Code loader
-    doc.setFillColor(255, 255, 255);
-    doc.setDrawColor(226, 232, 240);
-    doc.setLineWidth(0.3);
-    doc.roundedRect(15, leftRowY, 35, bankCardH, 2, 2, 'FD');
-
-    if (qrImageObj) {
-        doc.addImage(qrImageObj, "PNG", 20.5, leftRowY + 2, 24, 24);
-    } else {
-        doc.setDrawColor(226, 232, 240);
-        doc.setLineWidth(0.4);
-        doc.roundedRect(20.5, leftRowY + 2, 24, 24, 1.5, 1.5, 'S');
-        doc.setFontSize(5.5);
-        doc.setTextColor(148, 163, 184);
-        doc.text("SCAN TO PAY", 32.5, leftRowY + 14, { align: 'center' });
-    }
-
-    doc.setFontSize(6);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(242, 98, 34);
-    doc.text("SCAN TO PAY", 32.5, leftRowY + bankCardH - 9, { align: 'center' });
-    
-    doc.setFontSize(5);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(148, 163, 184);
-    doc.text("via UPI", 32.5, leftRowY + bankCardH - 5.5, { align: 'center' });
-    
-    const upiStr = finance?.upiId || 'shrawello@kotak';
-    doc.text(upiStr.length > 16 ? upiStr.slice(0, 16) + '…' : upiStr, 32.5, leftRowY + bankCardH - 2, { align: 'center' });
-
-    // Bank Details Card — FIX #2: height matches nameShift
-    doc.setFillColor(255, 255, 255);
-    doc.setDrawColor(226, 232, 240);
-    doc.setLineWidth(0.3);
-    doc.roundedRect(54, leftRowY, 56, bankCardH, 2, 2, 'FD');
-
-    doc.setFontSize(8);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(242, 98, 34);
-    doc.text("BANK DETAILS", 58, leftRowY + 6);
-
-    doc.setDrawColor(241, 245, 249);
-    doc.setLineWidth(0.3);
-    doc.line(54, leftRowY + 8.5, 110, leftRowY + 8.5);
-
-    const bRows: [string, string | string[]][] = [
-        ["Account Name", wrappedAccountName],
-        ["Account No.", finance?.bankAccountNumber || '4054789256'],
-        ["IFSC Code",   finance?.bankIfsc || 'KKBK0002119'],
-        ["Account Type","Current"],
-        ["Bank",        finance?.bankName || 'KOTAK MAHINDRA BANK'],
-    ];
-
-    let bry = leftRowY + 12;
-    bRows.forEach(([label, val]) => {
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(6.5);
-        doc.setTextColor(100, 116, 139);
-        doc.text(label, 58, bry);
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(6.5);
-        doc.setTextColor(9, 28, 59);
-        if (Array.isArray(val)) {
-            doc.setFontSize(val.join(' ').length > 25 ? 5.8 : 6.5);
-            doc.text(val, 79, bry);
-            bry += val.length * 3.8;
-        } else {
-            doc.setFontSize(String(val).length > 25 ? 5.8 : 6.5);
-            doc.text(String(val), 79, bry);
-            bry += 4.2;
-        }
-    });
+    const bankCardH = Math.max(38, 32 + nameShift);
 
     // ═══════════════════════════════════════════════════════════
-    // TOTALS PANEL — FIX #3 & #10: dynamic height + subtotal row
+    // TOTALS PANEL — Dynamic row count and height calculation
     // ═══════════════════════════════════════════════════════════
     const taxTotal = Number(docData.tax_total) || 0;
     const discountAmt = Number(docData.discount) || 0;
@@ -1121,8 +963,6 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
 
     // Custom fields totals for balance calculation
     const cfList = customFields || [];
-    const cfCharges = cfList.filter(cf => !cf.is_deduction).reduce((s, cf) => s + Number(cf.amount || 0), 0);
-    const cfDeductions = cfList.filter(cf => cf.is_deduction).reduce((s, cf) => s + Number(cf.amount || 0), 0);
     const balanceDue = finalTotal - (amountPaid + advanceReceived);
 
     // Count rows dynamically (fixed + custom + conditional)
@@ -1132,16 +972,144 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
     }
     if (discountAmt > 0) rowCount++;
     rowCount += cfList.length; // custom extra fields
-    const totalsCardH = rowCount * 4.5 + 35; // fixed bottom: divider+TOTAL+PAID+DUE ≈ 35mm
+    const totalsCardH = rowCount * 4.2 + 30; // compact & clean
 
+    const bottomSectionH = Math.max(wordsBoxH + 3.5 + bankCardH, totalsCardH);
+
+    // ═══════════════════════════════════════════════════════════
+    // TERMS & CONDITIONS — Height Calculation
+    // ═══════════════════════════════════════════════════════════
+    const defaultTerms = [
+        "Please pay within 3 days from the date of invoice, overdue interest @ 14% will be charged on delayed payments.",
+        "Additional 5% charges applicable for Credit card payments.",
+        "Additional 1200/- Night charges applicable if trip ends after 11:45PM.",
+        "For Outstation trips more than 1 day, driver stay allowance is applicable as per category of city."
+    ];
+
+    let termsToDraw = defaultTerms;
+    if (docData.notes) {
+        const splitNotes = docData.notes.split('\n')
+            .map((n: string) => n.replace(/^\d+[\.\s]*/, '').trim())
+            .filter(Boolean);
+        if (splitNotes.length > 0) termsToDraw = splitNotes.slice(0, 4);
+    }
+
+    let tempY = 0;
+    termsToDraw.forEach((term) => {
+        const wrappedTerm = doc.splitTextToSize(term, pageWidth - 30 - 15);
+        tempY += Math.max(4.8, wrappedTerm.length * 3.8);
+    });
+    const termsBoxH = tempY + 11;
+    const footerH = 15;
+
+    // ── Smart Pagination: If Summary Block doesn't fit on current page, move to next page ──
+    if (yPos + bottomSectionH > 265) {
+        doc.addPage();
+        drawCompactHeader();
+        yPos = 20;
+    }
+
+    // ── 1. Draw TOTAL (IN WORDS) ──
+    doc.setFillColor(255, 255, 255);
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(15, yPos, 95, wordsBoxH, 1.5, 1.5, 'FD');
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(6);
+    doc.setTextColor(100, 116, 139);
+    doc.text("TOTAL (IN WORDS)", 22, yPos + 4.2);
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    doc.setTextColor(9, 28, 59);
+    doc.text(wrappedWords, 22, yPos + 8.2);
+
+    // ── 2. Draw QR CODE + BANK DETAILS ──
+    const leftRowY = yPos + wordsBoxH + 3.5;
+
+    // QR Code Card
+    doc.setFillColor(255, 255, 255);
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(15, leftRowY, 35, bankCardH, 2, 2, 'FD');
+
+    if (qrImageObj) {
+        doc.addImage(qrImageObj, "PNG", 20.5, leftRowY + 2, 24, 24);
+    } else {
+        doc.setDrawColor(226, 232, 240);
+        doc.setLineWidth(0.4);
+        doc.roundedRect(20.5, leftRowY + 2, 24, 24, 1.5, 1.5, 'S');
+        doc.setFontSize(5.5);
+        doc.setTextColor(148, 163, 184);
+        doc.text("SCAN TO PAY", 32.5, leftRowY + 14, { align: 'center' });
+    }
+
+    doc.setFontSize(6);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(242, 98, 34);
+    doc.text("SCAN TO PAY", 32.5, leftRowY + bankCardH - 8, { align: 'center' });
+    
+    doc.setFontSize(5);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(148, 163, 184);
+    doc.text("via UPI", 32.5, leftRowY + bankCardH - 5, { align: 'center' });
+    
+    const upiStr = finance?.upiId || 'shrawello@kotak';
+    doc.text(upiStr.length > 16 ? upiStr.slice(0, 16) + '…' : upiStr, 32.5, leftRowY + bankCardH - 2, { align: 'center' });
+
+    // Bank Details Card
+    doc.setFillColor(255, 255, 255);
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(54, leftRowY, 56, bankCardH, 2, 2, 'FD');
+
+    doc.setFontSize(7.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(242, 98, 34);
+    doc.text("BANK DETAILS", 58, leftRowY + 5.5);
+
+    doc.setDrawColor(241, 245, 249);
+    doc.setLineWidth(0.3);
+    doc.line(54, leftRowY + 7.5, 110, leftRowY + 7.5);
+
+    const bRows: [string, string | string[]][] = [
+        ["Account Name", wrappedAccountName],
+        ["Account No.", finance?.bankAccountNumber || '4054789256'],
+        ["IFSC Code",   finance?.bankIfsc || 'KKBK0002119'],
+        ["Account Type","Current"],
+        ["Bank",        finance?.bankName || 'KOTAK MAHINDRA BANK'],
+    ];
+
+    let bry = leftRowY + 11;
+    bRows.forEach(([label, val]) => {
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(6.2);
+        doc.setTextColor(100, 116, 139);
+        doc.text(label, 58, bry);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(6.2);
+        doc.setTextColor(9, 28, 59);
+        if (Array.isArray(val)) {
+            doc.setFontSize(val.join(' ').length > 25 ? 5.5 : 6.2);
+            doc.text(val, 78, bry);
+            bry += val.length * 3.5;
+        } else {
+            doc.setFontSize(String(val).length > 25 ? 5.5 : 6.2);
+            doc.text(String(val), 78, bry);
+            bry += 3.8;
+        }
+    });
+
+    // ── 3. Draw TOTALS PANEL ──
     doc.setFillColor(255, 255, 255);
     doc.setDrawColor(226, 232, 240);
     doc.setLineWidth(0.3);
     doc.roundedRect(114, yPos, 81, totalsCardH, 2, 2, 'FD');
 
-    let ry = yPos + 5.5;
+    let ry = yPos + 5.0;
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(7.5);
+    doc.setFontSize(7);
     doc.setTextColor(71, 85, 105);
 
     const drawTotRow = (label: string, val: number, isNeg = false, bold = false, col?: [number,number,number]) => {
@@ -1151,10 +1119,9 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
         doc.setTextColor(30, 41, 59);
         if (bold) doc.setFont("helvetica", "bold");
         doc.text(`${isNeg ? '-' : ''}Rs. ${Math.round(val).toLocaleString('en-IN')}`, 114 + 81 - 4, ry, { align: 'right' });
-        ry += 4.5;
+        ry += 4.2;
     };
 
-    // ── FIX #10: Subtotal row ──
     drawTotRow("Subtotal", subtotalAmount, false, true);
     doc.setDrawColor(241, 245, 249);
     doc.setLineWidth(0.2);
@@ -1179,7 +1146,7 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
     }
     if (discountAmt > 0) drawTotRow(lDiscount, discountAmt, true, false, [220, 38, 38]);
 
-    // ── Custom extra charge/deduction fields ──
+    // Custom extra charge/deduction fields
     cfList.forEach(cf => {
         const cfAmt = Number(cf.amount || 0);
         drawTotRow(
@@ -1194,113 +1161,84 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
     // Divider
     doc.setDrawColor(226, 232, 240);
     doc.setLineWidth(0.5);
-    doc.line(114, ry + 1, 195, ry + 1);
-    ry += 5;
+    doc.line(114, ry + 0.5, 195, ry + 0.5);
+    ry += 4.5;
 
     // TOTAL (INR)
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(9);
+    doc.setFontSize(8.5);
     doc.setTextColor(9, 28, 59);
     doc.text("TOTAL (INR)", 118, ry);
-    doc.setFontSize(12);
+    doc.setFontSize(11);
     doc.setTextColor(9, 28, 59);
     doc.text(`Rs. ${Math.round(finalTotal).toLocaleString('en-IN')}`, 191, ry + 0.5, { align: 'right' });
-    ry += 7;
+    ry += 6.5;
 
     // Amount Paid
     doc.setFillColor(240, 253, 244);
-    doc.roundedRect(117, ry - 0.5, 74, 6, 1.5, 1.5, 'F');
+    doc.roundedRect(117, ry - 0.5, 74, 5.5, 1.5, 1.5, 'F');
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(7.5);
+    doc.setFontSize(7);
     doc.setTextColor(22, 163, 74);
-    doc.text("AMOUNT PAID", 121, ry + 3.5);
+    doc.text("AMOUNT PAID", 121, ry + 3.2);
     doc.setTextColor(9, 28, 59);
-    doc.text(`Rs. ${Math.round(amountPaid).toLocaleString('en-IN')}`, 191, ry + 3.5, { align: 'right' });
-    ry += 11;
+    doc.text(`Rs. ${Math.round(amountPaid).toLocaleString('en-IN')}`, 191, ry + 3.2, { align: 'right' });
+    ry += 9.5;
 
     // Balance Due
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(9);
+    doc.setFontSize(8.5);
     const balColor: [number,number,number] = balanceDue <= 0 ? [22, 163, 74] : [220, 38, 38];
     doc.setTextColor(balColor[0], balColor[1], balColor[2]);
     doc.text("BALANCE DUE", 118, ry);
     doc.setTextColor(9, 28, 59);
     doc.text(`Rs. ${Math.round(Math.max(0, balanceDue)).toLocaleString('en-IN')}`, 191, ry, { align: 'right' });
 
-    // ═══════════════════════════════════════════════════════════
-    // TERMS & CONDITIONS
-    // ═══════════════════════════════════════════════════════════
-    const bottomSectionH = Math.max(wordsBoxH + 4 + bankCardH, totalsCardH);
-    let termsY = yPos + bottomSectionH + 6;
-
-    // ── FIX #20: stricter overflow check ──
-    if (termsY > 228) {
+    // ── Check if Terms & Conditions + Footer fits on current page ──
+    let termsY = yPos + bottomSectionH + 4;
+    if (termsY + termsBoxH + footerH > 284) {
         doc.addPage();
         drawCompactHeader();
-        termsY = 22;
+        termsY = 20;
     }
 
-    const defaultTerms = [
-        "Please pay within 3 days from the date of invoice, overdue interest @ 14% will be charged on delayed payments.",
-        "Additional 5% charges applicable for Credit card payments.",
-        "Additional 1200/- Night charges applicable if trip ends after 11:45PM.",
-        "For Outstation trips more than 1 day, driver stay allowance is applicable as per category of city."
-    ];
-
-    let termsToDraw = defaultTerms;
-    if (docData.notes) {
-        const splitNotes = docData.notes.split('\n')
-            .map((n: string) => n.replace(/^\d+[\.\s]*/, '').trim())
-            .filter(Boolean);
-        if (splitNotes.length > 0) termsToDraw = splitNotes.slice(0, 4);
-    }
-
-    // Calculate dynamic terms box height
-    let tempY = termsY + 11;
-    termsToDraw.forEach((term) => {
-        const wrappedTerm = doc.splitTextToSize(term, pageWidth - 30 - 15);
-        tempY += Math.max(5.5, wrappedTerm.length * 4.0);
-    });
-    const termsBoxH = tempY - termsY + 2;
-
+    // ── 4. Draw TERMS & CONDITIONS ──
     doc.setFillColor(250, 250, 250);
     doc.setDrawColor(241, 245, 249);
     doc.roundedRect(15, termsY, pageWidth - 30, termsBoxH, 2, 2, 'FD');
 
-    doc.setFontSize(8.5);
+    doc.setFontSize(8);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(242, 98, 34);
-    doc.text("TERMS & CONDITIONS", 20, termsY + 6);
+    doc.text("TERMS & CONDITIONS", 20, termsY + 5.5);
 
-    let currentTermY = termsY + 11;
+    let currentTermY = termsY + 9.5;
     termsToDraw.forEach((term, index) => {
         const wrappedTerm = doc.splitTextToSize(term, pageWidth - 30 - 15);
         const termLines = wrappedTerm.length;
 
         // Circular orange badge
         doc.setFillColor(242, 98, 34);
-        doc.circle(23, currentTermY + 1.2, 2.0, 'F');
+        doc.circle(23, currentTermY + 1.0, 1.8, 'F');
 
         doc.setFont("helvetica", "bold");
-        doc.setFontSize(6.5);
+        doc.setFontSize(6);
         doc.setTextColor(255, 255, 255);
-        doc.text(String(index + 1).padStart(2, '0'), 23, currentTermY + 2.0, { align: 'center' });
+        doc.text(String(index + 1).padStart(2, '0'), 23, currentTermY + 1.8, { align: 'center' });
 
-        // Term body text (size 7.8 for highly premium readability)
+        // Term body text
         doc.setFont("helvetica", "normal");
-        doc.setFontSize(7.8);
+        doc.setFontSize(7.2);
         doc.setTextColor(71, 85, 105);
-        doc.text(wrappedTerm, 28, currentTermY + 2.0);
+        doc.text(wrappedTerm, 28, currentTermY + 1.8);
 
-        currentTermY += Math.max(5.5, termLines * 4.0);
+        currentTermY += Math.max(4.8, termLines * 3.8);
     });
 
-    // ═══════════════════════════════════════════════════════════
-    // FOOTER
-    // ═══════════════════════════════════════════════════════════
-    const footerY = termsY + termsBoxH + 6;
+    // ── 5. Draw FOOTER ──
+    const footerY = termsY + termsBoxH + 4;
 
-    if (footerY + 10 <= pageHeight - 8) {
+    if (footerY + 10 <= pageHeight - 6) {
         // Headphone icon
         doc.setDrawColor(242, 98, 34);
         doc.setLineWidth(0.45);
@@ -1313,29 +1251,28 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
         doc.setDrawColor(242, 98, 34);
         doc.line(16, footerY + 3.8, 17.5, footerY + 4.8);
 
-        // ── FIX #15: Contact text wrapped to prevent overflow ──
         doc.setFont("helvetica", "normal");
-        doc.setFontSize(7.5);
+        doc.setFontSize(7.2);
         doc.setTextColor(71, 85, 105);
         const contactStr = `For enquiries, email ${company.email || 'shrawello@gmail.com'}`;
         const wrappedContact = doc.splitTextToSize(contactStr, 90);
         doc.text(wrappedContact[0], 24, footerY + 1.5);
-        doc.text(`or call on ${company.phone || '+91 80109 55675'}`, 24, footerY + 5.2);
+        doc.text(`or call on ${company.phone || '+91 80109 55675'}`, 24, footerY + 5.0);
 
         // Thank you — right side
         doc.setFont("helvetica", "italic");
-        doc.setFontSize(11);
+        doc.setFontSize(10.5);
         doc.setTextColor(9, 28, 59);
         doc.text("Thank you", pageWidth - 15, footerY + 1, { align: 'right' });
         doc.setFont("helvetica", "normal");
-        doc.setFontSize(8);
+        doc.setFontSize(7.5);
         doc.setTextColor(100, 116, 139);
-        doc.text("for choosing Shrawello Travel Hub and Events LLP!", pageWidth - 15, footerY + 5.5, { align: 'right' });
+        doc.text("for choosing Shrawello Travel Hub and Events LLP!", pageWidth - 15, footerY + 5.2, { align: 'right' });
 
-        // Paper Airplane (non-overlapping)
+        // Paper Airplane
         doc.setDrawColor(242, 98, 34);
         doc.setLineWidth(0.5);
-        const ax = pageWidth - 80, ay = footerY + 4;
+        const ax = pageWidth - 80, ay = footerY + 3.8;
         doc.line(ax, ay, ax + 8, ay - 2);
         doc.line(ax + 8, ay - 2, ax + 4, ay + 4);
         doc.line(ax + 4, ay + 4, ax, ay);
@@ -1364,7 +1301,7 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
 
         // Update PAGE cell in meta card (page 1 only)
         if (i === 1) {
-            const pageNumY = hasDueDate ? 40 : 32.5;
+            const pageNumY = hasDueDate ? 36.0 : 29.5;
             doc.setFillColor(252, 252, 252);
             doc.setDrawColor(252, 252, 252);
             doc.rect(175, pageNumY - 3.5, 18, 5, 'F');

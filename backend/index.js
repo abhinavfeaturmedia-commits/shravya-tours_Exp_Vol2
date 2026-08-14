@@ -6533,6 +6533,30 @@ app.post('/api/crud/:table', authMiddleware, validateTable, writeGuard, permissi
             );
         }
 
+        // ── Booking Creation Idempotency & Duplicate Prevention Guard ──
+        if (table === 'bookings') {
+            if (body.lead_id) {
+                const [existingByLead] = await pool.query(
+                    "SELECT * FROM bookings WHERE lead_id = ? AND created_at >= NOW() - INTERVAL 15 SECOND ORDER BY created_at DESC LIMIT 1",
+                    [body.lead_id]
+                );
+                if (existingByLead.length > 0) {
+                    console.warn(`[Idempotency] Duplicate booking creation prevented for lead_id: ${body.lead_id}. Returning existing booking ${existingByLead[0].id}.`);
+                    return res.json({ data: existingByLead[0], isDuplicatePrevented: true });
+                }
+            } else if (body.customer_name && body.booking_date) {
+                const [existingByPayload] = await pool.query(
+                    "SELECT * FROM bookings WHERE customer_name = ? AND title = ? AND booking_date = ? AND total_price = ? AND created_at >= NOW() - INTERVAL 5 SECOND ORDER BY created_at DESC LIMIT 1",
+                    [body.customer_name, body.title || '', body.booking_date, Number(body.total_price || 0)]
+                );
+                if (existingByPayload.length > 0) {
+                    console.warn(`[Idempotency] Rapid duplicate booking creation prevented for ${body.customer_name}. Returning existing booking ${existingByPayload[0].id}.`);
+                    return res.json({ data: existingByPayload[0], isDuplicatePrevented: true });
+                }
+            }
+        }
+        // ───────────────────────────────────────────────────────────────
+
         const columns = Object.keys(body);
         const values = Object.values(body).map(v =>
             typeof v === 'object' && v !== null ? JSON.stringify(v) : v
@@ -6551,6 +6575,24 @@ app.post('/api/crud/:table', authMiddleware, validateTable, writeGuard, permissi
 
         // Server-side audit log
         auditLog('Create', table, `Created record ${fetchedId}`, req.user?.email);
+
+        // ── Atomic Lead Linkage & Status Update for Converted Bookings ──
+        if (table === 'bookings' && body.lead_id) {
+            try {
+                await pool.query(
+                    "UPDATE leads SET status = 'Converted', converted_booking_id = ? WHERE id = ?",
+                    [fetchedId, body.lead_id]
+                );
+                await pool.query(
+                    "INSERT INTO lead_logs (id, lead_id, type, content, timestamp) VALUES (?, ?, 'System', ?, NOW())",
+                    [`lg-conv-${Date.now()}`, body.lead_id, `Lead converted to Booking ${fetchedId}.`]
+                ).catch(() => {});
+                console.log(`[Lead Conversion] Atomically linked lead ${body.lead_id} -> booking ${fetchedId}`);
+            } catch (leadSyncErr) {
+                console.warn(`[Lead Conversion] Failed to sync lead ${body.lead_id}:`, leadSyncErr.message);
+            }
+        }
+        // ────────────────────────────────────────────────────────────────
 
         // Transactional Email Triggers on Creation
         if (table === 'leads' && body.assigned_to) {
@@ -8277,10 +8319,14 @@ app.get('/api/finance/booking-transactions', authMiddleware, async (req, res) =>
                 t.booking_id as bookingId, t.created_at,
                 b.customer_name as customer, b.customer_email as email, b.customer_phone as phone, b.package_id as packageId, b.title as bookingName,
                 'booking_payment' as source,
-                s.name as recordedByName
+                COALESCE(
+                    (SELECT name FROM staff_members WHERE id = t.recorded_by LIMIT 1),
+                    (SELECT name FROM staff_members WHERE name = t.recorded_by LIMIT 1),
+                    t.recorded_by,
+                    'System'
+                ) as recordedByName
             FROM booking_transactions t
             LEFT JOIN bookings b ON t.booking_id = b.id
-            LEFT JOIN staff_members s ON t.recorded_by = s.id OR t.recorded_by = s.name
         `);
 
         // Query 2: Operational expenses

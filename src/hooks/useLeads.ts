@@ -163,7 +163,7 @@ export const useLeads = () => {
         isLoading,
         error,
         addLead: (lead: Lead) => addLeadMutation.mutateAsync(lead),
-        updateLead: (id: string, updates: Partial<Lead>) => updateLeadMutation.mutate({ id, updates }),
+        updateLead: (id: string, updates: Partial<Lead>) => updateLeadMutation.mutateAsync({ id, updates }),
         deleteLead: (id: string) => deleteLeadMutation.mutate(id),
         addLeadLog: (id: string, log: any) => addLeadLogMutation.mutateAsync({ id, log }),
         updateLeadLog: (logId: string, content: string) => updateLeadLogMutation.mutate({ logId, content }),
