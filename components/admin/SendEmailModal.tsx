@@ -2,6 +2,18 @@ import React, { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import { api } from '../../src/lib/api';
 
+export interface SendEmailDetails {
+  clientName?: string;
+  tripTitle?: string;
+  destination?: string;
+  travelDates?: string;
+  documentNo?: string;
+  documentType?: string;
+  totalAmount?: number | string;
+  paymentStatus?: string;
+  notes?: string;
+}
+
 interface SendEmailModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -11,6 +23,7 @@ interface SendEmailModalProps {
   templateType?: 'custom' | 'agent_intro' | 'proposal' | 'invoice';
   refId?: string; // Lead ID, Proposal ID, or Booking ID
   title?: string;
+  details?: SendEmailDetails;
 }
 
 export const SendEmailModal: React.FC<SendEmailModalProps> = ({
@@ -21,7 +34,8 @@ export const SendEmailModal: React.FC<SendEmailModalProps> = ({
   defaultMessage = '',
   templateType = 'custom',
   refId = '',
-  title = 'Send Email'
+  title = 'Send Email',
+  details
 }) => {
   const [recipient, setRecipient] = useState(defaultEmail);
   const [subject, setSubject] = useState(defaultSubject);
@@ -208,13 +222,65 @@ export const SendEmailModal: React.FC<SendEmailModalProps> = ({
               </div>
             </>
           ) : (
-            <div className="p-4 bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900/40 rounded-xl text-xs text-indigo-800 dark:text-indigo-300 space-y-1">
-              <p className="font-bold flex items-center gap-1.5">
-                <span className="material-symbols-outlined text-[16px]">info</span>
-                System Template Selected
-              </p>
-              <p>
-                Sending will automatically populate the official branded email template using database record details for reference ID: <strong>{refId}</strong>.
+            <div className="p-4 bg-gradient-to-br from-indigo-50/80 to-blue-50/50 dark:from-indigo-950/40 dark:to-slate-900/50 border border-indigo-100 dark:border-indigo-800/40 rounded-2xl text-xs space-y-3 shadow-sm">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 font-bold text-indigo-950 dark:text-indigo-200 text-xs">
+                  <span className="material-symbols-outlined text-[18px] text-indigo-600 dark:text-indigo-400">verified</span>
+                  <span>Official System Branded Template</span>
+                </div>
+                {details?.documentNo ? (
+                  <span className="px-2 py-0.5 rounded-md bg-indigo-100 dark:bg-indigo-900/60 font-mono font-bold text-[11px] text-indigo-700 dark:text-indigo-300">
+                    {details.documentNo}
+                  </span>
+                ) : refId ? (
+                  <span className="px-2 py-0.5 rounded-md bg-indigo-100 dark:bg-indigo-900/60 font-mono font-bold text-[10px] text-indigo-700 dark:text-indigo-300">
+                    #{refId.substring(0, 8).toUpperCase()}
+                  </span>
+                ) : null}
+              </div>
+
+              {/* Trip & Document Details Grid */}
+              <div className="grid grid-cols-2 gap-2.5 pt-2.5 border-t border-indigo-100/80 dark:border-indigo-800/30 text-[11px]">
+                {details?.clientName && (
+                  <div>
+                    <span className="text-slate-400 dark:text-slate-500 block text-[10px] uppercase font-bold tracking-wider">Client Name</span>
+                    <span className="font-semibold text-slate-800 dark:text-slate-200">{details.clientName}</span>
+                  </div>
+                )}
+                {details?.totalAmount !== undefined && Number(details.totalAmount) > 0 && (
+                  <div>
+                    <span className="text-slate-400 dark:text-slate-500 block text-[10px] uppercase font-bold tracking-wider">Total Amount</span>
+                    <span className="font-bold text-emerald-600 dark:text-emerald-400">₹{Math.round(Number(details.totalAmount)).toLocaleString('en-IN')}</span>
+                  </div>
+                )}
+                {(details?.destination || details?.tripTitle) && (
+                  <div className="col-span-2">
+                    <span className="text-slate-400 dark:text-slate-500 block text-[10px] uppercase font-bold tracking-wider">Trip / Itinerary</span>
+                    <span className="font-semibold text-slate-800 dark:text-slate-200">{details.destination || details.tripTitle}</span>
+                  </div>
+                )}
+                {details?.travelDates && (
+                  <div>
+                    <span className="text-slate-400 dark:text-slate-500 block text-[10px] uppercase font-bold tracking-wider">Travel Dates</span>
+                    <span className="font-semibold text-slate-800 dark:text-slate-200">{details.travelDates}</span>
+                  </div>
+                )}
+                {details?.paymentStatus && (
+                  <div>
+                    <span className="text-slate-400 dark:text-slate-500 block text-[10px] uppercase font-bold tracking-wider">Payment Status</span>
+                    <span className={`inline-block px-2 py-0.5 rounded font-bold text-[10px] ${
+                      details.paymentStatus === 'Paid' 
+                        ? 'text-emerald-700 bg-emerald-100 dark:bg-emerald-950/50 dark:text-emerald-300' 
+                        : 'text-amber-700 bg-amber-100 dark:bg-amber-950/50 dark:text-amber-300'
+                    }`}>
+                      {details.paymentStatus}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <p className="text-[11px] text-indigo-700/80 dark:text-indigo-300/80 leading-relaxed pt-1">
+                The client will automatically receive a branded email containing this trip summary and complete booking breakdown.
               </p>
             </div>
           )}

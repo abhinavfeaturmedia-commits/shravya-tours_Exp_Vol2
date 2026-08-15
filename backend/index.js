@@ -910,16 +910,17 @@ app.post('/api/settings/upsert', authMiddleware, async (req, res) => {
 
 // ─── SMTP Email Test Endpoint ───
 app.post('/api/email/test', authMiddleware, async (req, res) => {
-    const { type, targetEmail, smtpSettings } = req.body;
+    const { type = 'general', targetEmail, smtpSettings } = req.body;
     if (!targetEmail || !smtpSettings) {
         return res.status(400).json({ error: 'targetEmail and smtpSettings are required' });
     }
     try {
-        const success = await sendTestEmail(smtpSettings, targetEmail);
-        if (success) {
-            res.json({ status: 'success' });
+        const result = await sendTestEmail(smtpSettings, targetEmail);
+        if (result && result.success) {
+            res.json({ status: 'success', messageId: result.messageId });
         } else {
-            res.status(500).json({ error: `Failed to send test email using ${type} SMTP settings. Please verify configuration parameters.` });
+            const errDetail = result?.error || 'Please verify host, port, username, and password.';
+            res.status(500).json({ error: `SMTP test failed (${type}): ${errDetail}` });
         }
     } catch (error) {
         console.error(`[Email Test] ${type} SMTP test error:`, error.message);
@@ -934,29 +935,27 @@ app.post('/api/email/send', authMiddleware, async (req, res) => {
         return res.status(400).json({ error: 'Recipient email address ("to") is required.' });
     }
     try {
-        let success = false;
+        let result = { success: false };
         if (templateType === 'agent_intro' && refId) {
-            await sendAgentIntroductionEmail(refId);
-            success = true;
+            result = await sendAgentIntroductionEmail(refId, to);
         } else if (templateType === 'proposal' && refId) {
-            await sendProposalEmail(refId);
-            success = true;
+            result = await sendProposalEmail(refId, to);
         } else if (templateType === 'invoice' && refId) {
-            await sendInvoiceEmail(refId);
-            success = true;
+            result = await sendInvoiceEmail(refId, to);
         } else {
             if (!subject || !message) {
                 return res.status(400).json({ error: 'Subject and message are required for custom emails.' });
             }
-            success = await sendCustomEmail({ type: smtpType, to, subject, message });
+            result = await sendCustomEmail({ type: smtpType, to, subject, message });
         }
 
-        if (success) {
+        if (result && result.success) {
             // Audit log
             auditLog('EmailSend', 'email', `Manual email sent to ${to} (${templateType || 'custom'})`, req.user?.email);
-            res.json({ status: 'success', message: `Email successfully sent to ${to}` });
+            res.json({ status: 'success', message: `Email successfully sent to ${to}`, messageId: result.messageId });
         } else {
-            res.status(500).json({ error: 'Failed to send email. Please verify active SMTP configuration in Settings.' });
+            const errMsg = result?.error || 'Failed to send email. Please verify active SMTP configuration in Settings.';
+            res.status(500).json({ error: errMsg });
         }
     } catch (error) {
         console.error('[Manual Email Send] Error:', error.message);
@@ -10195,8 +10194,9 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     try {
         const trimmedEmail = email.trim().toLowerCase();
         const [users] = await pool.query('SELECT email, role FROM users WHERE email = ?', [trimmedEmail]);
+        const [staff] = await pool.query('SELECT name, email FROM staff_members WHERE email = ?', [trimmedEmail]);
         // Always return success to prevent email enumeration
-        if (users.length === 0) return res.json({ message: 'If that email is registered, an OTP has been sent.' });
+        if (users.length === 0 && staff.length === 0) return res.json({ message: 'If that email is registered, an OTP has been sent.' });
         const otp = generateOTP();
         const otpHash = await bcrypt.hash(otp, 10);
         const id = crypto.randomBytes(16).toString('hex');
@@ -10205,7 +10205,8 @@ app.post('/api/auth/forgot-password', async (req, res) => {
             `INSERT INTO otp_tokens (id, email, portal, otp_hash, expires_at) VALUES (?, ?, 'admin', ?, DATE_ADD(NOW(), INTERVAL 10 MINUTE))`,
             [id, trimmedEmail, otpHash]
         );
-        await sendOTPEmail({ to: trimmedEmail, name: users[0].email, otp, portal: 'Admin', expiresInMinutes: 10 });
+        const displayName = staff.length > 0 ? staff[0].name : (users[0]?.email || 'Admin');
+        await sendOTPEmail({ to: trimmedEmail, name: displayName, otp, portal: 'Admin', expiresInMinutes: 10 });
         res.json({ message: 'If that email is registered, an OTP has been sent.' });
     } catch (err) {
         console.error('Admin forgot password error:', err);

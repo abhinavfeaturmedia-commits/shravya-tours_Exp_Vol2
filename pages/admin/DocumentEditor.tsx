@@ -9,6 +9,7 @@ import { generateTrueInvoicePDF } from '../../utils/pdfGenerator';
 import { parsePaxString } from '../../utils/paxUtils';
 import { formatTripDuration } from '../../utils/packageUtils';
 import { INDIAN_GST_STATES, isValidGstin, getStateFromGstin, getIndianFinancialYear } from '../../utils/gstUtils';
+import { SendEmailModal } from '../../components/admin/SendEmailModal';
 
 const ones = ['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen'];
 const tens = ['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
@@ -148,6 +149,10 @@ export const DocumentEditor: React.FC = () => {
     // T&C template selector state
     const [termsDropdownOpen, setTermsDropdownOpen] = useState(false);
 
+    // Direct automated in-app email modal state
+    const [showEmailModal, setShowEmailModal] = useState(false);
+    const [emailModalRefId, setEmailModalRefId] = useState<string>('');
+
     const handleToggleTemplate = (tmplContent: string, tmplTitle: string) => {
         const cleanContent = cleanHtmlToPlainText(tmplContent);
         const currentNotes = docData.notes || '';
@@ -248,8 +253,8 @@ export const DocumentEditor: React.FC = () => {
 
     useEffect(() => {
         setLoading(true);
-        if (isEdit) {
-            fetchDocument();
+        if (id && id !== 'new' && id !== 'undefined') {
+            fetchDocument(id);
         } else {
             if (paramOriginalId) prefillFromOriginalInvoice(paramOriginalId);
             else if (paramBookingId) prefillFromBooking(paramBookingId);
@@ -435,16 +440,40 @@ export const DocumentEditor: React.FC = () => {
         } catch (e) { console.error(e); } finally { setLoading(false); }
     };
 
-    const fetchDocument = async () => {
+    const fetchDocument = async (targetId?: string) => {
+        const docId = targetId || id;
+        if (!docId || docId === 'undefined' || docId === 'new' || docId === 'null') {
+            setLoading(false);
+            return;
+        }
         try {
             const token = (localStorage.getItem('shravya_jwt') || localStorage.getItem('token'));
-            const res = await fetch(`/api/crud/invoices/${id}`, { 
+            const res = await fetch(`/api/crud/invoices/${docId}`, { 
                 headers: { 'Authorization': `Bearer ${token}` },
                 cache: 'no-store'
             });
             if (res.ok) {
                 const { data } = await res.json();
-                setDocData(data);
+                if (!data) {
+                    toast.error('Document not found');
+                    navigate('/admin/invoices');
+                    return;
+                }
+                const normalizeDate = (d: any) => d ? (String(d).includes('T') ? String(d).split('T')[0] : String(d)) : '';
+
+                setDocData({
+                    ...data,
+                    issue_date: normalizeDate(data.issue_date),
+                    due_date: normalizeDate(data.due_date),
+                    travel_date_from: normalizeDate(data.travel_date_from),
+                    travel_date_to: normalizeDate(data.travel_date_to),
+                    driver_stay_allowance: Number(data.driver_stay_allowance || 0),
+                    extra_km_charges: Number(data.extra_km_charges || 0),
+                    extra_hrs_charges: Number(data.extra_hrs_charges || 0),
+                    advance_received: Number(data.advance_received || 0),
+                    amount_paid: Number(data.amount_paid || 0),
+                    is_gst: data.is_gst !== undefined && data.is_gst !== null ? Number(data.is_gst) : 1
+                });
 
                 // Fix #10 — Restore saved discount
                 if (data.discount !== undefined && data.discount !== null) {
@@ -457,19 +486,43 @@ export const DocumentEditor: React.FC = () => {
                 }
 
                 // Load invoice items
-                const itemsRes = await fetch(`/api/crud/invoice_items?eq_invoice_id=${id}`, { 
+                const itemsRes = await fetch(`/api/crud/invoice_items?eq_invoice_id=${docId}`, { 
                     headers: { 'Authorization': `Bearer ${token}` },
                     cache: 'no-store'
                 });
                 if (itemsRes.ok) {
                     const itemsData = await itemsRes.json();
                     if (itemsData.data && itemsData.data.length > 0) {
-                        setItems(itemsData.data);
+                        setItems(itemsData.data.map((it: any) => ({
+                            id: it.id,
+                            description: it.description || '',
+                            quantity: Number(it.quantity || 1),
+                            total_days_km: it.total_days_km || '1',
+                            unit_price: Number(it.unit_price !== undefined && it.unit_price !== null ? it.unit_price : 0),
+                            tax_rate: Number(it.tax_rate || 0),
+                            hsn_sac: it.hsn_sac || '9985',
+                            date_from: normalizeDate(it.date_from),
+                            date_to: normalizeDate(it.date_to)
+                        })));
+                    } else if (Number(data.subtotal || data.total_amount) > 0) {
+                        // Fallback for legacy / repaired records where subtotal is present but line items were not persisted
+                        const taxRate = Number(data.tax_total) > 0 && Number(data.subtotal) > 0 
+                            ? Math.round((Number(data.tax_total) / Number(data.subtotal)) * 100) 
+                            : 0;
+                        setItems([{
+                            id: 'temp-' + generateId(),
+                            description: 'Tour / Travel Service',
+                            quantity: 1,
+                            total_days_km: '1',
+                            unit_price: Number(data.subtotal || data.total_amount || 0),
+                            tax_rate: taxRate,
+                            hsn_sac: '9985'
+                        }]);
                     }
                 }
 
                 // Load custom extra charge fields
-                const cfRes = await fetch(`/api/crud/invoice_custom_fields?eq_invoice_id=${id}`, { 
+                const cfRes = await fetch(`/api/crud/invoice_custom_fields?eq_invoice_id=${docId}`, { 
                     headers: { 'Authorization': `Bearer ${token}` },
                     cache: 'no-store'
                 });
@@ -663,6 +716,72 @@ export const DocumentEditor: React.FC = () => {
     };
 
 
+    // ── Payment Status Automation Helpers ─────────────────────────────
+    const derivePaymentStatus = (paid: number, advance: number, total: number): 'Unpaid' | 'Partially Paid' | 'Paid' => {
+        const collected = Number(paid || 0) + Number(advance || 0);
+        if (total <= 0) {
+            return collected > 0 ? 'Paid' : 'Unpaid';
+        }
+        if (collected <= 0) return 'Unpaid';
+        if (collected >= total - 0.5) return 'Paid';
+        return 'Partially Paid';
+    };
+
+    const handleAmountPaidChange = (newAmountPaid: number) => {
+        const validPaid = Math.max(0, newAmountPaid);
+        const autoStatus = derivePaymentStatus(validPaid, advanceReceived, totalAmount);
+        setDocData(prev => ({
+            ...prev,
+            amount_paid: validPaid,
+            payment_status: autoStatus
+        }));
+        setIsDirty(true);
+    };
+
+    const handleAdvanceReceivedChange = (newAdvance: number) => {
+        const validAdvance = Math.max(0, newAdvance);
+        const autoStatus = derivePaymentStatus(Number(docData.amount_paid || 0), validAdvance, totalAmount);
+        setDocData(prev => ({
+            ...prev,
+            advance_received: validAdvance,
+            payment_status: autoStatus
+        }));
+        setIsDirty(true);
+    };
+
+    const handlePaymentStatusChange = (newStatus: string) => {
+        if (newStatus === 'Paid') {
+            const remaining = Math.max(0, totalAmount - advanceReceived);
+            setDocData(prev => ({
+                ...prev,
+                amount_paid: remaining,
+                payment_status: 'Paid'
+            }));
+        } else if (newStatus === 'Unpaid') {
+            setDocData(prev => ({
+                ...prev,
+                amount_paid: 0,
+                payment_status: 'Unpaid'
+            }));
+        } else if (newStatus === 'Partially Paid' || newStatus === 'Part Paid') {
+            const currentPaid = Number(docData.amount_paid || 0);
+            const defaultPart = currentPaid > 0 && currentPaid < totalAmount 
+                ? currentPaid 
+                : Math.round(Math.max(0, (totalAmount - advanceReceived) * 0.5));
+            setDocData(prev => ({
+                ...prev,
+                amount_paid: defaultPart,
+                payment_status: 'Partially Paid'
+            }));
+        } else {
+            setDocData(prev => ({
+                ...prev,
+                payment_status: newStatus
+            }));
+        }
+        setIsDirty(true);
+    };
+
     // Fix #9 — Only lock Paid and Void invoices; Sent invoices remain editable for typo fixes
     const isLocked = docData.payment_status === 'Paid' || docData.status === 'Void';
 
@@ -741,14 +860,14 @@ export const DocumentEditor: React.FC = () => {
         }
     };
 
-    const handleSave = async (generate: boolean) => {
-        if (!docData.client_name.trim()) {
+    const handleSave = async (generate: boolean = false, emailClientAfterIssue: boolean = false): Promise<string | null> => {
+        if (!docData.client_name?.trim()) {
             toast.error('Client name is required');
-            return;
+            return null;
         }
         if (items.length === 0) {
             toast.error('At least one item is required');
-            return;
+            return null;
         }
         setSaving(true);
         try {
@@ -757,18 +876,24 @@ export const DocumentEditor: React.FC = () => {
             // Format item payloads
             const processedItems = items.map(item => {
                 const isNew = String(item.id).startsWith('temp-') || !isEdit;
+                const daysKmCount = parseDaysKm(item.total_days_km);
+                const unitPrice = Number(item.unit_price !== undefined ? item.unit_price : 0);
+                const taxRate = Number(item.tax_rate || 0);
+                const baseAmount = daysKmCount * unitPrice;
+                const taxAmount = docData.is_gst === 1 ? baseAmount * (taxRate / 100) : 0;
+                const total = baseAmount + taxAmount;
                 return {
-                    id: isNew ? generateId() : item.id,
+                    id: isNew ? (String(item.id).startsWith('temp-') || !item.id ? generateId() : item.id) : item.id,
                     description: item.description || '',
-                    date_from: item.date_from || null,
-                    date_to: item.date_to || null,
                     quantity: Number(item.quantity || 1),
-                    total_days_km: item.total_days_km || '1',
-                    unit_price: Number(item.unit_price || 0),
-                    tax_rate: Number(item.tax_rate || 0),
-                    tax_amount: (parseDaysKm(item.total_days_km) * Number(item.unit_price || 0)) * (Number(item.tax_rate || 0) / 100),
-                    total: (parseDaysKm(item.total_days_km) * Number(item.unit_price || 0)) * (1 + Number(item.tax_rate || 0) / 100),
-                    hsn_sac: item.hsn_sac || '9985'
+                    total_days_km: String(item.total_days_km || '1'),
+                    unit_price: unitPrice,
+                    tax_rate: taxRate,
+                    tax_amount: taxAmount,
+                    total: total,
+                    hsn_sac: item.hsn_sac || '9985',
+                    date_from: item.date_from ? (String(item.date_from).includes('T') ? String(item.date_from).split('T')[0] : String(item.date_from)) : null,
+                    date_to: item.date_to ? (String(item.date_to).includes('T') ? String(item.date_to).split('T')[0] : String(item.date_to)) : null
                 };
             });
 
@@ -783,6 +908,9 @@ export const DocumentEditor: React.FC = () => {
                     sort_order: i
                 };
             });
+
+            const autoPaymentStatus = derivePaymentStatus(Number(docData.amount_paid || 0), Number(docData.advance_received || 0), totalAmount);
+            const resolvedPaymentStatus = docData.payment_status || autoPaymentStatus;
 
             // ── FLOW A: ISSUE OFFICIAL SEQUENTIAL GST DOCUMENT ──
             if (generate && (!docData.invoice_no || docData.status === 'Draft')) {
@@ -820,7 +948,7 @@ export const DocumentEditor: React.FC = () => {
                     customer_id: docData.customer_id || null,
                     adults: docData.adults,
                     children: docData.children,
-                    payment_status: docData.payment_status || 'Unpaid',
+                    payment_status: resolvedPaymentStatus,
                     amount_paid: docData.amount_paid || 0,
                     driver_stay_allowance: docData.driver_stay_allowance || 0,
                     extra_km_charges: docData.extra_km_charges || 0,
@@ -863,10 +991,35 @@ export const DocumentEditor: React.FC = () => {
                     fieldLabels
                 );
 
-                toast.success(`${docData.document_type} ${finalDoc.invoice_no} issued and locked successfully!`);
+                if (emailClientAfterIssue && finalDoc.email) {
+                    try {
+                        const emailRes = await fetch('/api/email/send', {
+                            method: 'POST',
+                            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                smtpType: 'billing',
+                                to: finalDoc.email,
+                                templateType: 'invoice',
+                                refId: finalDoc.id
+                            })
+                        });
+                        if (emailRes.ok) {
+                            toast.success(`${docData.document_type} ${finalDoc.invoice_no} issued and emailed to ${finalDoc.email}!`);
+                        } else {
+                            const errJson = await emailRes.json().catch(() => ({}));
+                            toast.warning(`Issued ${finalDoc.invoice_no}, but email note: ${errJson.error || 'Check active SMTP'}`);
+                        }
+                    } catch (mailErr: any) {
+                        console.error('Auto-email error:', mailErr);
+                        toast.warning(`Issued ${finalDoc.invoice_no}, but failed to email: ${mailErr.message}`);
+                    }
+                } else {
+                    toast.success(`${docData.document_type} ${finalDoc.invoice_no} issued and locked successfully!`);
+                }
+
                 setIsDirty(false);
                 navigate('/admin/invoices');
-                return;
+                return finalDoc.id;
             }
 
             // ── FLOW B: SAVE DRAFT OR UPDATE EXISTING DOCUMENT ──
@@ -878,7 +1031,7 @@ export const DocumentEditor: React.FC = () => {
                 total_amount: totalAmount,
                 balance_due: balanceDue,
                 status: generate ? (docData.status === 'Void' ? 'Void' : 'Sent') : (docData.status || 'Draft'),
-                payment_status: docData.payment_status || 'Unpaid',
+                payment_status: resolvedPaymentStatus,
                 amount_paid: docData.amount_paid || 0,
                 issue_date: isEdit ? (docData.issue_date || new Date().toISOString().split('T')[0]) : new Date().toISOString().split('T')[0],
                 due_date: docData.due_date || null,
@@ -959,6 +1112,9 @@ export const DocumentEditor: React.FC = () => {
                 }
             }
 
+            setDeletedItemIds([]);
+            setDeletedCustomFieldIds([]);
+
             if (generate) {
                 await generateTrueInvoicePDF({ ...payload, id: invoiceId }, items, co, fi, customFields, fieldLabels);
                 toast.success('PDF generated and downloaded!');
@@ -972,10 +1128,12 @@ export const DocumentEditor: React.FC = () => {
             } else if (!isEdit) {
                 navigate(`/admin/invoices/edit/${invoiceId}`, { replace: true });
             }
+            return invoiceId;
 
         } catch (error: any) {
             console.error(error);
             toast.error(error.message || 'Failed to save document');
+            return null;
         } finally {
             setSaving(false);
         }
@@ -1472,13 +1630,20 @@ export const DocumentEditor: React.FC = () => {
                             </button>
                         )}
                         <button 
-                            onClick={() => {
-                                const total = totalAmount.toLocaleString('en-IN');
-                                const subject = encodeURIComponent(`Your ${docData.document_type} from ${co.companyName || 'SHRAWELLO Travel Hub'}`);
-                                const body = encodeURIComponent(`Hi ${docData.client_name},\n\nPlease find the details for your ${docData.document_type} attached.\n\nTotal Amount: INR ${total}\nPayment Status: ${docData.payment_status}\n\nThank you for choosing ${co.companyName || 'SHRAWELLO Travel Hub'}!`);
-                                window.open(`mailto:${docData.email || ''}?subject=${subject}&body=${body}`);
+                            onClick={async () => {
+                                if (!docData.email && !docData.client_name) {
+                                    toast.error('Please enter client details (Name & Email) before sending email.');
+                                    return;
+                                }
+                                let targetId = id;
+                                if (!targetId) {
+                                    toast.info('Saving draft to attach invoice details...');
+                                    targetId = await handleSave(false);
+                                }
+                                setEmailModalRefId(targetId || docData.booking_id || '');
+                                setShowEmailModal(true);
                             }} 
-                            title="Send Email link"
+                            title="Email Invoice to Client (via Automated SMTP)"
                             className="p-2 hover:bg-sky-500/10 text-slate-500 hover:text-sky-500 dark:text-slate-400 dark:hover:text-sky-400 rounded-lg transition-all hover:scale-105 active:scale-95"
                         >
                             <Mail size={15} />
@@ -1512,6 +1677,17 @@ export const DocumentEditor: React.FC = () => {
                                 {docData.invoice_no}
                             </div>
                             
+                            <button
+                                onClick={() => {
+                                    setEmailModalRefId(id);
+                                    setShowEmailModal(true);
+                                }}
+                                className="h-9 px-3.5 bg-sky-50 hover:bg-sky-100 dark:bg-sky-950/30 dark:hover:bg-sky-900/40 text-sky-700 dark:text-sky-300 text-xs font-bold rounded-xl border border-sky-200 dark:border-sky-900/40 flex items-center gap-1.5 transition-all hover:scale-[1.02] active:scale-95"
+                            >
+                                <Mail size={13} className="text-sky-500" />
+                                Email Client
+                            </button>
+
                             {docData.document_type === 'Invoice' && (
                                 <button
                                     onClick={() => navigate(`/admin/invoices/new?type=CreditNote&original_id=${id}&original_no=${docData.invoice_no}`)}
@@ -1562,13 +1738,27 @@ export const DocumentEditor: React.FC = () => {
                             {isSaveDropdownOpen && (
                                 <>
                                     <div className="fixed inset-0 z-40" onClick={() => setIsSaveDropdownOpen(false)} />
-                                    <div className="absolute right-0 top-full mt-2 w-52 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-50 overflow-hidden py-1 animate-[scaleIn_0.15s_ease-out]">
+                                    <div className="absolute right-0 top-full mt-2 w-56 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-50 overflow-hidden py-1 animate-[scaleIn_0.15s_ease-out]">
+                                        <button
+                                            onClick={() => {
+                                                setIsSaveDropdownOpen(false);
+                                                if (!docData.email?.trim()) {
+                                                    toast.error('Client email address is required to email invoice.');
+                                                    return;
+                                                }
+                                                handleSave(true, true);
+                                            }}
+                                            className="w-full text-left px-4 py-2.5 text-xs text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-950/20 flex items-center gap-2 font-bold"
+                                        >
+                                            <Mail size={13} className="text-orange-500" />
+                                            Issue, Lock &amp; Email Client
+                                        </button>
                                         <button
                                             onClick={() => {
                                                 setIsSaveDropdownOpen(false);
                                                 handleSave(false);
                                             }}
-                                            className="w-full text-left px-4 py-2.5 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center gap-2 font-medium"
+                                            className="w-full text-left px-4 py-2.5 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center gap-2 font-medium border-t border-slate-100 dark:border-slate-700"
                                         >
                                             <Save size={13} className="text-slate-400" />
                                             Save as Draft (No Sequence)
@@ -2245,7 +2435,7 @@ export const DocumentEditor: React.FC = () => {
                                                 <input
                                                     type="number" min="0"
                                                     value={docData.advance_received || 0}
-                                                    onChange={e => setDocData({ ...docData, advance_received: parseFloat(e.target.value) || 0 })}
+                                                    onChange={e => handleAdvanceReceivedChange(parseFloat(e.target.value) || 0)}
                                                     className="w-24 text-right bg-slate-50 dark:bg-slate-800/40 outline-none border border-slate-200/60 dark:border-slate-800 focus:border-orange-500 focus:ring-0 font-bold rounded-lg px-2 py-1 transition-all text-xs focus:bg-white dark:focus:bg-slate-900 print:hidden text-slate-800 dark:text-slate-100"
                                                 />
                                                 <span className="hidden print:inline-block tabular-nums font-bold">₹{Math.round(Number(docData.advance_received || 0)).toLocaleString('en-IN')}</span>
@@ -2365,8 +2555,8 @@ export const DocumentEditor: React.FC = () => {
                                             <div className="flex justify-between items-center text-slate-700 dark:text-slate-200">
                                                 <span className="text-[10px] font-extrabold text-emerald-600 dark:text-emerald-400 uppercase tracking-widest">Amount Paid</span>
                                                 <select
-                                                    value={docData.payment_status}
-                                                    onChange={e => setDocData({...docData, payment_status: e.target.value})}
+                                                    value={docData.payment_status === 'Part Paid' ? 'Partially Paid' : docData.payment_status || 'Unpaid'}
+                                                    onChange={e => handlePaymentStatusChange(e.target.value)}
                                                     className="bg-transparent border border-emerald-500/20 rounded-lg px-2 py-0.5 outline-none print:hidden text-[10px] text-emerald-600 dark:text-emerald-400 font-extrabold cursor-pointer dark:bg-slate-900 focus:border-emerald-500"
                                                 >
                                                     <option value="Unpaid">Unpaid</option>
@@ -2378,7 +2568,7 @@ export const DocumentEditor: React.FC = () => {
                                                 <input
                                                     type="number" min="0"
                                                     value={docData.amount_paid || 0}
-                                                    onChange={e => setDocData({...docData, amount_paid: parseFloat(e.target.value) || 0})}
+                                                    onChange={e => handleAmountPaidChange(parseFloat(e.target.value) || 0)}
                                                     className="w-full text-right bg-emerald-600/10 dark:bg-emerald-500/10 outline-none border border-emerald-500/20 focus:border-emerald-500 focus:ring-0 font-black rounded-lg px-2.5 py-1.5 transition-all text-xs focus:bg-white dark:focus:bg-slate-900 text-emerald-600 dark:text-emerald-400 print:hidden"
                                                 />
                                                 <span className="hidden print:inline-block tabular-nums font-bold text-emerald-600 dark:text-emerald-400">₹{Math.round(docData.amount_paid || 0).toLocaleString('en-IN')}</span>
@@ -2589,6 +2779,29 @@ export const DocumentEditor: React.FC = () => {
                     </div>
                 </div>
             </div>
+
+            {/* In-App Direct Automated Email Modal */}
+            {showEmailModal && (
+                <SendEmailModal
+                    isOpen={showEmailModal}
+                    onClose={() => setShowEmailModal(false)}
+                    defaultEmail={docData.email || ''}
+                    defaultSubject={`Your ${docData.document_type === 'CreditNote' ? 'Credit Note' : docData.document_type} ${docData.invoice_no ? '#' + docData.invoice_no : ''} from ${co.companyName || 'SHRAWELLO Travel Hub'}`}
+                    defaultMessage={`Dear ${docData.client_name || 'Traveler'},\n\nPlease find the details for your ${docData.document_type} attached.\n\nDocument Reference: ${docData.invoice_no || 'DRAFT'}\nTotal Amount: ₹${Math.round(totalAmount).toLocaleString('en-IN')}\nPayment Status: ${docData.payment_status}\n\nThank you for choosing ${co.companyName || 'SHRAWELLO Travel Hub'}!`}
+                    refId={emailModalRefId || id || docData.booking_id || ''}
+                    templateType={docData.document_type === 'Invoice' && (emailModalRefId || id || docData.booking_id) ? 'invoice' : 'custom'}
+                    title={`Email ${docData.document_type}: ${docData.invoice_no || docData.client_name || 'Client'}`}
+                    details={{
+                        clientName: docData.client_name,
+                        documentNo: docData.invoice_no || (id ? `Draft (#${id.substring(0, 8)})` : 'New Document'),
+                        documentType: docData.document_type,
+                        travelDates: docData.travel_dates || (docData.travel_date_from ? `${docData.travel_date_from}${docData.travel_date_to ? ' to ' + docData.travel_date_to : ''}` : undefined),
+                        destination: items[0]?.description ? items[0].description.split('\n')[0] : undefined,
+                        totalAmount: totalAmount,
+                        paymentStatus: docData.payment_status || 'Unpaid'
+                    }}
+                />
+            )}
         </div>
     );
 };

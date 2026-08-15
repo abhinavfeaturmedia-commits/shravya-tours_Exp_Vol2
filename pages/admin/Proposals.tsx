@@ -94,7 +94,9 @@ export const Proposals: React.FC = () => {
                                                         isOpen: true,
                                                         defaultEmail: lead?.email || '',
                                                         refId: proposal.id,
-                                                        title: `Email Proposal: ${proposal.title}`
+                                                        title: `Email Proposal: ${proposal.title}`,
+                                                        proposalTitle: proposal.title,
+                                                        clientName: lead?.name || 'Valued Lead'
                                                     });
                                                 }} 
                                                 className="w-full text-left px-4 py-2 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 flex items-center gap-2"
@@ -155,6 +157,11 @@ export const Proposals: React.FC = () => {
                     refId={emailModalData.refId}
                     templateType="proposal"
                     title={emailModalData.title || 'Email Proposal'}
+                    details={{
+                        tripTitle: emailModalData.proposalTitle,
+                        clientName: emailModalData.clientName,
+                        documentType: 'Tour Proposal'
+                    }}
                 />
             )}
         </div>

@@ -764,6 +764,14 @@ export const InvoicesDashboard: React.FC = () => {
                     refId={emailModalInvoice.booking_id || emailModalInvoice.id}
                     templateType="invoice"
                     title={`Email Invoice: ${emailModalInvoice.invoice_no || '#' + (emailModalInvoice.id || '').substring(0, 8).toUpperCase()}`}
+                    details={{
+                        clientName: emailModalInvoice.client_name,
+                        documentNo: emailModalInvoice.invoice_no || '#' + (emailModalInvoice.id || '').substring(0, 8).toUpperCase(),
+                        documentType: emailModalInvoice.document_type || 'Invoice',
+                        travelDates: emailModalInvoice.travel_dates || (emailModalInvoice.travel_date_from ? new Date(emailModalInvoice.travel_date_from).toLocaleDateString('en-IN') : undefined),
+                        totalAmount: emailModalInvoice.total_amount,
+                        paymentStatus: emailModalInvoice.payment_status || emailModalInvoice.status || 'Unpaid'
+                    }}
                 />
             )}
         </div>

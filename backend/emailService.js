@@ -12,6 +12,13 @@ export function initEmailService(pool) {
 }
 
 /**
+ * Helper to check if a setting value represents a boolean true
+ */
+function isTruthy(val) {
+    return val === true || val === 'true' || val === 1 || val === '1';
+}
+
+/**
  * Helper to fetch SMTP settings from settings table
  * @param {string} type - 'general' or 'billing'
  * @returns {Promise<object|null>}
@@ -24,7 +31,7 @@ async function loadSmtpSettings(type) {
 
     try {
         const [rows] = await dbPool.query(
-            "SELECT setting_key, setting_value FROM settings WHERE setting_key LIKE 'integrations.smtpGeneral.%' OR setting_key LIKE 'integrations.smtpBilling.%'"
+            "SELECT setting_key, setting_value FROM settings WHERE setting_key LIKE 'integrations.smtp%'"
         );
 
         const general = {};
@@ -32,33 +39,42 @@ async function loadSmtpSettings(type) {
 
         rows.forEach(row => {
             const parts = row.setting_key.split('.');
-            const group = parts[1]; // smtpGeneral or smtpBilling
+            const group = parts[1]; // smtpGeneral, smtpBilling, or smtp
             const key = parts[2]; // enabled, host, username, password, etc.
             let val = row.setting_value;
             try { val = JSON.parse(val); } catch(e) {}
             
-            if (group === 'smtpGeneral') general[key] = val;
+            if (group === 'smtpGeneral' || group === 'smtp') general[key] = val;
             if (group === 'smtpBilling') billing[key] = val;
         });
 
+        const isConfigValid = (c) => {
+            if (!c) return false;
+            const enabled = isTruthy(c.enabled);
+            const host = c.host ? String(c.host).trim() : '';
+            const user = c.username ? String(c.username).trim() : '';
+            const pass = c.password ? String(c.password).trim() : '';
+            return enabled && host.length > 0 && user.length > 0 && pass.length > 0;
+        };
+
         // Determine which config to return, with fallback
         if (type === 'billing') {
-            if (billing.enabled && billing.host && billing.username && billing.password) {
+            if (isConfigValid(billing)) {
                 return { ...billing, type: 'billing' };
             }
             // Fall back to general if billing is not configured/enabled
-            if (general.enabled && general.host && general.username && general.password) {
-                console.log('[EmailService] Billing SMTP not enabled, falling back to General SMTP.');
+            if (isConfigValid(general)) {
+                console.log('[EmailService] Billing SMTP not enabled or incomplete, falling back to General SMTP.');
                 return { ...general, type: 'general' };
             }
         } else {
             // Default to general
-            if (general.enabled && general.host && general.username && general.password) {
+            if (isConfigValid(general)) {
                 return { ...general, type: 'general' };
             }
             // Fall back to billing
-            if (billing.enabled && billing.host && billing.username && billing.password) {
-                console.log('[EmailService] General SMTP not enabled, falling back to Billing SMTP.');
+            if (isConfigValid(billing)) {
+                console.log('[EmailService] General SMTP not enabled or incomplete, falling back to Billing SMTP.');
                 return { ...billing, type: 'billing' };
             }
         }
@@ -73,19 +89,25 @@ async function loadSmtpSettings(type) {
 /**
  * Send an email using specified type SMTP
  * @param {object} params
- * @param {string} params.type - 'general' or 'billing'
- * @param {string} params.to - Recipient email
+ * @param {string} [params.type='general'] - 'general' or 'billing'
+ * @param {string|Array} params.to - Recipient email
  * @param {string} params.subject - Email subject
  * @param {string} params.html - HTML body
  * @param {string} [params.text] - Plain text fallback
  * @param {Array} [params.attachments] - Nodemailer attachments
- * @returns {Promise<boolean>}
+ * @returns {Promise<{success: boolean, messageId?: string, error?: string}>}
  */
-export async function sendEmail({ type, to, subject, html, text = '', attachments = [] }) {
+export async function sendEmail({ type = 'general', to, subject, html, text = '', attachments = [] }) {
+    if (!to) {
+        console.warn('[EmailService] SMTP email skipped: No recipient ("to") provided.');
+        return { success: false, error: 'Recipient email address is required.' };
+    }
+
     const config = await loadSmtpSettings(type);
     if (!config) {
-        console.warn(`[EmailService] SMTP email skipped: no active SMTP configurations found for type "${type}".`);
-        return false;
+        const errorMsg = `No active SMTP configuration found for type "${type}". Please check Admin Settings > Integrations.`;
+        console.warn(`[EmailService] SMTP email skipped: ${errorMsg}`);
+        return { success: false, error: errorMsg };
     }
 
     return await sendWithTransporter(config, to, subject, html, text, attachments);
@@ -94,39 +116,58 @@ export async function sendEmail({ type, to, subject, html, text = '', attachment
 /**
  * Lower-level helper to trigger nodemailer sending
  */
-async function sendWithTransporter(config, to, subject, html, text, attachments) {
+async function sendWithTransporter(config, to, subject, html, text, attachments = []) {
+    if (!config || !config.host || !config.username || !config.password) {
+        const errorMsg = 'Incomplete SMTP credentials. Host, Username, and Password are required.';
+        console.error('[EmailService]', errorMsg);
+        return { success: false, error: errorMsg };
+    }
+
     try {
         const port = Number(config.port) || 587;
         const isSecure = port === 465;
+        const useTls = isTruthy(config.useTls);
+
+        const host = String(config.host).trim();
+        const username = String(config.username).trim();
+        const password = String(config.password).trim();
+        const fromEmail = String(config.fromEmail || username).trim();
+        const defaultFromName = (config.type === 'billing') ? 'SHRAWELLO Billing' : 'SHRAWELLO Travel Hub';
+        const fromName = String(config.fromName || defaultFromName).trim().replace(/["\r\n]/g, '');
 
         const transporter = nodemailer.createTransport({
-            host: config.host,
+            host: host,
             port: port,
             secure: isSecure,
             auth: {
-                user: config.username,
-                pass: config.password
+                user: username,
+                pass: password
             },
             tls: {
-                rejectUnauthorized: false // bypass SSL verification issues for Hostinger / custom domains
-            }
+                rejectUnauthorized: false // bypass self-signed SSL verification issues for Hostinger / custom domains
+            },
+            requireTLS: !isSecure && useTls,
+            connectionTimeout: 15000,
+            greetingTimeout: 15000,
+            socketTimeout: 20000
         });
 
+        const recipientStr = Array.isArray(to) ? to.join(', ') : String(to).trim();
         const mailOptions = {
-            from: `"${config.fromName}" <${config.fromEmail || config.username}>`,
-            to,
-            subject,
-            text: text || html.replace(/<[^>]*>/g, ''), // basic HTML stripping fallback
+            from: `"${fromName}" <${fromEmail}>`,
+            to: recipientStr,
+            subject: String(subject || 'Notification from SHRAWELLO').trim(),
+            text: text || (html ? html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() : ''),
             html,
-            attachments
+            attachments: attachments || []
         };
 
         const info = await transporter.sendMail(mailOptions);
-        console.log(`[EmailService] Email sent successfully! MessageId: ${info.messageId} | Recipient: ${to} | SMTP: ${config.username}`);
-        return true;
+        console.log(`[EmailService] Email sent successfully! MessageId: ${info.messageId} | Recipient: ${recipientStr} | SMTP: ${username}`);
+        return { success: true, messageId: info.messageId };
     } catch (err) {
-        console.error(`[EmailService] Failed to send email via ${config.username}:`, err.message);
-        return false;
+        console.error(`[EmailService] Failed to send email via ${config?.username || 'unknown'}:`, err.message);
+        return { success: false, error: err.message || 'SMTP transmission failed.' };
     }
 }
 
@@ -134,21 +175,29 @@ async function sendWithTransporter(config, to, subject, html, text, attachments)
  * Send a test email using transient settings passed from the frontend UI
  */
 export async function sendTestEmail(smtpSettings, targetEmail) {
+    if (!targetEmail || !String(targetEmail).trim()) {
+        return { success: false, error: 'Recipient target email is required.' };
+    }
     return await sendWithTransporter(
         smtpSettings,
-        targetEmail,
-        'SMTP Connection Test - Shrawello Travel Hub',
+        String(targetEmail).trim(),
+        'SMTP Connection Test - SHRAWELLO Travel Hub',
         `
         <div style="font-family: Arial, sans-serif; background-color: #f8fafc; padding: 30px; color: #1e293b;">
             <div style="max-width: 500px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; padding: 25px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">
-                <h2 style="color: #4f46e5; margin-top: 0;">Connection Test Successful!</h2>
-                <p>This is a test email confirming that your SMTP configuration is correct and active.</p>
-                <div style="background-color: #f1f5f9; padding: 15px; border-radius: 8px; font-size: 13px; margin: 20px 0;">
-                    <strong>Sender username:</strong> ${smtpSettings.username}<br>
-                    <strong>Host:</strong> ${smtpSettings.host}:${smtpSettings.port}<br>
-                    <strong>TLS:</strong> ${smtpSettings.useTls ? 'Enabled' : 'Disabled'}
+                <div style="text-align: center; margin-bottom: 20px;">
+                    <span style="display: inline-block; background-color: #d1fae5; color: #065f46; font-size: 28px; width: 60px; height: 60px; line-height: 60px; border-radius: 50%;">✅</span>
                 </div>
-                <p style="font-size: 12px; color: #64748b; margin-bottom: 0;">Sent on: ${new Date().toLocaleString()}</p>
+                <h2 style="color: #4f46e5; margin-top: 0; text-align: center;">Connection Test Successful!</h2>
+                <p style="font-size: 14px; line-height: 1.6; color: #334155;">This is a test email confirming that your SMTP configuration is active, authenticated, and functioning properly.</p>
+                <div style="background-color: #f1f5f9; padding: 15px; border-radius: 8px; font-size: 13px; margin: 20px 0; line-height: 1.8;">
+                    <strong>Sender Username:</strong> ${smtpSettings.username}<br>
+                    <strong>Host:</strong> ${smtpSettings.host}:${smtpSettings.port || 465}<br>
+                    <strong>Sender Name:</strong> ${smtpSettings.fromName || 'SHRAWELLO'}<br>
+                    <strong>From Address:</strong> ${smtpSettings.fromEmail || smtpSettings.username}<br>
+                    <strong>TLS:</strong> ${isTruthy(smtpSettings.useTls) ? 'Enabled' : 'Disabled'}
+                </div>
+                <p style="font-size: 12px; color: #64748b; margin-bottom: 0; text-align: center;">Sent on: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST</p>
             </div>
         </div>
         `,
@@ -166,7 +215,7 @@ function wrapTemplate(title, bodyContent) {
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>${title}</title>
     </head>
-    <body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f8fafc; color: #1e293b;-webkit-font-smoothing: antialiased;">
+    <body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f8fafc; color: #1e293b; -webkit-font-smoothing: antialiased;">
         <div style="background-color: #f8fafc; padding: 40px 10px;">
             <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid #e2e8f0;">
                 <!-- Brand Header -->
@@ -186,7 +235,7 @@ function wrapTemplate(title, bodyContent) {
                         <a href="https://instagram.com/shrawellotravelhub" style="color: #4f46e5; text-decoration: none; margin: 0 10px; font-weight: 600;">Instagram</a> • 
                         <a href="https://shrawello.com" style="color: #4f46e5; text-decoration: none; margin: 0 10px; font-weight: 600;">Website</a>
                     </div>
-                    <p style="margin: 0; font-size: 10px; color: #94a3b8; line-height: 1.5;">This is an automated transactional email.<br>If you did not make this request, please ignore this email or contact support.</p>
+                    <p style="margin: 0; font-size: 10px; color: #94a3b8; line-height: 1.5;">This is an automated transactional email.<br>If you have any questions, please reply directly to this email or contact support.</p>
                 </div>
             </div>
         </div>
@@ -212,24 +261,32 @@ export async function sendCustomEmail({ type = 'general', to, subject, message }
 
 /**
  * 1. Send Agent Introduction Email (hello@shrawello.com)
+ * @param {string} leadId - Lead ID
+ * @param {string} [customTo] - Optional recipient email override
  */
-export async function sendAgentIntroductionEmail(leadId) {
-    if (!dbPool) return;
+export async function sendAgentIntroductionEmail(leadId, customTo = null) {
+    if (!dbPool) return { success: false, error: 'Database pool not initialized.' };
     try {
         const [rows] = await dbPool.query(`
-            SELECT l.name AS lead_name, l.email AS lead_email, sm.name AS staff_name, sm.email AS staff_email, sm.phone AS staff_phone 
+            SELECT l.id AS lead_id, l.name AS lead_name, l.email AS lead_email, l.customer_id,
+                   c.email AS customer_email,
+                   sm.name AS staff_name, sm.email AS staff_email, sm.phone AS staff_phone 
             FROM leads l 
-            LEFT JOIN staff_members sm ON (l.assigned_to = sm.id OR l.assigned_to = sm.name) 
-            WHERE l.id = ?
+            LEFT JOIN customers c ON l.customer_id = c.id
+            LEFT JOIN staff_members sm ON (l.assigned_to = sm.id OR l.assigned_to = sm.name OR l.assigned_to = sm.email) 
+            WHERE l.id = ? OR l.lead_number = ?
             LIMIT 1
-        `, [leadId]);
+        `, [leadId, leadId]);
 
-        if (rows.length === 0) return;
+        if (rows.length === 0) {
+            return { success: false, error: `Lead record "${leadId}" not found.` };
+        }
         const lead = rows[0];
+        const recipient = customTo || lead.lead_email || lead.customer_email;
 
-        if (!lead.lead_email) {
+        if (!recipient) {
             console.log(`[EmailService] Skip agent intro: Lead ${leadId} has no email address.`);
-            return;
+            return { success: false, error: `Lead ${leadId} has no registered email address.` };
         }
 
         const agentName = lead.staff_name || 'One of our expert planners';
@@ -265,48 +322,59 @@ export async function sendAgentIntroductionEmail(leadId) {
             <p style="font-size: 15px; line-height: 1.6; color: #334155; margin-bottom: 0;">Warm regards,<br><strong>Shrawello Travel Hub Team</strong></p>
         `);
 
-        await sendEmail({
+        return await sendEmail({
             type: 'general',
-            to: lead.lead_email,
+            to: recipient,
             subject,
             html
         });
     } catch (err) {
         console.error('[EmailService] Agent intro email trigger failed:', err.message);
+        return { success: false, error: err.message };
     }
 }
 
 /**
  * 2. Send Proposal Ready Email (hello@shrawello.com)
+ * @param {string} proposalId - Proposal ID
+ * @param {string} [customTo] - Optional recipient email override
  */
-export async function sendProposalEmail(proposalId) {
-    if (!dbPool) return;
+export async function sendProposalEmail(proposalId, customTo = null) {
+    if (!dbPool) return { success: false, error: 'Database pool not initialized.' };
     try {
         const [rows] = await dbPool.query(`
-            SELECT p.id AS proposal_id, p.title AS proposal_title, l.name AS lead_name, l.email AS lead_email, sm.name AS staff_name 
+            SELECT p.id AS proposal_id, p.title AS proposal_title, p.amount AS proposal_amount,
+                   l.name AS lead_name, l.email AS lead_email,
+                   c.name AS customer_name, c.email AS customer_email,
+                   sm.name AS staff_name 
             FROM proposals p 
-            JOIN leads l ON p.lead_id = l.id 
+            LEFT JOIN leads l ON p.lead_id = l.id 
+            LEFT JOIN customers c ON (l.customer_id = c.id OR p.lead_id = c.id)
             LEFT JOIN staff_members sm ON (l.assigned_to = sm.id OR l.assigned_to = sm.name) 
             WHERE p.id = ?
             LIMIT 1
         `, [proposalId]);
 
-        if (rows.length === 0) return;
+        if (rows.length === 0) {
+            return { success: false, error: `Proposal record "${proposalId}" not found.` };
+        }
         const prop = rows[0];
+        const recipient = customTo || prop.lead_email || prop.customer_email;
 
-        if (!prop.lead_email) {
-            console.log(`[EmailService] Skip proposal email: Lead associated with proposal ${proposalId} has no email address.`);
-            return;
+        if (!recipient) {
+            console.log(`[EmailService] Skip proposal email: Proposal ${proposalId} has no recipient email address.`);
+            return { success: false, error: `Proposal ${proposalId} has no recipient email address.` };
         }
 
-        const subject = `Your Custom Holiday Proposal: "${prop.proposal_title}" - Shrawello`;
-        const proposalLink = `https://shrawello.com/customer/proposals/${prop.proposal_id}`; // Replace with actual domain / route when ready
+        const clientName = prop.lead_name || prop.customer_name || 'Traveler';
+        const subject = `Your Custom Holiday Proposal: "${prop.proposal_title || 'Custom Itinerary'}" - Shrawello`;
+        const proposalLink = `https://shrawello.com/#/customer/proposals/${prop.proposal_id}`;
 
         const html = wrapTemplate(subject, `
-            <h2 style="margin-top: 0; color: #1e1b4b; font-size: 20px; font-weight: 700;">Dear ${prop.lead_name || 'Traveler'},</h2>
+            <h2 style="margin-top: 0; color: #1e1b4b; font-size: 20px; font-weight: 700;">Dear ${clientName},</h2>
             <p style="font-size: 15px; line-height: 1.6; color: #334155;">Exciting updates! We have finished crafting a custom holiday proposal tailored specifically to your preferences:</p>
             <p style="font-size: 16px; font-weight: 700; color: #4f46e5; text-align: center; margin: 20px 0; background-color: #e0e7ff; padding: 12px; border-radius: 8px;">
-                "${prop.proposal_title}"
+                "${prop.proposal_title || 'Custom Travel Itinerary'}"
             </p>
             <p style="font-size: 15px; line-height: 1.6; color: #334155;">Click the button below to view the detailed day-wise itinerary, accommodation details, transport inclusions, and pricing options in your portal:</p>
             
@@ -322,51 +390,104 @@ export async function sendProposalEmail(proposalId) {
             <p style="font-size: 15px; line-height: 1.6; color: #334155; margin-bottom: 0;">Best regards,<br><strong>Shrawello Travel Hub</strong></p>
         `);
 
-        await sendEmail({
+        return await sendEmail({
             type: 'general',
-            to: prop.lead_email,
+            to: recipient,
             subject,
             html
         });
     } catch (err) {
         console.error('[EmailService] Proposal email trigger failed:', err.message);
+        return { success: false, error: err.message };
     }
 }
 
 /**
  * 3. Send Booking Invoice Email (billing@shrawello.com)
+ * Gracefully resolves whether the passed identifier is a Booking ID, an Invoice ID, or an Invoice Number.
+ * @param {string} bookingOrInvoiceId - Booking ID, Invoice ID, or Invoice Number
+ * @param {string} [customTo] - Optional recipient email override
  */
-export async function sendInvoiceEmail(bookingId) {
-    if (!dbPool) return;
+export async function sendInvoiceEmail(bookingOrInvoiceId, customTo = null) {
+    if (!dbPool) return { success: false, error: 'Database pool not initialized.' };
     try {
-        const [rows] = await dbPool.query(`
-            SELECT b.id, b.customer_name, b.customer_email, b.customer_phone, b.booking_date, b.total_price, b.status, b.payment_status, b.booking_number, b.title 
-            FROM bookings b 
-            WHERE b.id = ?
-        `, [bookingId]);
+        let booking = null;
+        let invoice = null;
+        let customer = null;
 
-        if (rows.length === 0) return;
-        const booking = rows[0];
-
-        if (!booking.customer_email) {
-            console.log(`[EmailService] Skip invoice email: Booking ${bookingId} has no email address.`);
-            return;
+        // 1. Try to find matching invoice first
+        const [invRows] = await dbPool.query(
+            "SELECT * FROM invoices WHERE id = ? OR booking_id = ? OR invoice_no = ? LIMIT 1",
+            [bookingOrInvoiceId, bookingOrInvoiceId, bookingOrInvoiceId]
+        );
+        if (invRows.length > 0) {
+            invoice = invRows[0];
         }
 
-        // Try to fetch generated invoice number if exists
-        const [invRows] = await dbPool.query("SELECT id FROM invoices WHERE booking_id = ?", [bookingId]);
-        const invoiceNo = invRows.length > 0 ? invRows[0].id : `INV-BK-${booking.booking_number}`;
+        // 2. Try to find matching booking
+        const targetBookingId = invoice?.booking_id || bookingOrInvoiceId;
+        const [bkRows] = await dbPool.query(
+            "SELECT * FROM bookings WHERE id = ? OR booking_number = ? LIMIT 1",
+            [targetBookingId, targetBookingId]
+        );
+        if (bkRows.length > 0) {
+            booking = bkRows[0];
+        }
 
-        const formattedPrice = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(booking.total_price);
-        const formattedDate = new Date(booking.booking_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+        // 3. Try to find customer profile for fallback details
+        const targetCustomerId = invoice?.customer_id || booking?.customer_id;
+        if (targetCustomerId) {
+            const [custRows] = await dbPool.query(
+                "SELECT * FROM customers WHERE id = ? LIMIT 1",
+                [targetCustomerId]
+            );
+            if (custRows.length > 0) customer = custRows[0];
+        }
 
-        const subject = `Booking Confirmed & Invoice Issued - #${booking.booking_number} - Shrawello`;
-        const bookingLink = `https://shrawello.com/customer/bookings/${booking.id}`; // Replace with actual domain / route when ready
+        if (!booking && !invoice) {
+            return { success: false, error: `No invoice or booking record found matching ID "${bookingOrInvoiceId}".` };
+        }
+
+        // Resolve recipient
+        const recipient = customTo || invoice?.email || booking?.customer_email || customer?.email;
+        if (!recipient) {
+            console.log(`[EmailService] Skip invoice email: Record ${bookingOrInvoiceId} has no recipient email address.`);
+            return { success: false, error: `No recipient email found for invoice/booking "${bookingOrInvoiceId}".` };
+        }
+
+        // Resolve invoice / reference display number
+        const invoiceNo = invoice?.invoice_no || invoice?.id || (booking ? `INV-BK-${booking.booking_number || booking.id}` : `INV-${bookingOrInvoiceId}`);
+        const customerName = invoice?.client_name || booking?.customer_name || customer?.name || 'Valued Traveler';
+        const travelTitle = booking?.title || invoice?.document_type || 'Tour & Travel Booking';
+        
+        const rawAmount = invoice?.total_amount !== undefined ? invoice.total_amount : (booking?.total_price || 0);
+        const formattedPrice = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(rawAmount);
+
+        let dateStr = 'Upcoming';
+        const rawDate = invoice?.travel_dates || invoice?.travel_date_from || booking?.booking_date;
+        if (rawDate) {
+            try {
+                const parsed = new Date(rawDate);
+                if (!isNaN(parsed.getTime())) {
+                    dateStr = parsed.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+                } else {
+                    dateStr = String(rawDate);
+                }
+            } catch (e) {
+                dateStr = String(rawDate);
+            }
+        }
+
+        const paymentStatus = invoice?.payment_status || booking?.payment_status || 'Pending';
+        const isPaid = /paid/i.test(paymentStatus);
+
+        const subject = `Booking Confirmed & Invoice Issued - #${invoiceNo} - Shrawello`;
+        const bookingLink = booking?.id ? `https://shrawello.com/#/customer/bookings/${booking.id}` : `https://shrawello.com/#/customer/dashboard`;
 
         const html = wrapTemplate(subject, `
-            <h2 style="margin-top: 0; color: #1e1b4b; font-size: 20px; font-weight: 700;">Dear ${booking.customer_name},</h2>
-            <p style="font-size: 15px; line-height: 1.6; color: #334155;">Thank you for booking with Shrawello Travel Hub! Your booking has been processed and is officially <strong>confirmed</strong>.</p>
-            <p style="font-size: 15px; line-height: 1.6; color: #334155;">We have generated your booking summary and official tax invoice below:</p>
+            <h2 style="margin-top: 0; color: #1e1b4b; font-size: 20px; font-weight: 700;">Dear ${customerName},</h2>
+            <p style="font-size: 15px; line-height: 1.6; color: #334155;">Thank you for choosing Shrawello Travel Hub! Your booking and official invoice have been processed successfully.</p>
+            <p style="font-size: 15px; line-height: 1.6; color: #334155;">Here is your booking summary and tax invoice overview:</p>
 
             <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; margin: 25px 0;">
                 <h3 style="margin-top: 0; margin-bottom: 16px; font-size: 14px; color: #475569; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px;">Invoice Summary</h3>
@@ -376,20 +497,20 @@ export async function sendInvoiceEmail(bookingId) {
                         <td style="color: #1e293b; text-align: right;"><strong>${invoiceNo}</strong></td>
                     </tr>
                     <tr>
-                        <td style="color: #64748b;"><strong>Travel Package:</strong></td>
-                        <td style="color: #1e293b; text-align: right;">${booking.title || 'Tour Package'}</td>
+                        <td style="color: #64748b;"><strong>Travel Package / Item:</strong></td>
+                        <td style="color: #1e293b; text-align: right;">${travelTitle}</td>
                     </tr>
                     <tr>
-                        <td style="color: #64748b;"><strong>Departure Date:</strong></td>
-                        <td style="color: #1e293b; text-align: right;">${formattedDate}</td>
+                        <td style="color: #64748b;"><strong>Travel Date:</strong></td>
+                        <td style="color: #1e293b; text-align: right;">${dateStr}</td>
                     </tr>
                     <tr>
                         <td style="color: #64748b;"><strong>Payment Status:</strong></td>
-                        <td style="color: #1e293b; text-align: right;"><span style="background-color: ${booking.payment_status === 'paid' ? '#d1fae5' : '#fef3c7'}; color: ${booking.payment_status === 'paid' ? '#065f46' : '#92400e'}; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 700; text-transform: uppercase;">${booking.payment_status}</span></td>
+                        <td style="color: #1e293b; text-align: right;"><span style="background-color: ${isPaid ? '#d1fae5' : '#fef3c7'}; color: ${isPaid ? '#065f46' : '#92400e'}; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 700; text-transform: uppercase;">${paymentStatus}</span></td>
                     </tr>
                     <tr style="border-top: 1px solid #e2e8f0; font-size: 16px;">
                         <td style="color: #1e293b; padding-top: 12px;"><strong>Total Amount:</strong></td>
-                        <td style="color: #10b981; text-align: right; padding-top: 12px;"><strong>${formattedPrice}</strong></td>
+                        <td style="color: #10b981; text-align: right; padding-top: 12px; font-size: 18px;"><strong>${formattedPrice}</strong></td>
                     </tr>
                 </table>
             </div>
@@ -402,17 +523,18 @@ export async function sendInvoiceEmail(bookingId) {
                 </a>
             </div>
 
-            <p style="font-size: 15px; line-height: 1.6; color: #334155; margin-bottom: 0;">If you have any questions regarding your billing or booking details, feel free to reply to this email to contact our accounts department.<br><br>Best regards,<br><strong>Billing Dept.<br>Shrawello Travel Hub</strong></p>
+            <p style="font-size: 15px; line-height: 1.6; color: #334155; margin-bottom: 0;">If you have any questions regarding your billing or booking details, feel free to reply directly to this email to contact our accounts department.<br><br>Best regards,<br><strong>Billing & Accounts Dept.<br>Shrawello Travel Hub</strong></p>
         `);
 
-        await sendEmail({
+        return await sendEmail({
             type: 'billing',
-            to: booking.customer_email,
+            to: recipient,
             subject,
             html
         });
     } catch (err) {
         console.error('[EmailService] Invoice email trigger failed:', err.message);
+        return { success: false, error: err.message };
     }
 }
 
@@ -424,8 +546,9 @@ export async function sendInvoiceEmail(bookingId) {
  */
 export async function sendOTPEmail({ to, name, otp, portal, expiresInMinutes = 10 }) {
     const subject = `Your Password Reset OTP - Shrawello ${portal} Portal`;
+    const greetingName = (name && !name.includes('@')) ? name : 'User';
     const html = wrapTemplate(subject, `
-        <h2 style="margin-top: 0; color: #1e1b4b; font-size: 20px; font-weight: 700;">Hi ${name || 'User'},</h2>
+        <h2 style="margin-top: 0; color: #1e1b4b; font-size: 20px; font-weight: 700;">Hi ${greetingName},</h2>
         <p style="font-size: 15px; line-height: 1.6; color: #334155;">We received a request to reset the password for your Shrawello <strong>${portal} Portal</strong> account.</p>
         <p style="font-size: 15px; line-height: 1.6; color: #334155;">Use the OTP below to verify your identity and set a new password:</p>
 
@@ -457,13 +580,13 @@ export async function sendPartnerKYCVerifiedEmail({ to, name }) {
             <div style="display: inline-block; background-color: #d1fae5; border-radius: 50%; width: 72px; height: 72px; line-height: 72px; font-size: 36px;">✅</div>
         </div>
         <h2 style="margin-top: 0; color: #1e1b4b; font-size: 20px; font-weight: 700; text-align: center;">KYC Verification Successful!</h2>
-        <p style="font-size: 15px; line-height: 1.6; color: #334155;">Dear <strong>${name}</strong>,</p>
+        <p style="font-size: 15px; line-height: 1.6; color: #334155;">Dear <strong>${name || 'Partner'}</strong>,</p>
         <p style="font-size: 15px; line-height: 1.6; color: #334155;">Congratulations! Your KYC documents have been reviewed and <strong style="color: #10b981;">successfully verified</strong> by our team.</p>
         <p style="font-size: 15px; line-height: 1.6; color: #334155;">Your Shrawello Partner account is now fully active. You can now:</p>
         <ul style="font-size: 14px; color: #334155; line-height: 1.8; padding-left: 20px;">
-            <li>Submit and track leads</li>
-            <li>View your commission earnings</li>
-            <li>Access your full partner dashboard</li>
+            <li>Submit and track customer leads</li>
+            <li>View your commission earnings and payouts</li>
+            <li>Access your full partner dashboard and training modules</li>
             <li>Receive commission payouts to your verified bank account</li>
         </ul>
         <div style="text-align: center; margin: 30px 0;">
@@ -487,7 +610,7 @@ export async function sendPartnerKYCRejectedEmail({ to, name, reason }) {
             <div style="display: inline-block; background-color: #fee2e2; border-radius: 50%; width: 72px; height: 72px; line-height: 72px; font-size: 36px;">⚠️</div>
         </div>
         <h2 style="margin-top: 0; color: #1e1b4b; font-size: 20px; font-weight: 700; text-align: center;">KYC Verification Needs Resubmission</h2>
-        <p style="font-size: 15px; line-height: 1.6; color: #334155;">Dear <strong>${name}</strong>,</p>
+        <p style="font-size: 15px; line-height: 1.6; color: #334155;">Dear <strong>${name || 'Partner'}</strong>,</p>
         <p style="font-size: 15px; line-height: 1.6; color: #334155;">We were unable to verify your submitted KYC documents. Here is the reason provided by our verification team:</p>
         <div style="background-color: #fef2f2; border-left: 4px solid #ef4444; padding: 16px 20px; border-radius: 8px; margin: 20px 0;">
             <p style="margin: 0; font-size: 14px; color: #7f1d1d; font-weight: 600;">${reason || 'Documents were unclear or did not match our requirements.'}</p>
@@ -515,7 +638,7 @@ export async function sendPartnerApprovedEmail({ to, name }) {
             <div style="display: inline-block; background: linear-gradient(135deg, #4f46e5, #3730a3); border-radius: 50%; width: 72px; height: 72px; line-height: 72px; font-size: 36px;">🎉</div>
         </div>
         <h2 style="margin-top: 0; color: #1e1b4b; font-size: 20px; font-weight: 700; text-align: center;">Your Partner Account is Approved!</h2>
-        <p style="font-size: 15px; line-height: 1.6; color: #334155;">Dear <strong>${name}</strong>,</p>
+        <p style="font-size: 15px; line-height: 1.6; color: #334155;">Dear <strong>${name || 'Partner'}</strong>,</p>
         <p style="font-size: 15px; line-height: 1.6; color: #334155;">Great news! Your Shrawello Partner account registration has been <strong style="color: #4f46e5;">approved</strong> by our team. You can now log in to your Partner Portal and start earning commissions.</p>
         <div style="background-color: #f1f5f9; border-radius: 12px; padding: 20px; margin: 25px 0;">
             <h3 style="margin-top: 0; font-size: 14px; color: #475569; text-transform: uppercase; letter-spacing: 0.5px;">Next Steps</h3>
@@ -549,7 +672,7 @@ export async function sendPartnerCommissionPaidEmail({ to, name, amount, booking
             <div style="display: inline-block; background-color: #d1fae5; border-radius: 50%; width: 72px; height: 72px; line-height: 72px; font-size: 36px;">💰</div>
         </div>
         <h2 style="margin-top: 0; color: #1e1b4b; font-size: 20px; font-weight: 700; text-align: center;">Commission Payout Processed!</h2>
-        <p style="font-size: 15px; line-height: 1.6; color: #334155;">Dear <strong>${name}</strong>,</p>
+        <p style="font-size: 15px; line-height: 1.6; color: #334155;">Dear <strong>${name || 'Partner'}</strong>,</p>
         <p style="font-size: 15px; line-height: 1.6; color: #334155;">Your commission payout has been processed and is on its way to your registered bank account.</p>
         <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; margin: 25px 0;">
             <table style="width: 100%; border-collapse: collapse; font-size: 14px; line-height: 1.8;">
@@ -565,7 +688,7 @@ export async function sendPartnerCommissionPaidEmail({ to, name, amount, booking
                     <td style="color: #64748b; padding-top: 8px;"><strong>Bank Account:</strong></td>
                     <td style="color: #1e293b; text-align: right; padding-top: 8px;">${bankDetails.accountName || 'Your registered account'}</td>
                 </tr>
-                ${bankDetails.accountNumber ? `<tr><td style="color: #64748b;"><strong>Account No:</strong></td><td style="color: #1e293b; text-align: right;">XXXX${bankDetails.accountNumber.slice(-4)}</td></tr>` : ''}
+                ${bankDetails.accountNumber ? `<tr><td style="color: #64748b;"><strong>Account No:</strong></td><td style="color: #1e293b; text-align: right;">XXXX${String(bankDetails.accountNumber).slice(-4)}</td></tr>` : ''}
             </table>
         </div>
         <p style="font-size: 14px; color: #64748b; line-height: 1.6;">Please allow 2–3 business days for the amount to reflect in your account depending on your bank.</p>
@@ -592,7 +715,7 @@ export async function sendLoyaltyTierUpgradeEmail({ to, name, newTier, converted
         </div>
         <h2 style="margin-top: 0; color: #1e1b4b; font-size: 22px; font-weight: 800; text-align: center;">🎊 Milestone Achieved!</h2>
         <p style="font-size: 22px; font-weight: 800; color: ${color}; text-align: center; margin: 0 0 20px 0;">${newTier} Partner ${icon}</p>
-        <p style="font-size: 15px; line-height: 1.6; color: #334155;">Dear <strong>${name}</strong>,</p>
+        <p style="font-size: 15px; line-height: 1.6; color: #334155;">Dear <strong>${name || 'Partner'}</strong>,</p>
         <p style="font-size: 15px; line-height: 1.6; color: #334155;">Congratulations! You've achieved an incredible milestone — <strong>${converted} bookings converted</strong>. You've been upgraded to <strong style="color: ${color};">${newTier} tier</strong>!</p>
         <div style="background: linear-gradient(135deg, ${color}11, ${color}08); border: 1px solid ${color}44; border-radius: 12px; padding: 20px; margin: 25px 0; text-align: center;">
             <h3 style="margin-top: 0; color: ${color}; font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">${newTier} Tier Benefits</h3>
@@ -615,7 +738,19 @@ export async function sendLoyaltyTierUpgradeEmail({ to, name, newTier, converted
  * @param {object} params - { partnerName, partnerEmail, isResubmission }
  */
 export async function sendPartnerKYCSubmittedAdminEmail({ partnerName, partnerEmail, isResubmission = false }) {
-    const ADMIN_EMAIL = process.env.ADMIN_NOTIFY_EMAIL || process.env.SMTP_FROM || 'hello@shrawello.com';
+    let adminEmail = process.env.ADMIN_NOTIFY_EMAIL || process.env.SMTP_FROM;
+    if (!adminEmail && dbPool) {
+        try {
+            const [rows] = await dbPool.query(
+                "SELECT setting_value FROM settings WHERE setting_key = 'company.email' OR setting_key = 'integrations.smtpGeneral.fromEmail' LIMIT 1"
+            );
+            if (rows.length > 0 && rows[0].setting_value) {
+                try { adminEmail = JSON.parse(rows[0].setting_value); } catch(e) { adminEmail = rows[0].setting_value; }
+            }
+        } catch(e) {}
+    }
+    adminEmail = adminEmail || 'hello@shrawello.com';
+
     const actionLabel = isResubmission ? 'Resubmitted' : 'Submitted';
     const subject = `[Action Required] Partner KYC ${actionLabel} — ${partnerName}`;
     const html = wrapTemplate(subject, `
@@ -633,11 +768,11 @@ export async function sendPartnerKYCSubmittedAdminEmail({ partnerName, partnerEm
             </table>
         </div>
         <div style="text-align: center; margin: 30px 0;">
-            <a href="https://shravyatours.com/#/admin/kyc" style="background-color: #4f46e5; color: #ffffff; text-decoration: none; padding: 14px 28px; font-weight: 700; font-size: 14px; border-radius: 10px; display: inline-block;">
+            <a href="https://shrawello.com/#/admin/kyc" style="background-color: #4f46e5; color: #ffffff; text-decoration: none; padding: 14px 28px; font-weight: 700; font-size: 14px; border-radius: 10px; display: inline-block;">
                 Review KYC Documents →
             </a>
         </div>
         <p style="font-size: 13px; color: #94a3b8; text-align: center; margin-bottom: 0;">This is an automated notification from Shrawello Admin System.</p>
     `);
-    return await sendEmail({ type: 'general', to: ADMIN_EMAIL, subject, html });
+    return await sendEmail({ type: 'general', to: adminEmail, subject, html });
 }

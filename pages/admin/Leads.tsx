@@ -2773,6 +2773,12 @@ export const Leads: React.FC = () => {
                     refId={emailModalLead.id}
                     templateType="custom"
                     title={`Send Email: ${emailModalLead.name}`}
+                    details={{
+                        clientName: emailModalLead.name,
+                        destination: emailModalLead.destination,
+                        travelDates: emailModalLead.travelDates || emailModalLead.startDate,
+                        totalAmount: emailModalLead.potentialValue || emailModalLead.budget
+                    }}
                 />
             )}
         </div>
