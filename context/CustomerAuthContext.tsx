@@ -35,7 +35,7 @@ export interface RegisterData {
   whatsapp?: string;
 }
 
-const CustomerAuthContext = createContext<CustomerAuthContextType | undefined>(undefined);
+const CustomerAuthContext = (globalThis as any).__SHRAWELLO_CUSTOMER_AUTH_CONTEXT__ ?? ((globalThis as any).__SHRAWELLO_CUSTOMER_AUTH_CONTEXT__ = createContext<CustomerAuthContextType | undefined>(undefined));
 
 async function apiFetch(path: string, options: RequestInit = {}) {
   const token = localStorage.getItem(CUSTOMER_JWT_KEY);

@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 import { INDIAN_GST_STATES, getIndianFinancialYear } from '../../utils/gstUtils';
+import { api } from '../../src/lib/api';
 
 // ─── Sidebar tabs ────────────────────────────────────────────────────────────
 const TABS = [
@@ -94,15 +95,97 @@ const SectionCard: React.FC<{ title: string; description?: string; children: Rea
   </div>
 );
 
+// ─── Email Template Themes Configuration ───
+const EMAIL_THEMES: Array<{
+  id: 'luxury_indigo' | 'royal_emerald' | 'sunset_coral' | 'minimal_clean';
+  name: string;
+  badge: string;
+  tagline: string;
+  headerGradient: string;
+  primaryColor: string;
+  pillColor: string;
+  pillBg: string;
+  description: string;
+}> = [
+  {
+    id: 'luxury_indigo',
+    name: 'Modern Luxury Indigo',
+    badge: 'DEFAULT BRAND',
+    tagline: 'Deep indigo gradient with glowing status badges and clean typography',
+    headerGradient: 'from-[#3730a3] via-[#4f46e5] to-[#6366f1]',
+    primaryColor: '#4f46e5',
+    pillColor: '#065f46',
+    pillBg: '#d1fae5',
+    description: 'Flagship look designed for all luxury holiday bookings, flight itineraries, and general customer notifications.'
+  },
+  {
+    id: 'royal_emerald',
+    name: 'Royal Emerald & Gold',
+    badge: 'HERITAGE LUXURY',
+    tagline: 'Forest emerald banner with warm champagne gold accent lines and badges',
+    headerGradient: 'from-[#064e3b] via-[#047857] to-[#059669]',
+    primaryColor: '#059669',
+    pillColor: '#d97706',
+    pillBg: '#fef3c7',
+    description: 'Tailored for high-end luxury palace tours, VIP travelers, and bespoke premium packages.'
+  },
+  {
+    id: 'sunset_coral',
+    name: 'Sunset Coral & Violet',
+    badge: 'ADVENTURE & LEISURE',
+    tagline: 'Tropical sunset gradient with lively rounded cards and energetic badges',
+    headerGradient: 'from-[#f43f5e] via-[#e11d48] to-[#8b5cf6]',
+    primaryColor: '#e11d48',
+    pillColor: '#9f1239',
+    pillBg: '#ffe4e6',
+    description: 'Perfect for beach holidays, honeymoon tours, road trips, and leisure excursions.'
+  },
+  {
+    id: 'minimal_clean',
+    name: 'Minimalist Executive Blue',
+    badge: 'CORPORATE CRISP',
+    tagline: 'Crisp monochrome dark slate with electric blue accent borders and tabular ledger',
+    headerGradient: 'from-[#0f172a] to-[#1e293b]',
+    primaryColor: '#2563eb',
+    pillColor: '#1e40af',
+    pillBg: '#dbeafe',
+    description: 'Engineered for corporate clients, business delegations, car rentals, and formal accounts.'
+  }
+];
+
 // ─── Section: Company Profile ─────────────────────────────────────────────────
 const CompanySection: React.FC = () => {
   const { settings, updateCompany, isSaving } = useSettings();
   const [form, setForm] = useState({ ...settings.company });
   const [isDirty, setIsDirty] = useState(false);
 
+  // Preview modal state
+  const [previewTheme, setPreviewTheme] = useState<string | null>(null);
+  const [previewHtml, setPreviewHtml] = useState<string>('');
+  const [loadingPreview, setLoadingPreview] = useState(false);
+
   const set = (field: string, val: string) => {
     setForm(prev => ({ ...prev, [field]: val }));
     setIsDirty(true);
+  };
+
+  const handleOpenPreview = async (themeId: any) => {
+    setPreviewTheme(themeId);
+    setLoadingPreview(true);
+    try {
+      const res = await api.previewEmail({
+        templateType: 'invoice',
+        theme: themeId
+      });
+      if (res && res.html) {
+        setPreviewHtml(res.html);
+      }
+    } catch (e) {
+      toast.error('Failed to load email preview');
+      setPreviewTheme(null);
+    } finally {
+      setLoadingPreview(false);
+    }
   };
 
   const handleSave = async () => {
@@ -137,6 +220,73 @@ const CompanySection: React.FC = () => {
           <Field label="Logo URL" hint="Appears on PDF invoices & proposals">
             <TextInput value={form.logoUrl} onChange={v => set('logoUrl', v)} placeholder="https://..." />
           </Field>
+        </div>
+      </SectionCard>
+
+      {/* ── Email Template Themes & Design Gallery ── */}
+      <SectionCard title="Email Design Templates & Themes" description="Choose the default responsive design template used when dispatching invoices, proposals, and booking confirmations">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {EMAIL_THEMES.map(th => {
+            const isSelected = (form.emailTemplateTheme || 'luxury_indigo') === th.id;
+            return (
+              <div
+                key={th.id}
+                onClick={() => set('emailTemplateTheme', th.id)}
+                className={`relative rounded-2xl border transition-all cursor-pointer overflow-hidden p-5 flex flex-col justify-between ${
+                  isSelected
+                    ? 'border-primary ring-2 ring-primary/40 bg-primary/[0.03] dark:bg-primary/[0.06] shadow-md'
+                    : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 bg-white dark:bg-slate-900/50'
+                }`}
+              >
+                <div>
+                  <div className={`h-12 rounded-xl bg-gradient-to-r ${th.headerGradient} p-3 flex items-center justify-between text-white shadow-inner mb-3.5`}>
+                    <span className="font-extrabold tracking-wider text-xs uppercase font-sans">SHRAWELLO</span>
+                    <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-white/20 backdrop-blur-sm border border-white/30 text-white">
+                      {th.badge}
+                    </span>
+                  </div>
+
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                        {th.name}
+                        {isSelected && (
+                          <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
+                        )}
+                      </h4>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                        {th.tagline}
+                      </p>
+                    </div>
+                    <input
+                      type="radio"
+                      name="emailTemplateTheme"
+                      checked={isSelected}
+                      onChange={() => set('emailTemplateTheme', th.id)}
+                      className="accent-primary size-4 mt-0.5 cursor-pointer"
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-slate-400">
+                    {th.description.slice(0, 42)}...
+                  </span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleOpenPreview(th.id);
+                    }}
+                    className="text-xs font-bold text-primary hover:text-primary/80 flex items-center gap-1 transition-colors px-2.5 py-1 rounded-lg hover:bg-primary/10"
+                  >
+                    <span className="material-symbols-outlined text-[15px]">visibility</span>
+                    Live Preview
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </SectionCard>
 
@@ -183,6 +333,78 @@ const CompanySection: React.FC = () => {
               <><span className="material-symbols-outlined text-[18px]">save</span>Save Changes</>
             )}
           </button>
+        </div>
+      )}
+
+      {/* Live Email Preview Modal */}
+      {previewTheme && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-200">
+          <div 
+            className="w-full max-w-3xl bg-white dark:bg-[#0f172a] rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col h-[85vh]"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-900">
+              <div className="flex items-center gap-2.5">
+                <span className="material-symbols-outlined text-primary text-[22px]">mark_email_read</span>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800 dark:text-white">Email Design Live Preview</h3>
+                  <p className="text-[11px] text-slate-400 font-mono">Theme: {EMAIL_THEMES.find(t => t.id === previewTheme)?.name}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreviewTheme(null)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800"
+              >
+                <span className="material-symbols-outlined text-[20px]">close</span>
+              </button>
+            </div>
+
+            <div className="flex-1 bg-slate-100 dark:bg-slate-950 p-4 overflow-y-auto flex items-center justify-center">
+              {loadingPreview ? (
+                <div className="flex flex-col items-center gap-3 text-slate-400">
+                  <span className="size-8 border-3 border-primary/30 border-t-primary rounded-full animate-spin" />
+                  <p className="text-xs font-bold">Rendering responsive template...</p>
+                </div>
+              ) : previewHtml ? (
+                <div className="w-full max-w-[620px] bg-white rounded-xl shadow-lg overflow-hidden my-auto">
+                  <iframe
+                    title="Email Preview Frame"
+                    srcDoc={previewHtml}
+                    className="w-full h-[620px] border-0"
+                  />
+                </div>
+              ) : (
+                <p className="text-xs text-slate-400">No preview generated.</p>
+              )}
+            </div>
+
+            <div className="px-6 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex items-center justify-between">
+              <p className="text-[11px] text-slate-400">
+                Responsive HTML layout optimized for Gmail, Apple Mail, and Outlook.
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    set('emailTemplateTheme', previewTheme);
+                    setPreviewTheme(null);
+                    toast.success(`Selected ${EMAIL_THEMES.find(t => t.id === previewTheme)?.name} as default template.`);
+                  }}
+                  className="px-4 py-1.5 bg-primary text-white text-xs font-bold rounded-lg shadow-sm hover:bg-primary/90"
+                >
+                  Set As Default Theme
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPreviewTheme(null)}
+                  className="px-3 py-1.5 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold rounded-lg hover:bg-slate-300 dark:hover:bg-slate-700"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -740,7 +962,7 @@ const IntegrationsSection: React.FC = () => {
   const setGG = (field: string, val: any) => { setForm(p => ({ ...p, google: { ...p.google, [field]: val } })); setIsDirty(true); };
   const setOR = (field: string, val: any) => { setForm(p => ({ ...p, openrouter: { ...p.openrouter, [field]: val } })); setIsDirty(true); };
 
-  const [orModels, setOrModels] = useState<Array<{ id: string, name: string }>>([]);
+  const [orModels, setOrModels] = useState<Array<{ id: string, name: string, isFree?: boolean }>>([]);
   const [loadingModels, setLoadingModels] = useState(false);
 
   useEffect(() => {
@@ -750,16 +972,29 @@ const IntegrationsSection: React.FC = () => {
       .then(res => res.json())
       .then(data => {
         if (data && data.data) {
-          // Sort models alphabetically by name
-          const sorted = data.data
-            .map((m: any) => ({ id: m.id, name: m.name || m.id }))
-            .sort((a: any, b: any) => a.name.localeCompare(b.name));
-          setOrModels(sorted);
+          const list = data.data.map((m: any) => {
+            const isFree = m.id?.endsWith(':free') || m.id === 'openrouter/free' || m.pricing?.prompt === '0';
+            return {
+              id: m.id,
+              name: isFree ? `✨ [FREE] ${m.name || m.id}` : (m.name || m.id),
+              isFree
+            };
+          });
+          const sorted = list.sort((a: any, b: any) => {
+            if (a.isFree && !b.isFree) return -1;
+            if (!a.isFree && b.isFree) return 1;
+            return a.name.localeCompare(b.name);
+          });
+          setOrModels([
+            { id: 'openrouter/free', name: '🌟 [RECOMMENDED FREE] OpenRouter Auto-Free Router (openrouter/free)', isFree: true },
+            ...sorted.filter((m: any) => m.id !== 'openrouter/free')
+          ]);
         }
       })
       .catch(err => console.error('Failed to fetch OpenRouter models:', err))
       .finally(() => setLoadingModels(false));
   }, []);
+
 
   const handleTestSmtp = async (smtpType: 'general' | 'billing') => {
     const targetEmail = prompt(`Enter recipient email address to send test message from ${smtpType === 'general' ? 'General' : 'Billing'} SMTP:`);
@@ -1093,11 +1328,14 @@ const IntegrationsSection: React.FC = () => {
                 </>
               ) : (
                 <>
-                  <option value="google/gemini-2.5-flash">Gemini 2.5 Flash (Fast & Cheap)</option>
-                  <option value="google/gemini-2.5-pro">Gemini 2.5 Pro (High Quality)</option>
-                  <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet (Excellent Reasoning)</option>
-                  <option value="openai/gpt-4o-mini">GPT-4o Mini</option>
+                  <option value="openrouter/free">🌟 [RECOMMENDED FREE] OpenRouter Auto-Free Router</option>
+                  <option value="google/gemma-4-31b-it:free">✨ [FREE] Google Gemma 4 31B</option>
+                  <option value="meta-llama/llama-3.3-70b-instruct:free">✨ [FREE] Llama 3.3 70B Instruct</option>
+                  <option value="deepseek/deepseek-r1:free">✨ [FREE] DeepSeek R1 Reasoning</option>
+                  <option value="qwen/qwen-2.5-72b-instruct:free">✨ [FREE] Qwen 2.5 72B Instruct</option>
+                  <option value="mistralai/mistral-small-24b-instruct-2501:free">✨ [FREE] Mistral Small 24B</option>
                 </>
+
               )}
             </select>
           </Field>

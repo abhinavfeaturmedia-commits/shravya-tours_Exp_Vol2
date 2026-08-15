@@ -11,6 +11,48 @@ if (API_KEY) {
     console.error("Gemini API Key is missing in .env.local");
 }
 
+// Cache for dynamic OpenRouter free models
+let cachedFreeModels: string[] | null = null;
+let lastModelsFetchTime = 0;
+
+const getActiveFreeOpenRouterModels = async (): Promise<string[]> => {
+    const now = Date.now();
+    if (cachedFreeModels && (now - lastModelsFetchTime < 1000 * 60 * 15)) {
+        return cachedFreeModels;
+    }
+    try {
+        const res = await fetch("https://openrouter.ai/api/v1/models");
+        if (res.ok) {
+            const data = await res.json();
+            if (data && Array.isArray(data.data)) {
+                const liveFree = data.data
+                    .filter((m: any) => m.id && (m.id.endsWith(':free') || m.id === 'openrouter/free' || m.pricing?.prompt === '0'))
+                    .map((m: any) => m.id);
+                if (liveFree.length > 0) {
+                    cachedFreeModels = ['openrouter/free', ...liveFree];
+                    lastModelsFetchTime = now;
+                    return cachedFreeModels;
+                }
+            }
+        }
+    } catch (e) {
+        console.warn("[OpenRouter] Could not fetch live models list:", e);
+    }
+    return [
+        'openrouter/free',
+        'google/gemma-4-31b-it:free',
+        'google/gemma-4-26b-a4b-it:free',
+        'openai/gpt-oss-20b:free',
+        'nvidia/nemotron-3-super-120b-a12b:free',
+        'nvidia/nemotron-3-ultra-550b-a55b:free',
+        'nvidia/nemotron-3.5-lightning:free',
+        'meta-llama/llama-3.3-70b-instruct:free',
+        'deepseek/deepseek-r1:free',
+        'qwen/qwen-2.5-72b-instruct:free',
+        'mistralai/mistral-small-24b-instruct-2501:free'
+    ];
+};
+
 // Helper to fetch OpenRouter settings from DB
 const getOpenRouterConfig = async () => {
     try {
@@ -19,7 +61,7 @@ const getOpenRouterConfig = async () => {
         const config = {
             enabled: false,
             apiKey: '',
-            defaultModel: 'google/gemini-2.5-flash'
+            defaultModel: 'openrouter/free'
         };
         if (data && Array.isArray(data)) {
             data.forEach((item: any) => {
@@ -38,7 +80,7 @@ const getOpenRouterConfig = async () => {
         return {
             enabled: false,
             apiKey: '',
-            defaultModel: 'google/gemini-2.5-flash'
+            defaultModel: 'openrouter/free'
         };
     }
 };
@@ -48,24 +90,48 @@ const getAIResponse = async (prompt: string, imageBase64?: string) => {
     const config = await getOpenRouterConfig();
 
     if (config.enabled && config.apiKey) {
-        // Strip quotes around model name if present
-        let configModel = (config.defaultModel || 'meta-llama/llama-3.3-70b-instruct:free')
-            .replace(/^["']|["']$/g, '');
+        const configModel = (config.defaultModel || 'openrouter/free')
+            .replace(/^["']|["']$/g, '')
+            .trim();
 
-        if (configModel === 'openrouter/free') {
-            configModel = 'meta-llama/llama-3.3-70b-instruct:free';
+        const liveFreeModels = await getActiveFreeOpenRouterModels();
+
+        const modelsToTry: string[] = [];
+
+        // If user configured a specific model, try it first
+        if (configModel) {
+            modelsToTry.push(configModel);
+            // If the model name doesn't end with :free and isn't openrouter/free, also try its :free version
+            if (!configModel.endsWith(':free') && configModel !== 'openrouter/free') {
+                const freeVariant = `${configModel}:free`;
+                if (liveFreeModels.includes(freeVariant)) {
+                    modelsToTry.push(freeVariant);
+                }
+            }
         }
 
-        // prioritized list of free fallback models
-        const modelsToTry = [
-            configModel,
-            'meta-llama/llama-3.3-70b-instruct:free',
-            'meta-llama/llama-3.2-3b-instruct:free',
-            'nvidia/nemotron-nano-9b-v2:free'
-        ];
+        // Always include openrouter/free (OpenRouter's official dynamic free router)
+        modelsToTry.push('openrouter/free');
 
-        // Deduplicate while maintaining prioritization order
-        const uniqueModels = Array.from(new Set(modelsToTry));
+        // Add all live free models discovered dynamically
+        modelsToTry.push(...liveFreeModels);
+
+        // Add hardcoded high-quality free fallbacks
+        modelsToTry.push(
+            'google/gemma-4-31b-it:free',
+            'google/gemma-4-26b-a4b-it:free',
+            'openai/gpt-oss-20b:free',
+            'nvidia/nemotron-3-super-120b-a12b:free',
+            'nvidia/nemotron-3-ultra-550b-a55b:free',
+            'nvidia/nemotron-3.5-lightning:free',
+            'meta-llama/llama-3.3-70b-instruct:free',
+            'deepseek/deepseek-r1:free',
+            'qwen/qwen-2.5-72b-instruct:free',
+            'mistralai/mistral-small-24b-instruct-2501:free'
+        );
+
+        // Deduplicate while maintaining priority
+        const uniqueModels = Array.from(new Set(modelsToTry.filter(Boolean)));
 
         const callOpenRouter = async (model: string): Promise<string> => {
             let bodyPayload: any;
@@ -126,12 +192,38 @@ const getAIResponse = async (prompt: string, imageBase64?: string) => {
             try {
                 console.log(`[AI] Attempting OpenRouter call with model: ${model}`);
                 return await callOpenRouter(model);
-            } catch (err) {
-                console.warn(`[AI] OpenRouter call failed with model ${model}:`, err);
+            } catch (err: any) {
+                console.warn(`[AI] OpenRouter model ${model} failed (${err?.message || err}). Trying next free model in queue...`);
                 lastError = err;
             }
         }
-        throw lastError || new Error("All OpenRouter models in the fallback queue failed.");
+
+        // If OpenRouter calls all failed, try direct Gemini API as ultimate safety net
+        if (genAI) {
+            console.warn("[AI] All OpenRouter models exhausted. Falling back to direct Google Gemini API...");
+            try {
+                const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+                if (imageBase64) {
+                    const base64Data = imageBase64.split(',')[1] || imageBase64;
+                    const mimeType = imageBase64.match(/data:([^;]+);/)?.[1] || "image/jpeg";
+                    const imagePart = {
+                        inlineData: {
+                            data: base64Data,
+                            mimeType: mimeType
+                        }
+                    };
+                    const result = await model.generateContent([prompt, imagePart]);
+                    return result.response.text();
+                } else {
+                    const result = await model.generateContent(prompt);
+                    return result.response.text();
+                }
+            } catch (geminiErr) {
+                console.error("[AI] Direct Gemini fallback also failed:", geminiErr);
+            }
+        }
+
+        throw lastError || new Error("AI service temporarily unavailable. Please check your OpenRouter API key in Settings.");
     } else {
         console.log("[AI] Using direct Gemini API fallback");
         if (!genAI) {
@@ -164,11 +256,17 @@ const getAIResponse = async (prompt: string, imageBase64?: string) => {
     }
 };
 
-const robustParseJson = (text: string): any => {
-    // Remove markdown code fences if present
-    let clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
 
-    // Find the first occurrence of '{' or '[' and the last occurrence of '}' or ']'
+export const robustParseJson = (text: string): any => {
+    if (!text) return null;
+    
+    // 1. Strip DeepSeek R1 reasoning tags <think>...</think>
+    let clean = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+
+    // 2. Remove markdown code fences if present
+    clean = clean.replace(/```json/gi, '').replace(/```/g, '').trim();
+
+    // 3. Find the first occurrence of '{' or '[' and the last occurrence of '}' or ']'
     const firstBrace = clean.indexOf('{');
     const firstBracket = clean.indexOf('[');
 
@@ -195,34 +293,168 @@ const robustParseJson = (text: string): any => {
         clean = clean.substring(start, end + 1);
     }
 
-    return JSON.parse(clean);
+    // 4. Remove any illegal trailing commas before closing braces/brackets
+    clean = clean.replace(/,\s*([}\]])/g, '$1');
+
+    try {
+        return JSON.parse(clean);
+    } catch (err) {
+        // As fallback, try secondary regex-based extraction
+        const match = clean.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
+        if (match) {
+            return JSON.parse(match[0].replace(/,\s*([}\]])/g, '$1'));
+        }
+        throw err;
+    }
 };
 
-export const generateItinerary = async (destination: string, days: number, travelers: string, startDate: string) => {
-    const prompt = `
-    You are an expert travel planner for SHRAWELLO Travel Hub.
-    Create a detailed ${days}-day itinerary for a trip to ${destination} for ${travelers}.
-    The trip starts on ${startDate}.
+export interface GenerateItineraryOptions {
+    destination: string;
+    destinationsList?: Array<{ name: string; nights: number; order: number }>;
+    days: number;
+    travelers: string;
+    startDate: string;
+    tripStyle?: string; // 'Honeymoon' | 'Family' | 'Adventure' | 'Cultural' | 'Luxury' | 'Leisure' | 'Budget'
+    pace?: 'Relaxed' | 'Balanced' | 'Explorer';
+    interests?: string[];
+    specialRequests?: string;
+    masterContext?: {
+        hotels?: Array<{ id: string; name: string; stars?: number; area?: string; price?: number }>;
+        activities?: Array<{ id: string; name: string; category?: string; cost?: number; duration?: string }>;
+        transports?: Array<{ id: string; name: string; type?: string; cost?: number; capacity?: number }>;
+    };
+}
 
-    Return ONLY a JSON object with the following structure (no markdown, no extra text):
+export const generateItinerary = async (
+    destinationOrOptions: string | GenerateItineraryOptions,
+    daysArg?: number,
+    travelersArg?: string,
+    startDateArg?: string,
+    extraOptions?: Partial<GenerateItineraryOptions>
+) => {
+    // Normalize arguments for backward compatibility
+    let opts: GenerateItineraryOptions;
+    if (typeof destinationOrOptions === 'object') {
+        opts = destinationOrOptions;
+    } else {
+        opts = {
+            destination: destinationOrOptions,
+            days: daysArg || 3,
+            travelers: travelersArg || '2 Adults',
+            startDate: startDateArg || 'Upcoming',
+            ...extraOptions
+        };
+    }
+
+    const {
+        destination,
+        destinationsList,
+        days,
+        travelers,
+        startDate,
+        tripStyle = 'Balanced Vacation',
+        pace = 'Balanced',
+        interests = [],
+        specialRequests = '',
+        masterContext
+    } = opts;
+
+    // Build Master Inventory Context if available
+    let catalogSnippet = '';
+    if (masterContext) {
+        const hList = (masterContext.hotels || []).slice(0, 8).map(h => `- Hotel: "${h.name}" (ID: ${h.id}, ${h.stars || 4}★, ₹${h.price || 0}/night, Area: ${h.area || destination})`).join('\n');
+        const aList = (masterContext.activities || []).slice(0, 12).map(a => `- Activity: "${a.name}" (ID: ${a.id}, ₹${a.cost || 0}, ${a.duration || '2h'}, Category: ${a.category || 'Sightseeing'})`).join('\n');
+        const tList = (masterContext.transports || []).slice(0, 4).map(t => `- Vehicle: "${t.name}" (ID: ${t.id}, ₹${t.cost || 0}/day, ${t.type || 'SUV'})`).join('\n');
+
+        catalogSnippet = `
+AVAILABLE AGENCY MASTER DATABASE INVENTORY (Use matching ID and names where appropriate):
+${hList ? `[Hotels]\n${hList}\n` : ''}
+${aList ? `[Activities]\n${aList}\n` : ''}
+${tList ? `[Transports]\n${tList}\n` : ''}
+If an item from the master inventory fits the itinerary, use its exact name, "masterId", and estimated cost. Otherwise, you may suggest premier local activities.
+`;
+    }
+
+    let multiLegText = '';
+    if (destinationsList && destinationsList.length > 1) {
+        multiLegText = `
+MULTI-DESTINATION ITINERARY ROUTE:
+${destinationsList.map((d, i) => `Leg ${i + 1}: ${d.name} (${d.nights} Nights)`).join(' -> ')}
+Please ensure that inter-destination travel, hotel check-outs, and scenic transfers are scheduled realistically on transit days.
+`;
+    }
+
+    const prompt = `
+You are a World-Class Destination Management Company (DMC) Senior Tour Designer for SHRAWELLO Travel Hub.
+Design an experiential, seamless, and premium ${days}-day itinerary for ${destination}.
+
+TRIP PARAMETERS:
+- Travelers: ${travelers}
+- Trip Dates: Starts on ${startDate} (${days} Days)
+- Trip Style & Vibe: ${tripStyle}
+- Travel Pace: ${pace} (e.g. Relaxed: 1-2 curated highlights per day; Balanced: 2-4 items; Explorer: 4-5 items)
+- Specific Interests: ${interests.length > 0 ? interests.join(', ') : 'Iconic sights, authentic culinary gems, scenic photography & local culture'}
+${specialRequests ? `- Special Notes/Requests: "${specialRequests}"` : ''}
+${multiLegText}
+${catalogSnippet}
+
+EXPERT TOUR DESIGN PRINCIPLES:
+1. GEOGRAPHIC PROXIMITY: Group morning, afternoon, and evening sights in the same sector/neighborhood to minimize transit.
+2. SENSORY & IMMERSIVE DESCRIPTIONS: Avoid plain 1-line text. Write vivid, engaging descriptions with highlights, atmosphere, and practical tips.
+3. MULTI-SERVICE GRANULARITY: Categorize each line item strictly into:
+   - "transport": Airport pickups, inter-city drives, scenic transfers, private cabs.
+   - "hotel": Check-in and property relaxation on Day 1 or inter-city hotel switches.
+   - "activity": Guided monuments, nature treks, boat cruises, heritage walks, culinary tours.
+   - "guide": Monument escort or private local heritage guides.
+   - "note": Essential local tips (e.g., dress codes for temples, altitude acclimation, best photo angles).
+4. REALISTIC COSTS: Provide realistic estimated Net Costs in INR (₹) for private tours, entry fees, and transfers (do NOT just return 0 unless genuinely free).
+5. INCLUSIONS & EXCLUSIONS: Generate 4-6 specific inclusions and 4-6 specific exclusions tailored to this exact trip.
+
+OUTPUT FORMAT:
+Return ONLY a valid JSON object matching this exact structure (no markdown fences, no leading/trailing commentary):
+{
+  "title": "A catchy, evocative luxury package title (e.g. 'Enchanting Kashmir: Houseboats, Glaciers & Mughal Splendor')",
+  "highlights": ["3-4 bullet point key highlights of this holiday"],
+  "included": ["Daily buffet breakfast at hotels", "Private AC vehicle for all transfers and sightseeing", "Sightseeing entry tickets & shikara ride"],
+  "notIncluded": ["Personal expenses & tips", "Airfare unless specified", "Optional adventure water sports"],
+  "days": [
     {
-      "title": "A catchy title for the trip",
-      "days": [
+      "day": 1,
+      "title": "Evocative Theme (e.g. 'Arrival in Paradise & Sunset Shikara on Dal Lake')",
+      "notes": "Acclimatize at ease today. Keep warm shawl handy for the evening breeze.",
+      "items": [
         {
-          "day": 1,
-          "title": "Short title for the day (e.g. Arrival & Relax)",
-          "activities": [
-             {
-               "time": "10:00 AM",
-               "description": "Activity detail...",
-               "cost": 0,
-               "type": "activity" 
-             }
-          ]
+          "time": "10:30 AM",
+          "type": "transport",
+          "title": "Private Airport Welcome & Hotel Transfer",
+          "description": "Meet your private chauffeur at the arrivals terminal with a warm welcome. Enjoy a scenic drive to your resort with refreshing welcome drinks.",
+          "cost": 1500,
+          "duration": "45 Mins",
+          "masterId": ""
+        },
+        {
+          "time": "01:00 PM",
+          "type": "hotel",
+          "title": "Resort Check-In & Leisure Lunch",
+          "description": "Check in to your deluxe lakefront room. Freshen up and savor traditional Kashmiri Wazwan or continental delicacies at the garden cafe.",
+          "cost": 6500,
+          "duration": "2 Hours",
+          "masterId": ""
+        },
+        {
+          "time": "05:00 PM",
+          "type": "activity",
+          "title": "Romantic Sunset Shikara Cruise on Dal Lake",
+          "description": "Glide over tranquil waters through floating lotus gardens and the historic Char Chinar island as the sun casts a golden glow over Zabarwan hills.",
+          "cost": 1200,
+          "duration": "1.5 Hours",
+          "masterId": ""
         }
       ]
     }
-  `;
+  ]
+}
+`;
 
     try {
         const text = await getAIResponse(prompt);
@@ -232,6 +464,150 @@ export const generateItinerary = async (destination: string, days: number, trave
         throw error;
     }
 };
+
+// ─── Micro-AI Helpers ─────────────────────────────────────────────────────────
+
+/**
+ * Regenerates a single day with custom instructions (e.g. "Add water sports" or "Make it more romantic")
+ */
+export const regenerateSingleDay = async (params: {
+    dayNumber: number;
+    destination: string;
+    currentItems: any[];
+    promptInstruction: string;
+    travelers?: string;
+    tripStyle?: string;
+}) => {
+    const { dayNumber, destination, currentItems, promptInstruction, travelers = '2 Guests', tripStyle = 'Curated' } = params;
+
+    const prompt = `
+You are an expert travel designer for SHRAWELLO Travel Hub.
+Redesign Day ${dayNumber} of an itinerary in ${destination} for ${travelers} (${tripStyle} style).
+
+USER SPECIFIC REQUEST / MODIFICATION:
+"${promptInstruction}"
+
+CURRENT ITEMS ON THIS DAY (FOR REFERENCE):
+${JSON.stringify(currentItems.map(i => ({ title: i.title, type: i.type, time: i.time })))}
+
+Create a refreshed, high-quality, geographically logical plan for Day ${dayNumber}.
+Return ONLY a valid JSON object matching this structure:
+{
+  "day": ${dayNumber},
+  "title": "New theme/title for this day",
+  "notes": "Practical tip or reminder for this day",
+  "items": [
+    {
+      "time": "09:30 AM",
+      "type": "activity",
+      "title": "Clear descriptive title",
+      "description": "Vivid 2-sentence description with highlights and tips",
+      "cost": 1500,
+      "duration": "2.5 Hours"
+    }
+  ]
+}
+`;
+
+    const text = await getAIResponse(prompt);
+    return robustParseJson(text);
+};
+
+/**
+ * Elevates dry, basic text into luxury brochure-grade travel copy
+ */
+export const polishItineraryCopy = async (itemTitle: string, itemDescription: string, type: string, destination?: string) => {
+    const prompt = `
+You are a senior luxury travel copywriter. Polish and elevate this travel itinerary item into an evocative, irresistible brochure description.
+
+Destination: ${destination || 'Destination'}
+Item Type: ${type}
+Current Title: "${itemTitle}"
+Current Description: "${itemDescription || 'Standard sightseeing'}"
+
+Requirements:
+- Keep the title clear, premium, and concise.
+- Write a vivid, sensory 2-3 sentence description highlighting the unique experience, atmosphere, and what makes it unmissable.
+- Return ONLY a JSON object:
+{
+  "title": "Polished Catchy Title",
+  "description": "Evocative, descriptive copy..."
+}
+`;
+
+    const text = await getAIResponse(prompt);
+    return robustParseJson(text);
+};
+
+/**
+ * Generates tailored Inclusions and Exclusions based on trip details and items
+ */
+export const generateInclusionsExclusions = async (destination: string, days: number, items: any[], tripStyle?: string) => {
+    const itemsSummary = (items || []).slice(0, 20).map(i => `${i.type.toUpperCase()}: ${i.title}`).join(', ');
+
+    const prompt = `
+You are a travel contracting specialist for SHRAWELLO Travel Hub.
+Generate a comprehensive list of "Included" and "Not Included" package terms for a ${days}-day trip to ${destination} (${tripStyle || 'Custom Tour'}).
+
+PLANNED ITINERARY ITEMS:
+${itemsSummary || 'Standard private holiday package'}
+
+Return ONLY a valid JSON object:
+{
+  "included": [
+    "0${days - 1} Nights accommodation in verified deluxe properties",
+    "Daily buffet breakfast at all hotels",
+    "All inter-city transfers and local sightseeing in private AC vehicle",
+    "Driver allowances, toll taxes, state permits and fuel charges",
+    "Entry tickets & experiences as outlined in the day-by-day plan"
+  ],
+  "notIncluded": [
+    "Airfare / Train tickets unless explicitly mentioned",
+    "Meals other than specified (Lunch & Personal dinners)",
+    "Monument camera fees & personal guide services where optional",
+    "Early check-in and late check-out charges",
+    "Personal expenses such as laundry, room service, telephone calls & tips",
+    "Any cost arising due to unforeseen weather disruptions or flight delays"
+  ]
+}
+`;
+
+    const text = await getAIResponse(prompt);
+    return robustParseJson(text);
+};
+
+/**
+ * Generates 4-5 destination-tailored FAQs
+ */
+export const generateDestinationFAQs = async (destination: string, days: number, highlights?: string[]) => {
+    const prompt = `
+You are a local tour guide and destination specialist for ${destination}.
+Create 4 to 5 essential, practical FAQs that travelers ask when planning a ${days}-day trip to ${destination}.
+
+Consider destination-specific topics such as:
+1. Best season / weather conditions
+2. Local permit requirements / ID proofs / Border passes
+3. Recommended clothing / dress codes for temples or mountains
+4. Health / altitude sickness precautions or packing advice
+5. Local currency / SIM card / connectivity tips
+
+Return ONLY a valid JSON array of FAQ objects:
+[
+  {
+    "q": "What is the best time to visit ${destination}?",
+    "a": "Detailed, accurate answer..."
+  },
+  {
+    "q": "Are special permits or IDs required for sightseeing?",
+    "a": "Detailed, accurate answer..."
+  }
+]
+`;
+
+    const text = await getAIResponse(prompt);
+    return robustParseJson(text);
+};
+
 
 export const analyzeLead = async (lead: any) => {
     const prompt = `

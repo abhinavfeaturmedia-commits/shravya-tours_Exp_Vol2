@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useItinerary, FAQItem } from '../ItineraryContext';
 import { useData } from '../../../context/DataContext';
-import { HelpCircle, Plus, Trash2, ArrowUp, ArrowDown, RotateCcw, ArrowRight, ArrowLeft } from 'lucide-react';
+import { HelpCircle, Plus, Trash2, ArrowUp, ArrowDown, RotateCcw, ArrowRight, ArrowLeft, Sparkles, Wand2, Loader2 } from 'lucide-react';
+import { generateDestinationFAQs } from '../../../src/lib/gemini';
 import { toast } from 'sonner';
 
 interface Props {
@@ -26,6 +27,7 @@ const GENERAL_DEFAULTS: FAQItem[] = [
 export const StepFAQs: React.FC<Props> = ({ onBack, onDone }) => {
     const { faqs, setFaqs, tripDetails } = useItinerary();
     const { masterLocations } = useData();
+    const [isGeneratingFaqs, setIsGeneratingFaqs] = useState(false);
 
     const destinationName = masterLocations?.find(
         (l: any) => String(l.id) === String(tripDetails.destination)
@@ -70,6 +72,29 @@ export const StepFAQs: React.FC<Props> = ({ onBack, onDone }) => {
         toast.success(`Populated ${isLadakh ? 'Leh/Ladakh' : 'general'} default FAQs!`);
     };
 
+    const handleGenerateAiFaqs = async () => {
+        if (!destinationName) {
+            toast.error('Please select a destination in Trip Details first.');
+            return;
+        }
+        setIsGeneratingFaqs(true);
+        const toastId = toast.loading(`Generating destination FAQs for ${destinationName}...`);
+        try {
+            const aiFaqs = await generateDestinationFAQs(destinationName, tripDetails.days);
+            if (aiFaqs && Array.isArray(aiFaqs) && aiFaqs.length > 0) {
+                setFaqs(aiFaqs);
+                toast.success(`Generated ${aiFaqs.length} curated FAQs for ${destinationName}!`, { id: toastId });
+            } else {
+                toast.error('Could not generate FAQs, loaded defaults.', { id: toastId });
+                handleResetToDefaults();
+            }
+        } catch (err: any) {
+            toast.error(err.message || 'AI FAQ Generation failed', { id: toastId });
+        } finally {
+            setIsGeneratingFaqs(false);
+        }
+    };
+
     const handleNext = () => {
         // Validation: Warn but don't strictly block if some FAQs are empty
         const hasEmpty = faqs.some(f => !f.q.trim() || !f.a.trim());
@@ -89,15 +114,27 @@ export const StepFAQs: React.FC<Props> = ({ onBack, onDone }) => {
                     <p className="text-sm text-stone-500 mt-1">Configure questions and answers specifically for this package.</p>
                 </div>
                 
-                <button
-                    type="button"
-                    onClick={handleResetToDefaults}
-                    className="flex items-center gap-1.5 px-4 py-2 border border-stone-200 hover:border-amber-400 bg-white dark:bg-slate-800 text-stone-650 hover:text-amber-600 rounded-xl text-xs font-bold shadow-sm transition-all"
-                >
-                    <RotateCcw size={13} />
-                    Reset to {isLadakh ? 'Ladakh' : 'General'} Defaults
-                </button>
+                <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                        type="button"
+                        onClick={handleGenerateAiFaqs}
+                        disabled={isGeneratingFaqs}
+                        className="flex items-center gap-1.5 px-4 py-2 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-md shadow-violet-600/20 transition-all active:scale-95"
+                    >
+                        <Sparkles size={13} className={isGeneratingFaqs ? 'animate-spin' : ''} />
+                        {isGeneratingFaqs ? 'Generating FAQs…' : 'AI Generate Destination FAQs'}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={handleResetToDefaults}
+                        className="flex items-center gap-1.5 px-4 py-2 border border-stone-200 hover:border-amber-400 bg-white dark:bg-slate-800 text-stone-650 hover:text-amber-600 rounded-xl text-xs font-bold shadow-sm transition-all"
+                    >
+                        <RotateCcw size={13} />
+                        Reset Defaults
+                    </button>
+                </div>
             </div>
+
 
             {/* FAQs List Area */}
             <div className="flex-1 space-y-4 mb-8">

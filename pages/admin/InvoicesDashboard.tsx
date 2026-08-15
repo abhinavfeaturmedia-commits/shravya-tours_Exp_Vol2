@@ -770,6 +770,8 @@ export const InvoicesDashboard: React.FC = () => {
                         documentType: emailModalInvoice.document_type || 'Invoice',
                         travelDates: emailModalInvoice.travel_dates || (emailModalInvoice.travel_date_from ? new Date(emailModalInvoice.travel_date_from).toLocaleDateString('en-IN') : undefined),
                         totalAmount: emailModalInvoice.total_amount,
+                        amountPaid: emailModalInvoice.amount_paid,
+                        balanceDue: emailModalInvoice.balance_due,
                         paymentStatus: emailModalInvoice.payment_status || emailModalInvoice.status || 'Unpaid'
                     }}
                 />

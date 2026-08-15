@@ -113,7 +113,7 @@ interface MasterDataContextType {
     getHotelById: (id: string) => MasterHotel | undefined;
 }
 
-const MasterDataContext = createContext<MasterDataContextType | undefined>(undefined);
+const MasterDataContext = (globalThis as any).__SHRAWELLO_MASTER_DATA_CONTEXT__ ?? ((globalThis as any).__SHRAWELLO_MASTER_DATA_CONTEXT__ = createContext<MasterDataContextType | undefined>(undefined));
 
 export const MasterDataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [locations, setLocations] = useState<MasterLocation[]>(() =>

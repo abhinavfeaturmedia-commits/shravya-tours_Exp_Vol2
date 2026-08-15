@@ -112,12 +112,24 @@ const INITIAL_CUSTOMERS: Customer[] = [
 ];
 
 const INITIAL_MASTER_LOCATIONS: MasterLocation[] = [
-  { id: 'LOC-001', name: 'Goa', type: 'State', region: 'West India', status: 'Active' },
-  { id: 'LOC-002', name: 'Manali', type: 'City', region: 'Himachal Pradesh', status: 'Active' },
-  { id: 'LOC-003', name: 'Kerala', type: 'State', region: 'South India', status: 'Active' },
-  { id: 'LOC-004', name: 'Bali', type: 'City', region: 'Indonesia', status: 'Active' },
-  { id: 'LOC-005', name: 'Dubai', type: 'City', region: 'UAE', status: 'Active' },
-  { id: 'LOC-006', name: 'Jaipur', type: 'City', region: 'Rajasthan', status: 'Active' },
+  { id: 'LOC-001', name: 'Delhi', type: 'City', region: 'North India', status: 'Active' },
+  { id: 'LOC-002', name: 'Leh Ladakh', type: 'City', region: 'Ladakh', status: 'Active' },
+  { id: 'LOC-003', name: 'Srinagar', type: 'City', region: 'Kashmir', status: 'Active' },
+  { id: 'LOC-004', name: 'Goa', type: 'State', region: 'West India', status: 'Active' },
+  { id: 'LOC-005', name: 'Manali', type: 'City', region: 'Himachal Pradesh', status: 'Active' },
+  { id: 'LOC-006', name: 'Kerala', type: 'State', region: 'South India', status: 'Active' },
+  { id: 'LOC-007', name: 'Jaipur', type: 'City', region: 'Rajasthan', status: 'Active' },
+  { id: 'LOC-008', name: 'Udaipur', type: 'City', region: 'Rajasthan', status: 'Active' },
+  { id: 'LOC-009', name: 'Agra', type: 'City', region: 'Uttar Pradesh', status: 'Active' },
+  { id: 'LOC-010', name: 'Varanasi', type: 'City', region: 'Uttar Pradesh', status: 'Active' },
+  { id: 'LOC-011', name: 'Shimla', type: 'City', region: 'Himachal Pradesh', status: 'Active' },
+  { id: 'LOC-012', name: 'Andaman', type: 'State', region: 'Bay of Bengal', status: 'Active' },
+  { id: 'LOC-013', name: 'Dubai', type: 'City', region: 'UAE', status: 'Active' },
+  { id: 'LOC-014', name: 'Bali', type: 'City', region: 'Indonesia', status: 'Active' },
+  { id: 'LOC-015', name: 'Singapore', type: 'Country', region: 'Southeast Asia', status: 'Active' },
+  { id: 'LOC-016', name: 'Thailand', type: 'Country', region: 'Southeast Asia', status: 'Active' },
+  { id: 'LOC-017', name: 'Maldives', type: 'Country', region: 'Indian Ocean', status: 'Active' },
+  { id: 'LOC-018', name: 'Vietnam', type: 'Country', region: 'Southeast Asia', status: 'Active' },
 ];
 
 const INITIAL_MASTER_HOTELS: MasterHotel[] = [
@@ -423,7 +435,7 @@ interface DataContextType {
   deleteOfferBanner: (id: string) => Promise<void>;
 }
 
-const DataContext = createContext<DataContextType | undefined>(undefined);
+const DataContext = (globalThis as any).__SHRAWELLO_DATA_CONTEXT__ ?? ((globalThis as any).__SHRAWELLO_DATA_CONTEXT__ = createContext<DataContextType | undefined>(undefined));
 
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isAuthenticated } = useAuth();
@@ -434,9 +446,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [masterLocations, setMasterLocations] = useState<MasterLocation[]>([]);
+  const [masterLocations, setMasterLocations] = useState<MasterLocation[]>(() => loadFromStorageNonEmpty(`${STORAGE_KEY}_m_locations`, INITIAL_MASTER_LOCATIONS));
+
+  useEffect(() => {
+    saveToStorage(`${STORAGE_KEY}_m_locations`, masterLocations);
+  }, [masterLocations]);
 
   // Local/Mock Secondary Data
+
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
 
@@ -548,9 +565,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setTrendingDestinations(trendingList);
       setOfferBanners(offersList);
 
-      if (bulkRes.master_locations) setMasterLocations(bulkRes.master_locations as MasterLocation[]);
-      if (bulkRes.master_hotels) setMasterHotels(bulkRes.master_hotels.map(api.mapMasterHotel));
-      if (bulkRes.master_activities) setMasterActivities(bulkRes.master_activities);
+      if (bulkRes.master_locations && Array.isArray(bulkRes.master_locations) && bulkRes.master_locations.length > 0) {
+        setMasterLocations(bulkRes.master_locations as MasterLocation[]);
+      }
+      if (bulkRes.master_hotels && Array.isArray(bulkRes.master_hotels) && bulkRes.master_hotels.length > 0) {
+        setMasterHotels(bulkRes.master_hotels.map(api.mapMasterHotel));
+      }
+      if (bulkRes.master_activities && Array.isArray(bulkRes.master_activities) && bulkRes.master_activities.length > 0) {
+        setMasterActivities(bulkRes.master_activities);
+      }
+
       if (bulkRes.cms_banners) setCmsBanners(bulkRes.cms_banners.length > 0 ? bulkRes.cms_banners.map(api.mapCMSBanner) : cmsBanners);
       if (bulkRes.cms_testimonials) setCmsTestimonials(bulkRes.cms_testimonials.length > 0 ? bulkRes.cms_testimonials.map(api.mapCMSTestimonial) : cmsTestimonials);
       if (bulkRes.cms_gallery_images) setCmsGallery(bulkRes.cms_gallery_images.length > 0 ? bulkRes.cms_gallery_images.map(api.mapCMSGalleryImage) : cmsGallery);

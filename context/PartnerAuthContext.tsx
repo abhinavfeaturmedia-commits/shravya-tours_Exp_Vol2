@@ -14,7 +14,7 @@ interface PartnerAuthContextType {
   agreeToTerms: () => Promise<void>;
 }
 
-const PartnerAuthContext = createContext<PartnerAuthContextType | undefined>(undefined);
+const PartnerAuthContext = (globalThis as any).__SHRAWELLO_PARTNER_AUTH_CONTEXT__ ?? ((globalThis as any).__SHRAWELLO_PARTNER_AUTH_CONTEXT__ = createContext<PartnerAuthContextType | undefined>(undefined));
 
 async function fetchWithPartnerToken(path: string, options: RequestInit = {}) {
   const token = localStorage.getItem(PARTNER_JWT_KEY);

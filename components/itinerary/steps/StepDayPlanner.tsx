@@ -6,9 +6,10 @@ import { ServiceSelector } from '../selectors/ServiceSelector';
 import {
     Plus, Hotel, Bike, Car, Plane, StickyNote, Trash2, Clock,
     ChevronUp, ChevronDown, Sparkles, MoreHorizontal, IndianRupee, MapPin, RefreshCw,
-    Shield, UserCheck, AlertTriangle
+    Shield, UserCheck, AlertTriangle, Wand2, Compass, Heart, Users, Mountain,
+    Landmark, Utensils, Waves, Crown, X, Check, HelpCircle
 } from 'lucide-react';
-import { generateItinerary } from '../../../src/lib/gemini';
+import { generateItinerary, regenerateSingleDay, polishItineraryCopy } from '../../../src/lib/gemini';
 import { toast } from 'sonner';
 import { api } from '../../../src/lib/api';
 import { Image } from 'lucide-react';
@@ -42,11 +43,11 @@ interface AiAutoPlanLoadingModalProps {
 }
 
 const LOADING_MESSAGES = [
-    'Initializing Shrawello intelligence...',
-    'Analyzing guest preferences & count...',
-    'Consulting regional activities catalog...',
-    'Structuring optimal route & daily order...',
-    'Assembling your personalized holiday experience...',
+    'Initializing Shrawello intelligence with Free AI...',
+    'Analyzing travel party & destination geography...',
+    'Consulting master catalog activities & hotels...',
+    'Structuring optimal morning-to-night flow & transfers...',
+    'Polishing experiential brochure descriptions...',
 ];
 
 const AiAutoPlanLoadingModal: React.FC<AiAutoPlanLoadingModalProps> = ({ isOpen }) => {
@@ -54,10 +55,9 @@ const AiAutoPlanLoadingModal: React.FC<AiAutoPlanLoadingModalProps> = ({ isOpen 
 
     useEffect(() => {
         if (!isOpen) return;
-        // Cycle messages to keep the loading state interactive
         const interval = setInterval(() => {
             setMessageIdx((prev) => (prev + 1) % LOADING_MESSAGES.length);
-        }, 2500);
+        }, 2200);
         return () => clearInterval(interval);
     }, [isOpen]);
 
@@ -66,11 +66,9 @@ const AiAutoPlanLoadingModal: React.FC<AiAutoPlanLoadingModalProps> = ({ isOpen 
     return createPortal(
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md flex flex-col items-center justify-center z-[99999] p-4">
             <div className="bg-white/95 dark:bg-slate-900/95 border border-stone-200/50 dark:border-slate-800 rounded-3xl p-8 max-w-sm w-full shadow-2xl flex flex-col items-center justify-center relative text-center overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-                {/* Background ambient glowing blobs for premium feel */}
                 <div className="absolute -top-12 -left-12 size-24 bg-violet-500/10 rounded-full blur-xl animate-pulse"></div>
                 <div className="absolute -bottom-12 -right-12 size-24 bg-indigo-500/10 rounded-full blur-xl animate-pulse"></div>
 
-                {/* Pulsing glow ring around logo */}
                 <div className="relative mb-6">
                     <div className="absolute -inset-1 bg-gradient-to-r from-violet-600 to-indigo-600 rounded-full blur-md opacity-75 animate-pulse"></div>
                     <div className="relative size-24 rounded-full bg-white flex items-center justify-center p-3 shadow-lg border border-slate-100/50">
@@ -78,24 +76,21 @@ const AiAutoPlanLoadingModal: React.FC<AiAutoPlanLoadingModalProps> = ({ isOpen 
                     </div>
                 </div>
 
-                {/* Intelligence branding */}
                 <div className="flex flex-col items-center gap-1 mb-6">
                     <span className="text-stone-900 dark:text-white font-extrabold text-2xl tracking-wide">
                         SHRAWELLO
                     </span>
                     <span className="text-xs font-bold tracking-[0.25em] uppercase bg-gradient-to-r from-violet-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent animate-pulse">
-                        intelligence
+                        DMC Intelligence
                     </span>
                 </div>
 
-                {/* Subtext message */}
                 <div className="h-12 flex items-center justify-center px-4">
                     <p className="text-sm font-medium text-stone-600 dark:text-stone-300 animate-in fade-in duration-300" key={messageIdx}>
                         {LOADING_MESSAGES[messageIdx]}
                     </p>
                 </div>
 
-                {/* Modern loading indicator (3 dots) */}
                 <div className="mt-6 flex items-center justify-center gap-1.5">
                     <span className="size-2 bg-violet-600 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
                     <span className="size-2 bg-indigo-600 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
@@ -107,48 +102,430 @@ const AiAutoPlanLoadingModal: React.FC<AiAutoPlanLoadingModalProps> = ({ isOpen 
     );
 };
 
+// ─── AI Trip Customizer Modal ────────────────────────────────────────────────
+const TRIP_STYLES = [
+    { id: 'Romantic / Honeymoon', label: 'Honeymoon & Romantic', icon: Heart, desc: 'Sunset cruises, scenic viewpoints, private dinners' },
+    { id: 'Family with Kids', label: 'Family with Kids & Elders', icon: Users, desc: 'Kid-friendly, comfortable pace, minimal steep walking' },
+    { id: 'Culture & Heritage', label: 'Culture, Heritage & Foodie', icon: Landmark, desc: 'Monuments, heritage trails, authentic local food' },
+    { id: 'Adventure & Nature', label: 'Adventure & Outdoor Treks', icon: Mountain, desc: 'Thrilling trails, water sports, wildlife & nature' },
+    { id: 'Leisure & Beach', label: 'Leisure, Beach & Wellness', icon: Waves, desc: 'Spas, coastal breezes, relaxed mornings & cafes' },
+    { id: 'Luxury Signature', label: 'Ultra Luxury & Signature', icon: Crown, desc: '5-star resorts, private yachts, VIP concierge' },
+];
+
+const INTEREST_TAGS = [
+    'Beaches & Coasts', 'UNESCO Heritage', 'Local Street Food', 'Fine Dining',
+    'Water Sports', 'Mountain Viewpoints', 'Shopping & Bazaars', 'Nightlife & Lounges',
+    'Ayurveda / Spa', 'Photography Spots', 'Wildlife Safari', 'Temple & Spiritual'
+];
+
+interface AiCustomizerModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+    destinationName: string;
+    onGenerate: (opts: {
+        tripStyle: string;
+        pace: 'Relaxed' | 'Balanced' | 'Explorer';
+        interests: string[];
+        specialRequests: string;
+        useMasterInventory: boolean;
+    }) => Promise<void>;
+    isGenerating: boolean;
+}
+
+const AiCustomizerModal: React.FC<AiCustomizerModalProps> = ({
+    isOpen,
+    onClose,
+    destinationName,
+    onGenerate,
+    isGenerating
+}) => {
+    const [tripStyle, setTripStyle] = useState('Culture & Heritage');
+    const [pace, setPace] = useState<'Relaxed' | 'Balanced' | 'Explorer'>('Balanced');
+    const [selectedInterests, setSelectedInterests] = useState<string[]>(['UNESCO Heritage', 'Local Street Food', 'Photography Spots']);
+    const [specialRequests, setSpecialRequests] = useState('');
+    const [useMasterInventory, setUseMasterInventory] = useState(true);
+
+    if (!isOpen) return null;
+
+    const toggleInterest = (tag: string) => {
+        setSelectedInterests(prev =>
+            prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]
+        );
+    };
+
+    const handleConfirm = () => {
+        onGenerate({
+            tripStyle,
+            pace,
+            interests: selectedInterests,
+            specialRequests,
+            useMasterInventory
+        });
+    };
+
+    return createPortal(
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center z-[99990] p-4 animate-in fade-in duration-200">
+            <div className="bg-white dark:bg-[#1A2633] rounded-3xl max-w-2xl w-full max-h-[90vh] shadow-2xl border border-stone-200 dark:border-slate-800 flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+                {/* Header */}
+                <div className="px-6 py-5 bg-gradient-to-r from-violet-600 via-indigo-600 to-purple-600 text-white flex items-center justify-between shrink-0">
+                    <div className="flex items-center gap-3">
+                        <div className="size-10 rounded-xl bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20">
+                            <Sparkles size={20} className="text-amber-300 animate-pulse" />
+                        </div>
+                        <div>
+                            <h3 className="text-lg font-black tracking-tight">AI Itinerary Designer</h3>
+                            <p className="text-xs text-violet-100 font-medium">
+                                Craft a bespoke holiday for <span className="font-bold underline">{destinationName}</span>
+                            </p>
+                        </div>
+                    </div>
+                    <button
+                        onClick={onClose}
+                        disabled={isGenerating}
+                        className="size-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors"
+                    >
+                        <X size={18} />
+                    </button>
+                </div>
+
+                {/* Body */}
+                <div className="p-6 overflow-y-auto space-y-6 flex-1 text-stone-800 dark:text-stone-200 text-xs">
+                    {/* Trip Style */}
+                    <div>
+                        <label className="block text-[11px] font-black uppercase tracking-wider text-stone-500 mb-2.5">
+                            1. Select Trip Style & Vibe
+                        </label>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                            {TRIP_STYLES.map(style => {
+                                const Icon = style.icon;
+                                const isSelected = tripStyle === style.id;
+                                return (
+                                    <div
+                                        key={style.id}
+                                        onClick={() => setTripStyle(style.id)}
+                                        className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-start gap-3 ${
+                                            isSelected
+                                                ? 'border-violet-600 bg-violet-50/60 dark:bg-violet-950/40 ring-2 ring-violet-500/20'
+                                                : 'border-stone-200 dark:border-slate-800 bg-stone-50/50 hover:bg-stone-100/50'
+                                        }`}
+                                    >
+                                        <div className={`p-2 rounded-xl shrink-0 ${isSelected ? 'bg-violet-600 text-white' : 'bg-stone-200 text-stone-600'}`}>
+                                            <Icon size={16} />
+                                        </div>
+                                        <div className="min-w-0">
+                                            <p className="font-bold text-xs text-stone-900 dark:text-white">{style.label}</p>
+                                            <p className="text-[10px] text-stone-500 mt-0.5 line-clamp-1">{style.desc}</p>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+
+                    {/* Travel Pace */}
+                    <div>
+                        <label className="block text-[11px] font-black uppercase tracking-wider text-stone-500 mb-2">
+                            2. Travel Pace
+                        </label>
+                        <div className="grid grid-cols-3 gap-2">
+                            {(['Relaxed', 'Balanced', 'Explorer'] as const).map(p => (
+                                <button
+                                    key={p}
+                                    type="button"
+                                    onClick={() => setPace(p)}
+                                    className={`py-2.5 px-3 rounded-xl font-bold text-xs border text-center transition-all ${
+                                        pace === p
+                                            ? 'bg-stone-900 text-white border-stone-900 shadow-sm'
+                                            : 'bg-white dark:bg-slate-800 border-stone-200 hover:bg-stone-50 text-stone-600'
+                                    }`}
+                                >
+                                    {p === 'Relaxed' && '🌱 Relaxed (1-2 Sights)'}
+                                    {p === 'Balanced' && '⚖️ Balanced (2-3 Sights)'}
+                                    {p === 'Explorer' && '⚡ Explorer (4+ Sights)'}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Interests Chips */}
+                    <div>
+                        <label className="block text-[11px] font-black uppercase tracking-wider text-stone-500 mb-2">
+                            3. Highlights & Interests
+                        </label>
+                        <div className="flex flex-wrap gap-1.5">
+                            {INTEREST_TAGS.map(tag => {
+                                const active = selectedInterests.includes(tag);
+                                return (
+                                    <button
+                                        key={tag}
+                                        type="button"
+                                        onClick={() => toggleInterest(tag)}
+                                        className={`px-3 py-1.5 rounded-full font-bold text-[11px] transition-all flex items-center gap-1 ${
+                                            active
+                                                ? 'bg-violet-600 text-white shadow-sm'
+                                                : 'bg-stone-100 text-stone-600 hover:bg-stone-200 border border-stone-200/60'
+                                        }`}
+                                    >
+                                        {active && <Check size={11} />}
+                                        {tag}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+
+                    {/* Special Instructions */}
+                    <div>
+                        <label className="block text-[11px] font-black uppercase tracking-wider text-stone-500 mb-1.5">
+                            4. Special Requests / Notes (Optional)
+                        </label>
+                        <input
+                            type="text"
+                            placeholder="e.g. Include vegetarian restaurant stops, sunset boat cruise, avoid steep stairs"
+                            value={specialRequests}
+                            onChange={e => setSpecialRequests(e.target.value)}
+                            className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-2.5 text-xs text-stone-900 focus:ring-2 focus:ring-violet-500 outline-none font-medium placeholder:text-stone-400"
+                        />
+                    </div>
+
+                    {/* Master Inventory Grounding */}
+                    <div className="bg-amber-50/60 border border-amber-200/80 rounded-2xl p-3.5 flex items-center justify-between">
+                        <div className="flex items-center gap-2.5">
+                            <Compass className="size-5 text-amber-600 shrink-0" />
+                            <div>
+                                <p className="font-bold text-xs text-amber-900">Ground with Master Catalog</p>
+                                <p className="text-[10px] text-amber-700">Matches agency hotels, activities & vehicles with real pricing</p>
+                            </div>
+                        </div>
+                        <input
+                            type="checkbox"
+                            checked={useMasterInventory}
+                            onChange={e => setUseMasterInventory(e.target.checked)}
+                            className="size-4 rounded text-violet-600 focus:ring-violet-500 cursor-pointer"
+                        />
+                    </div>
+                </div>
+
+                {/* Footer */}
+                <div className="px-6 py-4 bg-stone-50 dark:bg-slate-900 border-t border-stone-200 dark:border-slate-800 flex items-center justify-between shrink-0">
+                    <span className="text-[11px] font-bold text-stone-400 flex items-center gap-1">
+                        <Wand2 size={12} className="text-violet-500" /> Powered by OpenRouter Free AI
+                    </span>
+                    <div className="flex items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            disabled={isGenerating}
+                            className="px-4 py-2.5 rounded-xl border border-stone-200 text-stone-600 font-bold text-xs hover:bg-stone-100 transition-colors"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleConfirm}
+                            disabled={isGenerating}
+                            className="px-5 py-2.5 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white font-bold text-xs rounded-xl shadow-lg shadow-violet-600/20 transition-all flex items-center gap-1.5 active:scale-95 disabled:opacity-50"
+                        >
+                            <Sparkles size={13} />
+                            Generate Itinerary
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>,
+        document.body
+    );
+};
+
+// ─── Single Day AI Regenerate Modal ──────────────────────────────────────────
+const AiDayRegenerateModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    dayNumber: number;
+    destinationName: string;
+    onRegenerate: (instruction: string) => Promise<void>;
+    isProcessing: boolean;
+}> = ({ isOpen, onClose, dayNumber, destinationName, onRegenerate, isProcessing }) => {
+    const [instruction, setInstruction] = useState('');
+
+    if (!isOpen) return null;
+
+    return createPortal(
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center z-[99995] p-4 animate-in fade-in duration-150">
+            <div className="bg-white dark:bg-[#1A2633] rounded-2xl max-w-md w-full p-6 shadow-2xl border border-stone-200 dark:border-slate-800 space-y-4">
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                        <span className="p-2 rounded-xl bg-violet-50 text-violet-600">
+                            <Sparkles size={18} />
+                        </span>
+                        <div>
+                            <h4 className="font-bold text-sm text-stone-900 dark:text-white">Regenerate Day {dayNumber}</h4>
+                            <p className="text-[11px] text-stone-400">Custom re-plan for {destinationName}</p>
+                        </div>
+                    </div>
+                    <button onClick={onClose} className="text-stone-400 hover:text-stone-600"><X size={16} /></button>
+                </div>
+
+                <div>
+                    <label className="block text-[11px] font-bold uppercase text-stone-500 mb-1.5">
+                        What would you like to change for Day {dayNumber}?
+                    </label>
+                    <textarea
+                        rows={3}
+                        value={instruction}
+                        onChange={e => setInstruction(e.target.value)}
+                        placeholder="e.g. Focus exclusively on water sports and beach clubs in South Goa, with a candle-light seafood dinner."
+                        className="w-full bg-stone-50 border border-stone-200 rounded-xl p-3 text-xs text-stone-900 outline-none focus:ring-2 focus:ring-violet-500 font-medium"
+                        autoFocus
+                    />
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2">
+                    <button
+                        onClick={onClose}
+                        disabled={isProcessing}
+                        className="px-3.5 py-2 rounded-xl border border-stone-200 text-stone-600 font-bold text-xs hover:bg-stone-50"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        onClick={() => onRegenerate(instruction)}
+                        disabled={!instruction.trim() || isProcessing}
+                        className="px-4 py-2 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow transition-all flex items-center gap-1.5"
+                    >
+                        <Wand2 size={13} />
+                        {isProcessing ? 'Re-planning…' : `Re-plan Day ${dayNumber}`}
+                    </button>
+                </div>
+            </div>
+        </div>,
+        document.body
+    );
+};
+
 // ─── Main Board ───────────────────────────────────────────────────────────────
 export const StepDayPlanner: React.FC<Props> = ({ onOpenPricing, onOpenTripDetails }) => {
-    const { tripDetails, getItemsForDay, removeItem, updateItem, replaceAllItems, getDayMeta, updateDayMeta, duplicateDay } = useItinerary();
-    const { masterLocations } = useData();
+    const {
+        tripDetails,
+        updateTripDetails,
+        getItemsForDay,
+        removeItem,
+        updateItem,
+        replaceAllItems,
+        getDayMeta,
+        updateDayMeta,
+        duplicateDay,
+        addItem
+    } = useItinerary();
+
+    const { masterLocations, masterHotels, masterActivities, masterTransports } = useData();
     const [addingToDay, setAddingToDay] = useState<number | null>(null);
     const [isGenerating, setIsGenerating] = useState(false);
+    const [showAiCustomizer, setShowAiCustomizer] = useState(false);
 
     const days = Array.from({ length: tripDetails.days }, (_, i) => i + 1);
 
-    const handleAutoGenerate = async () => {
+    const destinationName = masterLocations?.find(l => String(l.id) === String(tripDetails.destination))?.name
+        || tripDetails.destination
+        || 'Destination';
+
+    const handleAutoGenerate = async (opts: {
+        tripStyle: string;
+        pace: 'Relaxed' | 'Balanced' | 'Explorer';
+        interests: string[];
+        specialRequests: string;
+        useMasterInventory: boolean;
+    }) => {
         if (!tripDetails.destination) {
             toast.error('Please select a destination in Trip Details first.');
             return;
         }
-        // Fix #9: resolve UUID → human-readable name before passing to AI
-        const destinationName = masterLocations?.find(l => String(l.id) === String(tripDetails.destination))?.name
-            || tripDetails.destination;
 
         setIsGenerating(true);
+        setShowAiCustomizer(false);
+
         try {
-            const guestStr = `${tripDetails.adults} Adults, ${tripDetails.children} Children`;
-            const result = await generateItinerary(destinationName, tripDetails.days, guestStr, tripDetails.startDate);
+            const guestStr = `${tripDetails.adults || 2} Adults, ${tripDetails.children || 0} Children`;
+            
+            // Build multi-destination list if present
+            const destinationsList = (tripDetails.destinations || []).map((d, i) => {
+                const locName = masterLocations?.find(l => String(l.id) === String(d.locationId))?.name || 'Destination';
+                return { name: locName, nights: d.nights, order: i };
+            });
+
+            // Pass master context if enabled
+            let masterContext: any = undefined;
+            if (opts.useMasterInventory) {
+                masterContext = {
+                    hotels: (masterHotels || []).map(h => ({ id: h.id, name: h.name, stars: h.rating, area: h.address, price: h.pricePerNight })),
+                    activities: (masterActivities || []).map(a => ({ id: a.id, name: a.name, category: a.category, cost: a.cost, duration: a.duration })),
+                    transports: (masterTransports || []).map(t => ({ id: t.id, name: t.name, type: t.type, cost: t.baseRate, capacity: t.capacity }))
+                };
+            }
+
+            const result = await generateItinerary({
+                destination: destinationName,
+                destinationsList: destinationsList.length > 0 ? destinationsList : undefined,
+                days: tripDetails.days,
+                travelers: guestStr,
+                startDate: tripDetails.startDate || 'Upcoming',
+                tripStyle: opts.tripStyle,
+                pace: opts.pace,
+                interests: opts.interests,
+                specialRequests: opts.specialRequests,
+                masterContext
+            });
+
+            // Update title if available and currently generic
+            if (result.title && (!tripDetails.title || tripDetails.title.startsWith('New Trip') || tripDetails.title.toLowerCase().includes('untitled'))) {
+                updateTripDetails({ title: result.title });
+            }
+
+            // Update included & notIncluded if returned and currently empty
+            if (result.included && result.included.length > 0 && (!tripDetails.included || tripDetails.included.length === 0)) {
+                updateTripDetails({ included: result.included });
+            }
+            if (result.notIncluded && result.notIncluded.length > 0 && (!tripDetails.notIncluded || tripDetails.notIncluded.length === 0)) {
+                updateTripDetails({ notIncluded: result.notIncluded });
+            }
+
             const newItems: Omit<ItineraryItem, 'sellPrice'>[] = [];
-            result.days.forEach((day: any) => {
-                day.activities.forEach((act: any) => {
+            (result.days || []).forEach((day: any) => {
+                const dNum = day.day;
+                if (day.title || day.notes) {
+                    const currentMeta = getDayMeta(dNum) || {};
+                    updateDayMeta(dNum, {
+                        ...currentMeta,
+                        theme: day.title || currentMeta.theme,
+                        notes: day.notes || currentMeta.notes
+                    });
+                }
+
+                const dayItems = day.items || day.activities || [];
+                dayItems.forEach((act: any) => {
+                    const sType: ServiceType = ['hotel', 'activity', 'transport', 'flight', 'guide', 'note', 'visa'].includes(act.type)
+                        ? act.type
+                        : 'activity';
+
                     newItems.push({
                         id: `AI-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-                        type: 'activity',
-                        day: day.day,
-                        title: act.description.split(':')[0] || 'Activity',
-                        description: act.description,
-                        netCost: act.cost || 0,
+                        type: sType,
+                        day: dNum,
+                        title: act.title || act.description?.split(':')[0] || 'Service Item',
+                        description: act.description || '',
+                        netCost: Number(act.cost) || 0,
                         baseMarkupPercent: 15,
                         extraMarkupFlat: 0,
                         quantity: 1,
-                        time: act.time,
-                        duration: '2 Hours',
+                        time: act.time || '10:00 AM',
+                        duration: act.duration || '2 Hours',
+                        masterId: act.masterId || undefined
                     });
                 });
             });
+
             replaceAllItems(newItems);
-            toast.success('Itinerary generated successfully!');
+            toast.success('Luxury customized itinerary generated successfully!');
         } catch (error: any) {
             let msg = error.message || error.toString();
             const lowerMsg = msg.toLowerCase();
@@ -174,23 +551,24 @@ export const StepDayPlanner: React.FC<Props> = ({ onOpenPricing, onOpenTripDetai
                 <div className="flex items-center gap-2">
                     <p className="text-xs font-bold text-stone-500 uppercase tracking-wider">
                         {tripDetails.nights}N / {tripDetails.days}D &nbsp;·&nbsp;
-                        {(tripDetails.adults || 0) + (tripDetails.children || 0)} Guests
+                        {(tripDetails.adults || 0) + (tripDetails.children || 0)} Guests &nbsp;·&nbsp;
+                        <span className="text-amber-700 font-extrabold">{destinationName}</span>
                     </p>
                 </div>
                 <div className="flex items-center gap-2">
                     {/* AI Generate */}
                     <button
-                        onClick={handleAutoGenerate}
+                        onClick={() => setShowAiCustomizer(true)}
                         disabled={isGenerating}
-                        className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white shadow transition-all active:scale-95"
+                        className="flex items-center gap-1.5 text-xs font-bold px-3.5 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 disabled:opacity-50 text-white shadow-md shadow-violet-600/20 transition-all active:scale-95"
                     >
                         <Sparkles size={13} className={isGenerating ? 'animate-spin' : ''} />
-                        {isGenerating ? 'Generating…' : 'AI Auto-Plan'}
+                        {isGenerating ? 'Designing Plan…' : 'AI Auto-Plan'}
                     </button>
                     {onOpenPricing && (
                         <button
                             onClick={onOpenPricing}
-                            className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-lg bg-stone-900 hover:bg-stone-700 text-white shadow transition-all active:scale-95"
+                            className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl bg-stone-900 hover:bg-stone-700 text-white shadow transition-all active:scale-95"
                         >
                             <IndianRupee size={13} />
                             Set Pricing
@@ -198,6 +576,7 @@ export const StepDayPlanner: React.FC<Props> = ({ onOpenPricing, onOpenTripDetai
                     )}
                 </div>
             </div>
+
 
             {/* Horizontal Kanban Board */}
             <div className="flex-1 overflow-x-auto overflow-y-hidden">
@@ -255,6 +634,16 @@ export const StepDayPlanner: React.FC<Props> = ({ onOpenPricing, onOpenTripDetai
                 <ServiceSelector day={addingToDay} onClose={() => setAddingToDay(null)} />
             )}
 
+
+            {/* AI Trip Customizer Modal */}
+            <AiCustomizerModal
+                isOpen={showAiCustomizer}
+                onClose={() => setShowAiCustomizer(false)}
+                destinationName={destinationName}
+                onGenerate={handleAutoGenerate}
+                isGenerating={isGenerating}
+            />
+
             {/* AI Auto-Plan Loading Modal */}
             <AiAutoPlanLoadingModal isOpen={isGenerating} />
         </div>
@@ -276,9 +665,12 @@ const DayColumn: React.FC<{
     onClearDay: () => void;
     onDuplicateTo: (targetDay: number) => void;
 }> = ({ day, theme, locationId, items, meta, allDays, onAdd, onRemove, onUpdate, onUpdateMeta, onClearDay, onDuplicateTo }) => {
-    const { reorderItems } = useItinerary();
+    const { reorderItems, addItem } = useItinerary();
     const { masterLocations } = useData();
     const [showMenu, setShowMenu] = useState(false);
+    const [showRegenModal, setShowRegenModal] = useState(false);
+    const [isRegeneratingDay, setIsRegeneratingDay] = useState(false);
+    const [isPolishingDay, setIsPolishingDay] = useState(false);
     
     // UX Features: Analytics & Validation
     const hasHotel = items.some(i => i.type === 'hotel');
@@ -293,6 +685,122 @@ const DayColumn: React.FC<{
     const breakdownRules = Object.entries(typeCount)
         .map(([type, count]) => `${count} ${type.charAt(0).toUpperCase() + type.slice(1)}${(count as number) > 1 ? 's' : ''}`)
         .join(' • ');
+
+    const handleRegenerateDay = async (instruction: string) => {
+        setIsRegeneratingDay(true);
+        const toastId = toast.loading(`Re-planning Day ${day} with AI...`);
+        try {
+            const locName = masterLocations?.find(l => l.id === locationId)?.name || 'Destination';
+            const res = await regenerateSingleDay({
+                dayNumber: day,
+                destination: locName,
+                currentItems: items,
+                promptInstruction: instruction
+            });
+
+            if (res) {
+                if (res.title || res.notes) {
+                    onUpdateMeta({
+                        ...meta,
+                        theme: res.title || meta.theme,
+                        notes: res.notes || meta.notes
+                    });
+                }
+                if (res.items && Array.isArray(res.items)) {
+                    // Clear existing items for this day
+                    onClearDay();
+                    // Add new items
+                    res.items.forEach((act: any) => {
+                        const sType: ServiceType = ['hotel', 'activity', 'transport', 'flight', 'guide', 'note', 'visa'].includes(act.type)
+                            ? act.type
+                            : 'activity';
+                        addItem({
+                            id: `AI-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+                            type: sType,
+                            day: day,
+                            title: act.title || act.description?.split(':')[0] || 'Service Item',
+                            description: act.description || '',
+                            netCost: Number(act.cost) || 0,
+                            baseMarkupPercent: 15,
+                            extraMarkupFlat: 0,
+                            quantity: 1,
+                            time: act.time || '10:00 AM',
+                            duration: act.duration || '2 Hours'
+                        });
+                    });
+                    toast.success(`Day ${day} re-planned successfully!`, { id: toastId });
+                    setShowRegenModal(false);
+                }
+            }
+        } catch (e: any) {
+            toast.error(e.message || 'Failed to regenerate day', { id: toastId });
+        } finally {
+            setIsRegeneratingDay(false);
+        }
+    };
+
+    const handlePolishDayDescriptions = async () => {
+        if (items.length === 0) {
+            toast.error('No items to polish on this day');
+            return;
+        }
+        setIsPolishingDay(true);
+        setShowMenu(false);
+        const toastId = toast.loading(`Polishing Day ${day} descriptions with AI...`);
+        try {
+            const locName = masterLocations?.find(l => l.id === locationId)?.name || 'Destination';
+            for (const item of items) {
+                try {
+                    const polished = await polishItineraryCopy(item.title, item.description || '', item.type, locName);
+                    if (polished && polished.title && polished.description) {
+                        onUpdate(item.id, {
+                            title: polished.title,
+                            description: polished.description
+                        });
+                    }
+                } catch {}
+            }
+            toast.success(`Day ${day} descriptions elevated to luxury brochure copy!`, { id: toastId });
+        } catch (e: any) {
+            toast.error('Failed to polish all items', { id: toastId });
+        } finally {
+            setIsPolishingDay(false);
+        }
+    };
+
+    const handleAddHiddenGem = async () => {
+        setShowMenu(false);
+        const toastId = toast.loading(`Discovering a local secret gem for Day ${day}...`);
+        try {
+            const locName = masterLocations?.find(l => l.id === locationId)?.name || 'Destination';
+            const res = await regenerateSingleDay({
+                dayNumber: day,
+                destination: locName,
+                currentItems: items,
+                promptInstruction: 'Suggest 1 authentic, unique local secret spot or experiential hidden gem not found in standard tourist guides.'
+            });
+
+            if (res && res.items && res.items.length > 0) {
+                const gem = res.items[0];
+                addItem({
+                    id: `AI-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+                    type: (gem.type as any) || 'activity',
+                    day: day,
+                    title: `✨ ${gem.title || 'Local Hidden Gem'}`,
+                    description: gem.description || '',
+                    netCost: Number(gem.cost) || 0,
+                    baseMarkupPercent: 15,
+                    extraMarkupFlat: 0,
+                    quantity: 1,
+                    time: gem.time || '04:00 PM',
+                    duration: gem.duration || '1.5 Hours'
+                });
+                toast.success('Hidden gem added to Day ' + day + '!', { id: toastId });
+            }
+        } catch (e: any) {
+            toast.error('Could not fetch hidden gem', { id: toastId });
+        }
+    };
 
     return (
         <div 
@@ -344,11 +852,38 @@ const DayColumn: React.FC<{
                             <MoreHorizontal size={14} />
                         </button>
                         {showMenu && (
-                            <div className="absolute right-0 top-8 bg-white shadow-xl rounded-xl border border-stone-100 py-1 z-30 w-48 text-xs font-bold text-stone-600">
+                            <div className="absolute right-0 top-8 bg-white shadow-xl rounded-xl border border-stone-100 py-1 z-30 w-52 text-xs font-bold text-stone-600">
                                 <button onClick={() => { onAdd(); setShowMenu(false); }} className="w-full px-4 py-2 text-left hover:bg-stone-50 flex items-center gap-2">
                                     <Plus size={12} /> Add Service
                                 </button>
-                                <label className="w-full px-4 py-2 text-left hover:bg-stone-50 flex items-center gap-2 cursor-pointer">
+
+                                {/* AI Actions Group */}
+                                <div className="border-t border-stone-100 my-1 pt-1 bg-violet-50/40">
+                                    <p className="px-4 py-1 text-[9px] font-black uppercase tracking-widest text-violet-600 flex items-center gap-1">
+                                        <Sparkles size={10} /> AI Day Assistant
+                                    </p>
+                                    <button
+                                        onClick={() => { setShowRegenModal(true); setShowMenu(false); }}
+                                        className="w-full px-4 py-1.5 text-left hover:bg-violet-100/60 text-violet-700 flex items-center gap-2"
+                                    >
+                                        <Wand2 size={11} /> Regenerate Day…
+                                    </button>
+                                    <button
+                                        onClick={handlePolishDayDescriptions}
+                                        disabled={isPolishingDay || items.length === 0}
+                                        className="w-full px-4 py-1.5 text-left hover:bg-violet-100/60 text-violet-700 flex items-center gap-2 disabled:opacity-40"
+                                    >
+                                        <Sparkles size={11} /> Polish Descriptions
+                                    </button>
+                                    <button
+                                        onClick={handleAddHiddenGem}
+                                        className="w-full px-4 py-1.5 text-left hover:bg-violet-100/60 text-violet-700 flex items-center gap-2"
+                                    >
+                                        <Compass size={11} /> Add Hidden Gem
+                                    </button>
+                                </div>
+
+                                <label className="w-full px-4 py-2 text-left hover:bg-stone-50 flex items-center gap-2 cursor-pointer border-t border-stone-100">
                                     <Image size={12} /> {meta.image ? 'Change Cover' : 'Add Cover Image'}
                                     <input 
                                         type="file" 
@@ -422,7 +957,7 @@ const DayColumn: React.FC<{
                     </div>
                 )}
                 
-                {/* Day notes — Fix #12 */}
+                {/* Day notes */}
                 <div className="mt-2">
                     <textarea
                         value={meta.notes || ''}
@@ -495,6 +1030,16 @@ const DayColumn: React.FC<{
                     <span className="text-[11px] font-black uppercase tracking-wider">Add Service</span>
                 </div>
             )}
+
+            {/* Single Day Regenerate Modal */}
+            <AiDayRegenerateModal
+                isOpen={showRegenModal}
+                onClose={() => setShowRegenModal(false)}
+                dayNumber={day}
+                destinationName={masterLocations?.find(l => l.id === locationId)?.name || 'Destination'}
+                onRegenerate={handleRegenerateDay}
+                isProcessing={isRegeneratingDay}
+            />
         </div>
     );
 };
@@ -511,6 +1056,7 @@ const ActivityCard: React.FC<{
     const { moveItem, reorderItems } = useItinerary();
     const { masterRoomTypes, masterMealPlans, masterHotels, masterActivities, masterTransports } = useData();
     const [expanded, setExpanded] = useState(false);
+    const [isPolishing, setIsPolishing] = useState(false);
 
     const style = SERVICE_STYLE[item.type] ?? SERVICE_STYLE.other;
     const Icon = style.Icon;
@@ -539,6 +1085,23 @@ const ActivityCard: React.FC<{
     const syncLivePrice = () => {
         if (livePrice !== null) {
             onUpdate(item.id, { netCost: livePrice });
+        }
+    };
+
+    const handlePolishSingle = async (e: React.MouseEvent) => {
+        e.stopPropagation();
+        setIsPolishing(true);
+        const toastId = toast.loading('Elevating description with AI...');
+        try {
+            const res = await polishItineraryCopy(item.title, item.description || '', item.type);
+            if (res && res.title && res.description) {
+                onUpdate(item.id, { title: res.title, description: res.description });
+                toast.success('Description elevated to brochure copy!', { id: toastId });
+            }
+        } catch (e: any) {
+            toast.error('Failed to polish copy', { id: toastId });
+        } finally {
+            setIsPolishing(false);
         }
     };
 
@@ -614,6 +1177,16 @@ const ActivityCard: React.FC<{
                             )}
                         </div>
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            {/* AI Polish Action */}
+                            <button
+                                type="button"
+                                onClick={handlePolishSingle}
+                                disabled={isPolishing}
+                                title="Polish copy with AI"
+                                className="size-5 flex items-center justify-center text-stone-300 hover:text-violet-600 transition-colors"
+                            >
+                                <Wand2 size={11} className={isPolishing ? 'animate-spin text-violet-600' : ''} />
+                            </button>
                             <button
                                 onClick={() => moveItem(item.id, 'up')}
                                 disabled={isFirst}
@@ -687,7 +1260,6 @@ const ActivityCard: React.FC<{
 
                     {/* Description */}
                     {item.type === 'note' ? (
-                        // Fix 4.5: note type always shows textarea directly
                         <textarea
                             value={item.description || ''}
                             onChange={e => {
@@ -754,7 +1326,7 @@ const ActivityCard: React.FC<{
                         </div>
                     )}
 
-                    {/* Fix 4.6: Flight-specific from/to/airline fields */}
+                    {/* Flight-specific from/to/airline fields */}
                     {item.type === 'flight' && (
                         <div className="grid grid-cols-2 gap-1.5 mt-2 pt-2 border-t border-stone-100">
                             <input
@@ -799,3 +1371,4 @@ const ActivityCard: React.FC<{
         </div>
     );
 };
+

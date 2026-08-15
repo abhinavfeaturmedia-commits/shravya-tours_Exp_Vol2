@@ -3257,8 +3257,22 @@ export const api = {
         message?: string;
         templateType?: 'custom' | 'agent_intro' | 'proposal' | 'invoice';
         refId?: string;
+        theme?: 'luxury_indigo' | 'royal_emerald' | 'sunset_coral' | 'minimal_clean';
     }) => {
         return await fetchApi('/api/email/send', {
+            method: 'POST',
+            body: JSON.stringify(params)
+        });
+    },
+
+    previewEmail: async (params: {
+        templateType?: 'custom' | 'agent_intro' | 'proposal' | 'invoice';
+        refId?: string;
+        theme?: 'luxury_indigo' | 'royal_emerald' | 'sunset_coral' | 'minimal_clean';
+        subject?: string;
+        message?: string;
+    }): Promise<{ status: string; html: string; theme: string }> => {
+        return await fetchApi('/api/email/preview', {
             method: 'POST',
             body: JSON.stringify(params)
         });

@@ -93,7 +93,7 @@ interface AuthContextType {
     refreshStaff: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const AuthContext = (globalThis as any).__SHRAWELLO_AUTH_CONTEXT__ ?? ((globalThis as any).__SHRAWELLO_AUTH_CONTEXT__ = createContext<AuthContextType | undefined>(undefined));
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [staff, setStaff] = useState<StaffMember[]>([]);

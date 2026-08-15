@@ -17,6 +17,7 @@ export interface CompanySettings {
   city: string;
   state: string;
   pincode: string;
+  emailTemplateTheme?: 'luxury_indigo' | 'royal_emerald' | 'sunset_coral' | 'minimal_clean';
 }
 
 export interface FinanceSettings {
@@ -143,6 +144,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     city: 'Pune',
     state: 'Maharashtra',
     pincode: '411062',
+    emailTemplateTheme: 'luxury_indigo',
   },
   finance: {
     cgstPercent: 2.5,
@@ -243,9 +245,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
     openrouter: {
       enabled: false,
       apiKey: '',
-      defaultModel: 'google/gemini-2.5-flash',
+      defaultModel: 'openrouter/free',
     },
   },
+
 };
 
 // ─── Context ──────────────────────────────────────────────────────────────────
@@ -262,7 +265,7 @@ interface SettingsContextType {
   refreshSettings: () => Promise<void>;
 }
 
-const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
+const SettingsContext = (globalThis as any).__SHRAWELLO_SETTINGS_CONTEXT__ ?? ((globalThis as any).__SHRAWELLO_SETTINGS_CONTEXT__ = createContext<SettingsContextType | undefined>(undefined));
 
 // ─── Provider ────────────────────────────────────────────────────────────────
 

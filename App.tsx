@@ -36,10 +36,9 @@ const BlogPostDetail = lazy(() => import('./pages/BlogPostDetail').then(module =
 
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard').then(module => ({ default: module.AdminDashboard })));
 const Inventory = lazy(() => import('./pages/admin/Inventory').then(module => ({ default: module.Inventory })));
-const Analytics = lazy(() => import('./pages/admin/Analytics').then(module => ({ default: module.Analytics })));
+const Analytics = lazy(() => import('./pages/admin/Analytics').then(module => ({ default: module.Analytics || module.default })));
 const Operations = lazy(() => import('./pages/admin/Operations').then(module => ({ default: module.Operations })));
 const ItineraryBuilder = lazy(() => import('./pages/admin/ItineraryBuilder').then(module => ({ default: module.ItineraryBuilder })));
-const ItinerariesDashboard = lazy(() => import('./pages/admin/ItinerariesDashboard').then(module => ({ default: module.ItinerariesDashboard })));
 const StaffManagement = lazy(() => import('./pages/admin/StaffManagement').then(module => ({ default: module.StaffManagement })));
 const TeamPerformance = lazy(() => import('./pages/admin/TeamPerformance').then(module => ({ default: module.TeamPerformance })));
 const Bookings = lazy(() => import('./pages/admin/Bookings').then(module => ({ default: module.Bookings })));
@@ -142,7 +141,7 @@ const App: React.FC = () => {
                   <Route path="bookings" element={<Bookings />} />
                   <Route path="inventory" element={<Inventory />} />
                   <Route path="vendors" element={<Vendors />} />
-                  <Route path="itineraries" element={<ItinerariesDashboard />} />
+                  <Route path="itineraries" element={<Navigate to="/admin/itinerary-builder" replace />} />
                   <Route path="itinerary-builder" element={<ItineraryBuilder />} />
                   <Route path="accounts" element={<AdminAccounts />} />
                   <Route path="expenses" element={<AdminExpenses />} />

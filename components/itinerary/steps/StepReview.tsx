@@ -52,23 +52,37 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
         || tripDetails.destination
         || 'Paradise';
 
+    const parseTimeToMinutes = (timeStr?: string): number => {
+        if (!timeStr) return 9999;
+        const match = timeStr.match(/(\d+):(\d+)\s*(AM|PM)?/i);
+        if (!match) return 9999;
+        let hours = parseInt(match[1], 10);
+        const minutes = parseInt(match[2], 10);
+        const meridiem = (match[3] || '').toUpperCase();
+        if (meridiem === 'PM' && hours < 12) hours += 12;
+        if (meridiem === 'AM' && hours === 12) hours = 0;
+        return hours * 60 + minutes;
+    };
+
     const generatePackageItinerary = () => {
         const days = Array.from({ length: tripDetails.days }, (_, i) => i + 1);
         return days.map(day => {
-            const dayItems = items.filter(i => i.day === day);
+            const dayItems = items
+                .filter(i => i.day === day)
+                .sort((a, b) => parseTimeToMinutes(a.time) - parseTimeToMinutes(b.time));
             const desc = dayItems.length === 0
                 ? 'Leisure day for personal exploration.'
                 : dayItems
-                    .sort((a, b) => (a.time || '').localeCompare(b.time || ''))
                     .map(item => `• ${item.time ? item.time + ': ' : ''}${item.title}${item.description ? ' - ' + item.description : ''}`)
                     .join('\n');
             // Fix 2.3b: use editable dayMeta.theme if set, else use first activity title as label
             const dayTheme = (dayMeta[day] as any)?.theme
                 || dayItems.find(i => i.type === 'activity')?.title
-                || (day === 1 ? 'Arrival' : `Day ${day} Itinerary`);
+                || (day === 1 ? 'Arrival & Welcome' : `Day ${day} Itinerary`);
             return { day, title: dayTheme, desc, items: dayItems };
         });
     };
+
 
     const handleSave = async () => {
         if (isSaving) return;
@@ -166,19 +180,21 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
     };
 
     const handleDownloadPDF = async () => {
-        const toastId = toast.loading('Generating premium PDF... Please wait.');
+        const toastId = toast.loading('Generating luxury branded PDF... Please wait.');
         try {
             const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
             const pageW = doc.internal.pageSize.getWidth();
             const pageH = doc.internal.pageSize.getHeight();
             const margin = 15;
+            const contentW = pageW - (margin * 2); // 180mm
             
             // Dynamic Page X of Y total page placeholder
             const totalPagesExp = "{total_pages_count_string}";
 
-            // Asynchronous dynamic image loader helper to bypass CORS / local fetch hurdles
-            const loadImageBase64 = (url: string): Promise<string> => {
-                return new Promise((resolve, reject) => {
+            // Asynchronous image loader helper
+            const loadImageBase64 = (url: string): Promise<string | null> => {
+                return new Promise((resolve) => {
+                    if (!url) { resolve(null); return; }
                     const xhr = new XMLHttpRequest();
                     xhr.onload = function () {
                         const reader = new FileReader();
@@ -187,8 +203,8 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
                         };
                         reader.readAsDataURL(xhr.response);
                     };
-                    xhr.onerror = function (e) {
-                        reject(e);
+                    xhr.onerror = function () {
+                        resolve(null);
                     };
                     xhr.open('GET', url);
                     xhr.responseType = 'blob';
@@ -196,23 +212,24 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
                 });
             };
 
-            let coverImgBase64: string | null = null;
-            if (tripDetails.coverImage) {
-                try {
-                    coverImgBase64 = await loadImageBase64(tripDetails.coverImage);
-                } catch (e) {
-                    console.error("Cover image load failed, using dynamic vector fallback:", e);
-                }
-            }
+            // Load official company logo and cover image
+            const [logoBase64, coverImgBase64] = await Promise.all([
+                loadImageBase64('/logo.png'),
+                tripDetails.coverImage ? loadImageBase64(tripDetails.coverImage) : Promise.resolve(null)
+            ]);
 
-            // Brand Colors
-            const brandColor: [number, number, number] = [15, 23, 42]; // Slate-900 (ultra premium dark slate)
-            const accentColor: [number, number, number] = [180, 83, 9]; // Gold/Amber-700
-            const textDark: [number, number, number] = [30, 41, 59]; // Slate-800
-            const textLight: [number, number, number] = [100, 116, 139]; // Slate-500
-            const borderLight = [226, 232, 240]; // Slate-200
+            // Brand Colors Palette (Luxury Shrawello Palette)
+            const brandNavy: [number, number, number] = [15, 23, 42]; // Slate-900
+            const brandGold: [number, number, number] = [217, 119, 6]; // Amber-600
+            const brandGoldDark: [number, number, number] = [180, 83, 9]; // Amber-700
+            const textDark: [number, number, number] = [15, 23, 42];
+            const textMuted: [number, number, number] = [100, 116, 139]; // Slate-500
+            const textBody: [number, number, number] = [51, 65, 85]; // Slate-700
+            const borderLight: [number, number, number] = [226, 232, 240]; // Slate-200
+            const emeraldCol: [number, number, number] = [5, 150, 105]; // Emerald-600
+            const roseCol: [number, number, number] = [220, 38, 38]; // Rose-600
 
-            // Text sanitizer
+            // Text sanitizer - Removes all raw emojis and non-ASCII glyphs that break standard jsPDF fonts
             const cleanText = (str: string): string => {
                 if (!str) return '';
                 return str
@@ -223,7 +240,10 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
                     .replace(/[\u2018\u2019]/g, "'")
                     .replace(/[\u201C\u201D]/g, '"')
                     .replace(/[\u2013\u2014]/g, '-')
-                    .replace(/[^\x00-\x7F]/g, '');
+                    // Strip all unicode emojis and symbols that render as garbage characters
+                    .replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}]/gu, '')
+                    .replace(/[^\x20-\x7E\t\n\r]/g, '')
+                    .trim();
             };
 
             const cleanCurrency = (val: string) => {
@@ -232,25 +252,11 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
 
             const cleanItemText = (txt: string): string => {
                 if (!txt) return '';
-                return txt.replace(/^[\s•\-\*✓✗\u2022]+/, '').trim();
+                return cleanText(txt).replace(/^[\s•\-\*✓✗\u2022]+/, '').trim();
             };
 
-            // Custom Drawing Icon Helpers (Sharp, scalable vectors)
-            const drawSuitcaseIcon = (docInstance: jsPDF, dx: number, dy: number) => {
-                docInstance.setFillColor(180, 83, 9); // gold/amber
-                docInstance.roundedRect(dx, dy, 7, 9, 1, 1, 'F');
-                
-                docInstance.setDrawColor(180, 83, 9);
-                docInstance.setLineWidth(0.4);
-                docInstance.line(dx + 2, dy, dx + 2, dy - 2);
-                docInstance.line(dx + 5, dy, dx + 5, dy - 2);
-                docInstance.line(dx + 2, dy - 2, dx + 5, dy - 2);
-                
-                docInstance.setFillColor(255, 255, 255);
-                docInstance.circle(dx + 3.5, dy + 4.5, 0.8, 'F');
-            };
-
-            const drawCalendarIcon = (docInstance: jsPDF, dx: number, dy: number, strokeColor: [number, number, number] = [30, 41, 59]) => {
+            // Custom Drawing Icon Helpers
+            const drawCalendarIcon = (docInstance: jsPDF, dx: number, dy: number, strokeColor: [number, number, number] = [180, 83, 9]) => {
                 docInstance.setDrawColor(strokeColor[0], strokeColor[1], strokeColor[2]);
                 docInstance.setLineWidth(0.3);
                 docInstance.rect(dx, dy, 4.5, 4);
@@ -261,51 +267,33 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
             };
 
             const drawUsersIcon = (docInstance: jsPDF, dx: number, dy: number) => {
-                docInstance.setFillColor(30, 41, 59);
-                docInstance.circle(dx + 2.2, dy + 1.5, 1.2, 'F'); // head
-                docInstance.roundedRect(dx, dy + 3, 4.4, 2, 0.6, 0.6, 'F'); // body
+                docInstance.setFillColor(15, 23, 42);
+                docInstance.circle(dx + 2.2, dy + 1.5, 1.2, 'F');
+                docInstance.roundedRect(dx, dy + 3, 4.4, 2, 0.6, 0.6, 'F');
             };
 
             const drawVehicleIcon = (docInstance: jsPDF, dx: number, dy: number) => {
-                docInstance.setDrawColor(30, 41, 59);
+                docInstance.setDrawColor(15, 23, 42);
                 docInstance.setLineWidth(0.3);
-                docInstance.rect(dx, dy + 1.5, 5, 2.5); // body
-                docInstance.rect(dx + 0.6, dy, 3.8, 1.5); // windshield
-                docInstance.setFillColor(30, 41, 59);
+                docInstance.rect(dx, dy + 1.5, 5, 2.5);
+                docInstance.rect(dx + 0.6, dy, 3.8, 1.5);
+                docInstance.setFillColor(15, 23, 42);
                 docInstance.circle(dx + 1.2, dy + 4, 0.6, 'F');
                 docInstance.circle(dx + 3.8, dy + 4, 0.6, 'F');
             };
 
             const drawMealIcon = (docInstance: jsPDF, dx: number, dy: number) => {
-                docInstance.setDrawColor(30, 41, 59);
+                docInstance.setDrawColor(15, 23, 42);
                 docInstance.setLineWidth(0.3);
-                docInstance.circle(dx + 2.5, dy + 2.2, 1.8, 'D'); // plate
-                docInstance.line(dx + 0.2, dy + 0.5, dx + 0.2, dy + 4); // fork
+                docInstance.circle(dx + 2.5, dy + 2.2, 1.8, 'D');
+                docInstance.line(dx + 0.2, dy + 0.5, dx + 0.2, dy + 4);
                 docInstance.line(dx + 0.2, dy + 0.5, dx - 0.2, dy + 1.5);
                 docInstance.line(dx + 0.2, dy + 0.5, dx + 0.6, dy + 1.5);
-                docInstance.line(dx + 4.8, dy + 0.5, dx + 4.8, dy + 4); // knife
-            };
-
-            const drawBedIcon = (docInstance: jsPDF, dx: number, dy: number, color = [15, 23, 42]) => {
-                docInstance.setDrawColor(color[0], color[1], color[2]);
-                docInstance.setLineWidth(0.35);
-                docInstance.line(dx, dy + 4, dx, dy); // headboard
-                docInstance.line(dx + 5, dy + 4, dx + 5, dy + 2); // footboard
-                docInstance.line(dx, dy + 2.5, dx + 5, dy + 2.5); // base mattress
-                docInstance.setFillColor(color[0], color[1], color[2]);
-                docInstance.rect(dx + 0.5, dy + 1.5, 1.5, 0.8, 'F'); // pillow
-            };
-
-            const drawMapPinIcon = (docInstance: jsPDF, dx: number, dy: number, color = [15, 23, 42]) => {
-                docInstance.setFillColor(color[0], color[1], color[2]);
-                docInstance.circle(dx + 2, dy + 1.8, 1.8, 'F');
-                docInstance.triangle(dx + 0.4, dy + 2.5, dx + 3.6, dy + 2.5, dx + 2, dy + 4.5, 'F');
-                docInstance.setFillColor(255, 255, 255);
-                docInstance.circle(dx + 2, dy + 1.8, 0.6, 'F'); // inner dot
+                docInstance.line(dx + 4.8, dy + 0.5, dx + 4.8, dy + 4);
             };
 
             const drawCheckCircle = (docInstance: jsPDF, dx: number, dy: number) => {
-                docInstance.setFillColor(16, 185, 129); // emerald-500
+                docInstance.setFillColor(5, 150, 105);
                 docInstance.circle(dx + 2.5, dy + 2.5, 2.5, 'F');
                 docInstance.setDrawColor(255, 255, 255);
                 docInstance.setLineWidth(0.4);
@@ -314,7 +302,7 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
             };
 
             const drawCrossCircle = (docInstance: jsPDF, dx: number, dy: number) => {
-                docInstance.setFillColor(239, 68, 68); // rose-500
+                docInstance.setFillColor(220, 38, 38);
                 docInstance.circle(dx + 2.5, dy + 2.5, 2.5, 'F');
                 docInstance.setDrawColor(255, 255, 255);
                 docInstance.setLineWidth(0.4);
@@ -330,86 +318,106 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
                 docInstance.rect(dx, dy + 1, 5, 0.8, 'F');
             };
 
-            const drawInfoCircle = (docInstance: jsPDF, dx: number, dy: number) => {
-                docInstance.setFillColor(59, 130, 246); // blue-500
-                docInstance.circle(dx + 2.5, dy + 2.5, 2.5, 'F');
-                docInstance.setFillColor(255, 255, 255);
-                docInstance.circle(dx + 2.5, dy + 1.5, 0.4, 'F'); // dot of 'i'
-                docInstance.setDrawColor(255, 255, 255);
-                docInstance.setLineWidth(0.4);
-                docInstance.line(dx + 2.5, dy + 2.3, dx + 2.5, dy + 4.0); // body of 'i'
-            };
-
             const drawCheckmarkBadge = (docInstance: jsPDF, dx: number, dy: number) => {
-                docInstance.setFillColor(209, 250, 229); // emerald-100
+                docInstance.setFillColor(209, 250, 229);
                 docInstance.circle(dx + 2, dy - 1.2, 2, 'F');
-                docInstance.setDrawColor(16, 185, 129); // emerald-500
+                docInstance.setDrawColor(5, 150, 105);
                 docInstance.setLineWidth(0.4);
                 docInstance.line(dx + 1.2, dy - 1.2, dx + 1.8, dy - 0.6);
                 docInstance.line(dx + 1.8, dy - 0.6, dx + 2.8, dy - 2);
             };
 
             const drawCrossmarkBadge = (docInstance: jsPDF, dx: number, dy: number) => {
-                docInstance.setFillColor(254, 226, 226); // rose-100
+                docInstance.setFillColor(254, 226, 226);
                 docInstance.circle(dx + 2, dy - 1.2, 2, 'F');
-                docInstance.setDrawColor(239, 68, 68); // rose-500
+                docInstance.setDrawColor(220, 38, 38);
                 docInstance.setLineWidth(0.4);
                 docInstance.line(dx + 1.2, dy - 2, dx + 2.8, dy - 0.4);
                 docInstance.line(dx + 2.8, dy - 2, dx + 1.2, dy - 0.4);
             };
 
-            const drawDashedLine = (docInstance: jsPDF, x1: number, y1: number, x2: number, y2: number) => {
-                docInstance.setDrawColor(203, 213, 225); // slate-300
-                docInstance.setLineWidth(0.35);
-                docInstance.setLineDashPattern([1.5, 1.5], 0);
-                docInstance.line(x1, y1, x2, y2);
-                docInstance.setLineDashPattern([], 0); // reset
+            const drawWhatsAppIcon = (docInstance: jsPDF, dx: number, dy: number) => {
+                docInstance.setFillColor(37, 211, 102); // #25D366
+                docInstance.circle(dx + 2.5, dy + 2.5, 2.5, 'F');
+                docInstance.setDrawColor(255, 255, 255);
+                docInstance.setLineWidth(0.4);
+                docInstance.line(dx + 1.6, dy + 1.8, dx + 2.2, dy + 3.2);
+                docInstance.line(dx + 2.2, dy + 3.2, dx + 3.4, dy + 2.0);
             };
 
-            // Page Decoration Helper (Slim header: just gold line + validity + page)
+            // Page Decoration Helper (Branded Header & Persistent Footer)
             const drawPageDecorations = (docInstance: jsPDF, pageNum: number) => {
-                // Draw warm paper background tint across the entire page
-                docInstance.setFillColor(254, 253, 250); // Alabaster/Cream tint
+                // Alabaster Cream Paper background
+                docInstance.setFillColor(253, 251, 247);
                 docInstance.rect(0, 0, pageW, pageH, 'F');
 
-                // Draw fine gold corner framing lines (watermark accents)
-                docInstance.setDrawColor(180, 83, 9);
-                docInstance.setLineWidth(0.12);
-                
-                // Top-Left Corner Accents
-                docInstance.line(8, 8, 13, 8);
-                docInstance.line(8, 8, 8, 13);
-                
-                // Bottom-Right Corner Accents
-                docInstance.line(pageW - 8, pageH - 8, pageW - 13, pageH - 8);
-                docInstance.line(pageW - 8, pageH - 8, pageW - 8, pageH - 13);
+                // Top Header Bar (16mm)
+                docInstance.setFillColor(15, 23, 42); // Deep Slate
+                docInstance.rect(0, 0, pageW, 16, 'F');
 
-                // Thin gold divider line as header
-                docInstance.setDrawColor(180, 83, 9); // Gold/Amber
-                docInstance.setLineWidth(0.5);
-                docInstance.line(15, 18, pageW - 15, 18);
+                // Gold Accent Baseline under Header
+                docInstance.setFillColor(217, 119, 6);
+                docInstance.rect(0, 16, pageW, 1, 'F');
 
-                // Validity block aligned top right
-                docInstance.setFont('helvetica', 'normal');
-                docInstance.setFontSize(6.5);
-                docInstance.setTextColor(100, 116, 139);
-                docInstance.text("QUOTE VALID UNTIL", pageW - 15, 10, { align: 'right' });
-                
+                // Brand Logo & Title in Header
+                if (logoBase64) {
+                    try {
+                        docInstance.setFillColor(255, 255, 255);
+                        docInstance.roundedRect(12, 2, 12, 12, 1.5, 1.5, 'F');
+                        docInstance.addImage(logoBase64, "PNG", 12.5, 2.5, 11, 11);
+                    } catch {}
+                    docInstance.setFont('helvetica', 'bold');
+                    docInstance.setFontSize(9.5);
+                    docInstance.setTextColor(255, 255, 255);
+                    docInstance.text("SHRAWELLO", 27, 7.5);
+
+                    docInstance.setFont('helvetica', 'bold');
+                    docInstance.setFontSize(7);
+                    docInstance.setTextColor(245, 158, 11);
+                    docInstance.text("TRAVEL HUB", 54, 7.5);
+
+                    docInstance.setFont('helvetica', 'normal');
+                    docInstance.setFontSize(5.5);
+                    docInstance.setTextColor(203, 213, 225);
+                    docInstance.text("Making Dreams Come True | Luxury Custom Tours", 27, 12);
+                } else {
+                    docInstance.setFont('helvetica', 'bold');
+                    docInstance.setFontSize(10);
+                    docInstance.setTextColor(255, 255, 255);
+                    docInstance.text("SHRAWELLO TRAVEL HUB", 15, 8);
+
+                    docInstance.setFont('helvetica', 'normal');
+                    docInstance.setFontSize(5.5);
+                    docInstance.setTextColor(203, 213, 225);
+                    docInstance.text("Making Dreams Come True | Luxury Custom Tours", 15, 12.5);
+                }
+
+                // Right Header Metadata
+                const quoteRef = tripDetails.clientName ? `QUOTE #${new Date().getFullYear()}-${String(tripDetails.days || 3).padStart(2, '0')}` : 'PROPOSAL QUOTE';
                 docInstance.setFont('helvetica', 'bold');
-                docInstance.setFontSize(8.5);
-                docInstance.setTextColor(180, 83, 9);
-                drawCalendarIcon(docInstance, pageW - 44, 11.5, [180, 83, 9]);
-                docInstance.text(cleanText(validUntilDate || '7 Days'), pageW - 15, 15.5, { align: 'right' });
+                docInstance.setFontSize(7);
+                docInstance.setTextColor(255, 255, 255);
+                docInstance.text(quoteRef, pageW - 15, 7.5, { align: 'right' });
 
-                // Footer separator and page number only (using Page X of Y alias)
+                docInstance.setFont('helvetica', 'normal');
+                docInstance.setFontSize(5.8);
+                docInstance.setTextColor(245, 158, 11);
+                docInstance.text(`Quote Valid: ${cleanText(validUntilDate || '7 Days')}`, pageW - 15, 12, { align: 'right' });
+
+                // Footer separator & contact line with executive pipes
                 docInstance.setDrawColor(226, 232, 240);
                 docInstance.setLineWidth(0.3);
-                docInstance.line(15, pageH - 12, pageW - 15, pageH - 12);
+                docInstance.line(15, pageH - 11, pageW - 15, pageH - 11);
 
                 docInstance.setFont('helvetica', 'normal');
-                docInstance.setFontSize(7);
-                docInstance.setTextColor(180, 140, 80); // muted gold
-                docInstance.text(`Page ${pageNum} of ${totalPagesExp}`, pageW - 15, pageH - 8, { align: 'right' });
+                docInstance.setFontSize(5.8);
+                docInstance.setTextColor(100, 116, 139);
+                docInstance.text("SHRAWELLO Travel Hub and Events LLP | +91 80109 55675 | hello@shrawello.com | shrawello.com", 15, pageH - 6.5);
+
+                docInstance.setFont('helvetica', 'bold');
+                docInstance.setFontSize(6.5);
+                docInstance.setTextColor(180, 83, 9);
+                docInstance.text(`Page ${pageNum} of ${totalPagesExp}`, pageW - 15, pageH - 6.5, { align: 'right' });
             };
 
             const inc = tripDetails.included || [];
@@ -420,730 +428,811 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
             let currentPageNum = 1;
             drawPageDecorations(doc, currentPageNum);
 
-            // --- PAGE 1: TITLE BLOCK, PRICING CARD, KEY STATS, WELCOME NOTE ---
+            // ─── PAGE 1: HERO, PRICING & HIGHLIGHTS ──────────────────────────────────
+            let y = 22;
+
+            // A. Title Block (Left Column, max 115mm)
+            const titleColW = contentW - 65; // ~115mm
             
-            // A. Title Column (left side, max 115mm to avoid price card overlap)
-            const titleW = pageW - 75 - 15 - 5; // ~115mm available
+            // Bespoke Tag (Dynamic width & centered text)
+            const tagText = "BESPOKE LUXURY ITINERARY";
             doc.setFont('helvetica', 'bold');
-            doc.setFontSize(20);
-            doc.setTextColor(15, 23, 42);
-            const wrappedTitleText = doc.splitTextToSize(cleanText(tripDetails.title) || "Exclusive Tour Package", titleW);
-            
-            let currentTitleY = 26;
-            doc.text(wrappedTitleText, 15, currentTitleY);
-            
-            const titleLines = wrappedTitleText.length;
-            const subtitleY = currentTitleY + (titleLines * 7);
+            doc.setFontSize(6.2);
+            const tagTextW = doc.getTextWidth(tagText);
+            const tagW = tagTextW + 7;
+            const tagH = 5.2;
 
-            // Cursive gold subtitle (wrapped to support long client names)
-            doc.setFont('times', 'italic');
-            doc.setFontSize(13);
+            doc.setFillColor(254, 243, 199);
+            doc.roundedRect(15, y, tagW, tagH, 1, 1, 'F');
             doc.setTextColor(180, 83, 9);
-            const subtitleText = cleanText(tripDetails.clientName ? `${tripDetails.clientName} Custom Tour` : 'Custom Family Tour');
-            const wrappedSubtitleText = doc.splitTextToSize(subtitleText, titleW);
-            doc.text(wrappedSubtitleText, 15, subtitleY);
-            
-            const subtitleLines = wrappedSubtitleText.length;
-            const pillY = subtitleY + (subtitleLines * 4.5);
+            doc.text(tagText, 15 + (tagW / 2), y + 3.7, { align: 'center' });
 
-            // Nights/Days pill badge (positioned dynamically below subtitle)
-            doc.setFillColor(250, 249, 246);
+            // Title with clean vertical clearance (below the pill)
+            const titleStartY = y + tagH + 7;
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(18);
+            doc.setTextColor(15, 23, 42);
+            const wrappedTitle = doc.splitTextToSize(cleanText(tripDetails.title) || "Exclusive Tour Package", titleColW);
+            doc.text(wrappedTitle, 15, titleStartY);
+            const titleH = wrappedTitle.length * 6.5;
+
+            // Subtitle / Prepared For
+            const subY = titleStartY + 4.5;
+            doc.setFont('times', 'italic');
+            doc.setFontSize(10.5);
+            doc.setTextColor(180, 83, 9);
+            const clientSubtitle = cleanText(tripDetails.clientName ? `Prepared exclusively for: ${tripDetails.clientName}` : 'Curated Custom Vacation');
+            doc.text(clientSubtitle, 15, subY);
+
+            // Duration Pill (Dynamic width)
+            const durationY = subY + 4.2;
+            const durText = `${formatTripDuration({ nights: tripDetails.nights, days: tripDetails.days }).toUpperCase()} | ${cleanText(destinationName)}`;
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(6.5);
+            const durTextW = doc.getTextWidth(durText);
+            const durW = durTextW + 11;
+
+            doc.setFillColor(255, 255, 255);
             doc.setDrawColor(180, 83, 9);
             doc.setLineWidth(0.25);
-            doc.roundedRect(15, pillY + 3, 50, 7, 1, 1, 'FD');
-            drawCalendarIcon(doc, 18, pillY + 4.5, [180, 83, 9]);
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(8);
-            doc.setTextColor(30, 41, 59);
-            doc.text(`${formatTripDuration({ nights: tripDetails.nights, days: tripDetails.days }).toUpperCase()}`, 25, pillY + 8.5);
+            doc.roundedRect(15, durationY, durW, 5.5, 1, 1, 'FD');
+            drawCalendarIcon(doc, 17, durationY + 0.9, [180, 83, 9]);
+            doc.setTextColor(15, 23, 42);
+            doc.text(durText, 23.5, durationY + 3.9);
 
-            // B. Total Investment Price Card (right-aligned, starts at y=22)
-            const priceCardTop = 22;
-            const priceCardH = 40;
+            // B. Price Card (Right Column) - Highlighting Per Person in Big Text
+            const priceCardW = 58;
+            const priceCardX = pageW - 15 - priceCardW;
+            const priceCardY = 22;
+            const priceCardH = 38;
+
             doc.setFillColor(255, 255, 255);
             doc.setDrawColor(226, 232, 240);
             doc.setLineWidth(0.3);
-            doc.roundedRect(pageW - 72, priceCardTop, 57, priceCardH, 2, 2, 'FD');
+            doc.roundedRect(priceCardX, priceCardY, priceCardW, priceCardH, 2, 2, 'FD');
 
-            // Gold accent bottom bar
-            doc.setDrawColor(180, 83, 9);
-            doc.setLineWidth(0.8);
-            doc.line(pageW - 72, priceCardTop + priceCardH, pageW - 15, priceCardTop + priceCardH);
-
-            // Dark header tab
+            // Top Tab Header
             doc.setFillColor(15, 23, 42);
-            doc.roundedRect(pageW - 62, priceCardTop - 2.5, 40, 5, 1, 1, 'F');
+            doc.roundedRect(priceCardX + 5, priceCardY - 2.5, priceCardW - 10, 5, 1, 1, 'F');
             doc.setFont('helvetica', 'bold');
-            doc.setFontSize(7);
+            doc.setFontSize(6.2);
             doc.setTextColor(255, 255, 255);
-            doc.text("TOTAL INVESTMENT", pageW - 42, priceCardTop + 1, { align: 'center' });
+            doc.text("STARTING PER PERSON", priceCardX + (priceCardW / 2), priceCardY + 1, { align: 'center' });
 
-            // Package price
+            // HERO: Per Person Price (BIG Highlight)
             doc.setFont('helvetica', 'bold');
             doc.setFontSize(16);
+            doc.setTextColor(180, 83, 9);
+            doc.text(cleanCurrency(formatCurrency(pricePerPax)), priceCardX + (priceCardW / 2), priceCardY + 12.5, { align: 'center' });
+            
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(6.2);
             doc.setTextColor(15, 23, 42);
-            doc.text(cleanCurrency(formatCurrency(finalPrice)), pageW - 43.5, priceCardTop + 13, { align: 'center' });
-            doc.setFont('helvetica', 'normal');
-            doc.setFontSize(6.5);
-            doc.setTextColor(148, 163, 184);
-            doc.text("TOTAL PACKAGE COST", pageW - 43.5, priceCardTop + 17, { align: 'center' });
+            doc.text("PER PERSON", priceCardX + (priceCardW / 2), priceCardY + 16.5, { align: 'center' });
 
-            // Dotted divider
+            // Dotted separator
             doc.setDrawColor(226, 232, 240);
             doc.setLineWidth(0.25);
-            for (let dX = pageW - 68; dX < pageW - 18; dX += 2) {
-                doc.line(dX, priceCardTop + 21, dX + 1, priceCardTop + 21);
+            for (let dX = priceCardX + 5; dX < priceCardX + priceCardW - 5; dX += 2) {
+                doc.line(dX, priceCardY + 20.5, dX + 1, priceCardY + 20.5);
             }
 
-            // Per pax price
+            // Total Package Cost (Small Text)
             doc.setFont('helvetica', 'bold');
-            doc.setFontSize(11);
-            doc.setTextColor(180, 83, 9);
-            doc.text(cleanCurrency(formatCurrency(pricePerPax)), pageW - 43.5, priceCardTop + 29, { align: 'center' });
+            doc.setFontSize(10);
+            doc.setTextColor(15, 23, 42);
+            doc.text(cleanCurrency(formatCurrency(finalPrice)), priceCardX + (priceCardW / 2), priceCardY + 28, { align: 'center' });
+            
             doc.setFont('helvetica', 'normal');
-            doc.setFontSize(6.5);
-            doc.setTextColor(148, 163, 184);
-            doc.text("PER PERSON", pageW - 43.5, priceCardTop + 33, { align: 'center' });
+            doc.setFontSize(5.8);
+            doc.setTextColor(100, 116, 139);
+            doc.text(`TOTAL FOR ${guestCount} GUESTS`, priceCardX + (priceCardW / 2), priceCardY + 32, { align: 'center' });
 
-            // C. Stats Bar — positioned below both title/subtitle block AND pricing card to prevent overlaps
-            const statsBarTop = Math.max(pillY + 13, priceCardTop + priceCardH + 4);
+            // Gold bottom accent line on card
+            doc.setFillColor(180, 83, 9);
+            doc.rect(priceCardX, priceCardY + priceCardH - 0.8, priceCardW, 0.8, 'F');
+
+            // C. 4-Column Trip Highlights Bar
+            const statsBarY = Math.max(durationY + 9, priceCardY + priceCardH + 4);
             doc.setFillColor(255, 255, 255);
             doc.setDrawColor(226, 232, 240);
             doc.setLineWidth(0.3);
-            doc.roundedRect(15, statsBarTop, pageW - 30, 13, 1.5, 1.5, 'FD');
+            doc.roundedRect(15, statsBarY, contentW, 12, 1.5, 1.5, 'FD');
+
+            const colW = contentW / 4;
 
             // Col 1: Guests
-            drawUsersIcon(doc, 15 + 6, statsBarTop + 4);
+            drawUsersIcon(doc, 15 + 4, statsBarY + 3.5);
             doc.setFont('helvetica', 'bold');
-            doc.setFontSize(8);
+            doc.setFontSize(7.5);
             doc.setTextColor(15, 23, 42);
-            doc.text(`${guestCount}`, 15 + 12, statsBarTop + 7);
+            doc.text(`${guestCount} Guests`, 15 + 11, statsBarY + 6.5);
             doc.setFont('helvetica', 'normal');
-            doc.setFontSize(6.5);
+            doc.setFontSize(5.5);
             doc.setTextColor(100, 116, 139);
-            doc.text("Guests", 15 + 12, statsBarTop + 10.5);
+            doc.text("Travelers", 15 + 11, statsBarY + 9.5);
 
             doc.setDrawColor(226, 232, 240);
-            doc.line(15 + 42, statsBarTop + 2, 15 + 42, statsBarTop + 11);
+            doc.line(15 + colW, statsBarY + 2, 15 + colW, statsBarY + 10);
 
             // Col 2: Start Date
-            drawCalendarIcon(doc, 15 + 42 + 6, statsBarTop + 4, [15, 23, 42]);
+            drawCalendarIcon(doc, 15 + colW + 4, statsBarY + 3.5, [15, 23, 42]);
             doc.setFont('helvetica', 'bold');
-            doc.setFontSize(8);
+            doc.setFontSize(7.5);
             doc.setTextColor(15, 23, 42);
-            doc.text(cleanText(tripDetails.startDate), 15 + 42 + 12, statsBarTop + 7);
+            doc.text(cleanText(tripDetails.startDate || 'Upcoming'), 15 + colW + 11, statsBarY + 6.5);
             doc.setFont('helvetica', 'normal');
-            doc.setFontSize(6.5);
+            doc.setFontSize(5.5);
             doc.setTextColor(100, 116, 139);
-            doc.text("Start Date", 15 + 42 + 12, statsBarTop + 10.5);
+            doc.text("Start Date", 15 + colW + 11, statsBarY + 9.5);
 
-            doc.setDrawColor(226, 232, 240);
-            doc.line(15 + 90, statsBarTop + 2, 15 + 90, statsBarTop + 11);
+            doc.line(15 + (colW * 2), statsBarY + 2, 15 + (colW * 2), statsBarY + 10);
 
             // Col 3: Vehicle
-            const firstTransport = items.find(itm => itm.day === 1 && (itm.type === 'transport' || itm.type === 'flight')) 
-                || items.find(itm => itm.type === 'transport' || itm.type === 'flight');
-            const vehicleName = firstTransport ? cleanText(firstTransport.title) : 'Tempo Traveller (AC)';
-            drawVehicleIcon(doc, 15 + 90 + 6, statsBarTop + 4);
+            const firstTrans = items.find(i => i.type === 'transport' || i.type === 'flight');
+            const vehName = firstTrans ? cleanText(firstTrans.title) : 'Private AC Vehicle';
+            drawVehicleIcon(doc, 15 + (colW * 2) + 4, statsBarY + 3.5);
             doc.setFont('helvetica', 'bold');
-            doc.setFontSize(8);
+            doc.setFontSize(7.5);
             doc.setTextColor(15, 23, 42);
-            const wrappedVehicle = doc.splitTextToSize(vehicleName, 35);
-            doc.text(wrappedVehicle[0], 15 + 90 + 12, statsBarTop + 7);
+            const vehLines = doc.splitTextToSize(vehName, colW - 14);
+            doc.text(vehLines[0], 15 + (colW * 2) + 11, statsBarY + 6.5);
             doc.setFont('helvetica', 'normal');
-            doc.setFontSize(6.5);
+            doc.setFontSize(5.5);
             doc.setTextColor(100, 116, 139);
-            doc.text("Vehicle", 15 + 90 + 12, statsBarTop + 10.5);
+            doc.text("Transfers & Cab", 15 + (colW * 2) + 11, statsBarY + 9.5);
 
-            doc.setDrawColor(226, 232, 240);
-            doc.line(15 + 138, statsBarTop + 2, 15 + 138, statsBarTop + 11);
+            doc.line(15 + (colW * 3), statsBarY + 2, 15 + (colW * 3), statsBarY + 10);
 
             // Col 4: Meals
-            drawMealIcon(doc, 15 + 138 + 6, statsBarTop + 4);
+            drawMealIcon(doc, 15 + (colW * 3) + 4, statsBarY + 3.5);
             doc.setFont('helvetica', 'bold');
-            doc.setFontSize(8);
+            doc.setFontSize(7.5);
             doc.setTextColor(15, 23, 42);
-            doc.text("Breakfast", 15 + 138 + 12, statsBarTop + 7);
+            doc.text("Breakfast", 15 + (colW * 3) + 11, statsBarY + 6.5);
             doc.setFont('helvetica', 'normal');
-            doc.setFontSize(6.5);
+            doc.setFontSize(5.5);
             doc.setTextColor(100, 116, 139);
-            doc.text("Included", 15 + 138 + 12, statsBarTop + 10.5);
+            doc.text("Meal Plan Included", 15 + (colW * 3) + 11, statsBarY + 9.5);
 
-            // Cinematic Cover Photo banner (only if a cover image is uploaded, collapsible space)
+            // D. Cover Photo Banner (30mm cinematic height)
             let coverImgH = 0;
-            const coverW = pageW - 30; // 180mm
-            const coverTop = statsBarTop + 17;
-
+            const coverTop = statsBarY + 15;
             if (coverImgBase64) {
                 try {
-                    coverImgH = 26;
-                    doc.addImage(coverImgBase64, 'JPEG', 15, coverTop, coverW, coverImgH, undefined, 'FAST');
+                    coverImgH = 30;
+                    doc.addImage(coverImgBase64, 'JPEG', 15, coverTop, contentW, coverImgH, undefined, 'FAST');
                     doc.setDrawColor(180, 83, 9);
                     doc.setLineWidth(0.4);
-                    doc.roundedRect(15, coverTop, coverW, coverImgH, 2, 2, 'D'); // elegant gold frame on image
-                } catch (e) {
-                    console.error("Failed to render cover photo inside PDF, collapsing space:", e);
+                    doc.roundedRect(15, coverTop, contentW, coverImgH, 1.5, 1.5, 'D');
+                } catch {
                     coverImgH = 0;
                 }
             }
 
-            // E. Section Title: YOUR JOURNEY (positioned dynamically right below Cover Image or Stats Bar)
-            const journeyHeaderTop = coverImgH > 0 ? (coverTop + coverImgH + 6) : (statsBarTop + 13 + 6);
+            // E. Section Header: CURATED ITINERARY SCHEDULE
+            y = coverImgH > 0 ? (coverTop + coverImgH + 6) : (statsBarY + 16);
             doc.setFont('helvetica', 'bold');
             doc.setFontSize(9);
             doc.setTextColor(15, 23, 42);
-            doc.text("YOUR JOURNEY", 15, journeyHeaderTop);
+            doc.text("CURATED DAY-BY-DAY ITINERARY", 15, y);
             doc.setDrawColor(180, 83, 9);
             doc.setLineWidth(0.4);
-            doc.line(15, journeyHeaderTop + 2, 40, journeyHeaderTop + 2);
+            doc.line(15, y + 1.5, 60, y + 1.5);
             doc.setDrawColor(226, 232, 240);
-            doc.line(40, journeyHeaderTop + 2, pageW - 15, journeyHeaderTop + 2);
+            doc.line(60, y + 1.5, pageW - 15, y + 1.5);
 
-            // --- 2. VERTICAL TIMELINE GRID LOOP ---
-            let y = journeyHeaderTop + 8; // start just below the section header line
-            let lastCircleY: number | null = null;
+            y += 6;
 
-            // Right badge area starts at 120mm from left — reserve 75mm for badges
-            const titleMaxW = 88; // max width for day title text to avoid badge overlap
+            // ─── DAY-BY-DAY TIMELINE CARDS ──────────────────────────────────────────
+            itineraryList.forEach((dayData) => {
+                const dayItems = items
+                    .filter(i => i.day === dayData.day)
+                    .sort((a, b) => parseTimeToMinutes(a.time) - parseTimeToMinutes(b.time));
 
-            itineraryList.forEach((d, _idx) => {
-                // Dynamic description splitting — constrained to content area (circle=32mm left, 4mm right padding)
-                const descW = pageW - 15 - 32 - 8; // ~150mm
-                const wrappedDesc = doc.splitTextToSize(cleanText(d.desc), descW);
-                const descLines = wrappedDesc.length;
-                const lineH = 3.5; // 3.5mm per line at 8pt
-                let descBoxH = descLines * lineH + 8; // base description box height (8mm padding)
+                // Retrieve day notes
+                const dayNotes = cleanText((dayMeta[dayData.day] as any)?.notes || '').trim();
 
-                // Retrieve day specific notes from metadata
-                const dayNotesRaw = (dayMeta[d.day] as any)?.notes || '';
-                const dayNotesText = dayNotesRaw ? cleanText(dayNotesRaw).trim() : '';
-                let wrappedNotes: string[] = [];
-                let notesH = 0;
-                if (dayNotesText) {
-                    wrappedNotes = doc.splitTextToSize(`Note: ${dayNotesText}`, descW - 6);
-                    notesH = wrappedNotes.length * 3.2 + 5; // notes lines + 5mm banner padding
-                    descBoxH += notesH + 2.5; // add notes height + 2.5mm spacing
+                // Calculate estimated day card height
+                let estDayH = 14; // Day header bar
+                if (dayItems.length === 0) {
+                    estDayH += 10;
+                } else {
+                    dayItems.forEach(item => {
+                        const desc = cleanText(item.description || '');
+                        const descLines = desc ? doc.splitTextToSize(desc, contentW - 45).length : 0;
+                        estDayH += Math.max(10, 5 + (descLines * 3.2) + 2);
+                    });
                 }
-
-                // Determine dynamic header layout heights before pagination check to avoid overlaps
-                const titleText = doc.splitTextToSize(cleanText(d.title), titleMaxW);
-                const titleLines = titleText.length;
-                const titleBlockH = titleLines * 4.2;
-
-                const dayTrans = items.find(itm => itm.day === d.day && (itm.type === 'transport' || itm.type === 'flight'));
-                const transInfo = dayTrans ? cleanText(dayTrans.title) : '';
-                const wrappedTrans = transInfo ? doc.splitTextToSize(transInfo, titleMaxW) : [];
-                const transLines = wrappedTrans.length;
-                const transBlockH = transLines > 0 ? (transLines * 3.2) + 1.5 : 0;
-
-                const dayHotel = items.find(itm => itm.day === d.day && itm.type === 'hotel');
-                const badgeMaxW = 62;
-                const hotelWrapped = dayHotel ? doc.splitTextToSize(cleanText(dayHotel.title), badgeMaxW - 14) : [];
-                const badgeLines = hotelWrapped.length || 1;
-
-                const estLeftBottomY = y + 5.5 + titleBlockH + transBlockH;
-                const estRightBottomY = y + 5.5 + (badgeLines * 3.5) + 0.5;
-                const estCardTop = Math.max(estLeftBottomY, estRightBottomY, y + 13.5) + 1.5;
-                const totalDayHeight = (estCardTop - y) + descBoxH + 5;
+                if (dayNotes) {
+                    const noteLines = doc.splitTextToSize(`DMC INSIDER TIP: ${dayNotes}`, contentW - 24).length;
+                    estDayH += (noteLines * 3.2) + 6;
+                }
+                estDayH += 4; // margin
 
                 // Smart Pagination boundary check
-                if (y + totalDayHeight > pageH - 20) {
-                    if (lastCircleY !== null) {
-                        drawDashedLine(doc, 22.5, lastCircleY + 6.5, 22.5, pageH - 16);
-                    }
+                if (y + estDayH > pageH - 18) {
                     doc.addPage();
                     currentPageNum++;
                     drawPageDecorations(doc, currentPageNum);
+                    y = 24;
 
                     doc.setFont('helvetica', 'bold');
                     doc.setFontSize(9);
                     doc.setTextColor(15, 23, 42);
-                    doc.text(`YOUR JOURNEY (FROM DAY ${d.day})`, 15, 28);
+                    doc.text(`CURATED ITINERARY (CONTINUED - DAY ${dayData.day})`, 15, y);
                     doc.setDrawColor(180, 83, 9);
                     doc.setLineWidth(0.4);
-                    doc.line(15, 30, 50, 30);
+                    doc.line(15, y + 1.5, 65, y + 1.5);
                     doc.setDrawColor(226, 232, 240);
-                    doc.line(50, 30, pageW - 15, 30);
-
-                    y = 38;
-                    lastCircleY = null;
+                    doc.line(65, y + 1.5, pageW - 15, y + 1.5);
+                    y += 6;
                 }
 
-                // A. Dashed Connector Line
-                const currentCircleCenterY = y + 7;
-                if (lastCircleY !== null) {
-                    drawDashedLine(doc, 22.5, lastCircleY + 6.5, 22.5, y + 0.5);
-                }
-                lastCircleY = currentCircleCenterY;
+                const dayCardStartY = y;
 
-                // B. Circle Day Badge
-                doc.setDrawColor(203, 213, 225);
-                doc.setLineWidth(0.35);
-                doc.setFillColor(255, 255, 255);
-                doc.circle(22.5, currentCircleCenterY, 6.5, 'FD');
+                // Day Outer Card Container
+                const dayHotel = items.find(i => i.day === dayData.day && i.type === 'hotel');
+                const stayName = dayHotel ? cleanText(dayHotel.title) : '';
+
+                // Render Day Header Bar
+                doc.setFillColor(15, 23, 42);
+                doc.roundedRect(15, y, contentW, 9, 1.5, 1.5, 'F');
+
+                // Day Number Pill
+                doc.setFillColor(217, 119, 6);
+                doc.roundedRect(17, y + 1.5, 14, 6, 1, 1, 'F');
                 doc.setFont('helvetica', 'bold');
-                doc.setFontSize(5.5);
-                doc.setTextColor(100, 116, 139);
-                doc.text("DAY", 22.5, y + 5.2, { align: 'center' });
-                doc.setFontSize(10);
-                doc.setTextColor(15, 23, 42);
-                doc.text(String(d.day), 22.5, y + 9.8, { align: 'center' });
+                doc.setFontSize(6.5);
+                doc.setTextColor(255, 255, 255);
+                doc.text(`DAY ${String(dayData.day).padStart(2, '0')}`, 24, y + 5.5, { align: 'center' });
 
-                // C. Day Title — wrapped to support arbitrary length
+                // Day Theme Title
                 doc.setFont('helvetica', 'bold');
-                doc.setFontSize(9.5);
-                doc.setTextColor(15, 23, 42);
-                doc.text(titleText, 32, y + 5.5, { lineHeightFactor: 1.2 });
+                doc.setFontSize(8);
+                doc.setTextColor(255, 255, 255);
+                const titleMaxW = stayName ? contentW - 85 : contentW - 38;
+                const wrappedDayTitle = doc.splitTextToSize(cleanText(dayData.title), titleMaxW);
+                doc.text(wrappedDayTitle[0], 34, y + 5.8);
 
-                // D. Transport subtitle
-                const transY = y + 5.5 + titleBlockH;
-                if (transLines > 0) {
+                // Right Stay Badge (Clean subtle pill layout without hand-drawn line glitches)
+                if (stayName) {
+                    const cleanStay = cleanText(stayName);
+                    const stayBadgeText = `Stay: ${cleanStay}`;
+                    const stayLines = doc.splitTextToSize(stayBadgeText, 55);
+                    const textW = doc.getTextWidth(stayLines[0]);
+                    const badgeW = textW + 6;
+                    const badgeX = pageW - 17 - badgeW;
+
+                    // Clean dark pill background
+                    doc.setFillColor(30, 41, 59);
+                    doc.roundedRect(badgeX, y + 1.5, badgeW, 6, 1, 1, 'F');
+
+                    doc.setFont('helvetica', 'bold');
+                    doc.setFontSize(6.2);
+                    doc.setTextColor(253, 230, 138); // Amber light
+                    doc.text("Stay: ", badgeX + 3, y + 5.5);
+
+                    const labelW = doc.getTextWidth("Stay: ");
                     doc.setFont('helvetica', 'normal');
-                    doc.setFontSize(7);
-                    doc.setTextColor(148, 163, 184);
-                    doc.text(wrappedTrans, 32, transY, { lineHeightFactor: 1.25 });
+                    doc.setTextColor(255, 255, 255);
+                    doc.text(stayLines[0].replace(/^Stay:\s*/i, ''), badgeX + 3 + labelW, y + 5.5);
                 }
 
-                // E. Right-Aligned Stay / Return Badge (right-aligned)
-                const badgeRightX = pageW - 15;
-                const badgeLabelY = y + 5.5;
+                let currentItemY = y + 12;
 
-                doc.setFont('helvetica', 'bold');
-                doc.setFontSize(7.5);
+                // Day Items Timeline Entries
+                if (dayItems.length === 0) {
+                    doc.setFont('helvetica', 'italic');
+                    doc.setFontSize(7.5);
+                    doc.setTextColor(100, 116, 139);
+                    doc.text("Leisure day for relaxation and personal exploration.", 22, currentItemY + 3);
+                    currentItemY += 8;
+                } else {
+                    dayItems.forEach((item, itemIdx) => {
+                        // Category Badge
+                        let badgeBg: [number, number, number] = [241, 245, 249];
+                        let badgeTextCol: [number, number, number] = [71, 85, 105];
+                        let badgeIcon = 'ACTIVITY';
 
-                if (dayHotel) {
-                    const labelW = doc.getTextWidth('Stay: ');
-                    hotelWrapped.forEach((line, lineIdx) => {
-                        const lineY = badgeLabelY + (lineIdx * 3.5);
-                        const lineText = lineIdx === 0 ? 'Stay: ' + line : line;
-                        const lineW = doc.getTextWidth(lineText);
-                        const badgeStartX = badgeRightX - lineW;
-                        
-                        if (lineIdx === 0) {
-                            drawBedIcon(doc, badgeStartX - 7, lineY - 3.5, [180, 83, 9]);
-                            doc.setTextColor(180, 83, 9);
-                            doc.text('Stay: ', badgeStartX, lineY);
-                            doc.setTextColor(15, 23, 42);
-                            doc.text(line, badgeStartX + labelW, lineY);
+                        if (item.type === 'transport' || item.type === 'flight') {
+                            badgeBg = [238, 242, 255]; // Indigo-50
+                            badgeTextCol = [67, 56, 202]; // Indigo-700
+                            badgeIcon = 'TRANSFER';
+                        } else if (item.type === 'hotel') {
+                            badgeBg = [254, 243, 199]; // Amber-50
+                            badgeTextCol = [180, 83, 9]; // Amber-700
+                            badgeIcon = 'HOTEL';
+                        } else if (item.type === 'activity') {
+                            badgeBg = [236, 253, 245]; // Emerald-50
+                            badgeTextCol = [4, 120, 87]; // Emerald-700
+                            badgeIcon = 'ACTIVITY';
+                        } else if (item.type === 'guide') {
+                            badgeBg = [240, 249, 255]; // Sky-50
+                            badgeTextCol = [3, 105, 161]; // Sky-700
+                            badgeIcon = 'GUIDE';
+                        }
+
+                        // Time pill
+                        const timeStr = cleanText(item.time || 'Schedule');
+                        doc.setFillColor(248, 250, 252);
+                        doc.setDrawColor(226, 232, 240);
+                        doc.setLineWidth(0.2);
+                        doc.roundedRect(18, currentItemY, 17, 4.5, 0.8, 0.8, 'FD');
+                        doc.setFont('helvetica', 'bold');
+                        doc.setFontSize(5.5);
+                        doc.setTextColor(15, 23, 42);
+                        doc.text(timeStr, 26.5, currentItemY + 3.2, { align: 'center' });
+
+                        // Type Pill
+                        doc.setFillColor(badgeBg[0], badgeBg[1], badgeBg[2]);
+                        doc.roundedRect(37, currentItemY, 16, 4.5, 0.8, 0.8, 'F');
+                        doc.setFont('helvetica', 'bold');
+                        doc.setFontSize(5);
+                        doc.setTextColor(badgeTextCol[0], badgeTextCol[1], badgeTextCol[2]);
+                        doc.text(badgeIcon, 45, currentItemY + 3.2, { align: 'center' });
+
+                        // Item Title
+                        doc.setFont('helvetica', 'bold');
+                        doc.setFontSize(7.5);
+                        doc.setTextColor(15, 23, 42);
+                        doc.text(cleanText(item.title), 56, currentItemY + 3.3);
+
+                        // Item Description
+                        const desc = cleanText(item.description || '');
+                        if (desc) {
+                            doc.setFont('helvetica', 'normal');
+                            doc.setFontSize(6.8);
+                            doc.setTextColor(71, 85, 105);
+                            const descLines = doc.splitTextToSize(desc, contentW - 42);
+                            doc.text(descLines, 56, currentItemY + 7.5, { lineHeightFactor: 1.25 });
+                            currentItemY += 7.5 + (descLines.length * 3.1) + 2.5;
                         } else {
-                            doc.setTextColor(15, 23, 42);
-                            doc.text(line, badgeStartX, lineY);
+                            currentItemY += 7;
+                        }
+
+                        // Light dotted divider between items
+                        if (itemIdx < dayItems.length - 1) {
+                            doc.setDrawColor(241, 245, 249);
+                            doc.setLineWidth(0.2);
+                            doc.line(22, currentItemY - 1, pageW - 22, currentItemY - 1);
+                            currentItemY += 1.5;
                         }
                     });
-                } else if (d.day === totalDays) {
-                    const returnLabel = 'Return: ';
-                    const returnVal = 'Beautiful Memories';
-                    const labelW = doc.getTextWidth(returnLabel);
-                    const nameW = doc.getTextWidth(returnVal);
-                    const badgeStartX = badgeRightX - labelW - nameW;
-
-                    drawMapPinIcon(doc, badgeStartX - 7, badgeLabelY - 3.8, [16, 185, 129]);
-                    doc.setTextColor(100, 116, 139);
-                    doc.text(returnLabel, badgeStartX, badgeLabelY);
-                    doc.setTextColor(16, 185, 129);
-                    doc.text(returnVal, badgeStartX + labelW, badgeLabelY);
                 }
 
-                // F. Description Box Card
-                const actualLeftBottomY = y + 5.5 + titleBlockH + transBlockH;
-                const actualRightBottomY = y + 5.5 + (badgeLines * 3.5) + 0.5;
-                const cardTop = Math.max(actualLeftBottomY, actualRightBottomY, y + 13.5) + 1.5;
+                // Day Notes Banner (Clean vector callout with proper margins)
+                if (dayNotes) {
+                    const noteWrapped = doc.splitTextToSize(`DMC INSIDER TIP: ${dayNotes}`, contentW - 24);
+                    const noteH = (noteWrapped.length * 3.2) + 4.5;
+                    doc.setFillColor(254, 243, 199);
+                    doc.setDrawColor(251, 191, 36);
+                    doc.setLineWidth(0.2);
+                    doc.roundedRect(18, currentItemY, contentW - 6, noteH, 1, 1, 'FD');
 
-                doc.setFillColor(252, 252, 252);
+                    doc.setDrawColor(180, 83, 9);
+                    doc.setLineWidth(0.6);
+                    doc.line(18.1, currentItemY + 0.2, 18.1, currentItemY + noteH - 0.2);
+
+                    doc.setFont('helvetica', 'bolditalic');
+                    doc.setFontSize(6.2);
+                    doc.setTextColor(180, 83, 9);
+                    doc.text(noteWrapped, 22, currentItemY + 3.2, { lineHeightFactor: 1.25 });
+                    currentItemY += noteH + 2;
+                }
+
+                // Finalize Card Container Border
+                const actualCardH = currentItemY - dayCardStartY + 2;
                 doc.setDrawColor(226, 232, 240);
                 doc.setLineWidth(0.3);
-                doc.roundedRect(32, cardTop, pageW - 15 - 32, descBoxH, 1.5, 1.5, 'FD');
+                doc.roundedRect(15, dayCardStartY, contentW, actualCardH, 1.5, 1.5, 'D');
 
-                doc.setFont('helvetica', 'normal');
-                doc.setFontSize(8);
-                doc.setTextColor(71, 85, 105);
-                doc.text(wrappedDesc, 36, cardTop + 4.5, { lineHeightFactor: 1.35 });
-
-                // Render Integrated Notes callout banner inside description box card
-                if (dayNotesText) {
-                    const notesTop = cardTop + descLines * lineH + 6.5;
-                    doc.setFillColor(254, 243, 199); // amber-100/50
-                    doc.setDrawColor(251, 191, 36); // amber-400
-                    doc.setLineWidth(0.2);
-                    doc.roundedRect(35, notesTop, pageW - 15 - 32 - 6, notesH, 1, 1, 'FD');
-
-                    // Small vertical gold border accent line on notes
-                    doc.setDrawColor(180, 83, 9);
-                    doc.setLineWidth(0.5);
-                    doc.line(35.1, notesTop + 0.2, 35.1, notesTop + notesH - 0.2);
-
-                    doc.setFont('helvetica', 'italic');
-                    doc.setFontSize(6.5);
-                    doc.setTextColor(180, 83, 9);
-                    doc.text(wrappedNotes, 38, notesTop + 3.5, { lineHeightFactor: 1.25 });
-                }
-
-                // Update y using the actual dynamic card top offset
-                y += (cardTop - y) + descBoxH + 5;
+                y = currentItemY + 5;
             });
-            // --- ACCOMMODATION & TRANSPORT SUMMARY TABLES (Dynamic via autoTable) ---
-            if (accommodations.length > 0) {
-                // Safe padding check: if header + some rows don't fit, push to new page
-                if (y + 25 > pageH - 16) {
-                    doc.addPage();
-                    currentPageNum++;
-                    drawPageDecorations(doc, currentPageNum);
-                    y = 28;
-                }
-                
-                doc.setFont('helvetica', 'bold');
-                doc.setFontSize(9);
-                doc.setTextColor(15, 23, 42);
-                doc.text("HOTELS & ACCOMMODATIONS", 15, y);
-                doc.setDrawColor(180, 83, 9);
-                doc.setLineWidth(0.4);
-                doc.line(15, y + 1.5, 45, y + 1.5);
-                doc.setDrawColor(226, 232, 240);
-                doc.line(45, y + 1.5, pageW - 15, y + 1.5);
-                
-                y += 5;
-                
-                const tableBody = accommodations.map(acc => [
-                    `Day ${acc.day}`,
-                    cleanText(acc.title),
-                    cleanText(acc.description || '-')
-                ]);
-                
-                autoTable(doc, {
-                    startY: y,
-                    margin: { left: 15, right: 15 },
-                    theme: 'striped',
-                    head: [['Day', 'Property', 'Details / Room Type']],
-                    body: tableBody,
-                    styles: { fontSize: 7, font: 'helvetica', textColor: [71, 85, 105], cellPadding: 2.2 },
-                    headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7.5 },
-                    columnStyles: {
-                        0: { cellWidth: 20, fontStyle: 'bold', textColor: [15, 23, 42] },
-                        1: { cellWidth: 50, fontStyle: 'bold', textColor: [15, 23, 42] },
-                        2: { cellWidth: 'auto' }
-                    },
-                    alternateRowStyles: { fillColor: [250, 249, 246] },
-                    didDrawPage: (data) => {
-                        if (data.pageNumber > currentPageNum) {
-                            currentPageNum = data.pageNumber;
-                            drawPageDecorations(doc, currentPageNum);
-                        }
-                    }
-                });
-                
-                y = (doc as any).lastAutoTable.finalY + 8;
-            }
 
-            if (transports.length > 0) {
-                if (y + 25 > pageH - 16) {
-                    doc.addPage();
-                    currentPageNum++;
-                    drawPageDecorations(doc, currentPageNum);
-                    y = 28;
-                }
-                
-                doc.setFont('helvetica', 'bold');
-                doc.setFontSize(9);
-                doc.setTextColor(15, 23, 42);
-                doc.text("TRANSPORT & SERVICE SUMMARY", 15, y);
-                doc.setDrawColor(180, 83, 9);
-                doc.setLineWidth(0.4);
-                doc.line(15, y + 1.5, 45, y + 1.5);
-                doc.setDrawColor(226, 232, 240);
-                doc.line(45, y + 1.5, pageW - 15, y + 1.5);
-                
-                y += 5;
-                
-                const tableBody = transports.map(trans => [
-                    `Day ${trans.day}`,
-                    cleanText(trans.title),
-                    cleanText(trans.description || '-')
-                ]);
-                
-                autoTable(doc, {
-                    startY: y,
-                    margin: { left: 15, right: 15 },
-                    theme: 'striped',
-                    head: [['Day', 'Vehicle / Service', 'Details']],
-                    body: tableBody,
-                    styles: { fontSize: 7, font: 'helvetica', textColor: [71, 85, 105], cellPadding: 2.2 },
-                    headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7.5 },
-                    columnStyles: {
-                        0: { cellWidth: 20, fontStyle: 'bold', textColor: [15, 23, 42] },
-                        1: { cellWidth: 50, fontStyle: 'bold', textColor: [15, 23, 42] },
-                        2: { cellWidth: 'auto' }
-                    },
-                    alternateRowStyles: { fillColor: [250, 249, 246] },
-                    didDrawPage: (data) => {
-                        if (data.pageNumber > currentPageNum) {
-                            currentPageNum = data.pageNumber;
-                            drawPageDecorations(doc, currentPageNum);
-                        }
-                    }
-                });
-                
-                y = (doc as any).lastAutoTable.finalY + 8;
-            }
-
-            // --- 3. THREE-COLUMN SUMMARY FOOTER (dynamic card heights, NOTES removed) ---
-            // Pre-calculate all card heights to determine tallest
-            const gap = 1.5; // 1.5mm elegant gap between cards
-            const cardW = (pageW - 30 - (2 * gap)) / 3; // exactly 59.0mm per card to fit A4 perfectly
-            const innerW = cardW - 8; // text width inside card
-
-            doc.setFontSize(7);
-            const finalInclusions = inc.map(cleanItemText).filter(Boolean);
-            const finalExclusions = exc.map(cleanItemText).filter(Boolean);
-
-            // Calculate inc card height dynamically matching exact rendering width
-            let incCalcH = 16; // header + divider
-            finalInclusions.forEach(item => {
-                const lines = doc.splitTextToSize(item, innerW - 4).length;
-                incCalcH += Math.max(8, lines * 3.5 + 2);
-            });
-            incCalcH += 4; // bottom padding
-
-            // Calculate exc card height dynamically matching exact rendering width
-            let excCalcH = 16;
-            finalExclusions.forEach(item => {
-                const lines = doc.splitTextToSize(item, innerW - 4).length;
-                excCalcH += Math.max(8, lines * 3.5 + 2);
-            });
-            excCalcH += 4;
-
-            const paymentCardH = 58; // fixed
-            const maxCardH = Math.max(incCalcH, excCalcH, paymentCardH);
-
-            // Check boundary: if footer + signature doesn't fit, push to next page
-            if (y + maxCardH + 22 > pageH - 16) {
+            // ─── DEDICATED CLOSING SUMMARY PAGE ─────────────────────────────────────
+            // If the summary tables + inclusions don't fit comfortably on the current page, create a dedicated closing page
+            const summaryTablesEstimatedH = (accommodations.length > 0 ? 25 : 0) + (transports.length > 0 ? 25 : 0) + 95;
+            if (y + summaryTablesEstimatedH > pageH - 18 || y > pageH - 95) {
                 doc.addPage();
                 currentPageNum++;
                 drawPageDecorations(doc, currentPageNum);
-                y = 30;
+                y = 24;
             }
 
-            const startFooterY = y + 8;
-            
-            // Card x-positions (3 perfectly spaced columns aligning perfectly to margins)
+            // Summary Section Title
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(9);
+            doc.setTextColor(15, 23, 42);
+            doc.text("SERVICES & SUMMARY MATRIX", 15, y);
+            doc.setDrawColor(180, 83, 9);
+            doc.setLineWidth(0.4);
+            doc.line(15, y + 1.5, 62, y + 1.5);
+            doc.setDrawColor(226, 232, 240);
+            doc.line(62, y + 1.5, pageW - 15, y + 1.5);
+            y += 5;
+
+            // Summary Table 1: Accommodations (concise facts, no harsh ellipsis)
+            if (accommodations.length > 0) {
+                const accBody = accommodations.map(acc => {
+                    const rawDesc = cleanText(acc.description || '');
+                    let details = 'Deluxe Room | Daily Breakfast Included';
+                    if (rawDesc) {
+                        if (rawDesc.length <= 65) {
+                            details = rawDesc;
+                        } else {
+                            const firstSentence = rawDesc.split(/[.!?]/)[0];
+                            details = (firstSentence.length >= 10 && firstSentence.length <= 65) 
+                                ? firstSentence 
+                                : 'Deluxe Boutique Room | Daily Breakfast Included';
+                        }
+                    }
+                    return [
+                        `Day ${acc.day}`,
+                        cleanText(acc.title),
+                        cleanText(destinationName),
+                        details
+                    ];
+                });
+
+                autoTable(doc, {
+                    startY: y,
+                    margin: { left: 15, right: 15 },
+                    theme: 'striped',
+                    head: [['Day', 'Property Name', 'Location', 'Room Details & Meal Plan']],
+                    body: accBody,
+                    styles: { fontSize: 6.8, font: 'helvetica', textColor: [51, 65, 85], cellPadding: 2 },
+                    headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7 },
+                    columnStyles: {
+                        0: { cellWidth: 16, fontStyle: 'bold', textColor: [15, 23, 42] },
+                        1: { cellWidth: 45, fontStyle: 'bold', textColor: [15, 23, 42] },
+                        2: { cellWidth: 32 },
+                        3: { cellWidth: 'auto' }
+                    },
+                    alternateRowStyles: { fillColor: [250, 249, 246] },
+                    didDrawPage: (data) => {
+                        if (data.pageNumber > currentPageNum) {
+                            currentPageNum = data.pageNumber;
+                            drawPageDecorations(doc, currentPageNum);
+                        }
+                    }
+                });
+
+                y = (doc as any).lastAutoTable.finalY + 5;
+            }
+
+            // Summary Table 2: Transports (concise facts, no harsh ellipsis)
+            if (transports.length > 0) {
+                const transBody = transports.map(trans => {
+                    const rawDesc = cleanText(trans.description || '');
+                    let scope = 'Private AC Chauffeur Vehicle | Fuel & Tolls Included';
+                    if (rawDesc) {
+                        if (rawDesc.length <= 65) {
+                            scope = rawDesc;
+                        } else {
+                            const firstSentence = rawDesc.split(/[.!?]/)[0];
+                            scope = (firstSentence.length >= 10 && firstSentence.length <= 65)
+                                ? firstSentence
+                                : 'Private AC Chauffeur Vehicle | Dedicated Transfers';
+                        }
+                    }
+                    return [
+                        `Day ${trans.day}`,
+                        cleanText(trans.title),
+                        scope
+                    ];
+                });
+
+                autoTable(doc, {
+                    startY: y,
+                    margin: { left: 15, right: 15 },
+                    theme: 'striped',
+                    head: [['Day', 'Service & Route', 'Fleet & Scope Details']],
+                    body: transBody,
+                    styles: { fontSize: 6.8, font: 'helvetica', textColor: [51, 65, 85], cellPadding: 2 },
+                    headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7 },
+                    columnStyles: {
+                        0: { cellWidth: 16, fontStyle: 'bold', textColor: [15, 23, 42] },
+                        1: { cellWidth: 55, fontStyle: 'bold', textColor: [15, 23, 42] },
+                        2: { cellWidth: 'auto' }
+                    },
+                    alternateRowStyles: { fillColor: [250, 249, 246] },
+                    didDrawPage: (data) => {
+                        if (data.pageNumber > currentPageNum) {
+                            currentPageNum = data.pageNumber;
+                            drawPageDecorations(doc, currentPageNum);
+                        }
+                    }
+                });
+
+                y = (doc as any).lastAutoTable.finalY + 6;
+            }
+
+            // ─── INCLUSIONS, EXCLUSIONS & PAYMENT TERMS ────────────────────────────
+            const gap = 2;
+            const cardW = (contentW - (2 * gap)) / 3; // 58.6mm per card
+            const innerW = cardW - 8;
+
+            const finalInclusions = inc.map(cleanItemText).filter(Boolean);
+            const finalExclusions = exc.map(cleanItemText).filter(Boolean);
+
+            let incH = 14;
+            finalInclusions.forEach(item => {
+                const lines = doc.splitTextToSize(item, innerW - 4).length;
+                incH += Math.max(6, lines * 3.1 + 1.2);
+            });
+
+            let excH = 14;
+            finalExclusions.forEach(item => {
+                const lines = doc.splitTextToSize(item, innerW - 4).length;
+                excH += Math.max(6, lines * 3.1 + 1.2);
+            });
+
+            const paymentCardH = 46;
+            const maxCardH = Math.max(incH, excH, paymentCardH);
+
+            if (y + maxCardH + 36 > pageH - 18) {
+                doc.addPage();
+                currentPageNum++;
+                drawPageDecorations(doc, currentPageNum);
+                y = 24;
+            }
+
             const c1x = 15;
             const c2x = 15 + cardW + gap;
             const c3x = 15 + (cardW + gap) * 2;
 
-            // A. Card Column 1: INCLUSIONS (dynamic height)
-            doc.setFillColor(252, 252, 252);
+            // Card 1: Inclusions
+            doc.setFillColor(255, 255, 255);
             doc.setDrawColor(226, 232, 240);
             doc.setLineWidth(0.3);
-            doc.roundedRect(c1x, startFooterY, cardW, maxCardH, 2, 2, 'FD');
+            doc.roundedRect(c1x, y, cardW, maxCardH, 1.5, 1.5, 'FD');
 
-            drawCheckCircle(doc, c1x + 3, startFooterY + 3.5);
+            drawCheckCircle(doc, c1x + 3, y + 2.5);
             doc.setFont('helvetica', 'bold');
-            doc.setFontSize(8);
+            doc.setFontSize(7.5);
             doc.setTextColor(15, 23, 42);
-            doc.text("INCLUSIONS", c1x + 10, startFooterY + 7);
-            doc.setDrawColor(16, 185, 129);
+            doc.text("INCLUSIONS", c1x + 9.5, y + 6);
+            doc.setDrawColor(5, 150, 105);
             doc.setLineWidth(0.4);
-            doc.line(c1x + 3, startFooterY + 10, c1x + cardW - 3, startFooterY + 10);
+            doc.line(c1x + 3, y + 8.5, c1x + cardW - 3, y + 8.5);
 
-            let incY = startFooterY + 13;
+            let incY = y + 11;
             finalInclusions.forEach((item) => {
                 drawCheckmarkBadge(doc, c1x + 3, incY + 1.2);
                 doc.setFont('helvetica', 'normal');
-                doc.setFontSize(6.5);
-                doc.setTextColor(71, 85, 105);
+                doc.setFontSize(6.2);
+                doc.setTextColor(51, 65, 85);
                 const wrapped = doc.splitTextToSize(item, innerW - 4);
                 doc.text(wrapped, c1x + 8, incY + 1.8);
-                const h = Math.max(7.5, wrapped.length * 3.5 + 1.5);
-                incY += h;
+                incY += Math.max(5.8, wrapped.length * 3.1 + 1);
             });
 
-            // B. Card Column 2: EXCLUSIONS (dynamic height)
-            doc.setFillColor(252, 252, 252);
+            // Card 2: Exclusions
+            doc.setFillColor(255, 255, 255);
             doc.setDrawColor(226, 232, 240);
             doc.setLineWidth(0.3);
-            doc.roundedRect(c2x, startFooterY, cardW, maxCardH, 2, 2, 'FD');
+            doc.roundedRect(c2x, y, cardW, maxCardH, 1.5, 1.5, 'FD');
 
-            drawCrossCircle(doc, c2x + 3, startFooterY + 3.5);
+            drawCrossCircle(doc, c2x + 3, y + 2.5);
             doc.setFont('helvetica', 'bold');
-            doc.setFontSize(8);
+            doc.setFontSize(7.5);
             doc.setTextColor(15, 23, 42);
-            doc.text("EXCLUSIONS", c2x + 10, startFooterY + 7);
-            doc.setDrawColor(239, 68, 68);
+            doc.text("EXCLUSIONS", c2x + 9.5, y + 6);
+            doc.setDrawColor(220, 38, 38);
             doc.setLineWidth(0.4);
-            doc.line(c2x + 3, startFooterY + 10, c2x + cardW - 3, startFooterY + 10);
+            doc.line(c2x + 3, y + 8.5, c2x + cardW - 3, y + 8.5);
 
-            let excY = startFooterY + 13;
+            let excY = y + 11;
             finalExclusions.forEach((item) => {
                 drawCrossmarkBadge(doc, c2x + 3, excY + 1.2);
                 doc.setFont('helvetica', 'normal');
-                doc.setFontSize(6.5);
-                doc.setTextColor(71, 85, 105);
+                doc.setFontSize(6.2);
+                doc.setTextColor(51, 65, 85);
                 const wrapped = doc.splitTextToSize(item, innerW - 4);
                 doc.text(wrapped, c2x + 8, excY + 1.8);
-                const h = Math.max(7.5, wrapped.length * 3.5 + 1.5);
-                excY += h;
+                excY += Math.max(5.8, wrapped.length * 3.1 + 1);
             });
 
-            // C. Card Column 3: PAYMENT TERMS
-            doc.setFillColor(252, 252, 252);
+            // Card 3: Payment Terms
+            doc.setFillColor(255, 255, 255);
             doc.setDrawColor(226, 232, 240);
             doc.setLineWidth(0.3);
-            doc.roundedRect(c3x, startFooterY, cardW, maxCardH, 2, 2, 'FD');
+            doc.roundedRect(c3x, y, cardW, maxCardH, 1.5, 1.5, 'FD');
 
-            drawCardIcon(doc, c3x + 3, startFooterY + 3);
+            drawCardIcon(doc, c3x + 3, y + 2);
             doc.setFont('helvetica', 'bold');
-            doc.setFontSize(8);
+            doc.setFontSize(7.5);
             doc.setTextColor(15, 23, 42);
-            doc.text("PAYMENT TERMS", c3x + 10, startFooterY + 7);
+            doc.text("PAYMENT TERMS", c3x + 9.5, y + 6);
             doc.setDrawColor(180, 83, 9);
             doc.setLineWidth(0.4);
-            doc.line(c3x + 3, startFooterY + 10, c3x + cardW - 3, startFooterY + 10);
+            doc.line(c3x + 3, y + 8.5, c3x + cardW - 3, y + 8.5);
 
             doc.setFont('helvetica', 'bold');
-            doc.setFontSize(16);
+            doc.setFontSize(13);
             doc.setTextColor(180, 83, 9);
-            doc.text("50%", c3x + 4, startFooterY + 22);
+            doc.text("50%", c3x + 4, y + 18);
             doc.setFont('helvetica', 'normal');
-            doc.setFontSize(6.5);
+            doc.setFontSize(5.8);
             doc.setTextColor(100, 116, 139);
-            doc.text("Advance at booking", c3x + 4, startFooterY + 26.5);
+            doc.text("Advance upon booking confirmation", c3x + 4, y + 22.5);
 
             doc.setDrawColor(226, 232, 240);
             doc.setLineWidth(0.25);
             for (let dX = c3x + 3; dX < c3x + cardW - 3; dX += 2) {
-                doc.line(dX, startFooterY + 31, dX + 1, startFooterY + 31);
+                doc.line(dX, y + 26.5, dX + 1, y + 26.5);
             }
 
             doc.setFont('helvetica', 'bold');
-            doc.setFontSize(16);
+            doc.setFontSize(13);
             doc.setTextColor(180, 83, 9);
-            doc.text("100%", c3x + 4, startFooterY + 43);
+            doc.text("100%", c3x + 4, y + 35.5);
             doc.setFont('helvetica', 'normal');
-            doc.setFontSize(6.5);
+            doc.setFontSize(5.8);
             doc.setTextColor(100, 116, 139);
-            doc.text("Balance prior 7 days", c3x + 4, startFooterY + 47.5);
+            doc.text("Balance payment 7 days prior to travel", c3x + 4, y + 40);
 
-            // --- 4. TERMS & CONDITIONS AND CLOSING SIGNATURE ---
-            const footerBottomY = startFooterY + maxCardH;
-            let sigY = footerBottomY + 8;
+            y += maxCardH + 5;
 
-            const rawTermsText = tripDetails.termsAndConditions || '';
-            const cleanTermsStr = cleanText(rawTermsText).trim();
+            // ─── SHRAWELLO LUXURY PROMISE & ASSURANCE BLOCK ─────────────────────────
+            const promiseH = 25;
+            doc.setFillColor(255, 255, 255);
+            doc.setDrawColor(226, 232, 240);
+            doc.setLineWidth(0.3);
+            doc.roundedRect(15, y, contentW, promiseH, 1.5, 1.5, 'FD');
 
-            if (cleanTermsStr) {
-                // Split by newline to preserve paragraph formatting
-                const rawParagraphs = cleanTermsStr.split('\n').map(p => p.trim()).filter(Boolean);
-                
-                doc.setFont('helvetica', 'normal');
-                doc.setFontSize(6.5);
-                
-                let termsContentH = 0;
-                const termsItemGap = 1.5;
-                const innerTermsW = pageW - 30 - 8; // Card padding (4mm left, 4mm right)
-                
-                const processedParas = rawParagraphs.map(p => {
-                    const wrapped = doc.splitTextToSize(p, innerTermsW);
-                    termsContentH += wrapped.length * 3.5 + termsItemGap;
-                    return wrapped;
-                });
-                
-                // Card height: padding top/bottom + header + divider + text content
-                const termsCardH = termsContentH - termsItemGap + 14; 
-                let termsStartY = footerBottomY + 6;
+            // Gold accent left line
+            doc.setDrawColor(180, 83, 9);
+            doc.setLineWidth(0.6);
+            doc.line(15.2, y + 0.2, 15.2, y + promiseH - 0.2);
 
-                // Smart Pagination boundary check: if T&C + signature doesn't fit on this page, push to a new page
-                if (termsStartY + termsCardH + 22 > pageH - 12) {
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(7.2);
+            doc.setTextColor(15, 23, 42);
+            doc.text("SHRAWELLO LUXURY PROMISE & TRIP GUIDELINES", 20, y + 5);
+
+            doc.setDrawColor(241, 245, 249);
+            doc.setLineWidth(0.25);
+            doc.line(20, y + 7, pageW - 19, y + 7);
+
+            const pColW = (contentW - 14) / 2;
+
+            // Guarantee 1
+            drawCheckmarkBadge(doc, 20, y + 11.5);
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(6.2);
+            doc.setTextColor(5, 150, 105);
+            doc.text("24/7 Dedicated Concierge", 26, y + 11.5);
+            doc.setFont('helvetica', 'normal');
+            doc.setTextColor(100, 116, 139);
+            doc.text("Personal tour manager assigned throughout your stay.", 26, y + 15);
+
+            // Guarantee 2
+            drawCheckmarkBadge(doc, 20, y + 19.5);
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(5, 150, 105);
+            doc.text("Verified Chauffeurs & Fleets", 26, y + 19.5);
+            doc.setFont('helvetica', 'normal');
+            doc.setTextColor(100, 116, 139);
+            doc.text("Licensed, punctual & courteous English/Hindi drivers.", 26, y + 23);
+
+            // Guarantee 3
+            drawCheckmarkBadge(doc, 20 + pColW, y + 11.5);
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(5, 150, 105);
+            doc.text("Hand-Picked Boutique Stays", 26 + pColW, y + 11.5);
+            doc.setFont('helvetica', 'normal');
+            doc.setTextColor(100, 116, 139);
+            doc.text("Inspected for superior hygiene, amenities & comfort.", 26 + pColW, y + 15);
+
+            // Guarantee 4
+            drawCheckmarkBadge(doc, 20 + pColW, y + 19.5);
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(5, 150, 105);
+            doc.text("100% Transparent Pricing", 26 + pColW, y + 19.5);
+            doc.setFont('helvetica', 'normal');
+            doc.setTextColor(100, 116, 139);
+            doc.text("No hidden taxes, extra tolls, or surprise charges.", 26 + pColW, y + 23);
+
+            y += promiseH + 5;
+
+            // Terms & Conditions (if present)
+            const rawTerms = tripDetails.termsAndConditions || '';
+            const cleanTerms = cleanText(rawTerms).trim();
+            if (cleanTerms) {
+                const termsParas = cleanTerms.split('\n').map(p => p.trim()).filter(Boolean);
+                const termsWrapped = termsParas.map(p => doc.splitTextToSize(p, contentW - 12));
+                const termsH = termsWrapped.reduce((acc, lines) => acc + (lines.length * 3.2) + 1.5, 0) + 12;
+
+                if (y + termsH > pageH - 18) {
                     doc.addPage();
                     currentPageNum++;
                     drawPageDecorations(doc, currentPageNum);
-                    termsStartY = 26; // reset just below the header decorative line
+                    y = 24;
                 }
 
-                // Render T&C Card Box
-                doc.setFillColor(252, 252, 252);
+                doc.setFillColor(255, 255, 255);
                 doc.setDrawColor(226, 232, 240);
                 doc.setLineWidth(0.3);
-                doc.roundedRect(15, termsStartY, pageW - 30, termsCardH, 2, 2, 'FD');
+                doc.roundedRect(15, y, contentW, termsH, 1.5, 1.5, 'FD');
 
-                // Gold Accent Left Border Line
                 doc.setDrawColor(180, 83, 9);
-                doc.setLineWidth(0.8);
-                doc.line(15.2, termsStartY + 0.2, 15.2, termsStartY + termsCardH - 0.2);
+                doc.setLineWidth(0.6);
+                doc.line(15.2, y + 0.2, 15.2, y + termsH - 0.2);
 
-                // Gold Bullet next to header
-                doc.setFillColor(180, 83, 9);
-                doc.circle(19.5, termsStartY + 5.5, 0.8, 'F');
-
-                // Header Text
                 doc.setFont('helvetica', 'bold');
                 doc.setFontSize(7.5);
                 doc.setTextColor(15, 23, 42);
-                doc.text("TERMS & CONDITIONS", 23, termsStartY + 6.5);
-
-                // Thin horizontal divider line under header inside card
+                doc.text("TERMS & CONDITIONS", 20, y + 5.5);
                 doc.setDrawColor(241, 245, 249);
                 doc.setLineWidth(0.25);
-                doc.line(19, termsStartY + 9, pageW - 19, termsStartY + 9);
+                doc.line(20, y + 7.5, pageW - 19, y + 7.5);
 
-                // Render paragraph lines
-                let currentParaY = termsStartY + 13;
-                processedParas.forEach(wrapped => {
+                let tY = y + 11;
+                termsWrapped.forEach(lines => {
                     doc.setFont('helvetica', 'normal');
-                    doc.setFontSize(6.5);
-                    doc.setTextColor(71, 85, 105); // Slate-600
-                    doc.text(wrapped, 19, currentParaY, { lineHeightFactor: 1.3 });
-                    currentParaY += wrapped.length * 3.5 + termsItemGap;
+                    doc.setFontSize(6.2);
+                    doc.setTextColor(71, 85, 105);
+                    doc.text(lines, 20, tY, { lineHeightFactor: 1.25 });
+                    tY += (lines.length * 3.2) + 1.5;
                 });
 
-                // Signature position comes after the T&C card
-                sigY = termsStartY + termsCardH + 6;
-            } else {
-                // If T&C is empty, do a page check for signature block only
-                if (sigY + 22 > pageH - 12) {
-                    doc.addPage();
-                    currentPageNum++;
-                    drawPageDecorations(doc, currentPageNum);
-                    sigY = 26;
-                }
+                y += termsH + 5;
             }
 
-            // Thin divider before closing
+            // ─── OFFICIAL SIGNATURE & WHATSAPP FOOTER ────────────────────────────────
+            if (y + 20 > pageH - 18) {
+                doc.addPage();
+                currentPageNum++;
+                drawPageDecorations(doc, currentPageNum);
+                y = 24;
+            }
+
+            // Separator
             doc.setDrawColor(226, 232, 240);
             doc.setLineWidth(0.3);
-            doc.line(15, sigY, pageW - 15, sigY);
+            doc.line(15, y, pageW - 15, y);
 
-            // Cursive thank you
+            y += 4;
+
+            // Cursive Thanks
             doc.setFont('times', 'italic');
-            doc.setFontSize(11);
-            doc.setTextColor(100, 116, 139);
-            doc.text("Thank you for your trust.", pageW / 2, sigY + 7, { align: 'center' });
+            doc.setFontSize(10.5);
+            doc.setTextColor(180, 83, 9);
+            doc.text("Thank you for trusting SHRAWELLO Travel Hub.", pageW / 2, y, { align: 'center' });
 
-            // Slim pill
+            // Interactive WhatsApp Inquiry Pill Button (Expanded width & vector icon)
+            y += 3.5;
+            const btnW = 100;
+            const btnH = 8;
+            const btnX = (pageW - btnW) / 2;
+
             doc.setFillColor(15, 23, 42);
-            doc.roundedRect(pageW / 2 - 32, sigY + 10, 64, 6, 1, 1, 'F');
+            doc.roundedRect(btnX, y, btnW, btnH, 1.5, 1.5, 'F');
+            
+            drawWhatsAppIcon(doc, btnX + 4, y + 1.5);
             doc.setFont('helvetica', 'bold');
-            doc.setFontSize(7);
+            doc.setFontSize(7.2);
             doc.setTextColor(255, 255, 255);
-            doc.text("We look forward to serving you!", pageW / 2, sigY + 14, { align: 'center' });
+            doc.text("Chat with Travel Specialist (+91 80109 55675)", btnX + 13, y + 5.2);
 
-            // Interactive Click-to-WhatsApp hyperlink over the serving pill
             try {
-                const whatsappMsg = `Hi, I would like to inquire about the itinerary: ${tripDetails.title || 'Trip'}`;
-                const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(whatsappMsg)}`;
-                doc.link(pageW / 2 - 32, sigY + 10, 64, 6, { url: whatsappUrl });
-            } catch (linkErr) {
-                console.error("Failed to generate PDF interactive hyperlink:", linkErr);
-            }
+                const whatsappMsg = `Hi SHRAWELLO Team, I would like to confirm/inquire about the itinerary: ${tripDetails.title || 'Tour'}`;
+                const whatsappUrl = `https://wa.me/918010955675?text=${encodeURIComponent(whatsappMsg)}`;
+                doc.link(btnX, y, btnW, btnH, { url: whatsappUrl });
+            } catch {}
 
-            // Replace page count placeholders across all footers
+            // Replace total pages count string across all pages
             if (typeof doc.putTotalPages === 'function') {
                 doc.putTotalPages(totalPagesExp);
             }
 
-            // File saving
+            // Save PDF
             const filename = `Itinerary_${(tripDetails.title || 'Trip').replace(/\s+/g, '_')}_${tripDetails.startDate || 'draft'}.pdf`;
             doc.save(filename);
             toast.dismiss(toastId);
-            toast.success('Premium PDF Downloaded!');
+            toast.success('Luxury Itinerary PDF Downloaded Successfully!');
         } catch (err: any) {
             console.error('PDF Error:', err);
             toast.dismiss();
@@ -1257,13 +1346,42 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
                                         <img src={dayMeta[day.day].image} alt={`Day ${day.day} Cover`} className="w-full h-48 object-cover hover:scale-105 transition-transform duration-500" />
                                     </div>
                                 )}
-                                <div className="text-stone-500 text-xs leading-relaxed whitespace-pre-line bg-stone-50 p-4 rounded-xl border border-stone-100">
-                                    {day.desc}
-                                </div>
-                                {/* Day Notes — Fix #6 */}
+                                {day.items && day.items.length > 0 ? (
+                                    <div className="space-y-2.5 bg-stone-50/80 p-4 rounded-xl border border-stone-100">
+                                        {day.items.map((item, idx) => (
+                                            <div key={item.id || idx} className="flex items-start gap-3 bg-white p-3 rounded-lg border border-stone-100 shadow-xs">
+                                                <div className="flex flex-col items-center gap-1 shrink-0 pt-0.5">
+                                                    <span className="text-[10px] font-black text-stone-700 bg-stone-100 px-2 py-0.5 rounded font-mono">
+                                                        {item.time || 'Schedule'}
+                                                    </span>
+                                                    <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded uppercase ${
+                                                        item.type === 'hotel' ? 'bg-amber-50 text-amber-700' :
+                                                        item.type === 'transport' || item.type === 'flight' ? 'bg-indigo-50 text-indigo-700' :
+                                                        item.type === 'activity' ? 'bg-emerald-50 text-emerald-700' :
+                                                        'bg-slate-100 text-slate-700'
+                                                    }`}>
+                                                        {item.type || 'activity'}
+                                                    </span>
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <h4 className="text-xs font-bold text-stone-900 leading-snug">{item.title}</h4>
+                                                    {item.description && (
+                                                        <p className="text-[11px] text-stone-500 mt-1 leading-relaxed">{item.description}</p>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="text-stone-500 text-xs leading-relaxed whitespace-pre-line bg-stone-50 p-4 rounded-xl border border-stone-100">
+                                        {day.desc}
+                                    </div>
+                                )}
+                                {/* Day Notes */}
                                 {dayMeta[day.day]?.notes && (
-                                    <div className="mt-2 text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 leading-relaxed">
-                                        📝 <span className="font-bold">Note:</span> {dayMeta[day.day].notes}
+                                    <div className="mt-2.5 text-[11px] text-amber-800 bg-amber-50 border border-amber-200/80 rounded-lg px-3.5 py-2.5 leading-relaxed flex items-start gap-2 shadow-xs">
+                                        <span className="shrink-0 text-amber-600 font-bold">💡 Tip:</span>
+                                        <span>{dayMeta[day.day].notes}</span>
                                     </div>
                                 )}
                             </div>

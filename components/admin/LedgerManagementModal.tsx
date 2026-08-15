@@ -125,7 +125,7 @@ export const LedgerManagementModal: React.FC<LedgerManagementModalProps> = ({ is
                 <div className="p-4 sm:p-6 border-b border-slate-100 dark:border-slate-700 flex justify-between items-start gap-3 bg-slate-50 dark:bg-slate-800/50">
                     <div className="min-w-0 flex-1">
                         <h2 className="text-xl font-bold text-slate-900 dark:text-white">Billing Ledger</h2>
-                        <p className="text-xs text-slate-500 font-bold uppercase mt-1 break-all">Client: {booking.customer} | Booking: {booking.id}</p>
+                        <p className="text-xs text-slate-500 font-bold uppercase mt-1">Client: {booking.customer || (booking as any).customer_name || 'Traveler'} | Booking Ref: #{(booking as any).booking_number ? String((booking as any).booking_number).padStart(4, '0') : (booking.id.length > 15 ? booking.id.slice(0, 8).toUpperCase() : booking.id)}</p>
                     </div>
                     <div className="flex gap-3">
                         {hasPermission('finance', 'manage') && (

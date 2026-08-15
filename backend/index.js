@@ -15,7 +15,7 @@ import compression from 'compression';
 import { initEmailService, sendTestEmail, sendCustomEmail, sendAgentIntroductionEmail, sendProposalEmail, sendInvoiceEmail,
     sendOTPEmail, sendPartnerKYCVerifiedEmail, sendPartnerKYCRejectedEmail,
     sendPartnerCommissionPaidEmail, sendLoyaltyTierUpgradeEmail, sendPartnerApprovedEmail,
-    sendPartnerKYCSubmittedAdminEmail } from './emailService.js';
+    sendPartnerKYCSubmittedAdminEmail, wrapTemplate, getThemeStyles, getActiveTheme } from './emailService.js';
 
 // ═══════════════════════════════════════════
 // MODULAR IMPORTS (Phase 4 — Backend Modularization)
@@ -910,12 +910,12 @@ app.post('/api/settings/upsert', authMiddleware, async (req, res) => {
 
 // ─── SMTP Email Test Endpoint ───
 app.post('/api/email/test', authMiddleware, async (req, res) => {
-    const { type = 'general', targetEmail, smtpSettings } = req.body;
+    const { type = 'general', targetEmail, smtpSettings, theme } = req.body;
     if (!targetEmail || !smtpSettings) {
         return res.status(400).json({ error: 'targetEmail and smtpSettings are required' });
     }
     try {
-        const result = await sendTestEmail(smtpSettings, targetEmail);
+        const result = await sendTestEmail(smtpSettings, targetEmail, theme);
         if (result && result.success) {
             res.json({ status: 'success', messageId: result.messageId });
         } else {
@@ -928,25 +928,162 @@ app.post('/api/email/test', authMiddleware, async (req, res) => {
     }
 });
 
+// ─── Email HTML Preview Endpoint ───
+app.post('/api/email/preview', authMiddleware, async (req, res) => {
+    const { templateType = 'invoice', refId, theme = 'luxury_indigo', subject: customSubject, message: customMessage } = req.body;
+    try {
+        const activeTheme = theme || 'luxury_indigo';
+        const st = getThemeStyles(activeTheme);
+        let title = 'Email Preview';
+        let body = '';
+        let badgeLabel = 'Official Preview';
+
+        if (templateType === 'agent_intro') {
+            title = 'Your dedicated travel planner has been assigned! (#LD-0105) — Shrawello';
+            badgeLabel = 'Dedicated Planner Assigned';
+            body = `
+                <h2 style="margin-top: 0; color: #0f172a; font-size: 22px; font-weight: 800;">Hi Abhinav,</h2>
+                <p style="font-size: 15px; line-height: 1.65; color: #334155;">
+                    Thank you for reaching out to <strong>Shrawello Travel Hub &amp; Events</strong>! We are delighted to assist you in planning your holiday.
+                </p>
+                <p style="font-size: 15px; line-height: 1.65; color: #334155;">
+                    A dedicated travel specialist has been assigned to personally design your customized itinerary:
+                </p>
+                <div style="background-color: ${st.highlightBg}; border: 1px solid ${st.cardBorder}; border-left: 4px solid ${st.accentColor}; padding: 22px; border-radius: 12px; margin: 25px 0;">
+                    <h3 style="margin-top: 0; margin-bottom: 14px; font-size: 13px; color: #475569; font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px;">Your Assigned Specialist</h3>
+                    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="font-size: 14px; line-height: 2;">
+                        <tr><td style="color: #64748b; width: 100px;"><strong>Planner:</strong></td><td style="color: #0f172a; font-weight: 800;">Rahul Sharma</td></tr>
+                        <tr><td style="color: #64748b;"><strong>Email:</strong></td><td style="color: ${st.accentColor}; font-weight: 600;">rahul@shrawello.com</td></tr>
+                        <tr><td style="color: #64748b;"><strong>Phone:</strong></td><td style="color: #0f172a; font-weight: 600;">+91 80109 55675</td></tr>
+                    </table>
+                </div>
+            `;
+        } else if (templateType === 'proposal') {
+            title = 'Your Holiday Proposal: "Kashmir Valley 5D/4N" (#LD-0105) — Shrawello';
+            badgeLabel = 'Custom Proposal Ready';
+            body = `
+                <h2 style="margin-top: 0; color: #0f172a; font-size: 22px; font-weight: 800;">Dear Traveler,</h2>
+                <p style="font-size: 15px; line-height: 1.65; color: #334155;">
+                    Exciting news! We have finished crafting your personalized holiday itinerary proposal:
+                </p>
+                <div style="background-color: ${st.highlightBg}; border: 1px solid ${st.cardBorder}; border-radius: 14px; padding: 20px; text-align: center; margin: 24px 0;">
+                    <p style="margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #64748b; font-weight: 700;">Proposed Trip</p>
+                    <h3 style="margin: 6px 0 0 0; font-size: 18px; font-weight: 800; color: ${st.accentColor};">
+                        "Kashmir Valley 5D/4N Package"
+                    </h3>
+                </div>
+                <div style="text-align: center; margin: 32px 0;">
+                    <a href="https://shrawello.com/#/customer/dashboard" style="background: ${st.buttonGradient}; color: #ffffff; text-decoration: none; padding: 15px 36px; font-weight: 800; font-size: 14px; border-radius: 12px; display: inline-block; box-shadow: ${st.buttonShadow};">
+                        View Custom Proposal ↗
+                    </a>
+                </div>
+            `;
+        } else if (templateType === 'custom') {
+            title = customSubject || 'Message from Shrawello Travel Hub';
+            badgeLabel = 'Official Communication';
+            body = `
+                <h2 style="margin-top: 0; color: #0f172a; font-size: 20px; font-weight: 800;">${title}</h2>
+                <div style="font-size: 15px; line-height: 1.7; color: #334155; margin: 20px 0;">
+                    ${(customMessage || 'Thank you for choosing Shrawello. We are pleased to serve your travel needs.').replace(/\n/g, '<br>')}
+                </div>
+            `;
+        } else {
+            // Invoice preview
+            title = 'Booking Confirmed & Tax Invoice: Carens 0105 (#BK-0105) — Shrawello';
+            badgeLabel = 'Tax Invoice & Booking Confirmation';
+            body = `
+                <div style="margin-bottom: 24px;">
+                    <h2 style="margin-top: 0; color: #0f172a; font-size: 22px; font-weight: 800; letter-spacing: -0.3px;">Dear Abhinav,</h2>
+                    <p style="font-size: 15px; line-height: 1.65; color: #334155; margin: 0 0 12px 0;">
+                        Thank you for choosing <strong>Shrawello Travel Hub &amp; Events</strong>! Your booking and official invoice summary have been generated successfully.
+                    </p>
+                    <p style="font-size: 15px; line-height: 1.65; color: #334155; margin: 0;">
+                        Here is your verified booking overview and tax invoice receipt:
+                    </p>
+                </div>
+
+                <div style="background-color: ${st.highlightBg}; border: 1px solid ${st.cardBorder}; border-radius: 16px; padding: 24px; margin: 28px 0; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02);">
+                    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin-bottom: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 14px;">
+                        <tr>
+                            <td align="left" style="font-size: 13px; font-weight: 800; color: #475569; text-transform: uppercase; letter-spacing: 0.8px;">
+                                Invoice &amp; Booking Details
+                            </td>
+                            <td align="right">
+                                <span style="background-color: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase;">
+                                    ✅ PAID IN FULL
+                                </span>
+                            </td>
+                        </tr>
+                    </table>
+
+                    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="font-size: 14px; line-height: 2;">
+                        <tr>
+                            <td style="color: #64748b; width: 45%;"><strong>Booking / Ref No:</strong></td>
+                            <td style="color: #0f172a; text-align: right; font-weight: 800; font-family: monospace; font-size: 14px;">#BK-0105</td>
+                        </tr>
+                        <tr>
+                            <td style="color: #64748b;"><strong>Package / Service:</strong></td>
+                            <td style="color: #0f172a; text-align: right; font-weight: 600;">Carens 0105 Luxury Rental</td>
+                        </tr>
+                        <tr>
+                            <td style="color: #64748b;"><strong>Travel / Service Date:</strong></td>
+                            <td style="color: #0f172a; text-align: right; font-weight: 600;">18 August 2026</td>
+                        </tr>
+                    </table>
+
+                    <div style="margin-top: 20px; padding-top: 16px; border-top: 2px dashed #cbd5e1;">
+                        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="font-size: 14px; line-height: 1.9;">
+                            <tr>
+                                <td style="color: #475569;">Total Package Price:</td>
+                                <td style="color: #0f172a; text-align: right; font-weight: 700;">₹105</td>
+                            </tr>
+                            <tr>
+                                <td style="color: #059669; font-weight: 600;">Total Amount Paid:</td>
+                                <td style="color: #059669; text-align: right; font-weight: 800; font-size: 15px;">₹105</td>
+                            </tr>
+                            <tr style="border-top: 1px solid #e2e8f0; font-size: 15px;">
+                                <td style="color: #0f172a; padding-top: 10px; font-weight: 800;">Outstanding Balance Due:</td>
+                                <td style="color: #059669; text-align: right; padding-top: 10px; font-weight: 900; font-size: 17px;">₹0</td>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+
+                <div style="text-align: center; margin: 34px 0 28px 0;">
+                    <a href="https://shrawello.com/#/customer/dashboard" style="background: ${st.buttonGradient}; color: #ffffff; text-decoration: none; padding: 15px 36px; font-weight: 800; font-size: 14px; border-radius: 12px; display: inline-block; box-shadow: ${st.buttonShadow};">
+                        View Itinerary &amp; Download PDF Invoice ↗
+                    </a>
+                </div>
+            `;
+        }
+
+        const html = wrapTemplate(title, body, { theme: activeTheme, badgeLabel });
+        res.json({ status: 'success', html, theme: activeTheme });
+    } catch (error) {
+        console.error('[Email Preview] Error:', error.message);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // ─── Manual Email Dispatch Endpoint ───
 app.post('/api/email/send', authMiddleware, async (req, res) => {
-    const { smtpType = 'general', to, subject, message, templateType, refId } = req.body;
+    const { smtpType = 'general', to, subject, message, templateType, refId, theme } = req.body;
     if (!to) {
         return res.status(400).json({ error: 'Recipient email address ("to") is required.' });
     }
     try {
         let result = { success: false };
         if (templateType === 'agent_intro' && refId) {
-            result = await sendAgentIntroductionEmail(refId, to);
+            result = await sendAgentIntroductionEmail(refId, to, theme);
         } else if (templateType === 'proposal' && refId) {
-            result = await sendProposalEmail(refId, to);
+            result = await sendProposalEmail(refId, to, theme);
         } else if (templateType === 'invoice' && refId) {
-            result = await sendInvoiceEmail(refId, to);
+            result = await sendInvoiceEmail(refId, to, theme);
         } else {
             if (!subject || !message) {
                 return res.status(400).json({ error: 'Subject and message are required for custom emails.' });
             }
-            result = await sendCustomEmail({ type: smtpType, to, subject, message });
+            result = await sendCustomEmail({ type: smtpType, to, subject, message, themeOverride: theme });
         }
 
         if (result && result.success) {

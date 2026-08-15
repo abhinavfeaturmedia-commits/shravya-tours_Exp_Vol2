@@ -53,7 +53,6 @@ const TOP_NAV_CATEGORIES: NavCategory[] = [
       { name: 'Bookings', path: '/admin/bookings', icon: 'airplane_ticket', module: 'bookings', desc: 'Trip reservations, ticketing & customer bookings', tag: '#Trips' },
       { name: 'Inventory', path: '/admin/inventory', icon: 'calendar_month', module: 'inventory', desc: 'Hotel room & vehicle allotment schedule', tag: '#Rooms' },
       { name: 'Vendors', path: '/admin/vendors', icon: 'storefront', module: 'vendors', desc: 'Suppliers, hotel contracts & vendor profiles', tag: '#Hotels' },
-      { name: 'Itineraries', path: '/admin/itineraries', icon: 'auto_stories', module: 'itinerary', desc: 'Saved customer itineraries & PDF proposals', tag: '#PDFs' },
       { name: 'Itinerary Builder', path: '/admin/itinerary-builder', icon: 'map', module: 'itinerary', desc: 'Interactive day-by-day tour planner', tag: '#Builder' },
       { name: 'Live Operations', path: '/admin/operations', icon: 'traffic', module: 'operations', desc: 'Real-time driver, vehicle & trip tracking', tag: '#LiveOps' },
       { name: 'Car Rentals', path: '/admin/car-rental', icon: 'directions_car', module: 'operations', desc: 'Vehicle rentals, fleet schedule & driver roster', tag: '#Cars' },
