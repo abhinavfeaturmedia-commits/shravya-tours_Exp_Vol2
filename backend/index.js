@@ -112,6 +112,44 @@ async function runMigration() {
         await pool.query(`ALTER TABLE car_bookings ADD COLUMN IF NOT EXISTS lead_id VARCHAR(64) DEFAULT NULL`);
         console.log('[Migration] car_bookings.lead_id column verified/added');
 
+        // ─── GST Invoicing: document_sequences table ───
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS document_sequences (
+                id VARCHAR(64) PRIMARY KEY,
+                doc_type VARCHAR(50) NOT NULL,
+                financial_year VARCHAR(10) NOT NULL,
+                prefix VARCHAR(20) NOT NULL,
+                current_number INT NOT NULL DEFAULT 0,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY uq_type_fy (doc_type, financial_year)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+        console.log('[Migration] document_sequences table verified/created');
+
+        // ─── GST Invoicing: invoices table columns ───
+        const gstInvoiceCols = [
+            "ADD COLUMN IF NOT EXISTS invoice_no VARCHAR(50) DEFAULT NULL",
+            "ADD COLUMN IF NOT EXISTS financial_year VARCHAR(10) DEFAULT NULL",
+            "ADD COLUMN IF NOT EXISTS sequence_number INT DEFAULT NULL",
+            "ADD COLUMN IF NOT EXISTS is_locked TINYINT DEFAULT 0",
+            "ADD COLUMN IF NOT EXISTS place_of_supply VARCHAR(100) DEFAULT 'Maharashtra'",
+            "ADD COLUMN IF NOT EXISTS place_of_supply_code VARCHAR(10) DEFAULT '27'",
+            "ADD COLUMN IF NOT EXISTS reverse_charge VARCHAR(10) DEFAULT 'No'",
+            "ADD COLUMN IF NOT EXISTS original_invoice_id VARCHAR(255) DEFAULT NULL",
+            "ADD COLUMN IF NOT EXISTS original_invoice_no VARCHAR(50) DEFAULT NULL",
+            "ADD COLUMN IF NOT EXISTS credit_reason TEXT DEFAULT NULL",
+            "ADD COLUMN IF NOT EXISTS copy_type VARCHAR(50) DEFAULT 'ORIGINAL FOR RECIPIENT'",
+            "ADD COLUMN IF NOT EXISTS is_gst TINYINT DEFAULT 1",
+            "ADD COLUMN IF NOT EXISTS client_gst VARCHAR(50) DEFAULT NULL",
+            "ADD COLUMN IF NOT EXISTS gst_type VARCHAR(20) DEFAULT 'CGST_SGST'",
+            "ADD COLUMN IF NOT EXISTS field_labels TEXT DEFAULT NULL"
+        ];
+        for (const colDef of gstInvoiceCols) {
+            try { await pool.query(`ALTER TABLE invoices ${colDef}`); } catch (e) { /* ignore duplicate */ }
+        }
+        try { await pool.query("ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS hsn_sac VARCHAR(20) DEFAULT '9985'"); } catch(e) { /* ignore */ }
+        console.log('[Migration] invoices GST columns verified/added');
+
         // Create table for customer packing checklists
         await pool.query(`
             CREATE TABLE IF NOT EXISTS customer_packing_checklists (
@@ -6156,10 +6194,515 @@ app.get('/api/invoices/stats', authMiddleware, async (req, res) => {
             FROM invoices
             WHERE status != 'Draft'
         `);
-        res.json({ data: rows[0] || {} });
-    } catch (error) {
-        console.error('Stats error:', error);
+        res.json({ success: true, data: rows[0] || {} });
+    } catch (err) {
+        console.error('[Invoice Stats Error]:', err.message);
         res.status(500).json({ error: 'Failed to fetch invoice stats' });
+    }
+});
+
+// ─── GST Invoicing Helpers & Sequential Handlers ───
+
+function getIndianFinancialYear(dateInput) {
+    const d = dateInput ? new Date(dateInput) : new Date();
+    const validDate = isNaN(d.getTime()) ? new Date() : d;
+    const month = validDate.getMonth(); // 0-indexed: 0=Jan, 3=Apr, 11=Dec
+    const year = validDate.getFullYear();
+    const startYear = (month >= 3) ? year : (year - 1);
+    const endYear = startYear + 1;
+    return `${String(startYear).slice(-2)}-${String(endYear).slice(-2)}`;
+}
+
+function getDocPrefix(docType, customPrefix) {
+    const type = (docType || 'Invoice').trim().toLowerCase();
+    if (type === 'invoice' || type === 'tax invoice') return (customPrefix || 'ST').trim().toUpperCase();
+    if (type === 'proforma' || type === 'proforma invoice') return 'PI';
+    if (type === 'quotation' || type === 'quote') return 'QT';
+    if (type === 'creditnote' || type === 'credit note' || type === 'credit_note') return 'CN';
+    if (type === 'receipt' || type === 'receipt voucher') return 'RC';
+    return (customPrefix || 'ST').trim().toUpperCase();
+}
+
+function formatGstInvoiceNumber(prefix, fy, seq) {
+    const cleanPrefix = (prefix || 'ST').trim().toUpperCase();
+    const padded = String(seq).padStart(4, '0');
+    return `${cleanPrefix}/${fy}/${padded}`;
+}
+
+// 1. Preview next invoice number without consuming sequence
+app.get('/api/invoices/next-preview', authMiddleware, async (req, res) => {
+    try {
+        const docType = req.query.doc_type || 'Invoice';
+        const dateInput = req.query.date || new Date().toISOString();
+        const customPrefix = req.query.prefix || 'ST';
+        const fy = getIndianFinancialYear(dateInput);
+        const prefix = getDocPrefix(docType, customPrefix);
+
+        const [rows] = await pool.query(
+            'SELECT current_number FROM document_sequences WHERE doc_type = ? AND financial_year = ?',
+            [docType, fy]
+        );
+
+        const currentSeq = rows.length > 0 ? Number(rows[0].current_number || 0) : 0;
+        const nextSeq = currentSeq + 1;
+        const nextNumber = formatGstInvoiceNumber(prefix, fy, nextSeq);
+
+        res.json({
+            success: true,
+            docType,
+            financialYear: fy,
+            prefix,
+            currentSequence: currentSeq,
+            nextSequence: nextSeq,
+            nextNumber
+        });
+    } catch (err) {
+        console.error('[Invoice Next Preview Error]', err);
+        res.status(500).json({ error: 'Failed to preview next invoice number', details: err.message });
+    }
+});
+
+// 2. Issue & finalize an invoice atomically with concurrency lock
+app.post('/api/invoices/issue', authMiddleware, async (req, res) => {
+    const conn = await pool.getConnection();
+    try {
+        await conn.beginTransaction();
+
+        const body = req.body || {};
+        const invoiceId = body.id || crypto.randomUUID();
+        const docType = body.document_type || 'Invoice';
+        const issueDate = body.issue_date || new Date().toISOString().split('T')[0];
+        const customPrefix = body.custom_prefix || 'ST';
+        const fy = getIndianFinancialYear(issueDate);
+        const prefix = getDocPrefix(docType, customPrefix);
+
+        // Check if invoice already has an official invoice_no assigned
+        const [existing] = await conn.query('SELECT id, invoice_no, sequence_number, status, is_locked FROM invoices WHERE id = ?', [invoiceId]);
+        
+        let finalInvoiceNo = existing.length > 0 ? existing[0].invoice_no : null;
+        let finalSeq = existing.length > 0 ? existing[0].sequence_number : null;
+
+        if (!finalInvoiceNo) {
+            // Lock and retrieve next sequence atomically for this document type and FY
+            const [seqRows] = await conn.query(
+                'SELECT current_number FROM document_sequences WHERE doc_type = ? AND financial_year = ? FOR UPDATE',
+                [docType, fy]
+            );
+
+            let nextSeq = 1;
+            if (seqRows.length > 0) {
+                nextSeq = Number(seqRows[0].current_number || 0) + 1;
+                await conn.query(
+                    'UPDATE document_sequences SET current_number = ?, prefix = ? WHERE doc_type = ? AND financial_year = ?',
+                    [nextSeq, prefix, docType, fy]
+                );
+            } else {
+                const seqId = crypto.randomUUID();
+                await conn.query(
+                    'INSERT INTO document_sequences (id, doc_type, financial_year, prefix, current_number) VALUES (?, ?, ?, ?, ?)',
+                    [seqId, docType, fy, prefix, nextSeq]
+                );
+            }
+
+            finalSeq = nextSeq;
+            finalInvoiceNo = formatGstInvoiceNumber(prefix, fy, nextSeq);
+        }
+
+        // Prepare full invoice payload
+        const invoicePayload = {
+            id: invoiceId,
+            document_type: docType,
+            invoice_no: finalInvoiceNo,
+            financial_year: fy,
+            sequence_number: finalSeq,
+            is_locked: 1,
+            booking_id: body.booking_id || null,
+            lead_id: body.lead_id || null,
+            customer_id: body.customer_id || null,
+            client_name: body.client_name || 'Valued Customer',
+            email: body.email || null,
+            phone: body.phone || null,
+            address: body.address || null,
+            travel_dates: body.travel_dates || null,
+            adults: Number(body.adults || 0),
+            children: Number(body.children || 0),
+            subtotal: Number(body.subtotal || 0),
+            discount: Number(body.discount || 0),
+            tax_total: Number(body.tax_total || 0),
+            total_amount: Number(body.total_amount || 0),
+            status: body.status === 'Void' ? 'Void' : 'Sent',
+            payment_status: body.payment_status || 'Unpaid',
+            amount_paid: Number(body.amount_paid || 0),
+            driver_stay_allowance: Number(body.driver_stay_allowance || 0),
+            extra_km_charges: Number(body.extra_km_charges || 0),
+            extra_hrs_charges: Number(body.extra_hrs_charges || 0),
+            advance_received: Number(body.advance_received || 0),
+            balance_due: Number(body.balance_due !== undefined ? body.balance_due : (Number(body.total_amount || 0) - Number(body.amount_paid || 0))),
+            issue_date: issueDate,
+            due_date: body.due_date || null,
+            notes: body.notes || null,
+            place_of_supply: body.place_of_supply || 'Maharashtra',
+            place_of_supply_code: body.place_of_supply_code || '27',
+            reverse_charge: body.reverse_charge || 'No',
+            is_gst: body.is_gst !== undefined ? body.is_gst : 1,
+            client_gst: body.client_gst || null,
+            gst_type: body.gst_type || 'CGST_SGST',
+            field_labels: body.field_labels ? (typeof body.field_labels === 'object' ? JSON.stringify(body.field_labels) : body.field_labels) : null,
+            copy_type: body.copy_type || 'ORIGINAL FOR RECIPIENT'
+        };
+
+        if (existing.length > 0) {
+            const keys = Object.keys(invoicePayload).filter(k => k !== 'id');
+            const setClause = keys.map(k => `\`${k}\` = ?`).join(', ');
+            const setValues = keys.map(k => invoicePayload[k]);
+            await conn.query(`UPDATE invoices SET ${setClause} WHERE id = ?`, [...setValues, invoiceId]);
+        } else {
+            const cols = Object.keys(invoicePayload);
+            const placeholders = cols.map(() => '?').join(', ');
+            await conn.query(`INSERT INTO invoices (\`${cols.join('`, `')}\`) VALUES (${placeholders})`, Object.values(invoicePayload));
+        }
+
+        // Handle Line Items
+        if (Array.isArray(body.items)) {
+            await conn.query('DELETE FROM invoice_items WHERE invoice_id = ?', [invoiceId]);
+            for (const item of body.items) {
+                const itemId = String(item.id).startsWith('temp-') || !item.id ? crypto.randomUUID() : item.id;
+                await conn.query(`
+                    INSERT INTO invoice_items 
+                    (id, invoice_id, description, quantity, total_days_km, unit_price, tax_rate, tax_amount, total, hsn_sac, date_from, date_to)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `, [
+                    itemId,
+                    invoiceId,
+                    item.description || '',
+                    Number(item.quantity || 1),
+                    item.total_days_km || '1',
+                    Number(item.unit_price || 0),
+                    Number(item.tax_rate || 0),
+                    Number(item.tax_amount || 0),
+                    Number(item.total || 0),
+                    item.hsn_sac || '9985',
+                    item.date_from || null,
+                    item.date_to || null
+                ]);
+            }
+        }
+
+        // Handle Custom Fields
+        if (Array.isArray(body.customFields)) {
+            await conn.query('DELETE FROM invoice_custom_fields WHERE invoice_id = ?', [invoiceId]);
+            for (let i = 0; i < body.customFields.length; i++) {
+                const cf = body.customFields[i];
+                const cfId = String(cf.id).startsWith('temp-') || !cf.id ? crypto.randomUUID() : cf.id;
+                await conn.query(`
+                    INSERT INTO invoice_custom_fields (id, invoice_id, label, amount, is_deduction, sort_order)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                `, [
+                    cfId,
+                    invoiceId,
+                    cf.label || '',
+                    Number(cf.amount || 0),
+                    cf.is_deduction ? 1 : 0,
+                    i
+                ]);
+            }
+        }
+
+        await conn.commit();
+
+        auditLog('Issue', 'invoices', `Issued invoice ${finalInvoiceNo} (${invoiceId})`, req.user?.email);
+
+        res.json({
+            success: true,
+            data: invoicePayload,
+            invoiceNo: finalInvoiceNo
+        });
+    } catch (err) {
+        await conn.rollback();
+        console.error('[Invoice Issue Error]', err);
+        res.status(500).json({ error: 'Failed to issue invoice', details: err.message });
+    } finally {
+        conn.release();
+    }
+});
+
+// 3. Create a linked Credit Note
+app.post('/api/invoices/credit-note', authMiddleware, async (req, res) => {
+    const conn = await pool.getConnection();
+    try {
+        await conn.beginTransaction();
+
+        const body = req.body || {};
+        const originalInvoiceId = body.original_invoice_id;
+        const creditReason = body.credit_reason || 'Tour Cancellation / Revision';
+        const issueDate = body.issue_date || new Date().toISOString().split('T')[0];
+        const fy = getIndianFinancialYear(issueDate);
+        const prefix = 'CN';
+        const creditNoteId = crypto.randomUUID();
+
+        let originalInvoiceNo = body.original_invoice_no;
+        if (!originalInvoiceNo && originalInvoiceId) {
+            const [origRows] = await conn.query('SELECT invoice_no, client_name, email, phone, address, booking_id, lead_id, customer_id, client_gst FROM invoices WHERE id = ?', [originalInvoiceId]);
+            if (origRows.length > 0) {
+                originalInvoiceNo = origRows[0].invoice_no;
+            }
+        }
+
+        // Allocate next Credit Note sequence
+        const [seqRows] = await conn.query(
+            'SELECT current_number FROM document_sequences WHERE doc_type = ? AND financial_year = ? FOR UPDATE',
+            ['CreditNote', fy]
+        );
+
+        let nextSeq = 1;
+        if (seqRows.length > 0) {
+            nextSeq = Number(seqRows[0].current_number || 0) + 1;
+            await conn.query(
+                'UPDATE document_sequences SET current_number = ?, prefix = ? WHERE doc_type = ? AND financial_year = ?',
+                [nextSeq, prefix, 'CreditNote', fy]
+            );
+        } else {
+            await conn.query(
+                'INSERT INTO document_sequences (id, doc_type, financial_year, prefix, current_number) VALUES (?, ?, ?, ?, ?)',
+                [crypto.randomUUID(), 'CreditNote', fy, prefix, nextSeq]
+            );
+        }
+
+        const creditNoteNo = formatGstInvoiceNumber(prefix, fy, nextSeq);
+
+        const payload = {
+            id: creditNoteId,
+            document_type: 'CreditNote',
+            invoice_no: creditNoteNo,
+            financial_year: fy,
+            sequence_number: nextSeq,
+            is_locked: 1,
+            original_invoice_id: originalInvoiceId || null,
+            original_invoice_no: originalInvoiceNo || null,
+            credit_reason: creditReason,
+            booking_id: body.booking_id || null,
+            lead_id: body.lead_id || null,
+            customer_id: body.customer_id || null,
+            client_name: body.client_name || 'Valued Customer',
+            email: body.email || null,
+            phone: body.phone || null,
+            address: body.address || null,
+            travel_dates: body.travel_dates || null,
+            subtotal: Number(body.subtotal || 0),
+            discount: 0,
+            tax_total: Number(body.tax_total || 0),
+            total_amount: Number(body.total_amount || 0),
+            status: 'Sent',
+            payment_status: 'Paid',
+            amount_paid: Number(body.total_amount || 0),
+            balance_due: 0,
+            issue_date: issueDate,
+            notes: body.notes || `Credit Note issued against Tax Invoice #${originalInvoiceNo || 'N/A'}. Reason: ${creditReason}`,
+            place_of_supply: body.place_of_supply || 'Maharashtra',
+            place_of_supply_code: body.place_of_supply_code || '27',
+            reverse_charge: 'No',
+            is_gst: body.is_gst !== undefined ? body.is_gst : 1,
+            client_gst: body.client_gst || null,
+            gst_type: body.gst_type || 'CGST_SGST'
+        };
+
+        const cols = Object.keys(payload);
+        const placeholders = cols.map(() => '?').join(', ');
+        await conn.query(`INSERT INTO invoices (\`${cols.join('`, `')}\`) VALUES (${placeholders})`, Object.values(payload));
+
+        if (Array.isArray(body.items) && body.items.length > 0) {
+            for (const item of body.items) {
+                const itemId = crypto.randomUUID();
+                await conn.query(`
+                    INSERT INTO invoice_items 
+                    (id, invoice_id, description, quantity, total_days_km, unit_price, tax_rate, tax_amount, total, hsn_sac)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `, [
+                    itemId,
+                    creditNoteId,
+                    item.description || 'Tour Cancellation Credit',
+                    Number(item.quantity || 1),
+                    item.total_days_km || '1',
+                    Number(item.unit_price || 0),
+                    Number(item.tax_rate || 0),
+                    Number(item.tax_amount || 0),
+                    Number(item.total || 0),
+                    item.hsn_sac || '9985'
+                ]);
+            }
+        }
+
+        await conn.commit();
+
+        auditLog('Create', 'invoices', `Created Credit Note ${creditNoteNo} against ${originalInvoiceNo}`, req.user?.email);
+
+        res.json({
+            success: true,
+            data: payload,
+            creditNoteNo
+        });
+    } catch (err) {
+        await conn.rollback();
+        console.error('[Credit Note Error]', err);
+        res.status(500).json({ error: 'Failed to create credit note', details: err.message });
+    } finally {
+        conn.release();
+    }
+});
+
+function getFyDateRange(fy) {
+    const parts = (fy || '26-27').split('-');
+    const startYr = 2000 + parseInt(parts[0] || '26', 10);
+    const endYr = 2000 + parseInt(parts[1] || '27', 10);
+    return {
+        startDate: `${startYr}-04-01 00:00:00`,
+        endDate: `${endYr}-03-31 23:59:59`
+    };
+}
+
+// 4. GSTR-1 Summary for CA & GST filing
+app.get('/api/invoices/gstr1-summary', authMiddleware, async (req, res) => {
+    try {
+        const fy = req.query.financial_year || getIndianFinancialYear();
+        const { startDate, endDate } = getFyDateRange(fy);
+
+        // 1. Fetch all invoices in this FY date range
+        const [allInvoices] = await pool.query(`
+            SELECT 
+                id, document_type, invoice_no, sequence_number, status, is_gst,
+                client_name, client_gst, place_of_supply, place_of_supply_code,
+                issue_date, subtotal, discount, tax_total, total_amount, gst_type,
+                original_invoice_no, credit_reason
+            FROM invoices
+            WHERE (financial_year = ? OR (issue_date >= ? AND issue_date <= ?))
+            ORDER BY sequence_number ASC, issue_date ASC
+        `, [fy, startDate, endDate]);
+
+        // 2. Build Table 13 (Document Summary)
+        const docTypes = [
+            { key: 'Invoice', label: '1. Invoices for outward supply (Tax Invoices)' },
+            { key: 'Quotation', label: '2. Quotations / Estimates' },
+            { key: 'Proforma', label: '3. Proforma Invoices' },
+            { key: 'CreditNote', label: '4. Credit Notes (Rule 53)' }
+        ];
+
+        const table13Rows = docTypes.map(dt => {
+            const matches = allInvoices.filter(r => (r.document_type || 'Invoice').toLowerCase() === dt.key.toLowerCase());
+            const withNo = matches.filter(r => r.invoice_no);
+            const cancelled = matches.filter(r => r.status === 'Void').length;
+            const total = matches.length;
+            const netIssued = total - cancelled;
+            
+            const fromSerial = withNo.length > 0 ? withNo[0].invoice_no : (total > 0 ? `#${matches[0].id.substring(0,6).toUpperCase()}` : '—');
+            const toSerial = withNo.length > 0 ? withNo[withNo.length - 1].invoice_no : (total > 0 ? `#${matches[matches.length - 1].id.substring(0,6).toUpperCase()}` : '—');
+
+            return {
+                nature_of_document: dt.label,
+                doc_type: dt.key,
+                from_serial_no: fromSerial,
+                to_serial_no: toSerial,
+                total_number: total,
+                cancelled_number: cancelled,
+                net_issued_number: netIssued
+            };
+        });
+
+        // 3. Separate B2B vs B2C
+        const activeInvoices = allInvoices.filter(r => r.status !== 'Void' && (r.document_type || 'Invoice') !== 'CreditNote');
+        const b2bRows = activeInvoices.filter(r => r.client_gst && r.client_gst.trim().length >= 15);
+        const b2cRows = activeInvoices.filter(r => !r.client_gst || r.client_gst.trim().length < 15);
+
+        // 4. Sales Tax Summary Calculations
+        let totalTaxable = 0;
+        let totalIgst = 0;
+        let totalCgst = 0;
+        let totalSgst = 0;
+        let totalTax = 0;
+
+        activeInvoices.forEach(inv => {
+            const sub = Number(inv.subtotal || (Number(inv.total_amount || 0) - Number(inv.tax_total || 0))) || 0;
+            const tax = Number(inv.tax_total) || 0;
+            totalTaxable += sub;
+            totalTax += tax;
+
+            if (inv.gst_type === 'IGST') {
+                totalIgst += tax;
+            } else {
+                totalCgst += tax / 2;
+                totalSgst += tax / 2;
+            }
+        });
+
+        const salesSummary = {
+            total_taxable_value: totalTaxable,
+            total_igst: totalIgst,
+            total_cgst: totalCgst,
+            total_sgst: totalSgst,
+            total_tax: totalTax,
+            b2b_count: b2bRows.length,
+            b2c_count: b2cRows.length,
+            total_count: activeInvoices.length
+        };
+
+        res.json({
+            success: true,
+            data: {
+                financial_year: fy,
+                table13_document_summary: table13Rows,
+                sales_summary: salesSummary,
+                b2b: b2bRows,
+                b2c: b2cRows,
+                invoices: allInvoices
+            }
+        });
+    } catch (err) {
+        console.error('[GSTR1 Summary Error]', err);
+        res.status(500).json({ error: 'Failed to generate GSTR1 summary', details: err.message });
+    }
+});
+
+// 5. Sequence status & Starting number configuration
+app.get('/api/invoices/sequences', authMiddleware, async (req, res) => {
+    try {
+        const fy = req.query.financial_year || getIndianFinancialYear();
+        const [rows] = await pool.query('SELECT * FROM document_sequences WHERE financial_year = ?', [fy]);
+        res.json({ success: true, financialYear: fy, data: rows });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch sequences', details: err.message });
+    }
+});
+
+app.post('/api/invoices/set-starting-number', authMiddleware, async (req, res) => {
+    if (req.user?.role !== 'admin' && req.user?.role !== 'Admin') {
+        return res.status(403).json({ error: 'Admin access required' });
+    }
+    try {
+        const { doc_type, financial_year, prefix, starting_number } = req.body;
+        const fy = financial_year || getIndianFinancialYear();
+        const num = Math.max(0, Number(starting_number || 0));
+        const cleanPrefix = (prefix || 'ST').trim().toUpperCase();
+
+        const [existing] = await pool.query(
+            'SELECT id FROM document_sequences WHERE doc_type = ? AND financial_year = ?',
+            [doc_type, fy]
+        );
+
+        if (existing.length > 0) {
+            await pool.query(
+                'UPDATE document_sequences SET current_number = ?, prefix = ? WHERE doc_type = ? AND financial_year = ?',
+                [num, cleanPrefix, doc_type, fy]
+            );
+        } else {
+            await pool.query(
+                'INSERT INTO document_sequences (id, doc_type, financial_year, prefix, current_number) VALUES (?, ?, ?, ?, ?)',
+                [crypto.randomUUID(), doc_type, fy, cleanPrefix, num]
+            );
+        }
+
+        auditLog('Update', 'document_sequences', `Set sequence for ${doc_type} (${fy}) to ${num}`, req.user?.email);
+        res.json({ success: true, doc_type, financialYear: fy, starting_number: num });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to update starting number', details: err.message });
     }
 });
 

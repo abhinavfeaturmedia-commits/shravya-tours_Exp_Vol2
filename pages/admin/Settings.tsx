@@ -3,6 +3,7 @@ import { useSettings } from '../../context/SettingsContext';
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
+import { INDIAN_GST_STATES, getIndianFinancialYear } from '../../utils/gstUtils';
 
 // ─── Sidebar tabs ────────────────────────────────────────────────────────────
 const TABS = [
@@ -227,9 +228,74 @@ const FinanceSection: React.FC = () => {
     }
   };
 
+  const currentFy = getIndianFinancialYear();
+  const [sequenceData, setSequenceData] = useState<any[]>([]);
+  const [loadingSeqs, setLoadingSeqs] = useState(false);
+  const [overrideDocType, setOverrideDocType] = useState('Invoice');
+  const [overrideStartNum, setOverrideStartNum] = useState<number>(1);
+  const [savingSeq, setSavingSeq] = useState(false);
+
+  const fetchSequences = async () => {
+    setLoadingSeqs(true);
+    try {
+      const token = localStorage.getItem('shravya_jwt') || localStorage.getItem('token');
+      const res = await fetch(`/api/invoices/sequences?financial_year=${currentFy}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const json = await res.json();
+        setSequenceData(json.data || []);
+      }
+    } catch (e) {
+      console.error('Failed to load sequences:', e);
+    } finally {
+      setLoadingSeqs(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchSequences();
+  }, [currentFy]);
+
+  const handleSetStartingSequence = async () => {
+    setSavingSeq(true);
+    try {
+      const token = localStorage.getItem('shravya_jwt') || localStorage.getItem('token');
+      let pfx = form.invoicePrefix || 'ST';
+      if (overrideDocType === 'Proforma') pfx = form.proformaPrefix || 'PI';
+      else if (overrideDocType === 'Quotation') pfx = form.quotePrefix || 'QT';
+      else if (overrideDocType === 'CreditNote') pfx = form.creditNotePrefix || 'CN';
+      else if (overrideDocType === 'Receipt') pfx = form.receiptPrefix || 'RC';
+
+      const res = await fetch('/api/invoices/set-starting-number', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          doc_type: overrideDocType,
+          financial_year: currentFy,
+          prefix: pfx,
+          starting_number: Math.max(0, overrideStartNum - 1) // Store current_number so next is overrideStartNum
+        })
+      });
+      if (res.ok) {
+        toast.success(`Starting sequence for ${overrideDocType} (${currentFy}) set to ${overrideStartNum}`);
+        fetchSequences();
+      } else {
+        toast.error('Failed to update starting sequence');
+      }
+    } catch (e) {
+      toast.error('Failed to update starting sequence');
+    } finally {
+      setSavingSeq(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
-      <SectionCard title="GST Configuration" description="Applied to all invoices and quotations">
+      <SectionCard title="GST & Place of Supply Configuration" description="Applied to all invoices, quotations, and tax calculations">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           <Field label="CGST %" hint="Central GST — for intra-state transactions">
             <NumberInput value={form.cgstPercent} onChange={v => setNum('cgstPercent', v)} min={0} max={14} step={0.5} suffix="%" />
@@ -243,6 +309,37 @@ const FinanceSection: React.FC = () => {
           <Field label="TCS %" hint="Tax Collected at Source — for international tour packages">
             <NumberInput value={form.tcsPercent} onChange={v => setNum('tcsPercent', v)} min={0} max={10} step={0.1} suffix="%" />
           </Field>
+          <Field label="Default Place of Supply" hint="Supplier operating state (Mandatory for GST Rule 46)">
+            <select
+              value={form.defaultPlaceOfSupplyCode || '27'}
+              onChange={e => {
+                const selected = INDIAN_GST_STATES.find(s => s.code === e.target.value);
+                if (selected) {
+                  setForm(p => ({
+                    ...p,
+                    defaultPlaceOfSupply: selected.name,
+                    defaultPlaceOfSupplyCode: selected.code
+                  }));
+                  setIsDirty(true);
+                }
+              }}
+              className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-primary outline-none transition-all"
+            >
+              {INDIAN_GST_STATES.map(s => (
+                <option key={s.code} value={s.code}>{s.code} - {s.name}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Reverse Charge Mechanism (RCM)" hint="Mandatory declaration on Tax Invoices (Rule 46(p))">
+            <select
+              value={form.defaultReverseCharge || 'No'}
+              onChange={e => setStr('defaultReverseCharge', e.target.value)}
+              className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-primary outline-none transition-all"
+            >
+              <option value="No">No (Standard B2C & B2B)</option>
+              <option value="Yes">Yes (Tax payable under Reverse Charge)</option>
+            </select>
+          </Field>
         </div>
         <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-800">
           <Toggle
@@ -254,14 +351,111 @@ const FinanceSection: React.FC = () => {
         </div>
       </SectionCard>
 
-      <SectionCard title="Numbering Prefixes" description="Controls how Booking IDs and Invoice numbers are generated">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+      <SectionCard title="GST Sequential Numbering Prefixes" description="Controls sequential document series (Rule 46(b) — max 16 chars, FY unique)">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          <Field label="Tax Invoice Prefix" hint="e.g. ST → ST/26-27/0001">
+            <TextInput value={form.invoicePrefix || 'ST'} onChange={v => setStr('invoicePrefix', v.toUpperCase())} placeholder="ST" />
+          </Field>
+          <Field label="Proforma Invoice Prefix" hint="e.g. PI → PI/26-27/0001">
+            <TextInput value={form.proformaPrefix || 'PI'} onChange={v => setStr('proformaPrefix', v.toUpperCase())} placeholder="PI" />
+          </Field>
+          <Field label="Quotation Prefix" hint="e.g. QT → QT/26-27/0001">
+            <TextInput value={form.quotePrefix || 'QT'} onChange={v => setStr('quotePrefix', v.toUpperCase())} placeholder="QT" />
+          </Field>
+          <Field label="Credit Note Prefix" hint="e.g. CN → CN/26-27/0001">
+            <TextInput value={form.creditNotePrefix || 'CN'} onChange={v => setStr('creditNotePrefix', v.toUpperCase())} placeholder="CN" />
+          </Field>
+          <Field label="Payment Receipt Prefix" hint="e.g. RC → RC/26-27/0001">
+            <TextInput value={form.receiptPrefix || 'RC'} onChange={v => setStr('receiptPrefix', v.toUpperCase())} placeholder="RC" />
+          </Field>
           <Field label="Booking ID Prefix" hint="e.g. BK → BK-0001">
-            <TextInput value={form.bookingPrefix} onChange={v => setStr('bookingPrefix', v)} placeholder="BK" />
+            <TextInput value={form.bookingPrefix || 'BK'} onChange={v => setStr('bookingPrefix', v.toUpperCase())} placeholder="BK" />
           </Field>
-          <Field label="Invoice Number Prefix" hint="e.g. INV → INV-0001">
-            <TextInput value={form.invoicePrefix} onChange={v => setStr('invoicePrefix', v)} placeholder="INV" />
-          </Field>
+        </div>
+
+        {/* Live Preview Card */}
+        <div className="mt-5 p-4 rounded-xl bg-slate-900 text-white border border-slate-800 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+              <span className="material-symbols-outlined text-[16px]">verified</span>
+              Live GST Numbering Preview (FY {currentFy})
+            </span>
+            <span className="text-[10px] text-slate-400">Rule 46(b) Compliant</span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 font-mono text-xs">
+            <div className="bg-slate-800/80 p-2 rounded-lg">
+              <p className="text-[10px] text-slate-400 font-sans">Tax Invoice</p>
+              <p className="font-bold text-emerald-400">{(form.invoicePrefix || 'ST').toUpperCase()}/{currentFy}/0001</p>
+            </div>
+            <div className="bg-slate-800/80 p-2 rounded-lg">
+              <p className="text-[10px] text-slate-400 font-sans">Proforma</p>
+              <p className="font-bold text-blue-400">{(form.proformaPrefix || 'PI').toUpperCase()}/{currentFy}/0001</p>
+            </div>
+            <div className="bg-slate-800/80 p-2 rounded-lg">
+              <p className="text-[10px] text-slate-400 font-sans">Quotation</p>
+              <p className="font-bold text-purple-400">{(form.quotePrefix || 'QT').toUpperCase()}/{currentFy}/0001</p>
+            </div>
+            <div className="bg-slate-800/80 p-2 rounded-lg">
+              <p className="text-[10px] text-slate-400 font-sans">Credit Note</p>
+              <p className="font-bold text-rose-400">{(form.creditNotePrefix || 'CN').toUpperCase()}/{currentFy}/0001</p>
+            </div>
+          </div>
+        </div>
+      </SectionCard>
+
+      {/* Starting Sequence Numbers Override */}
+      <SectionCard title="Sequence Tracking & Starting Number" description={`Manage active sequence counters for Indian Financial Year ${currentFy}`}>
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-4 bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-800 items-end">
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Document Series</label>
+              <select
+                value={overrideDocType}
+                onChange={e => setOverrideDocType(e.target.value)}
+                className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-800 dark:text-white"
+              >
+                <option value="Invoice">Tax Invoice</option>
+                <option value="Proforma">Proforma Invoice</option>
+                <option value="Quotation">Quotation</option>
+                <option value="CreditNote">Credit Note</option>
+                <option value="Receipt">Payment Receipt</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Next Starting Number</label>
+              <input
+                type="number"
+                min="1"
+                value={overrideStartNum}
+                onChange={e => setOverrideStartNum(Math.max(1, parseInt(e.target.value) || 1))}
+                className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-800 dark:text-white"
+                placeholder="e.g. 51"
+              />
+            </div>
+            <div>
+              <button
+                type="button"
+                disabled={savingSeq}
+                onClick={handleSetStartingSequence}
+                className="w-full py-2.5 px-4 bg-slate-800 hover:bg-slate-900 dark:bg-slate-700 dark:hover:bg-slate-600 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all disabled:opacity-50"
+              >
+                {savingSeq ? 'Updating...' : 'Set Starting Number'}
+              </button>
+            </div>
+          </div>
+
+          {sequenceData.length > 0 && (
+            <div className="text-xs text-slate-500 dark:text-slate-400 space-y-1">
+              <p className="font-semibold text-slate-700 dark:text-slate-300">Active Counters for FY {currentFy}:</p>
+              <div className="flex flex-wrap gap-2 pt-1">
+                {sequenceData.map(seq => (
+                  <span key={seq.id} className="px-2.5 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg font-mono">
+                    <strong className="text-slate-700 dark:text-slate-200">{seq.doc_type}</strong>: {seq.prefix}/{seq.financial_year}/{String(seq.current_number).padStart(4, '0')} (Count: {seq.current_number})
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </SectionCard>
 

@@ -8,6 +8,7 @@ import { useData } from '../../context/DataContext';
 import { generateTrueInvoicePDF } from '../../utils/pdfGenerator';
 import { parsePaxString } from '../../utils/paxUtils';
 import { formatTripDuration } from '../../utils/packageUtils';
+import { INDIAN_GST_STATES, isValidGstin, getStateFromGstin, getIndianFinancialYear } from '../../utils/gstUtils';
 
 const ones = ['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen'];
 const tens = ['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
@@ -70,15 +71,28 @@ export const DocumentEditor: React.FC = () => {
     const paramBookingId = searchParams.get('booking_id') || '';
     const paramLeadId = searchParams.get('lead_id') || '';
     const paramCustomerId = searchParams.get('customer_id') || '';
-    const paramType = searchParams.get('type') || 'Invoice';
+    const paramOriginalId = searchParams.get('original_id') || '';
+    const paramOriginalNo = searchParams.get('original_no') || '';
+    const paramType = searchParams.get('type') || (paramOriginalId ? 'CreditNote' : 'Invoice');
 
     const isEdit = Boolean(id);
 
-    const [docData, setDocData] = useState({
+    const [docData, setDocData] = useState<any>({
         document_type: paramType,
         is_gst: 1,
         client_gst: '',
         gst_type: 'CGST_SGST',
+        place_of_supply: fi.defaultPlaceOfSupply || 'Maharashtra',
+        place_of_supply_code: fi.defaultPlaceOfSupplyCode || '27',
+        reverse_charge: fi.defaultReverseCharge || 'No',
+        invoice_no: '',
+        financial_year: '',
+        sequence_number: 0,
+        is_locked: 0,
+        original_invoice_id: paramOriginalId,
+        original_invoice_no: paramOriginalNo,
+        credit_reason: 'Cancellation / Revision',
+        copy_type: 'ORIGINAL FOR RECIPIENT',
         client_name: '',
         email: '',
         phone: '',
@@ -101,6 +115,35 @@ export const DocumentEditor: React.FC = () => {
         advance_received: 0,
         notes: 'Prices are subject to change based on availability at the time of booking. 50% advance required for confirmation.'
     });
+
+    const [nextSequencePreview, setNextSequencePreview] = useState<string>('');
+    const [previewLoading, setPreviewLoading] = useState(false);
+
+    const fetchNextPreview = async (docType: string, dateStr?: string) => {
+        if (docData.invoice_no && isEdit) return; // Already has official number
+        setPreviewLoading(true);
+        try {
+            const token = localStorage.getItem('shravya_jwt') || localStorage.getItem('token');
+            let pfx = fi.invoicePrefix || 'ST';
+            if (docType === 'Proforma') pfx = fi.proformaPrefix || 'PI';
+            else if (docType === 'Quotation') pfx = fi.quotePrefix || 'QT';
+            else if (docType === 'CreditNote') pfx = fi.creditNotePrefix || 'CN';
+            else if (docType === 'Receipt') pfx = fi.receiptPrefix || 'RC';
+
+            const dt = dateStr || docData.issue_date || new Date().toISOString();
+            const res = await fetch(`/api/invoices/next-preview?doc_type=${encodeURIComponent(docType)}&date=${encodeURIComponent(dt)}&prefix=${encodeURIComponent(pfx)}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (res.ok) {
+                const json = await res.json();
+                setNextSequencePreview(json.nextNumber || '');
+            }
+        } catch (e) {
+            console.error('Failed to preview next sequence:', e);
+        } finally {
+            setPreviewLoading(false);
+        }
+    };
 
     // T&C template selector state
     const [termsDropdownOpen, setTermsDropdownOpen] = useState(false);
@@ -202,7 +245,8 @@ export const DocumentEditor: React.FC = () => {
         if (isEdit) {
             fetchDocument();
         } else {
-            if (paramBookingId) prefillFromBooking(paramBookingId);
+            if (paramOriginalId) prefillFromOriginalInvoice(paramOriginalId);
+            else if (paramBookingId) prefillFromBooking(paramBookingId);
             else if (paramLeadId) prefillFromLead(paramLeadId);
             else if (paramCustomerId) prefillFromCustomer(paramCustomerId);
             else {
@@ -212,7 +256,7 @@ export const DocumentEditor: React.FC = () => {
                     try {
                         const p = JSON.parse(itineraryPrefill);
                         sessionStorage.removeItem('invoice_quick_create');
-                        setDocData(prev => ({
+                        setDocData((prev: any) => ({
                             ...prev,
                             client_name: p.clientName || '',
                             travel_dates: p.startDate || '',
@@ -235,6 +279,62 @@ export const DocumentEditor: React.FC = () => {
             }
         }
     }, [id]);
+
+    useEffect(() => {
+        if (!isEdit || !docData.invoice_no) {
+            fetchNextPreview(docData.document_type, docData.issue_date);
+        }
+    }, [docData.document_type, docData.issue_date, isEdit]);
+
+    const prefillFromOriginalInvoice = async (origId: string) => {
+        try {
+            const token = (localStorage.getItem('shravya_jwt') || localStorage.getItem('token'));
+            const res = await fetch(`/api/crud/invoices/${origId}`, { headers: { 'Authorization': `Bearer ${token}` } });
+            if (res.ok) {
+                const { data } = await res.json();
+                setDocData((prev: any) => ({
+                    ...prev,
+                    document_type: 'CreditNote',
+                    original_invoice_id: origId,
+                    original_invoice_no: data.invoice_no || (data.id ? `ST-${data.id.slice(0, 6).toUpperCase()}` : ''),
+                    client_name: data.client_name || '',
+                    email: data.email || '',
+                    phone: data.phone || '',
+                    address: data.address || '',
+                    is_gst: data.is_gst !== undefined ? data.is_gst : 1,
+                    client_gst: data.client_gst || '',
+                    gst_type: data.gst_type || 'CGST_SGST',
+                    place_of_supply: data.place_of_supply || prev.place_of_supply,
+                    place_of_supply_code: data.place_of_supply_code || prev.place_of_supply_code,
+                    reverse_charge: data.reverse_charge || 'No',
+                    credit_reason: 'Cancellation / Revision',
+                    booking_id: data.booking_id || null,
+                    lead_id: data.lead_id || null,
+                    customer_id: data.customer_id || null
+                }));
+
+                const itemsRes = await fetch(`/api/crud/invoice_items?eq_invoice_id=${origId}`, { headers: { 'Authorization': `Bearer ${token}` } });
+                if (itemsRes.ok) {
+                    const itemsData = await itemsRes.json();
+                    if (itemsData.data && itemsData.data.length > 0) {
+                        setItems(itemsData.data.map((it: any) => ({
+                            id: 'temp-' + generateId(),
+                            description: `Credit Adjustment for: ${it.description || 'Tour Package'}`,
+                            quantity: it.quantity || 1,
+                            total_days_km: it.total_days_km || '1',
+                            unit_price: Number(it.unit_price || 0),
+                            tax_rate: Number(it.tax_rate || 0),
+                            hsn_sac: it.hsn_sac || '9985'
+                        })));
+                    }
+                }
+            }
+        } catch (e) {
+            console.error('Failed to prefill from original invoice:', e);
+        } finally {
+            setLoading(false);
+        }
+    };
 
     // Auto-load the default T&C template when creating a new document
     useEffect(() => {
@@ -638,6 +738,123 @@ export const DocumentEditor: React.FC = () => {
         setSaving(true);
         try {
             const token = (localStorage.getItem('shravya_jwt') || localStorage.getItem('token'));
+            
+            // Format item payloads
+            const processedItems = items.map(item => {
+                const isNew = String(item.id).startsWith('temp-') || !isEdit;
+                return {
+                    id: isNew ? generateId() : item.id,
+                    description: item.description || '',
+                    date_from: item.date_from || null,
+                    date_to: item.date_to || null,
+                    quantity: Number(item.quantity || 1),
+                    total_days_km: item.total_days_km || '1',
+                    unit_price: Number(item.unit_price || 0),
+                    tax_rate: Number(item.tax_rate || 0),
+                    tax_amount: (parseDaysKm(item.total_days_km) * Number(item.unit_price || 0)) * (Number(item.tax_rate || 0) / 100),
+                    total: (parseDaysKm(item.total_days_km) * Number(item.unit_price || 0)) * (1 + Number(item.tax_rate || 0) / 100),
+                    hsn_sac: item.hsn_sac || '9985'
+                };
+            });
+
+            // Format custom fields
+            const processedCustomFields = customFields.map((cf, i) => {
+                const cfIsNew = String(cf.id).startsWith('temp-') || !isEdit;
+                return {
+                    id: cfIsNew ? generateId() : cf.id,
+                    label: cf.label || '',
+                    amount: Number(cf.amount || 0),
+                    is_deduction: cf.is_deduction ? 1 : 0,
+                    sort_order: i
+                };
+            });
+
+            // ── FLOW A: ISSUE OFFICIAL SEQUENTIAL GST DOCUMENT ──
+            if (generate && (!docData.invoice_no || docData.status === 'Draft')) {
+                let pfx = fi.invoicePrefix || 'ST';
+                if (docData.document_type === 'Proforma') pfx = fi.proformaPrefix || 'PI';
+                else if (docData.document_type === 'Quotation') pfx = fi.quotePrefix || 'QT';
+                else if (docData.document_type === 'CreditNote') pfx = fi.creditNotePrefix || 'CN';
+                else if (docData.document_type === 'Receipt') pfx = fi.receiptPrefix || 'RC';
+
+                const issuePayload = {
+                    id: id || generateId(),
+                    document_type: docData.document_type || 'Invoice',
+                    prefix: pfx,
+                    is_gst: docData.is_gst !== undefined ? docData.is_gst : 1,
+                    client_gst: docData.client_gst || '',
+                    gst_type: docData.gst_type || 'CGST_SGST',
+                    place_of_supply: docData.place_of_supply || fi.defaultPlaceOfSupply || 'Maharashtra',
+                    place_of_supply_code: docData.place_of_supply_code || fi.defaultPlaceOfSupplyCode || '27',
+                    reverse_charge: docData.reverse_charge || fi.defaultReverseCharge || 'No',
+                    original_invoice_id: docData.original_invoice_id || null,
+                    original_invoice_no: docData.original_invoice_no || null,
+                    credit_reason: docData.credit_reason || null,
+                    copy_type: docData.copy_type || 'ORIGINAL FOR RECIPIENT',
+                    client_name: docData.client_name,
+                    email: docData.email,
+                    phone: docData.phone,
+                    address: docData.address,
+                    travel_dates: docData.travel_dates,
+                    travel_date_from: docData.travel_date_from,
+                    travel_date_to: docData.travel_date_to,
+                    due_date: docData.due_date,
+                    issue_date: docData.issue_date || new Date().toISOString().split('T')[0],
+                    booking_id: docData.booking_id || null,
+                    lead_id: docData.lead_id || null,
+                    customer_id: docData.customer_id || null,
+                    adults: docData.adults,
+                    children: docData.children,
+                    payment_status: docData.payment_status || 'Unpaid',
+                    amount_paid: docData.amount_paid || 0,
+                    driver_stay_allowance: docData.driver_stay_allowance || 0,
+                    extra_km_charges: docData.extra_km_charges || 0,
+                    extra_hrs_charges: docData.extra_hrs_charges || 0,
+                    advance_received: docData.advance_received || 0,
+                    notes: docData.notes,
+                    field_labels: Object.keys(fieldLabels).length > 0 ? JSON.stringify(fieldLabels) : null,
+                    subtotal,
+                    tax_total: taxTotal,
+                    discount: discountAmt,
+                    total_amount: totalAmount,
+                    balance_due: balanceDue,
+                    items: processedItems,
+                    customFields: processedCustomFields
+                };
+
+                const endpoint = docData.document_type === 'CreditNote' ? '/api/invoices/credit-note' : '/api/invoices/issue';
+                const issueRes = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify(issuePayload)
+                });
+
+                if (!issueRes.ok) {
+                    const err = await issueRes.text();
+                    throw new Error(`Failed to issue document: ${err}`);
+                }
+
+                const issueResult = await issueRes.json();
+                const finalDoc = issueResult.data;
+                setDocData(finalDoc);
+
+                // Generate PDF
+                await generateTrueInvoicePDF(
+                    { ...finalDoc, id: finalDoc.id },
+                    processedItems,
+                    co,
+                    fi,
+                    processedCustomFields,
+                    fieldLabels
+                );
+
+                toast.success(`${docData.document_type} ${finalDoc.invoice_no} issued and locked successfully!`);
+                setIsDirty(false);
+                navigate('/admin/invoices');
+                return;
+            }
+
+            // ── FLOW B: SAVE DRAFT OR UPDATE EXISTING DOCUMENT ──
             const payload = {
                 ...docData,
                 subtotal,
@@ -648,7 +865,6 @@ export const DocumentEditor: React.FC = () => {
                 status: generate ? (docData.status === 'Void' ? 'Void' : 'Sent') : (docData.status || 'Draft'),
                 payment_status: docData.payment_status || 'Unpaid',
                 amount_paid: docData.amount_paid || 0,
-                // Fix #6 — Preserve existing issue_date; only default to today for new documents
                 issue_date: isEdit ? (docData.issue_date || new Date().toISOString().split('T')[0]) : new Date().toISOString().split('T')[0],
                 due_date: docData.due_date || null,
                 field_labels: Object.keys(fieldLabels).length > 0 ? JSON.stringify(fieldLabels) : null
@@ -663,7 +879,6 @@ export const DocumentEditor: React.FC = () => {
                 });
                 if (!res.ok) {
                     const errText = await res.text();
-                    console.error('Invoice update failed:', errText);
                     throw new Error(`Failed to update invoice: ${errText}`);
                 }
             } else {
@@ -674,7 +889,6 @@ export const DocumentEditor: React.FC = () => {
                 });
                 if (!res.ok) {
                     const errText = await res.text();
-                    console.error('Invoice create failed:', errText);
                     throw new Error(`Failed to create invoice: ${errText}`);
                 }
                 const resData = await res.json();
@@ -687,22 +901,11 @@ export const DocumentEditor: React.FC = () => {
                 }
             }
 
-            for (const item of items) {
+            for (const item of processedItems) {
                 const isNew = String(item.id).startsWith('temp-') || !isEdit;
-                const finalId = isNew ? generateId() : item.id;
                 const itemPayload = {
-                    id: finalId,
-                    invoice_id: invoiceId,
-                    description: item.description || '',
-                    date_from: item.date_from || null,
-                    date_to: item.date_to || null,
-                    quantity: Number(item.quantity || 1),
-                    total_days_km: item.total_days_km || '1',
-                    unit_price: Number(item.unit_price || 0),
-                    tax_rate: Number(item.tax_rate || 0),
-                    tax_amount: (parseDaysKm(item.total_days_km) * Number(item.unit_price || 0)) * (Number(item.tax_rate || 0) / 100),
-                    total: (parseDaysKm(item.total_days_km) * Number(item.unit_price || 0)) * (1 + Number(item.tax_rate || 0) / 100),
-                    hsn_sac: item.hsn_sac || '9985'
+                    ...item,
+                    invoice_id: invoiceId
                 };
                 if (isNew) {
                     await fetch('/api/crud/invoice_items', {
@@ -719,23 +922,13 @@ export const DocumentEditor: React.FC = () => {
                 }
             }
 
-            // ── Save Custom Extra Fields ──────────────────────────────────
-            // 1. Delete removed custom fields
+            // Save custom fields
             for (const delId of deletedCustomFieldIds) {
                 await fetch(`/api/crud/invoice_custom_fields/${delId}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
             }
-            // 2. Create new / update existing custom fields
-            for (let i = 0; i < customFields.length; i++) {
-                const cf = customFields[i];
+            for (const cf of processedCustomFields) {
                 const cfIsNew = String(cf.id).startsWith('temp-') || !isEdit;
-                const cfPayload = {
-                    id: cfIsNew ? generateId() : cf.id,
-                    invoice_id: invoiceId,
-                    label: cf.label || '',
-                    amount: Number(cf.amount || 0),
-                    is_deduction: cf.is_deduction ? 1 : 0,
-                    sort_order: i
-                };
+                const cfPayload = { ...cf, invoice_id: invoiceId };
                 if (cfIsNew) {
                     await fetch('/api/crud/invoice_custom_fields', {
                         method: 'POST',
@@ -751,81 +944,23 @@ export const DocumentEditor: React.FC = () => {
                 }
             }
 
-            // Ledger Sync: Auto-create transaction for Paid invoices linked to a booking
-            const amtPaid = Number(docData.amount_paid || 0);
-            const isPaid = docData.payment_status === 'Paid' || docData.payment_status === 'Partially Paid';
-            if (isPaid && docData.booking_id && amtPaid > 0) {
-                try {
-                    const txRes = await fetch(`/api/crud/booking_transactions?eq_reference=${invoiceId}`, {
-                        headers: { 'Authorization': `Bearer ${token}` }
-                    });
-                    const txData = await txRes.json();
-                    
-                    if (!txData.data || txData.data.length === 0) {
-                        await fetch('/api/crud/booking_transactions', {
-                            method: 'POST',
-                            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                id: generateId(),
-                                booking_id: docData.booking_id,
-                                amount: amtPaid,
-                                type: 'Payment',
-                                method: 'Bank Transfer',
-                                reference: invoiceId,
-                                notes: `Auto-generated from Invoice #${invoiceId.slice(0,6)}`,
-                                date: new Date().toISOString().split('T')[0]
-                            })
-                        });
-                    } else {
-                        const existingTx = txData.data[0];
-                        if (Number(existingTx.amount) !== amtPaid) {
-                            await fetch(`/api/crud/booking_transactions/${existingTx.id}`, {
-                                method: 'PUT',
-                                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ amount: amtPaid })
-                            });
-                        }
-                    }
-                } catch (txErr) {
-                    console.error('Ledger sync failed:', txErr);
-                }
-            } else if (!isPaid && docData.booking_id) {
-                try {
-                    const txRes = await fetch(`/api/crud/booking_transactions?eq_reference=${invoiceId}`, {
-                        headers: { 'Authorization': `Bearer ${token}` }
-                    });
-                    const txData = await txRes.json();
-                    if (txData.data && txData.data.length > 0) {
-                        for (const tx of txData.data) {
-                            await fetch(`/api/crud/booking_transactions/${tx.id}`, {
-                                method: 'DELETE',
-                                headers: { 'Authorization': `Bearer ${token}` }
-                            });
-                        }
-                    }
-                } catch (txErr) {
-                    console.error('Ledger cleanup failed:', txErr);
-                }
-            }
-
             if (generate) {
                 await generateTrueInvoicePDF({ ...payload, id: invoiceId }, items, co, fi, customFields, fieldLabels);
-                toast.success('PDF generated and downloaded! Document marked as Sent.');
+                toast.success('PDF generated and downloaded!');
             } else {
-                toast.success('Document saved successfully!');
+                toast.success('Document saved successfully as Draft!');
             }
             setIsDirty(false);
             
             if (generate) {
                 navigate('/admin/invoices');
             } else if (!isEdit) {
-                // If it was a new draft, swap the URL so the next save updates the same document
                 navigate(`/admin/invoices/edit/${invoiceId}`, { replace: true });
             }
 
-        } catch (error) {
+        } catch (error: any) {
             console.error(error);
-            toast.error('Failed to save document');
+            toast.error(error.message || 'Failed to save document');
         } finally {
             setSaving(false);
         }
@@ -1269,16 +1404,28 @@ export const DocumentEditor: React.FC = () => {
                         </button>
                     )}
 
-                    {/* Locked Indicator / Split Action Button */}
-                    {isLocked ? (
+                    {/* Locked / Issued Invoice Actions vs Draft Issuance Actions */}
+                    {docData.invoice_no && isEdit ? (
                         <div className="flex items-center gap-2">
-                            <div className="h-9 px-3 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-xl text-xs font-semibold flex items-center gap-1.5 border border-slate-200 dark:border-slate-700 shadow-sm">
-                                <span className="material-symbols-outlined text-[15px] text-slate-400">lock</span> Locked
+                            <div className="h-9 px-3 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-emerald-200 dark:border-emerald-900/40 shadow-sm font-mono">
+                                <span className="material-symbols-outlined text-[15px] text-emerald-500">verified</span>
+                                {docData.invoice_no}
                             </div>
+                            
+                            {docData.document_type === 'Invoice' && (
+                                <button
+                                    onClick={() => navigate(`/admin/invoices/new?type=CreditNote&original_id=${id}&original_no=${docData.invoice_no}`)}
+                                    className="h-9 px-3.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/30 dark:hover:bg-rose-900/40 text-rose-700 dark:text-rose-300 text-xs font-bold rounded-xl border border-rose-200 dark:border-rose-900/40 flex items-center gap-1.5 transition-all hover:scale-[1.02] active:scale-95"
+                                >
+                                    <FileText size={13} className="text-rose-500" />
+                                    Credit Note
+                                </button>
+                            )}
+
                             <button 
                                 disabled={saving} 
                                 onClick={duplicateToDraft} 
-                                className="h-9 px-4 border border-amber-200 bg-amber-50 hover:bg-amber-100 dark:border-amber-900/30 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all disabled:opacity-50 hover:scale-[1.02] active:scale-95"
+                                className="h-9 px-3 border border-amber-200 bg-amber-50 hover:bg-amber-100 dark:border-amber-900/30 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all disabled:opacity-50 hover:scale-[1.02] active:scale-95"
                             >
                                 {saving ? <Loader2 size={13} className="animate-spin" /> : <Copy size={13} />}
                                 Duplicate
@@ -1286,21 +1433,27 @@ export const DocumentEditor: React.FC = () => {
                         </div>
                     ) : (
                         <div className="relative flex items-center">
-                            {/* Left Side: Save & Generate (Main action) */}
+                            {/* Left Side: Issue & Generate (Main action) */}
                             <button
                                 disabled={saving}
                                 onClick={() => handleSave(true)}
-                                className="h-9 pl-4 pr-3.5 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded-l-xl flex items-center gap-1.5 transition-all disabled:opacity-50 hover:opacity-95 shadow-md shadow-orange-500/10"
+                                className={`h-9 pl-4 pr-3.5 text-white text-xs font-bold rounded-l-xl flex items-center gap-1.5 transition-all disabled:opacity-50 hover:opacity-95 shadow-md ${
+                                    docData.document_type === 'CreditNote'
+                                        ? 'bg-rose-600 hover:bg-rose-700 shadow-rose-500/10'
+                                        : 'bg-orange-600 hover:bg-orange-700 shadow-orange-500/10'
+                                }`}
                             >
                                 {saving ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
-                                {saving ? 'Saving…' : 'Generate & Send'}
+                                {saving ? 'Issuing…' : `Issue & Lock ${docData.document_type === 'CreditNote' ? 'Credit Note' : docData.document_type}`}
                             </button>
                             
                             {/* Right Side: Split Arrow Dropdown Trigger */}
                             <button
                                 disabled={saving}
                                 onClick={() => setIsSaveDropdownOpen(!isSaveDropdownOpen)}
-                                className="h-9 px-2 bg-orange-600 hover:bg-orange-700 text-white rounded-r-xl border-l border-orange-500/20 flex items-center justify-center transition-all disabled:opacity-50"
+                                className={`h-9 px-2 text-white rounded-r-xl border-l border-white/20 flex items-center justify-center transition-all disabled:opacity-50 ${
+                                    docData.document_type === 'CreditNote' ? 'bg-rose-600 hover:bg-rose-700' : 'bg-orange-600 hover:bg-orange-700'
+                                }`}
                             >
                                 <ChevronDown size={14} className={`transition-transform duration-200 ${isSaveDropdownOpen ? 'rotate-180' : ''}`} />
                             </button>
@@ -1318,12 +1471,12 @@ export const DocumentEditor: React.FC = () => {
                                             className="w-full text-left px-4 py-2.5 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center gap-2 font-medium"
                                         >
                                             <Save size={13} className="text-slate-400" />
-                                            Save Draft
+                                            Save as Draft (No Sequence)
                                         </button>
                                         <button
                                             onClick={() => {
                                                 setIsSaveDropdownOpen(false);
-                                                setDocData(prev => ({...prev, status: 'Void'}));
+                                                setDocData((prev: any) => ({...prev, status: 'Void'}));
                                                 setTimeout(() => handleSave(false), 0);
                                             }}
                                             className="w-full text-left px-4 py-2.5 text-xs text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 flex items-center gap-2 font-medium border-t border-slate-100 dark:border-slate-700"
@@ -1348,45 +1501,96 @@ export const DocumentEditor: React.FC = () => {
                         <div className="flex flex-col">
                             {/* Document Type Switcher */}
                             <div className="flex items-center gap-2 mb-3.5 print:hidden">
-                                {['Invoice','Quotation','Proforma'].map(type => (
+                                {['Invoice','Quotation','Proforma','CreditNote'].map(type => (
                                     <button
                                         key={type}
-                                        disabled={isLocked}
-                                        onClick={() => setDocData({...docData, document_type: type})}
+                                        disabled={isLocked && isEdit}
+                                        onClick={() => {
+                                            setDocData({...docData, document_type: type});
+                                            fetchNextPreview(type, docData.issue_date);
+                                        }}
                                         className={`px-3.5 py-1 rounded-full text-xs font-bold transition-all ${
                                             docData.document_type === type
-                                                ? 'bg-[#F26222] text-white shadow-sm'
+                                                ? (type === 'CreditNote' ? 'bg-rose-600 text-white shadow-sm' : 'bg-[#F26222] text-white shadow-sm')
                                                 : 'bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700/80'
-                                        } ${isLocked ? 'opacity-60 cursor-not-allowed' : 'hover:scale-105 active:scale-95'}`}
+                                        } ${isLocked && isEdit ? 'opacity-60 cursor-not-allowed' : 'hover:scale-105 active:scale-95'}`}
                                     >
-                                        {type}
+                                        {type === 'CreditNote' ? 'Credit Note' : type}
                                     </button>
                                 ))}
                             </div>
                             
                             <div className="flex items-center gap-3">
-                                <h1 className="text-4xl font-black text-[#091C3B] dark:text-white tracking-tight uppercase">{docData.document_type}</h1>
+                                <h1 className="text-4xl font-black text-[#091C3B] dark:text-white tracking-tight uppercase">
+                                    {docData.document_type === 'CreditNote' ? 'Credit Note' : docData.document_type}
+                                </h1>
                                 <span className="bg-[#42bbed] text-white px-3 py-0.5 rounded-md text-[10px] font-bold shadow-sm shadow-[#42bbed]/30 uppercase tracking-wider print:bg-[#42bbed] print:text-white" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
                                     {docData.payment_status === 'Paid' ? 'Paid' : docData.payment_status === 'Partially Paid' ? 'Part Paid' : docData.payment_status}
                                 </span>
+                                {docData.invoice_no && (
+                                    <span className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 px-2.5 py-0.5 rounded-md text-[10px] font-bold tracking-wider uppercase flex items-center gap-1">
+                                        <CheckCircle2 size={10} /> Official GST
+                                    </span>
+                                )}
                             </div>
                             
+                            {/* Credit Note Linked Info Banner */}
+                            {docData.document_type === 'CreditNote' && (
+                                <div className="mt-4 p-3 bg-rose-50/80 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-xl space-y-2">
+                                    <div className="flex items-center gap-2">
+                                        <AlertCircle size={14} className="text-rose-600 dark:text-rose-400" />
+                                        <span className="text-xs font-bold text-rose-800 dark:text-rose-300 uppercase tracking-wider">Credit Note Details (Rule 53)</span>
+                                    </div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                                        <div>
+                                            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Against Tax Invoice No</label>
+                                            <input
+                                                type="text"
+                                                value={docData.original_invoice_no || ''}
+                                                onChange={e => setDocData({ ...docData, original_invoice_no: e.target.value })}
+                                                placeholder="e.g. ST/26-27/0001"
+                                                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-800 dark:text-white"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Reason for Credit Note</label>
+                                            <select
+                                                value={docData.credit_reason || 'Cancellation / Revision'}
+                                                onChange={e => setDocData({ ...docData, credit_reason: e.target.value })}
+                                                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-800 dark:text-white cursor-pointer"
+                                            >
+                                                <option value="Cancellation / Revision">Order Cancellation / Revision</option>
+                                                <option value="Post-sale Discount">Post-sale Discount / Rate Adjustment</option>
+                                                <option value="Deficiency in Service">Deficiency in Service / Partial Refund</option>
+                                                <option value="Correction in Invoice">Typo / GST Correction</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
                             <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-3 print:flex print:flex-col print:gap-1.5 text-xs">
                                 <div className="bg-slate-50/50 dark:bg-slate-800/10 border border-slate-100 dark:border-slate-800/60 rounded-2xl p-3.5 flex flex-col justify-center transition-colors">
-                                    <span className="text-[10px] text-slate-400 dark:text-slate-500 font-extrabold uppercase tracking-wider mb-1">Invoice No #</span>
-                                    <span className="font-extrabold text-[#091C3B] dark:text-white text-sm">{id ? `${fi.invoicePrefix || 'INV'}-${id.slice(0,6).toUpperCase()}` : 'DRAFT'}</span>
+                                    <span className="text-[10px] text-slate-400 dark:text-slate-500 font-extrabold uppercase tracking-wider mb-1">
+                                        {docData.document_type === 'CreditNote' ? 'Credit Note No #' : docData.document_type === 'Quotation' ? 'Quote No #' : docData.document_type === 'Proforma' ? 'Proforma No #' : 'Tax Invoice No #'}
+                                    </span>
+                                    <span className="font-extrabold text-[#091C3B] dark:text-white text-sm font-mono">
+                                        {docData.invoice_no
+                                            ? docData.invoice_no
+                                            : (nextSequencePreview ? `${nextSequencePreview} (Draft)` : 'DRAFT')}
+                                    </span>
                                 </div>
                                 <div className="bg-slate-50/50 dark:bg-slate-800/10 border border-slate-100 dark:border-slate-800/60 rounded-2xl p-3.5 flex flex-col justify-center transition-colors">
-                                    <span className="text-[10px] text-slate-400 dark:text-slate-500 font-extrabold uppercase tracking-wider mb-1">Invoice Date</span>
+                                    <span className="text-[10px] text-slate-400 dark:text-slate-500 font-extrabold uppercase tracking-wider mb-1">Issue Date</span>
                                     <div className="flex items-center gap-1.5">
                                         <input
                                             type="date"
                                             value={docData.issue_date ? docData.issue_date.split('T')[0] : new Date().toISOString().split('T')[0]}
-                                            onChange={e => { setDocData(prev => ({...prev, issue_date: e.target.value})); setIsDirty(true); }}
-                                            disabled={isLocked}
+                                            onChange={e => { setDocData((prev: any) => ({...prev, issue_date: e.target.value})); setIsDirty(true); }}
+                                            disabled={isLocked && isEdit}
                                             className="font-bold text-[#091C3B] dark:text-white bg-transparent border-0 outline-none text-xs p-0 w-full print:hidden disabled:opacity-60 cursor-pointer"
                                         />
-                                        <span className="hidden print:inline font-bold text-[#091C3B]">{new Date(docData.issue_date || new Date()).toLocaleDateString('en-US', {month:'short', day:'2-digit', year:'numeric'})}</span>
+                                        <span className="hidden print:inline font-bold text-[#091C3B]">{new Date(docData.issue_date || new Date()).toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'})}</span>
                                     </div>
                                 </div>
                                 <div className="bg-slate-50/50 dark:bg-slate-800/10 border border-slate-100 dark:border-slate-800/60 rounded-2xl p-3.5 flex flex-col justify-center transition-colors">
@@ -1395,12 +1599,12 @@ export const DocumentEditor: React.FC = () => {
                                         <input
                                             type="date"
                                             value={docData.due_date ? String(docData.due_date).split('T')[0] : ''}
-                                            onChange={e => { setDocData(prev => ({...prev, due_date: e.target.value || null})); setIsDirty(true); }}
-                                            disabled={isLocked}
+                                            onChange={e => { setDocData((prev: any) => ({...prev, due_date: e.target.value || null})); setIsDirty(true); }}
+                                            disabled={isLocked && isEdit}
                                             className="font-bold text-[#091C3B] dark:text-white bg-transparent border-0 outline-none text-xs p-0 w-full print:hidden disabled:opacity-60 cursor-pointer"
                                             placeholder="Not set"
                                         />
-                                        <span className="hidden print:inline font-bold text-[#091C3B]">{docData.due_date ? new Date(docData.due_date).toLocaleDateString('en-US', {month:'short', day:'2-digit', year:'numeric'}) : '—'}</span>
+                                        <span className="hidden print:inline font-bold text-[#091C3B]">{docData.due_date ? new Date(docData.due_date).toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'}) : '—'}</span>
                                     </div>
                                 </div>
                             </div>
@@ -1590,28 +1794,101 @@ export const DocumentEditor: React.FC = () => {
 
                                     {/* Client GSTIN & GST Type (Only if GST is selected) */}
                                     {docData.is_gst === 1 && (
-                                        <div className="space-y-2 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 transition-all animate-in fade-in duration-300">
+                                        <div className="space-y-2.5 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 transition-all animate-in fade-in duration-300">
                                             <div className="flex items-center gap-1.5 text-xs">
                                                 <span className="font-bold text-slate-400 dark:text-slate-500">Client GSTIN:</span>
                                                 <input
                                                     type="text"
                                                     value={docData.client_gst || ''}
-                                                    onChange={(e) => setDocData({ ...docData, client_gst: e.target.value.toUpperCase() })}
+                                                    onChange={(e) => {
+                                                        const val = e.target.value.toUpperCase().trim();
+                                                        const patch: any = { client_gst: val };
+                                                        if (isValidGstin(val)) {
+                                                            const st = getStateFromGstin(val);
+                                                            if (st) {
+                                                                patch.place_of_supply = st.name;
+                                                                patch.place_of_supply_code = st.code;
+                                                                patch.gst_type = st.code === '27' ? 'CGST_SGST' : 'IGST';
+                                                            }
+                                                        }
+                                                        setDocData({ ...docData, ...patch });
+                                                        setIsDirty(true);
+                                                    }}
                                                     placeholder="GSTIN (e.g. 27AAAAA0000A1Z0)"
                                                     maxLength={15}
                                                     className="bg-transparent border-b border-dashed border-slate-200 dark:border-slate-800 hover:border-slate-355 focus:border-orange-500 flex-1 outline-none focus:ring-0 py-0.5 text-slate-605 dark:text-slate-350 font-mono tracking-wide placeholder:text-slate-400 dark:placeholder:text-slate-600 transition-all text-xs"
                                                 />
+                                                {docData.client_gst && (
+                                                    isValidGstin(docData.client_gst) ? (
+                                                        <span className="text-[10px] text-emerald-500 font-bold flex items-center gap-0.5">✓ Valid</span>
+                                                    ) : (
+                                                        <span className="text-[10px] text-amber-500 font-medium">15-char</span>
+                                                    )
+                                                )}
                                             </div>
-                                            <div className="flex items-center gap-1.5 text-xs">
-                                                <span className="font-bold text-slate-400 dark:text-slate-500">GST Type:</span>
-                                                <select
-                                                    value={docData.gst_type || 'CGST_SGST'}
-                                                    onChange={(e) => setDocData({ ...docData, gst_type: e.target.value })}
-                                                    className="bg-transparent border-b border-dashed border-slate-200 dark:border-slate-800 hover:border-slate-355 focus:border-orange-500 flex-1 outline-none focus:ring-0 py-0.5 text-slate-700 dark:text-slate-300 font-bold transition-all text-xs cursor-pointer dark:bg-slate-900"
-                                                >
-                                                    <option value="CGST_SGST">Intra-state (CGST + SGST)</option>
-                                                    <option value="IGST">Inter-state (IGST)</option>
-                                                </select>
+
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                                                <div>
+                                                    <span className="font-bold text-slate-400 dark:text-slate-500 block mb-0.5 text-[10px] uppercase">Place of Supply (Rule 46(d)):</span>
+                                                    <select
+                                                        value={docData.place_of_supply_code || '27'}
+                                                        onChange={(e) => {
+                                                            const selected = INDIAN_GST_STATES.find(s => s.code === e.target.value);
+                                                            if (selected) {
+                                                                setDocData({
+                                                                    ...docData,
+                                                                    place_of_supply: selected.name,
+                                                                    place_of_supply_code: selected.code,
+                                                                    gst_type: selected.code === '27' ? 'CGST_SGST' : 'IGST'
+                                                                });
+                                                                setIsDirty(true);
+                                                            }
+                                                        }}
+                                                        className="w-full bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 text-slate-700 dark:text-slate-200 font-bold transition-all text-xs cursor-pointer"
+                                                    >
+                                                        {INDIAN_GST_STATES.map(s => (
+                                                            <option key={s.code} value={s.code}>{s.code} - {s.name}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+
+                                                <div>
+                                                    <span className="font-bold text-slate-400 dark:text-slate-500 block mb-0.5 text-[10px] uppercase">GST Type:</span>
+                                                    <select
+                                                        value={docData.gst_type || 'CGST_SGST'}
+                                                        onChange={(e) => setDocData({ ...docData, gst_type: e.target.value })}
+                                                        className="w-full bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 text-slate-700 dark:text-slate-200 font-bold transition-all text-xs cursor-pointer"
+                                                    >
+                                                        <option value="CGST_SGST">Intra-state (CGST + SGST)</option>
+                                                        <option value="IGST">Inter-state (IGST)</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs pt-1">
+                                                <div>
+                                                    <span className="font-bold text-slate-400 dark:text-slate-500 block mb-0.5 text-[10px] uppercase">Reverse Charge (RCM):</span>
+                                                    <select
+                                                        value={docData.reverse_charge || 'No'}
+                                                        onChange={(e) => setDocData({ ...docData, reverse_charge: e.target.value })}
+                                                        className="w-full bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 text-slate-700 dark:text-slate-200 font-semibold transition-all text-xs cursor-pointer"
+                                                    >
+                                                        <option value="No">No (Standard B2C / B2B)</option>
+                                                        <option value="Yes">Yes (Payable under RCM)</option>
+                                                    </select>
+                                                </div>
+
+                                                <div>
+                                                    <span className="font-bold text-slate-400 dark:text-slate-500 block mb-0.5 text-[10px] uppercase">Copy Type (Rule 48):</span>
+                                                    <select
+                                                        value={docData.copy_type || 'ORIGINAL FOR RECIPIENT'}
+                                                        onChange={(e) => setDocData({ ...docData, copy_type: e.target.value })}
+                                                        className="w-full bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 text-slate-700 dark:text-slate-200 font-semibold transition-all text-xs cursor-pointer"
+                                                    >
+                                                        <option value="ORIGINAL FOR RECIPIENT">Original For Recipient</option>
+                                                        <option value="DUPLICATE FOR SUPPLIER">Duplicate For Supplier</option>
+                                                    </select>
+                                                </div>
                                             </div>
                                         </div>
                                     )}

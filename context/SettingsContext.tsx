@@ -35,7 +35,14 @@ export interface FinanceSettings {
   upiId: string;
   upiQrImage?: string;
   invoicePrefix: string;
+  proformaPrefix?: string;
+  quotePrefix?: string;
+  creditNotePrefix?: string;
+  receiptPrefix?: string;
   bookingPrefix: string;
+  defaultPlaceOfSupply?: string;
+  defaultPlaceOfSupplyCode?: string;
+  defaultReverseCharge?: string;
 }
 
 export interface StaffRoleSettings {
@@ -152,8 +159,15 @@ export const DEFAULT_SETTINGS: AppSettings = {
     bankBranch: '',
     upiId: '',
     upiQrImage: '',
-    invoicePrefix: 'INV',
+    invoicePrefix: 'ST',
+    proformaPrefix: 'PI',
+    quotePrefix: 'QT',
+    creditNotePrefix: 'CN',
+    receiptPrefix: 'RC',
     bookingPrefix: 'BK',
+    defaultPlaceOfSupply: 'Maharashtra',
+    defaultPlaceOfSupplyCode: '27',
+    defaultReverseCharge: 'No',
   },
   staffRoles: {
     idleTimeoutMinutes: 20,

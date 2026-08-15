@@ -423,12 +423,74 @@ export const api = {
         await crud.remove('packages', id);
     },
 
-    // --- TRANSACTIONS & SYSTEM ---
-    generateInvoiceNumber: async (type: string): Promise<string> => {
-        // Simple client-side implementation since we don't have Supabase RPC
-        const prefix = type === 'booking' ? 'INV' : 'TXN';
-        const timestamp = Date.now().toString(36).toUpperCase();
-        return `${prefix}-${timestamp}`;
+    // --- GST SEQUENTIAL INVOICING & SYSTEM ---
+    generateInvoiceNumber: async (type: string, dateStr?: string, prefix?: string): Promise<string> => {
+        try {
+            const token = localStorage.getItem('shravya_jwt') || localStorage.getItem('token');
+            const docType = type === 'booking' || !type ? 'Invoice' : type;
+            const pfx = prefix || 'ST';
+            const dt = dateStr || new Date().toISOString();
+            const res = await fetch(`/api/invoices/next-preview?doc_type=${encodeURIComponent(docType)}&date=${encodeURIComponent(dt)}&prefix=${encodeURIComponent(pfx)}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (res.ok) {
+                const json = await res.json();
+                return json.nextNumber || `ST/${new Date().getFullYear().toString().slice(-2)}-${(new Date().getFullYear() + 1).toString().slice(-2)}/0001`;
+            }
+        } catch (e) {
+            console.warn('[API] Failed to preview invoice sequence from server, fallback format used:', e);
+        }
+        const yr = new Date().getFullYear();
+        const fy = `${String(yr).slice(-2)}-${String(yr + 1).slice(-2)}`;
+        return `ST/${fy}/0001`;
+    },
+
+    getInvoiceNextPreview: async (docType = 'Invoice', dateStr?: string, prefix = 'ST') => {
+        const token = localStorage.getItem('shravya_jwt') || localStorage.getItem('token');
+        const dt = dateStr || new Date().toISOString();
+        const res = await fetch(`/api/invoices/next-preview?doc_type=${encodeURIComponent(docType)}&date=${encodeURIComponent(dt)}&prefix=${encodeURIComponent(prefix)}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!res.ok) throw new Error('Failed to fetch next invoice sequence preview');
+        return await res.json();
+    },
+
+    issueInvoice: async (payload: any) => {
+        const token = localStorage.getItem('shravya_jwt') || localStorage.getItem('token');
+        const res = await fetch('/api/invoices/issue', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (!res.ok) {
+            const err = await res.text();
+            throw new Error(`Failed to issue invoice: ${err}`);
+        }
+        return await res.json();
+    },
+
+    createCreditNote: async (payload: any) => {
+        const token = localStorage.getItem('shravya_jwt') || localStorage.getItem('token');
+        const res = await fetch('/api/invoices/credit-note', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (!res.ok) {
+            const err = await res.text();
+            throw new Error(`Failed to create credit note: ${err}`);
+        }
+        return await res.json();
+    },
+
+    getGstr1Summary: async (month?: number, year?: number, financialYear?: string) => {
+        const token = localStorage.getItem('shravya_jwt') || localStorage.getItem('token');
+        let url = '/api/invoices/gstr1-summary?';
+        if (month && year) url += `month=${month}&year=${year}`;
+        else if (financialYear) url += `financial_year=${encodeURIComponent(financialYear)}`;
+        const res = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
+        if (!res.ok) throw new Error('Failed to fetch GSTR-1 summary');
+        return await res.json();
     },
 
     bookInventorySlot: async (dateStr: string, assetId: string, paxCount: number): Promise<void> => {

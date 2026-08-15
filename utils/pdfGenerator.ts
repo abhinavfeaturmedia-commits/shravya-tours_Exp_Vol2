@@ -491,11 +491,16 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
 
     const isProforma = docData.document_type === 'Proforma';
     const isQuote = docData.document_type === 'Quotation';
-    const prefix = finance?.invoicePrefix || (isProforma ? 'PI' : isQuote ? 'QT' : 'INV');
-    const docId = docData.id
-        ? (String(docData.id).includes('-') ? docData.id.split('-')[0].toUpperCase() : String(docData.id).slice(0, 6).toUpperCase())
-        : 'DRAFT';
-    const hasDueDate = !!docData.due_date;
+    const isCreditNote = docData.document_type === 'CreditNote' || docData.document_type === 'Credit Note';
+    const prefix = isCreditNote ? (finance?.creditNotePrefix || 'CN') : (finance?.invoicePrefix || (isProforma ? 'PI' : isQuote ? 'QT' : 'ST'));
+    
+    // Official GST Invoice Number (Rule 46)
+    const invNoStr = docData.invoice_no
+        ? docData.invoice_no
+        : (docData.status === 'Draft' || !docData.id ? 'DRAFT' : `${prefix}-${String(docData.id).slice(0, 6).toUpperCase()}`);
+    
+    const hasDueDate = !!docData.due_date && !isCreditNote;
+    const copyType = docData.copy_type || 'ORIGINAL FOR RECIPIENT';
 
     // ── FIX #19: Bottom stripe helper — called on EVERY page ──
     const drawBottomStripe = () => {
@@ -525,11 +530,11 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
         doc.setTextColor(100, 116, 139); // Slate Gray
         doc.text("and Events LLP", 15, 13);
 
-        // Right-aligned: Document ID and Continued indicator (centered vertically relative to the two lines on the left)
+        // Right-aligned: Document ID and Continued indicator
         doc.setFont("helvetica", "normal");
         doc.setFontSize(6.5);
         doc.setTextColor(148, 163, 184);
-        doc.text(`${prefix}-${docId}  ·  Continued`, pageWidth - 15, 11.5, { align: 'right' });
+        doc.text(`${invNoStr}  ·  Continued`, pageWidth - 15, 11.5, { align: 'right' });
 
         // Underline divider
         doc.setDrawColor(242, 98, 34);
@@ -561,60 +566,91 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
         doc.line(15, 39, 45, 39);
     }
 
-    // ── Invoice type label (TAX INVOICE / PROFORMA INVOICE / QUOTATION / RETAIL INVOICE) ──
-    const invoiceTypeLabel = isProforma
-        ? 'PROFORMA INVOICE'
-        : isQuote
-            ? 'QUOTATION'
-            : (docData.is_gst === 0 ? 'RETAIL INVOICE' : 'TAX INVOICE');
+    // ── Invoice type label (TAX INVOICE / CREDIT NOTE / PROFORMA INVOICE / QUOTATION / RETAIL INVOICE) ──
+    const invoiceTypeLabel = isCreditNote
+        ? 'CREDIT NOTE'
+        : isProforma
+            ? 'PROFORMA INVOICE'
+            : isQuote
+                ? 'QUOTATION'
+                : (docData.is_gst === 0 ? 'RETAIL INVOICE' : 'TAX INVOICE');
     doc.setFont("helvetica", "bold");
     doc.setFontSize(13);
     doc.setTextColor(9, 28, 59);
-    doc.text(invoiceTypeLabel, 105, 23, { align: 'center' });
+    doc.text(invoiceTypeLabel, 105, 21, { align: 'center' });
+
+    // Copy Tag (Rule 48 of CGST Rules)
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(6.5);
+    doc.setTextColor(148, 163, 184);
+    doc.text(`(${copyType})`, 105, 25.5, { align: 'center' });
 
     // ── Meta card ──
-    const metaCardH = hasDueDate ? 31 : 24;
+    const metaCardH = hasDueDate ? 34 : 28;
     doc.setFillColor(252, 252, 252);
     doc.setDrawColor(226, 232, 240);
     doc.setLineWidth(0.3);
-    doc.roundedRect(148, 11, 47, metaCardH, 1.5, 1.5, 'FD');
+    doc.roundedRect(144, 11, 51, metaCardH, 1.5, 1.5, 'FD');
 
-    let metaY = 16.5;
+    let metaY = 16;
     
-    // Row 1: INVOICE NO
+    // Row 1: INVOICE / DOC NO
     doc.setFont("helvetica", "normal");
     doc.setFontSize(6.5);
     doc.setTextColor(100, 116, 139);
-    doc.text(`${isQuote ? 'Quote No' : isProforma ? 'Proforma No' : 'Invoice No'}:`, 152, metaY);
+    const docNoLabel = isCreditNote ? 'Credit Note No:' : isQuote ? 'Quote No:' : isProforma ? 'Proforma No:' : 'Invoice No:';
+    doc.text(docNoLabel, 147, metaY);
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(7.5);
+    doc.setFontSize(7);
     doc.setTextColor(9, 28, 59);
-    const invNoStr = `${prefix}-${docId}`;
-    doc.text(invNoStr.length > 13 ? invNoStr.slice(0, 13) + '…' : invNoStr, 191, metaY, { align: 'right' });
-    metaY += 6.5;
+    doc.text(invNoStr.length > 17 ? invNoStr.slice(0, 17) + '…' : invNoStr, 192, metaY, { align: 'right' });
+    metaY += 5.5;
 
     // Row 2: INVOICE DATE
     doc.setFont("helvetica", "normal");
     doc.setFontSize(6.5);
     doc.setTextColor(100, 116, 139);
-    doc.text("Date:", 152, metaY);
+    doc.text("Date:", 147, metaY);
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(7.5);
+    doc.setFontSize(7);
     doc.setTextColor(9, 28, 59);
-    doc.text(new Date(docData.issue_date || new Date()).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }), 191, metaY, { align: 'right' });
-    metaY += 6.5;
+    doc.text(new Date(docData.issue_date || new Date()).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }), 192, metaY, { align: 'right' });
+    metaY += 5.5;
+
+    // Row 3: PLACE OF SUPPLY (Rule 46(d))
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(6.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text("Place of Supply:", 147, metaY);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(6.8);
+    doc.setTextColor(9, 28, 59);
+    const posStr = `${docData.place_of_supply || 'Maharashtra'} (${docData.place_of_supply_code || '27'})`;
+    doc.text(posStr.length > 15 ? posStr.slice(0, 15) + '…' : posStr, 192, metaY, { align: 'right' });
+    metaY += 5.5;
+
+    // Row 4: REVERSE CHARGE (Rule 46(p))
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(6.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text("Reverse Charge:", 147, metaY);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(6.8);
+    doc.setTextColor(9, 28, 59);
+    doc.text(docData.reverse_charge || 'No', 192, metaY, { align: 'right' });
+    metaY += 5.5;
 
     if (hasDueDate) {
-        // Row 3: DUE DATE
+        // Row 5: DUE DATE
         doc.setFont("helvetica", "normal");
         doc.setFontSize(6.5);
         doc.setTextColor(220, 38, 38); // Highlight red
-        doc.text("Due Date:", 152, metaY);
+        doc.text("Due Date:", 147, metaY);
         doc.setFont("helvetica", "bold");
-        doc.setFontSize(7.5);
+        doc.setFontSize(7);
         doc.setTextColor(220, 38, 38);
-        doc.text(new Date(docData.due_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }), 191, metaY, { align: 'right' });
-        metaY += 6.5;
+        doc.text(new Date(docData.due_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }), 192, metaY, { align: 'right' });
+        metaY += 5.5;
     }
 
     // Row 4 (or 3): PAGE
@@ -893,7 +929,18 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
             `Rs. ${Math.round(subtotalAmount).toLocaleString('en-IN')}`]);
     }
 
-    const tableStartY = cardY + cardHeight + 4;
+    let tableStartY = cardY + cardHeight + 4;
+    if (isCreditNote && docData.original_invoice_no) {
+        doc.setFillColor(254, 242, 242);
+        doc.setDrawColor(254, 202, 202);
+        doc.roundedRect(15, tableStartY, pageWidth - 30, 7, 1, 1, 'FD');
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(7);
+        doc.setTextColor(185, 28, 28);
+        const cnRefText = `CREDIT NOTE ISSUED AGAINST TAX INVOICE: ${docData.original_invoice_no}${docData.credit_reason ? ` — Reason: ${docData.credit_reason}` : ''}`;
+        doc.text(cnRefText.length > 110 ? cnRefText.slice(0, 110) + '…' : cnRefText, 19, tableStartY + 4.5);
+        tableStartY += 9;
+    }
 
     autoTable(doc, {
         startY: tableStartY,
@@ -1312,7 +1359,9 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
         }
     }
 
-    doc.save(`${docData.document_type || 'Invoice'}_${docData.client_name.replace(/\s+/g, '_')}_${docId}.pdf`);
+    const safeDocNum = (invNoStr || String(docData.id || 'draft')).replace(/[\/\\]/g, '-');
+    const safeClient = (docData.client_name || 'Client').replace(/[^a-zA-Z0-9_-]/g, '_');
+    doc.save(`${docData.document_type || 'Invoice'}_${safeClient}_${safeDocNum}.pdf`);
 };
 
 export const generateReceiptPDF = async (
