@@ -6706,6 +6706,157 @@ app.post('/api/invoices/set-starting-number', authMiddleware, async (req, res) =
     }
 });
 
+// 6. Unified Customer/Booking/Lead Search for Invoices
+app.get('/api/invoices/link-search', authMiddleware, async (req, res) => {
+    try {
+        const q = (req.query.q || '').trim();
+        const type = (req.query.type || 'all').toLowerCase();
+        const limit = Math.min(parseInt(req.query.limit) || 40, 100);
+        const term = `%${q}%`;
+        const results = [];
+
+        // 1. Search Bookings
+        if (type === 'all' || type === 'bookings') {
+            const bQuery = q ? `
+                SELECT id, booking_number, customer_name, customer_email, customer_phone, residential_address, 
+                       booking_date, end_date, total_price, status, pax_adult, pax_child, number_of_people, 
+                       title, customer_id, lead_id
+                FROM bookings
+                WHERE customer_name LIKE ? OR customer_email LIKE ? OR customer_phone LIKE ? 
+                   OR booking_number LIKE ? OR title LIKE ? OR id LIKE ? OR residential_address LIKE ?
+                ORDER BY created_at DESC
+                LIMIT ?
+            ` : `
+                SELECT id, booking_number, customer_name, customer_email, customer_phone, residential_address, 
+                       booking_date, end_date, total_price, status, pax_adult, pax_child, number_of_people, 
+                       title, customer_id, lead_id
+                FROM bookings
+                ORDER BY created_at DESC
+                LIMIT ?
+            `;
+            const bParams = q ? [term, term, term, term, term, term, term, limit] : [limit];
+            const [bRows] = await pool.query(bQuery, bParams);
+
+            bRows.forEach(r => {
+                results.push({
+                    id: r.id,
+                    source_type: 'booking',
+                    title_badge: 'Booking',
+                    record_number: r.booking_number ? `BK-${r.booking_number}` : `#${(r.id || '').substring(0, 6).toUpperCase()}`,
+                    client_name: r.customer_name || 'Unknown Client',
+                    email: r.customer_email || '',
+                    phone: r.customer_phone || '',
+                    address: r.residential_address || '',
+                    start_date: r.booking_date,
+                    end_date: r.end_date,
+                    destination_or_title: r.title || 'Tour Booking',
+                    adults: r.pax_adult || r.number_of_people || 2,
+                    children: r.pax_child !== undefined && r.pax_child !== null ? Number(r.pax_child) : 0,
+                    amount: Number(r.total_price || 0),
+                    status: r.status || 'Confirmed',
+                    customer_id: r.customer_id || null,
+                    booking_id: r.id,
+                    lead_id: r.lead_id || null,
+                    created_at: r.booking_date
+                });
+            });
+        }
+
+        // 2. Search Leads
+        if (type === 'all' || type === 'leads') {
+            const lQuery = q ? `
+                SELECT id, lead_number, name, email, phone, residential_address, start_date, end_date, 
+                       budget, potential_value, destination, status, travelers, pax_adult, pax_child, customer_id
+                FROM leads
+                WHERE name LIKE ? OR email LIKE ? OR phone LIKE ? OR destination LIKE ? 
+                   OR lead_number LIKE ? OR id LIKE ? OR residential_address LIKE ?
+                ORDER BY created_at DESC
+                LIMIT ?
+            ` : `
+                SELECT id, lead_number, name, email, phone, residential_address, start_date, end_date, 
+                       budget, potential_value, destination, status, travelers, pax_adult, pax_child, customer_id
+                FROM leads
+                ORDER BY created_at DESC
+                LIMIT ?
+            `;
+            const lParams = q ? [term, term, term, term, term, term, term, limit] : [limit];
+            const [lRows] = await pool.query(lQuery, lParams);
+
+            lRows.forEach(r => {
+                results.push({
+                    id: r.id,
+                    source_type: 'lead',
+                    title_badge: 'Lead',
+                    record_number: r.lead_number ? `LD-${r.lead_number}` : `#${(r.id || '').substring(0, 6).toUpperCase()}`,
+                    client_name: r.name || 'Unknown Lead',
+                    email: r.email || '',
+                    phone: r.phone || '',
+                    address: r.residential_address || '',
+                    start_date: r.start_date,
+                    end_date: r.end_date,
+                    destination_or_title: r.destination || 'Custom Tour Lead',
+                    adults: r.pax_adult || (r.travelers && r.travelers !== 'N/A' ? parseInt(r.travelers) || 2 : 2),
+                    children: r.pax_child !== undefined && r.pax_child !== null ? Number(r.pax_child) : 0,
+                    amount: Number(r.budget || r.potential_value || 0),
+                    status: r.status || 'New',
+                    customer_id: r.customer_id || null,
+                    booking_id: null,
+                    lead_id: r.id,
+                    created_at: r.start_date
+                });
+            });
+        }
+
+        // 3. Search Customer Master
+        if (type === 'all' || type === 'customers') {
+            const cQuery = q ? `
+                SELECT id, name, email, phone, address, billing_address, gstin, location, status
+                FROM customers
+                WHERE name LIKE ? OR email LIKE ? OR phone LIKE ? OR gstin LIKE ? 
+                   OR address LIKE ? OR billing_address LIKE ? OR id LIKE ?
+                ORDER BY created_at DESC
+                LIMIT ?
+            ` : `
+                SELECT id, name, email, phone, address, billing_address, gstin, location, status
+                FROM customers
+                ORDER BY created_at DESC
+                LIMIT ?
+            `;
+            const cParams = q ? [term, term, term, term, term, term, term, limit] : [limit];
+            const [cRows] = await pool.query(cQuery, cParams);
+
+            cRows.forEach(r => {
+                results.push({
+                    id: r.id,
+                    source_type: 'customer',
+                    title_badge: 'Customer',
+                    record_number: `CUST-${(r.id || '').substring(0, 6).toUpperCase()}`,
+                    client_name: r.name || 'Registered Customer',
+                    email: r.email || '',
+                    phone: r.phone || '',
+                    address: r.billing_address || r.address || '',
+                    gstin: r.gstin || '',
+                    start_date: null,
+                    end_date: null,
+                    destination_or_title: r.location || 'Customer Account',
+                    adults: 2,
+                    children: 0,
+                    amount: 0,
+                    status: r.status || 'Active',
+                    customer_id: r.id,
+                    booking_id: null,
+                    lead_id: null
+                });
+            });
+        }
+
+        res.json({ success: true, count: results.length, data: results });
+    } catch (err) {
+        console.error('[Link Search Error]', err);
+        res.status(500).json({ error: 'Failed to search linkable records', details: err.message });
+    }
+});
+
 // Dedicated staff members fetch to include today's daily attendance logs
 app.get('/api/crud/staff_members', authMiddleware, async (req, res) => {
     // Check permission
@@ -6839,11 +6990,27 @@ app.get('/api/crud/:table', optionalAuthMiddleware, injectPackageStatusFilter, v
             });
         }
 
-        // Multi-column search: ?search=term searches client_name, id, email, phone
+        // Table-specific multi-column search: ?search=term
         if (req.query.search) {
-            const term = `%${req.query.search}%`;
-            whereClauses.push(`(\`client_name\` LIKE ? OR \`id\` LIKE ? OR \`email\` LIKE ?)`);
-            params.push(term, term, term);
+            const term = `%${String(req.query.search).trim()}%`;
+            const tableSearchCols = {
+                bookings: ['customer_name', 'customer_email', 'customer_phone', 'booking_number', 'title', 'residential_address', 'id'],
+                leads: ['name', 'email', 'phone', 'destination', 'lead_number', 'residential_address', 'id'],
+                customers: ['name', 'email', 'phone', 'location', 'address', 'billing_address', 'gstin', 'id'],
+                invoices: ['invoice_no', 'client_name', 'email', 'phone', 'client_gst', 'id'],
+                packages: ['title', 'destination', 'id'],
+                custom_packages: ['title', 'destination', 'id'],
+                vendors: ['name', 'company_name', 'email', 'phone', 'service_type', 'city', 'id'],
+                driver_master: ['name', 'phone', 'license_number', 'city', 'id'],
+                vehicle_master: ['vehicle_name', 'vehicle_number', 'model', 'id'],
+                staff_members: ['name', 'email', 'phone', 'designation', 'id']
+            };
+
+            const searchCols = (tableSearchCols[table] || ['name', 'title', 'email', 'phone', 'id']).filter(isValidColumn);
+            if (searchCols.length > 0) {
+                whereClauses.push(`(${searchCols.map(col => `\`${col}\` LIKE ?`).join(' OR ')})`);
+                searchCols.forEach(() => params.push(term));
+            }
         }
 
         if (whereClauses.length > 0) {

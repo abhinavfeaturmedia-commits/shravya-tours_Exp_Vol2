@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { Save, ArrowLeft, Plus, Trash2, CheckCircle2, Printer, CreditCard, User, Mail, MapPin, Calendar, Users, FileCheck, ChevronDown, Loader2, Search, Link, Copy, Edit3, X, Check, FileText, ChevronRight, AlertCircle } from 'lucide-react';
+import { Save, ArrowLeft, Plus, Trash2, CheckCircle2, Printer, CreditCard, User, Mail, MapPin, Calendar, Users, FileCheck, ChevronDown, Loader2, Search, Link, Copy, Edit3, X, Check, FileText, ChevronRight, AlertCircle, Phone } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSettings } from '../../context/SettingsContext';
 import { useData } from '../../context/DataContext';
@@ -172,9 +172,15 @@ export const DocumentEditor: React.FC = () => {
     const [showLinkPanel, setShowLinkPanel] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState<any[]>([]);
-    const [searchType, setSearchType] = useState('bookings');
+    const [searchType, setSearchType] = useState('all');
     const [searching, setSearching] = useState(false);
     const [searchHasRun, setSearchHasRun] = useState(false);
+
+    useEffect(() => {
+        if (showLinkPanel) {
+            searchRecords(searchType, searchQuery);
+        }
+    }, [showLinkPanel, searchType]);
 
     // Catalog State
     const [showCatalogPanel, setShowCatalogPanel] = useState(false);
@@ -494,67 +500,76 @@ export const DocumentEditor: React.FC = () => {
 
     const searchRecords = async (type?: string, query?: string) => {
         const q = (query !== undefined ? query : searchQuery).trim();
-        const t = type || searchType;
+        const t = type !== undefined ? type : searchType;
         setSearching(true);
         setSearchHasRun(true);
         try {
             const token = (localStorage.getItem('shravya_jwt') || localStorage.getItem('token'));
-            // Use server-side search when query is provided to avoid fetching all records
-            const searchParam = q ? `&search=${encodeURIComponent(q)}` : '';
-            const res = await fetch(`/api/crud/${t}?limit=50${searchParam}`, { headers: { 'Authorization': `Bearer ${token}` } });
+            const res = await fetch(`/api/invoices/link-search?q=${encodeURIComponent(q)}&type=${encodeURIComponent(t)}&limit=50`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
             if (res.ok) {
                 const { data } = await res.json();
-                // Client-side fallback filter for fields the server search may not cover
-                const filtered = q
-                    ? data.filter((d: any) =>
-                        (d.customer_name || d.name || d.customer || '').toLowerCase().includes(q.toLowerCase()) ||
-                        (d.customer_email || d.email || '').toLowerCase().includes(q.toLowerCase()) ||
-                        (d.id || '').toLowerCase().includes(q.toLowerCase())
-                      )
-                    : data.slice(0, 20);
-                setSearchResults(filtered);
+                setSearchResults(data || []);
+            } else {
+                setSearchResults([]);
             }
-        } catch (e) { console.error(e); } finally { setSearching(false); }
+        } catch (e) { 
+            console.error('Customer Link Search Error:', e);
+            setSearchResults([]);
+        } finally { 
+            setSearching(false); 
+        }
     };
 
     const linkRecord = (record: any) => {
-        if (searchType === 'bookings') {
-            setDocData(prev => ({
+        setDocData(prev => {
+            const updated: any = {
                 ...prev,
-                booking_id: record.id,
-                lead_id: null,
-                client_name: record.customer_name || record.customer || record.name || '',
-                email: record.customer_email || record.email || '',
-                // Fix: booking search results return customer_phone and residential_address
-                phone: record.customer_phone || record.phone || prev.phone || '',
-                address: record.residential_address || record.address || prev.address || '',
-                travel_dates: record.booking_date || record.date ? new Date(record.booking_date || record.date).toISOString().split('T')[0] : prev.travel_dates,
-                travel_date_from: record.start_date ? new Date(record.start_date).toISOString().split('T')[0] : (record.booking_date ? new Date(record.booking_date).toISOString().split('T')[0] : prev.travel_date_from),
-                travel_date_to: record.end_date ? new Date(record.end_date).toISOString().split('T')[0] : prev.travel_date_to,
-                adults: record.number_of_people || record.travelers || prev.adults
-            }));
-            if (record.total_price && items.length === 1 && items[0].unit_price === 0) {
-                setItems([{ id: generateId(), description: 'Tour Package', quantity: 1, total_days_km: '1', unit_price: Number(record.total_price), tax_rate: 0 }]);
-            }
-        } else {
-            setDocData(prev => ({
-                ...prev,
-                lead_id: record.id,
-                booking_id: null,
-                client_name: record.name || '',
-                email: record.email || '',
-                // Fix: lead records have a phone column directly
+                booking_id: record.booking_id || null,
+                lead_id: record.lead_id || null,
+                customer_id: record.customer_id || (record.source_type === 'customer' ? record.id : prev.customer_id),
+                client_name: record.client_name || prev.client_name || '',
+                email: record.email || prev.email || '',
                 phone: record.phone || prev.phone || '',
-                travel_dates: record.start_date || record.travelDate ? new Date(record.start_date || record.travelDate).toISOString().split('T')[0] : prev.travel_dates,
-                travel_date_from: record.start_date ? new Date(record.start_date).toISOString().split('T')[0] : (record.travelDate ? new Date(record.travelDate).toISOString().split('T')[0] : prev.travel_date_from),
+                address: record.address || prev.address || '',
+                travel_dates: record.start_date ? new Date(record.start_date).toISOString().split('T')[0] : prev.travel_dates,
+                travel_date_from: record.start_date ? new Date(record.start_date).toISOString().split('T')[0] : prev.travel_date_from,
                 travel_date_to: record.end_date ? new Date(record.end_date).toISOString().split('T')[0] : prev.travel_date_to,
-                adults: record.travelers !== 'N/A' && record.travelers ? record.travelers : prev.adults
-            }));
-            const budget = record.budget || record.potential_value;
-            if (budget && items.length === 1 && items[0].unit_price === 0) {
-                setItems([{ id: generateId(), description: `Custom Tour: ${record.destination || 'Destination'}`, quantity: 1, total_days_km: '1', unit_price: Number(budget), tax_rate: 0 }]);
+                adults: record.adults || prev.adults,
+                children: record.children !== undefined ? record.children : prev.children
+            };
+
+            // If customer has a GSTIN, auto-populate & set up Place of Supply & Tax Mode
+            if (record.gstin && record.gstin.trim().length >= 2) {
+                updated.is_gst = 1;
+                updated.client_gst = record.gstin.trim().toUpperCase();
+                const detectedState = getStateFromGstin(record.gstin);
+                if (detectedState) {
+                    updated.place_of_supply = detectedState.name;
+                    updated.place_of_supply_code = detectedState.code;
+                    const myStateCode = fi.defaultPlaceOfSupplyCode || '27';
+                    updated.gst_type = detectedState.code === myStateCode ? 'CGST_SGST' : 'IGST';
+                }
             }
+
+            return updated;
+        });
+
+        // Pre-fill item if doc is fresh & has blank pricing
+        if (record.amount && record.amount > 0 && items.length === 1 && (items[0].unit_price === 0 || !items[0].description)) {
+            setItems([{
+                id: generateId(),
+                description: record.destination_or_title ? `Tour Service: ${record.destination_or_title}` : 'Tour Package',
+                quantity: 1,
+                total_days_km: '1',
+                unit_price: Number(record.amount),
+                tax_rate: 0,
+                hsn_sac: '9985'
+            }]);
         }
+
+        toast.success(`Linked ${record.client_name} (${record.title_badge || 'Profile'})`);
         setIsDirty(true);
         setShowLinkPanel(false);
     };
@@ -1138,7 +1153,7 @@ export const DocumentEditor: React.FC = () => {
             {showLinkPanel && (
                 <div className="fixed inset-0 z-[999] flex justify-end p-0 print:hidden bg-black/40 backdrop-blur-sm transition-opacity duration-300" onClick={() => setShowLinkPanel(false)}>
                     <div
-                        className="relative bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-850 shadow-2xl w-full max-w-md h-full flex flex-col animate-[slideUp_0.25s_cubic-bezier(0.16,1,0.3,1)]"
+                        className="relative bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-850 shadow-2xl w-full max-w-lg h-full flex flex-col animate-[slideUp_0.25s_cubic-bezier(0.16,1,0.3,1)]"
                         onClick={(e) => e.stopPropagation()}
                     >
                         {/* Header */}
@@ -1147,7 +1162,7 @@ export const DocumentEditor: React.FC = () => {
                                 <h4 className="text-base font-black text-slate-800 dark:text-white flex items-center gap-2">
                                     <Link size={16} className="text-orange-500" /> Link Customer Record
                                 </h4>
-                                <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5 font-medium">Auto-fill client details from a booking or lead</p>
+                                <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5 font-medium">Auto-fill client details, phone, GSTIN, and trip details</p>
                             </div>
                             <button
                                 onClick={() => setShowLinkPanel(false)}
@@ -1157,82 +1172,167 @@ export const DocumentEditor: React.FC = () => {
                             </button>
                         </div>
 
-                        {/* Search Input Bar */}
-                        <div className="p-5 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 flex gap-2.5">
-                            <select
-                                value={searchType}
-                                onChange={(e) => {
-                                    setSearchType(e.target.value);
-                                    setSearchResults([]);
-                                    searchRecords(e.target.value, searchQuery);
-                                }}
-                                className="bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-3 text-xs outline-none font-bold text-slate-700 dark:text-slate-300 focus:ring-4 focus:ring-orange-500/10 cursor-pointer transition-all"
-                            >
-                                <option value="bookings">Bookings</option>
-                                <option value="leads">Leads</option>
-                            </select>
-                            
-                            <div className="flex-1 relative">
-                                <input
-                                    type="text"
-                                    placeholder="Search name, email, phone..."
-                                    value={searchQuery}
-                                    autoFocus
+                        {/* Search & Category Filter Bar */}
+                        <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-3">
+                            <div className="flex gap-2">
+                                <select
+                                    value={searchType}
                                     onChange={(e) => {
-                                        setSearchQuery(e.target.value);
-                                        searchRecords(searchType, e.target.value);
+                                        setSearchType(e.target.value);
+                                        searchRecords(e.target.value, searchQuery);
                                     }}
-                                    onKeyDown={(e) => e.key === 'Enter' && searchRecords()}
-                                    className="w-full bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 focus:border-orange-500 dark:focus:border-orange-500 rounded-xl pl-4 pr-10 py-3 text-xs outline-none focus:ring-4 focus:ring-orange-500/10 font-bold transition-all text-slate-800 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-600"
-                                />
-                                {searching && (
-                                    <Loader2 size={13} className="animate-spin text-orange-500 absolute right-3.5 top-1/2 -translate-y-1/2" />
-                                )}
+                                    className="bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2.5 text-xs outline-none font-bold text-slate-700 dark:text-slate-300 focus:ring-4 focus:ring-orange-500/10 cursor-pointer transition-all shrink-0"
+                                >
+                                    <option value="all">All Records</option>
+                                    <option value="bookings">Bookings</option>
+                                    <option value="leads">Leads</option>
+                                    <option value="customers">Customers</option>
+                                </select>
+                                
+                                <div className="flex-1 relative">
+                                    <input
+                                        type="text"
+                                        placeholder="Search name, phone, email, booking #, destination..."
+                                        value={searchQuery}
+                                        autoFocus
+                                        onChange={(e) => {
+                                            setSearchQuery(e.target.value);
+                                            searchRecords(searchType, e.target.value);
+                                        }}
+                                        onKeyDown={(e) => e.key === 'Enter' && searchRecords()}
+                                        className="w-full bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 focus:border-orange-500 dark:focus:border-orange-500 rounded-xl pl-3.5 pr-8 py-2.5 text-xs outline-none focus:ring-4 focus:ring-orange-500/10 font-medium transition-all text-slate-800 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-600"
+                                    />
+                                    {searchQuery && (
+                                        <button
+                                            onClick={() => {
+                                                setSearchQuery('');
+                                                searchRecords(searchType, '');
+                                            }}
+                                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+                                        >
+                                            <X size={13} />
+                                        </button>
+                                    )}
+                                </div>
                             </div>
                         </div>
 
                         {/* Results Body */}
-                        <div className="flex-1 overflow-y-auto p-5 scrollbar-thin">
+                        <div className="flex-1 overflow-y-auto p-4 scrollbar-thin space-y-2.5">
                             {searching && searchResults.length === 0 ? (
-                                <div className="py-12 text-center text-slate-400 dark:text-slate-500 text-xs font-semibold flex flex-col items-center gap-3">
+                                <div className="py-16 text-center text-slate-400 dark:text-slate-500 text-xs font-semibold flex flex-col items-center gap-3">
                                     <div className="w-10 h-10 rounded-full bg-orange-500/10 flex items-center justify-center animate-spin">
                                         <Loader2 size={18} className="text-orange-500" />
                                     </div>
                                     <span>Searching databases...</span>
                                 </div>
                             ) : searchResults.length === 0 && searchHasRun ? (
-                                <div className="py-12 text-center text-slate-400 dark:text-slate-500 text-xs font-semibold">
-                                    No matching profiles or entries found
+                                <div className="py-16 text-center text-slate-400 dark:text-slate-500 text-xs font-semibold space-y-1">
+                                    <p className="font-bold text-slate-600 dark:text-slate-300">No matching records found</p>
+                                    <p className="text-[11px]">Try searching by customer name, 10-digit phone, email, or booking ID</p>
                                 </div>
                             ) : (
-                                <div className="space-y-3">
-                                    {searchResults.map((r: any) => (
+                                searchResults.map((r: any) => {
+                                    const isBooking = r.source_type === 'booking';
+                                    const isLead = r.source_type === 'lead';
+                                    const isCustomer = r.source_type === 'customer';
+
+                                    return (
                                         <div
-                                            key={r.id}
+                                            key={`${r.source_type}-${r.id}`}
                                             onClick={() => linkRecord(r)}
-                                            className="p-4 bg-slate-50/50 hover:bg-orange-500/5 dark:bg-slate-800/10 dark:hover:bg-slate-800/40 cursor-pointer transition-all duration-300 rounded-2xl border border-slate-150 dark:border-slate-800/60 hover:border-orange-500/20 dark:hover:border-orange-500/20 flex justify-between items-center group"
+                                            className="p-3.5 bg-white dark:bg-slate-850/60 hover:bg-orange-50/50 dark:hover:bg-slate-800 cursor-pointer transition-all duration-200 rounded-xl border border-slate-200/80 dark:border-slate-800 hover:border-orange-500/30 dark:hover:border-orange-500/30 flex flex-col gap-2 group shadow-sm hover:shadow-md"
                                         >
-                                            <div className="flex items-center gap-3.5 min-w-0 flex-1">
-                                                <div className="w-9 h-9 rounded-full bg-orange-500/10 text-orange-600 dark:bg-orange-500/20 dark:text-orange-400 font-extrabold flex items-center justify-center text-xs flex-shrink-0 shadow-inner">
-                                                    {(r.customer_name || r.name || r.customer || '?').substring(0, 2).toUpperCase()}
+                                            <div className="flex items-start justify-between gap-3">
+                                                <div className="flex items-center gap-2.5 min-w-0">
+                                                    <div className={`w-8 h-8 rounded-lg font-black flex items-center justify-center text-xs flex-shrink-0 shadow-sm ${
+                                                        isBooking 
+                                                            ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400' 
+                                                            : isLead 
+                                                            ? 'bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400' 
+                                                            : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400'
+                                                    }`}>
+                                                        {(r.client_name || '?').substring(0, 2).toUpperCase()}
+                                                    </div>
+                                                    <div className="min-w-0">
+                                                        <div className="flex items-center gap-2">
+                                                            <p className="font-bold text-slate-900 dark:text-slate-100 text-xs truncate">
+                                                                {r.client_name}
+                                                            </p>
+                                                            <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded-md tracking-wider ${
+                                                                isBooking 
+                                                                    ? 'bg-blue-100/70 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' 
+                                                                    : isLead 
+                                                                    ? 'bg-amber-100/70 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' 
+                                                                    : 'bg-emerald-100/70 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+                                                            }`}>
+                                                                {r.record_number || r.title_badge}
+                                                            </span>
+                                                        </div>
+                                                        <div className="flex items-center gap-3 text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">
+                                                            {r.email && (
+                                                                <span className="flex items-center gap-1 truncate max-w-[160px]">
+                                                                    <Mail size={11} className="text-slate-400 shrink-0" />
+                                                                    {r.email}
+                                                                </span>
+                                                            )}
+                                                            {r.phone && (
+                                                                <span className="flex items-center gap-1 shrink-0 font-mono">
+                                                                    <Phone size={11} className="text-slate-400 shrink-0" />
+                                                                    {r.phone}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                                <div className="min-w-0 flex-1">
-                                                    <p className="font-bold text-slate-800 dark:text-slate-200 text-xs truncate leading-snug">{r.customer_name || r.name || r.customer || 'Unknown Client'}</p>
-                                                    <p className="text-[10px] text-slate-400 dark:text-slate-500 font-semibold mt-0.5 truncate">{r.customer_email || r.email || 'No Email'}</p>
-                                                </div>
+
+                                                <button className="text-[10px] font-black text-orange-600 dark:text-orange-400 bg-orange-50 hover:bg-orange-100 dark:bg-orange-500/10 dark:hover:bg-orange-500/20 px-2.5 py-1.5 rounded-lg transition-all shrink-0 flex items-center gap-1 border border-orange-200/60 dark:border-orange-500/20 group-hover:scale-105">
+                                                    <Link size={11} /> Link
+                                                </button>
                                             </div>
-                                            <span className="text-[10px] font-black text-orange-500 bg-orange-50 dark:bg-orange-500/10 px-2.5 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity">
-                                                Link
-                                            </span>
+
+                                            {/* Details Sub-row: Trip, Pax, Amount, GST */}
+                                            {(r.destination_or_title || r.start_date || r.amount > 0 || r.gstin) && (
+                                                <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-slate-100 dark:border-slate-800/80 text-[10px]">
+                                                    {r.destination_or_title && (
+                                                        <span className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-2 py-0.5 rounded-md font-semibold flex items-center gap-1">
+                                                            <MapPin size={10} className="text-orange-500" />
+                                                            {r.destination_or_title}
+                                                        </span>
+                                                    )}
+                                                    {r.start_date && (
+                                                        <span className="text-slate-500 flex items-center gap-1">
+                                                            <Calendar size={10} />
+                                                            {new Date(r.start_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                                        </span>
+                                                    )}
+                                                    {r.adults > 0 && (
+                                                        <span className="text-slate-500 flex items-center gap-1">
+                                                            <Users size={10} />
+                                                            {r.adults} Adults {r.children > 0 ? `+ ${r.children} Children` : ''}
+                                                        </span>
+                                                    )}
+                                                    {r.amount > 0 && (
+                                                        <span className="font-bold text-emerald-600 dark:text-emerald-400 ml-auto">
+                                                            ₹{Number(r.amount).toLocaleString('en-IN')}
+                                                        </span>
+                                                    )}
+                                                    {r.gstin && (
+                                                        <span className="bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 px-1.5 py-0.5 rounded font-mono font-bold text-[9px]">
+                                                            GST: {r.gstin}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            )}
                                         </div>
-                                    ))}
-                                </div>
+                                    );
+                                })
                             )}
                         </div>
 
                         {!searching && searchResults.length > 0 && (
-                            <div className="p-4 border-t border-slate-100 dark:border-slate-800 text-center text-[10px] text-slate-400 dark:text-slate-500 font-medium bg-slate-50/50 dark:bg-slate-900/30">
-                                {searchResults.length} profiles discovered · Click row to autofill Billed To
+                            <div className="p-3 border-t border-slate-100 dark:border-slate-800 text-center text-[11px] text-slate-500 font-medium bg-slate-50/50 dark:bg-slate-900/30">
+                                {searchResults.length} records found · Click any record to autofill invoice
                             </div>
                         )}
                     </div>
@@ -1721,7 +1821,7 @@ export const DocumentEditor: React.FC = () => {
                                                 setSearchQuery('');
                                                 setTimeout(() => searchRecords(searchType, ''), 0);
                                             }}
-                                            className="text-[10px] font-bold text-orange-500 hover:text-orange-600 flex items-center gap-1.5 print:hidden opacity-0 group-hover:opacity-100 transition-opacity bg-white dark:bg-slate-800 px-2.5 py-1.5 rounded-lg border border-slate-200/50 dark:border-slate-700/80 shadow-sm"
+                                            className="text-[10px] font-bold text-orange-600 dark:text-orange-400 hover:text-orange-700 flex items-center gap-1.5 print:hidden bg-white dark:bg-slate-800 px-2.5 py-1 rounded-lg border border-orange-200/80 dark:border-orange-500/20 shadow-sm hover:scale-105 transition-all"
                                         >
                                             <Link size={11} /> Link Record
                                         </button>

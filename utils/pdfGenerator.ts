@@ -586,82 +586,71 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
     doc.text(`(${copyType})`, 105, 25.5, { align: 'center' });
 
     // ── Meta card ──
-    const metaCardH = hasDueDate ? 34 : 28;
+    const metaCardH = hasDueDate ? 29 : 24;
     doc.setFillColor(252, 252, 252);
     doc.setDrawColor(226, 232, 240);
     doc.setLineWidth(0.3);
-    doc.roundedRect(144, 11, 51, metaCardH, 1.5, 1.5, 'FD');
+    doc.roundedRect(138, 11, 57, metaCardH, 1.5, 1.5, 'FD');
 
-    let metaY = 16;
+    let metaY = 15.5;
     
     // Row 1: INVOICE / DOC NO
     doc.setFont("helvetica", "normal");
     doc.setFontSize(6.5);
     doc.setTextColor(100, 116, 139);
     const docNoLabel = isCreditNote ? 'Credit Note No:' : isQuote ? 'Quote No:' : isProforma ? 'Proforma No:' : 'Invoice No:';
-    doc.text(docNoLabel, 147, metaY);
+    doc.text(docNoLabel, 141, metaY);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(7);
     doc.setTextColor(9, 28, 59);
-    doc.text(invNoStr.length > 17 ? invNoStr.slice(0, 17) + '…' : invNoStr, 192, metaY, { align: 'right' });
-    metaY += 5.5;
+    doc.text(invNoStr.length > 18 ? invNoStr.slice(0, 18) + '…' : invNoStr, 192, metaY, { align: 'right' });
+    metaY += 4.5;
 
     // Row 2: INVOICE DATE
     doc.setFont("helvetica", "normal");
     doc.setFontSize(6.5);
     doc.setTextColor(100, 116, 139);
-    doc.text("Date:", 147, metaY);
+    doc.text("Date:", 141, metaY);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(7);
     doc.setTextColor(9, 28, 59);
     doc.text(new Date(docData.issue_date || new Date()).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }), 192, metaY, { align: 'right' });
-    metaY += 5.5;
+    metaY += 4.5;
 
     // Row 3: PLACE OF SUPPLY (Rule 46(d))
     doc.setFont("helvetica", "normal");
     doc.setFontSize(6.5);
     doc.setTextColor(100, 116, 139);
-    doc.text("Place of Supply:", 147, metaY);
+    doc.text("Place of Supply:", 141, metaY);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(6.8);
     doc.setTextColor(9, 28, 59);
     const posStr = `${docData.place_of_supply || 'Maharashtra'} (${docData.place_of_supply_code || '27'})`;
-    doc.text(posStr.length > 15 ? posStr.slice(0, 15) + '…' : posStr, 192, metaY, { align: 'right' });
-    metaY += 5.5;
+    doc.text(posStr.length > 20 ? posStr.slice(0, 20) + '…' : posStr, 192, metaY, { align: 'right' });
+    metaY += 4.5;
 
     // Row 4: REVERSE CHARGE (Rule 46(p))
     doc.setFont("helvetica", "normal");
     doc.setFontSize(6.5);
     doc.setTextColor(100, 116, 139);
-    doc.text("Reverse Charge:", 147, metaY);
+    doc.text("Reverse Charge:", 141, metaY);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(6.8);
     doc.setTextColor(9, 28, 59);
     doc.text(docData.reverse_charge || 'No', 192, metaY, { align: 'right' });
-    metaY += 5.5;
 
     if (hasDueDate) {
+        metaY += 4.5;
         // Row 5: DUE DATE
         doc.setFont("helvetica", "normal");
         doc.setFontSize(6.5);
         doc.setTextColor(220, 38, 38); // Highlight red
-        doc.text("Due Date:", 147, metaY);
+        doc.text("Due Date:", 141, metaY);
         doc.setFont("helvetica", "bold");
         doc.setFontSize(7);
         doc.setTextColor(220, 38, 38);
         doc.text(new Date(docData.due_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }), 192, metaY, { align: 'right' });
-        metaY += 5.5;
     }
-
-    // Row 4 (or 3): PAGE
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(6.5);
-    doc.setTextColor(100, 116, 139);
-    doc.text("Page:", 152, metaY);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(7.5);
-    doc.setTextColor(9, 28, 59);
-    doc.text("1 of 1", 191, metaY, { align: 'right' });
 
     // ═══════════════════════════════════════════════════════════
     // BILLED BY & BILLED TO CARDS
@@ -1345,18 +1334,6 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
         doc.setFontSize(7);
         doc.setTextColor(148, 163, 184);
         doc.text(`Page ${i} of ${totalPages}`, pageWidth - 15, pageHeight - 6, { align: 'right' });
-
-        // Update PAGE cell in meta card (page 1 only)
-        if (i === 1) {
-            const pageNumY = hasDueDate ? 36.0 : 29.5;
-            doc.setFillColor(252, 252, 252);
-            doc.setDrawColor(252, 252, 252);
-            doc.rect(175, pageNumY - 3.5, 18, 5, 'F');
-            doc.setFont("helvetica", "bold");
-            doc.setFontSize(7.5);
-            doc.setTextColor(9, 28, 59);
-            doc.text(`${i} of ${totalPages}`, 191, pageNumY, { align: 'right' });
-        }
     }
 
     const safeDocNum = (invNoStr || String(docData.id || 'draft')).replace(/[\/\\]/g, '-');
