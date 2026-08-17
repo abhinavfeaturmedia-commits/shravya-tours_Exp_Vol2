@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Booking, SupplierBooking } from '../../types';
 import { useData } from '../../context/DataContext';
 import { SupplierBookingModal } from './SupplierBookingModal';
+import { SupplierPaymentModal } from './SupplierPaymentModal';
 import { useAuth } from '../../context/AuthContext';
 
 interface SupplierManagementModalProps {
@@ -15,12 +16,13 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
     const { hasPermission } = useAuth();
     const [isFormOpen, setIsFormOpen] = useState(false);
     const [editingSupplierBooking, setEditingSupplierBooking] = useState<SupplierBooking | null>(null);
+    const [payingSupplierBooking, setPayingSupplierBooking] = useState<SupplierBooking | null>(null);
 
     const supplierBookings = booking.supplierBookings || [];
 
     const totalCost = supplierBookings.reduce((acc, sb) => acc + sb.cost, 0);
     const totalPaid = supplierBookings.reduce((acc, sb) => acc + sb.paidAmount, 0);
-    const balanceDue = totalCost - totalPaid;
+    const balanceDue = Math.max(0, totalCost - totalPaid);
 
     const handleEdit = (sb: SupplierBooking) => {
         setEditingSupplierBooking(sb);
@@ -97,6 +99,9 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                                 ) : (
                                     supplierBookings.map(sb => {
                                         const vendor = vendors.find(v => v.id === sb.vendorId);
+                                        const remaining = Math.max(0, sb.cost - sb.paidAmount);
+                                        const isPayable = remaining > 0 && sb.bookingStatus !== 'Cancelled';
+
                                         return (
                                             <tr key={sb.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                                                 <td className="px-5 py-4 font-medium text-slate-900 dark:text-white">
@@ -112,29 +117,59 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                                                     {sb.confirmationNumber && <div className="text-xs text-slate-500 mt-0.5 font-mono">#{sb.confirmationNumber}</div>}
                                                 </td>
                                                 <td className="px-5 py-4 text-slate-600 dark:text-slate-300">
-                                                    {vendor?.name || 'Unknown Vendor'}
+                                                    <span className="font-semibold">{vendor?.name || 'Unknown Vendor'}</span>
+                                                    {vendor?.category && (
+                                                        <span className="ml-2 text-[10px] font-bold uppercase px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-700 text-slate-500">
+                                                            {vendor.category}
+                                                        </span>
+                                                    )}
                                                 </td>
                                                 <td className="px-5 py-4 text-right font-bold text-slate-900 dark:text-white">₹{sb.cost.toLocaleString()}</td>
                                                 <td className="px-5 py-4 text-right font-medium text-emerald-600">₹{sb.paidAmount.toLocaleString()}</td>
                                                 <td className="px-5 py-4 text-center">
-                                                    <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase
-                                                        ${sb.paymentStatus === 'Paid' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' :
-                                                            sb.paymentStatus === 'Partially Paid' ? 'bg-amber-100 text-amber-700' :
-                                                                'bg-red-100 text-red-700'}`}>
-                                                        {sb.paymentStatus}
-                                                    </span>
+                                                    <div className="flex flex-col items-center gap-0.5">
+                                                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase
+                                                            ${sb.paymentStatus === 'Paid' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' :
+                                                                sb.paymentStatus === 'Partially Paid' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
+                                                                    'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'}`}>
+                                                            {sb.paymentStatus}
+                                                        </span>
+                                                        {remaining > 0 && (
+                                                            <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">
+                                                                Due: ₹{remaining.toLocaleString()}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 </td>
                                                 <td className="px-5 py-4 text-center text-slate-500 text-sm">
                                                     {sb.paymentDueDate ? new Date(sb.paymentDueDate).toLocaleDateString() : '-'}
                                                 </td>
                                                 <td className="px-5 py-4 text-right">
-                                                    <div className="flex justify-end gap-1">
+                                                    <div className="flex items-center justify-end gap-1.5">
+                                                        {hasPermission('bookings', 'manage') && isPayable && (
+                                                            <button
+                                                                onClick={() => setPayingSupplierBooking(sb)}
+                                                                className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60 rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm transition-all active:scale-95"
+                                                                title={`Pay remaining ₹${remaining.toLocaleString()} to ${vendor?.name || 'vendor'}`}
+                                                            >
+                                                                <span className="material-symbols-outlined text-[15px]">payments</span>
+                                                                <span>Pay ₹{remaining.toLocaleString()}</span>
+                                                            </button>
+                                                        )}
                                                         {hasPermission('bookings', 'manage') && (
                                                             <>
-                                                                <button onClick={() => handleEdit(sb)} className="p-2 text-slate-400 hover:text-primary hover:bg-primary/10 rounded-lg transition-colors">
+                                                                <button
+                                                                    onClick={() => handleEdit(sb)}
+                                                                    className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"
+                                                                    title="Edit Booking"
+                                                                >
                                                                     <span className="material-symbols-outlined text-[18px]">edit</span>
                                                                 </button>
-                                                                <button onClick={() => handleDelete(sb.id)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors">
+                                                                <button
+                                                                    onClick={() => handleDelete(sb.id)}
+                                                                    className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                                                                    title="Delete"
+                                                                >
                                                                     <span className="material-symbols-outlined text-[18px]">delete</span>
                                                                 </button>
                                                             </>
@@ -156,6 +191,14 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                 onClose={() => setIsFormOpen(false)}
                 bookingId={booking.id}
                 existingBooking={editingSupplierBooking}
+            />
+
+            <SupplierPaymentModal
+                isOpen={!!payingSupplierBooking}
+                onClose={() => setPayingSupplierBooking(null)}
+                booking={booking}
+                supplierBooking={payingSupplierBooking}
+                vendor={vendors.find(v => v.id === payingSupplierBooking?.vendorId)}
             />
         </div>
     );

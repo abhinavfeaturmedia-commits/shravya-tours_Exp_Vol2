@@ -292,6 +292,14 @@ interface DataContextType {
   addSupplierBooking: (bookingId: string, sb: SupplierBooking) => void;
   updateSupplierBooking: (bookingId: string, sbId: string, sb: Partial<SupplierBooking>) => void;
   deleteSupplierBooking: (bookingId: string, sbId: string) => void;
+  recordSupplierPayment: (bookingId: string, sbId: string, payment: {
+    amount: number;
+    paymentMethod: string;
+    paymentDate: string;
+    reference?: string;
+    notes?: string;
+    receiptUrl?: string;
+  }) => Promise<void>;
 
   // Lead Functions
   addLead: (lead: Lead) => void;
@@ -1133,6 +1141,117 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       toast.error(e.message || "Failed to remove supplier");
     }
   }, [logAction]);
+
+  const recordSupplierPayment = useCallback(async (
+    bookingId: string,
+    sbId: string,
+    payment: {
+      amount: number;
+      paymentMethod: string;
+      paymentDate: string;
+      reference?: string;
+      notes?: string;
+      receiptUrl?: string;
+    }
+  ) => {
+    try {
+      const booking = bookings.find(b => b.id === bookingId);
+      const targetSb = booking?.supplierBookings?.find(item => item.id === sbId);
+      if (!targetSb) throw new Error("Supplier booking not found");
+
+      const vendor = vendors.find(v => v.id === targetSb.vendorId);
+      const currentPaid = Number(targetSb.paidAmount) || 0;
+      const newPaidAmount = currentPaid + Number(payment.amount);
+      const totalCost = Number(targetSb.cost) || 0;
+
+      // Recalculate payment status
+      let newPaymentStatus: SupplierBooking['paymentStatus'] = 'Unpaid';
+      if (totalCost <= 0) {
+        newPaymentStatus = newPaidAmount > 0 ? 'Paid' : 'Unpaid';
+      } else if (newPaidAmount >= totalCost) {
+        newPaymentStatus = 'Paid';
+      } else if (newPaidAmount > 0) {
+        newPaymentStatus = 'Partially Paid';
+      }
+
+      const paymentStamp = `[Payment of ₹${payment.amount.toLocaleString()} via ${payment.paymentMethod} on ${payment.paymentDate}${payment.reference ? ` (Ref: ${payment.reference})` : ''}]`;
+      const updatedNotes = targetSb.notes ? `${targetSb.notes}\n${paymentStamp}` : paymentStamp;
+
+      // 1. Update Supplier Booking in MySQL
+      await api.updateSupplierBooking(sbId, {
+        paidAmount: newPaidAmount,
+        paymentStatus: newPaymentStatus,
+        notes: updatedNotes
+      });
+
+      // 2. Update local bookings state
+      setBookings(prev => prev.map(b => {
+        if (b.id === bookingId) {
+          return {
+            ...b,
+            supplierBookings: (b.supplierBookings || []).map(item =>
+              item.id === sbId
+                ? { ...item, paidAmount: newPaidAmount, paymentStatus: newPaymentStatus, notes: updatedNotes }
+                : item
+            )
+          };
+        }
+        return b;
+      }));
+
+      // 3. Log a Debit Transaction on Vendor & Update Vendor balance_due
+      if (vendor) {
+        const vendorTx = {
+          id: `VT-${Date.now()}`,
+          date: payment.paymentDate || new Date().toISOString().split('T')[0],
+          description: `Booking Payment: ${targetSb.serviceType} (${booking?.customer || booking?.title || 'Tour'})`,
+          amount: Number(payment.amount),
+          type: 'Debit',
+          reference: payment.reference || `BK-${bookingId.substring(0, 8)}`,
+          bookingTitle: booking?.title || 'Tour Booking',
+          status: 'Verified'
+        };
+
+        const existingTxs = Array.isArray(vendor.transactions) ? vendor.transactions : [];
+        const pureManualTransactions = existingTxs.filter((tx: any) => !tx.id || (!tx.id.includes('-cost') && !tx.id.includes('-paid')));
+        const updatedTransactions = [vendorTx, ...pureManualTransactions];
+        const newBalance = Math.max(0, (vendor.balanceDue || 0) - Number(payment.amount));
+
+        api.updateVendor(vendor.id, {
+          balanceDue: newBalance,
+          transactions: updatedTransactions
+        }).catch(console.error);
+
+        setVendors(prev => prev.map(v => v.id === vendor.id ? { ...v, balanceDue: newBalance, transactions: updatedTransactions } : v));
+      }
+
+      // 4. Record Operational Expense in MySQL
+      api.createExpense({
+        id: `EXP-${Date.now()}`,
+        title: `Vendor Payment - ${vendor?.name || 'Supplier'} (${booking?.title || 'Tour'})`,
+        amount: Number(payment.amount),
+        category: 'Other',
+        date: payment.paymentDate || new Date().toISOString().split('T')[0],
+        paymentMethod: (['Cash', 'Bank Transfer', 'UPI', 'Credit Card'].includes(payment.paymentMethod) ? payment.paymentMethod : 'Bank Transfer') as any,
+        status: 'Paid',
+        notes: `Vendor: ${vendor?.name || 'Supplier'} | Booking ID: ${bookingId} | Service: ${targetSb.serviceType} | Ref: ${payment.reference || 'N/A'}${payment.notes ? ` | Notes: ${payment.notes}` : ''}`,
+        receiptUrl: payment.receiptUrl || undefined
+      }).catch(console.error);
+
+      // 5. Dispatch global sync events
+      window.dispatchEvent(new CustomEvent('supplier-bookings-changed', {
+        detail: { bookingId, supplierBookingId: sbId }
+      }));
+      window.dispatchEvent(new CustomEvent('bookings-changed'));
+
+      logAction('Update', 'Vendors', `Recorded ₹${payment.amount.toLocaleString()} payment to ${vendor?.name || 'Vendor'} for Booking ${bookingId}`);
+      toast.success(`Payment of ₹${payment.amount.toLocaleString()} recorded successfully`);
+    } catch (e: any) {
+      console.error('Failed to record supplier payment:', e);
+      toast.error(e.message || "Failed to record payment");
+      throw e;
+    }
+  }, [bookings, vendors, logAction]);
 
   // Lead
   const addLead = useCallback(async (lead: Lead) => {
@@ -2136,7 +2255,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     addPackage, updatePackage, deletePackage,
     addBooking, updateBooking, updateBookingStatus, deleteBooking,
     addBookingTransaction, deleteBookingTransaction,
-    addSupplierBooking, updateSupplierBooking, deleteSupplierBooking,
+    addSupplierBooking, updateSupplierBooking, deleteSupplierBooking, recordSupplierPayment,
     addLead, updateLead, deleteLead, addLeadLog,
     addCustomer, updateCustomer, deleteCustomer, importCustomers,
     updateInventory, getRevenue,
@@ -2227,7 +2346,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     addPackage, updatePackage, deletePackage,
     addBooking, updateBooking, updateBookingStatus, deleteBooking,
     addBookingTransaction, deleteBookingTransaction,
-    addSupplierBooking, updateSupplierBooking, deleteSupplierBooking,
+    addSupplierBooking, updateSupplierBooking, deleteSupplierBooking, recordSupplierPayment,
     addLead, updateLead, deleteLead, addLeadLog,
     addCustomer, updateCustomer, deleteCustomer, importCustomers,
     updateInventory, getRevenue,
