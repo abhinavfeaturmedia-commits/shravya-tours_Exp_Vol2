@@ -38,7 +38,16 @@ export const StepTripDetails: React.FC<Props> = ({ onDone }) => {
     };
 
     const handleGenerateIncExc = async () => {
-        const destName = masterLocations?.find(l => String(l.id) === String(tripDetails.destination))?.name || tripDetails.destination;
+        let destName = '';
+        if (tripDetails.destinations && tripDetails.destinations.length > 0) {
+            destName = tripDetails.destinations
+                .map(d => masterLocations?.find(l => String(l.id) === String(d.locationId))?.name || d.locationId)
+                .filter(Boolean)
+                .join(' - ');
+        }
+        if (!destName) {
+            destName = masterLocations?.find(l => String(l.id) === String(tripDetails.destination))?.name || tripDetails.destination;
+        }
         if (!destName) {
             toast.error('Please choose a destination first.');
             return;

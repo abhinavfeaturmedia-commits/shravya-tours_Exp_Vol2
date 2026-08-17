@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useItinerary, ItineraryItem, ServiceType } from '../ItineraryContext';
 import { useData } from '../../../context/DataContext';
@@ -7,9 +7,17 @@ import {
     Plus, Hotel, Bike, Car, Plane, StickyNote, Trash2, Clock,
     ChevronUp, ChevronDown, Sparkles, MoreHorizontal, IndianRupee, MapPin, RefreshCw,
     Shield, UserCheck, AlertTriangle, Wand2, Compass, Heart, Users, Mountain,
-    Landmark, Utensils, Waves, Crown, X, Check, HelpCircle
+    Landmark, Utensils, Waves, Crown, X, Check, HelpCircle, Layers, Calendar, CheckCircle2
 } from 'lucide-react';
-import { generateItinerary, regenerateSingleDay, polishItineraryCopy } from '../../../src/lib/gemini';
+import {
+    generateItinerary,
+    regenerateSingleDay,
+    polishItineraryCopy,
+    DayLocationMapItem,
+    MasterHotelInfo,
+    MasterTransportInfo,
+    MasterActivityInfo
+} from '../../../src/lib/gemini';
 import { toast } from 'sonner';
 import { api } from '../../../src/lib/api';
 import { Image } from 'lucide-react';
@@ -38,6 +46,113 @@ const DAY_THEMES = [
     'Island Hop', 'Sunset Voyage', 'Festival Spirit', 'Wilderness Call',
 ];
 
+// ─── Vehicle & Logistics Intelligence Helpers ─────────────────────────────────
+
+export const getVehicleRecommendation = (pax: number): {
+    category: string;
+    description: string;
+    minCapacity: number;
+} => {
+    if (pax <= 3) {
+        return {
+            category: 'Sedan / Hatchback (3-4 Seater)',
+            description: 'Swift Dzire, Toyota Etios, or Honda Amaze (Ideal for 1-3 guests)',
+            minCapacity: 4
+        };
+    } else if (pax <= 6) {
+        return {
+            category: 'Luxury SUV / MUV (6-7 Seater)',
+            description: 'Toyota Innova Crysta / Ertiga / Scorpio (Comfortable seating & luggage for 4-6 guests)',
+            minCapacity: 6
+        };
+    } else if (pax <= 12) {
+        return {
+            category: 'Force Tempo Traveller (12-14 Seater)',
+            description: 'Force Tempo Traveller / Urbania (High roof, pushback seats, individual AC for 7-12 guests)',
+            minCapacity: 12
+        };
+    } else if (pax <= 20) {
+        return {
+            category: 'Luxury Tempo Traveller / Mini Coach (17-20 Seater)',
+            description: 'Spacious Mini Coach with large luggage boot (Ideal for 13-20 guests)',
+            minCapacity: 17
+        };
+    } else {
+        return {
+            category: 'Luxury Tourist Coach / Bus (27-45 Seater)',
+            description: 'Full-size Air-Suspension Tourist Coach (Ideal for large group delegations)',
+            minCapacity: 27
+        };
+    }
+};
+
+export const buildDayLocationSchedule = (
+    daysCount: number,
+    destinations: Array<{ locationId: string; nights: number }>,
+    fallbackLocationId: string,
+    masterLocations: any[]
+): DayLocationMapItem[] => {
+    const getLocationName = (locId: string) => {
+        if (!locId) return 'Destination';
+        const found = masterLocations?.find(l => String(l.id) === String(locId) || (l.name && l.name.toLowerCase() === String(locId).toLowerCase()));
+        return found?.name || locId;
+    };
+
+    if (!destinations || destinations.length === 0) {
+        const singleName = getLocationName(fallbackLocationId);
+        return Array.from({ length: daysCount }, (_, i) => ({
+            day: i + 1,
+            city: singleName,
+            nightsInCity: Math.max(1, daysCount - 1),
+            isTransitDay: false
+        }));
+    }
+
+    const schedule: DayLocationMapItem[] = [];
+    let currentDay = 1;
+
+    for (let legIdx = 0; legIdx < destinations.length; legIdx++) {
+        const leg = destinations[legIdx];
+        const legCityName = getLocationName(leg.locationId);
+        const prevLeg = legIdx > 0 ? destinations[legIdx - 1] : null;
+        const prevCityName = prevLeg ? getLocationName(prevLeg.locationId) : null;
+        const nights = Math.max(1, leg.nights || 1);
+
+        for (let nightIdx = 0; nightIdx < nights; nightIdx++) {
+            if (currentDay > daysCount) break;
+
+            const isFirstDayOfLeg = nightIdx === 0;
+            const isTransit = legIdx > 0 && isFirstDayOfLeg && prevCityName !== null && prevCityName !== legCityName;
+
+            schedule.push({
+                day: currentDay,
+                city: legCityName,
+                nightsInCity: nights,
+                isTransitDay: isTransit,
+                transitFrom: isTransit ? (prevCityName || undefined) : undefined,
+                transitTo: isTransit ? legCityName : undefined
+            });
+
+            currentDay++;
+        }
+    }
+
+    // Fill remaining days if any (e.g. final departure day)
+    while (currentDay <= daysCount) {
+        const lastLeg = destinations[destinations.length - 1];
+        const lastCityName = getLocationName(lastLeg.locationId);
+        schedule.push({
+            day: currentDay,
+            city: lastCityName,
+            nightsInCity: 0,
+            isTransitDay: false
+        });
+        currentDay++;
+    }
+
+    return schedule;
+};
+
 interface AiAutoPlanLoadingModalProps {
     isOpen: boolean;
 }
@@ -45,8 +160,9 @@ interface AiAutoPlanLoadingModalProps {
 const LOADING_MESSAGES = [
     'Initializing Shrawello intelligence with Free AI...',
     'Analyzing travel party & destination geography...',
-    'Consulting master catalog activities & hotels...',
-    'Structuring optimal morning-to-night flow & transfers...',
+    'Grouping master catalog hotels strictly by city...',
+    'Sizing vehicle fleet matching passenger headcount...',
+    'Structuring optimal morning-to-night flow & drive times...',
     'Polishing experiential brochure descriptions...',
 ];
 
@@ -122,6 +238,16 @@ interface AiCustomizerModalProps {
     isOpen: boolean;
     onClose: () => void;
     destinationName: string;
+    travelersText: string;
+    travelerCount: number;
+    daysCount: number;
+    destinationsList: Array<{ name: string; nights: number }>;
+    dayLocationMap: DayLocationMapItem[];
+    masterHotels: any[];
+    masterTransports: any[];
+    masterActivities: any[];
+    masterPlans: any[];
+    masterLocations: any[];
     onGenerate: (opts: {
         tripStyle: string;
         pace: 'Relaxed' | 'Balanced' | 'Explorer';
@@ -136,6 +262,16 @@ const AiCustomizerModal: React.FC<AiCustomizerModalProps> = ({
     isOpen,
     onClose,
     destinationName,
+    travelersText,
+    travelerCount,
+    daysCount,
+    destinationsList,
+    dayLocationMap,
+    masterHotels,
+    masterTransports,
+    masterActivities,
+    masterPlans,
+    masterLocations,
     onGenerate,
     isGenerating
 }) => {
@@ -144,6 +280,50 @@ const AiCustomizerModal: React.FC<AiCustomizerModalProps> = ({
     const [selectedInterests, setSelectedInterests] = useState<string[]>(['UNESCO Heritage', 'Local Street Food', 'Photography Spots']);
     const [specialRequests, setSpecialRequests] = useState('');
     const [useMasterInventory, setUseMasterInventory] = useState(true);
+
+    // ── Master Intelligence Computations ──
+    const recVehicle = useMemo(() => getVehicleRecommendation(travelerCount), [travelerCount]);
+
+    const matchedTransport = useMemo(() => {
+        const active = (masterTransports || []).filter(t => t.status !== 'Inactive');
+        const sorted = [...active].sort((a, b) => (a.capacity || 4) - (b.capacity || 4));
+        return sorted.find(t => (t.capacity || 4) >= travelerCount) || sorted[0] || null;
+    }, [masterTransports, travelerCount]);
+
+    const uniqueCities = useMemo<string[]>(() => {
+        return Array.from(new Set(dayLocationMap.map(d => d.city).filter((c): c is string => Boolean(c))));
+    }, [dayLocationMap]);
+
+    const hotelsByCity = useMemo(() => {
+        const map: Record<string, any[]> = {};
+        uniqueCities.forEach((city: string) => {
+            map[city] = (masterHotels || []).filter(h => {
+                if (!h || h.status === 'Inactive') return false;
+                const loc = masterLocations?.find(l => String(l.id) === String(h.locationId));
+                const cName = loc?.name || h.address || '';
+                return cName.toLowerCase().includes(city.toLowerCase()) || city.toLowerCase().includes(cName.toLowerCase());
+            });
+        });
+        return map;
+    }, [uniqueCities, masterHotels, masterLocations]);
+
+    const matchedActivitiesCount = useMemo(() => {
+        return (masterActivities || []).filter(a => {
+            if (!a || a.status === 'Inactive') return false;
+            const loc = masterLocations?.find(l => String(l.id) === String(a.locationId));
+            const cName = loc?.name || '';
+            return uniqueCities.some(city => cName.toLowerCase().includes(city.toLowerCase()) || city.toLowerCase().includes(cName.toLowerCase()));
+        }).length;
+    }, [uniqueCities, masterActivities, masterLocations]);
+
+    const matchingMasterPlan = useMemo(() => {
+        return (masterPlans || []).find(p => {
+            if (!p || p.status === 'Draft') return false;
+            const loc = masterLocations?.find(l => String(l.id) === String(p.locationId));
+            const planLoc = loc?.name || p.title || '';
+            return uniqueCities.some(city => planLoc.toLowerCase().includes(city.toLowerCase()));
+        }) || null;
+    }, [uniqueCities, masterPlans, masterLocations]);
 
     if (!isOpen) return null;
 
@@ -190,7 +370,81 @@ const AiCustomizerModal: React.FC<AiCustomizerModalProps> = ({
 
                 {/* Body */}
                 <div className="p-6 overflow-y-auto space-y-6 flex-1 text-stone-800 dark:text-stone-200 text-xs">
-                    {/* Trip Style */}
+                    
+                    {/* ── Proactive Master Catalog Intelligence & Sizing Card ── */}
+                    <div className="bg-gradient-to-br from-violet-50/90 via-purple-50/40 to-amber-50/60 dark:from-slate-900 dark:to-slate-850 border border-violet-200/80 dark:border-violet-900/40 rounded-2xl p-4 space-y-3.5 shadow-sm">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <span className="p-1.5 rounded-lg bg-violet-600 text-white shadow-sm">
+                                    <Sparkles size={14} />
+                                </span>
+                                <div>
+                                    <h4 className="font-black text-xs text-violet-950 dark:text-violet-200">Smart Route & Master Data Intelligence</h4>
+                                    <p className="text-[10px] text-violet-700/80 dark:text-violet-400">Pre-analyzed inventory matching your route and guest party</p>
+                                </div>
+                            </div>
+                            <span className="px-2.5 py-1 rounded-full bg-violet-100 dark:bg-violet-950/60 text-violet-800 dark:text-violet-300 font-bold text-[10px]">
+                                {daysCount}D · {travelerCount} Pax · {uniqueCities.length} City Leg{uniqueCities.length > 1 ? 's' : ''}
+                            </span>
+                        </div>
+
+                        {/* Vehicle & Hotel Insights Grid */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                            {/* Vehicle Match */}
+                            <div className="bg-white/80 dark:bg-slate-800/80 rounded-xl p-3 border border-violet-100 dark:border-slate-700 flex items-start gap-2.5">
+                                <div className="p-2 rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50 shrink-0 mt-0.5">
+                                    <Car size={15} />
+                                </div>
+                                <div className="min-w-0">
+                                    <p className="text-[10px] font-black uppercase tracking-wider text-stone-400">Assigned Vehicle</p>
+                                    <p className="font-bold text-xs text-stone-900 dark:text-white truncate">
+                                        {matchedTransport ? matchedTransport.name : recVehicle.category}
+                                    </p>
+                                    <p className="text-[10px] text-stone-500 mt-0.5">
+                                        {matchedTransport
+                                            ? `Fleet Capacity: ${matchedTransport.capacity} Pax · ₹${(matchedTransport.baseRate || 0).toLocaleString('en-IN')}/day`
+                                            : recVehicle.description}
+                                    </p>
+                                </div>
+                            </div>
+
+                            {/* Stays Matching */}
+                            <div className="bg-white/80 dark:bg-slate-800/80 rounded-xl p-3 border border-violet-100 dark:border-slate-700 flex items-start gap-2.5">
+                                <div className="p-2 rounded-lg bg-rose-50 text-rose-600 dark:bg-rose-950/50 shrink-0 mt-0.5">
+                                    <Hotel size={15} />
+                                </div>
+                                <div className="min-w-0">
+                                    <p className="text-[10px] font-black uppercase tracking-wider text-stone-400">City Stays Partition</p>
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                        {uniqueCities.map(city => {
+                                            const count = hotelsByCity[city]?.length || 0;
+                                            return (
+                                                <span key={city} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-stone-100 dark:bg-slate-700 font-bold text-[10px] text-stone-700 dark:text-stone-300">
+                                                    {city}: {count > 0 ? `${count} Stay${count > 1 ? 's' : ''}` : 'Curated'}
+                                                </span>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Activities & Template highlights */}
+                        <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-violet-100/80 dark:border-slate-800 text-[11px] text-stone-600 dark:text-stone-300 font-medium">
+                            <div className="flex items-center gap-1.5">
+                                <Compass size={13} className="text-amber-600" />
+                                <span>{matchedActivitiesCount > 0 ? `${matchedActivitiesCount} master activities detected` : 'Local sightseeing & experiences ready'}</span>
+                            </div>
+                            {matchingMasterPlan && (
+                                <div className="flex items-center gap-1 text-violet-700 dark:text-violet-300 font-bold">
+                                    <Layers size={13} />
+                                    <span>Template: "{matchingMasterPlan.title}"</span>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* 1. Trip Style */}
                     <div>
                         <label className="block text-[11px] font-black uppercase tracking-wider text-stone-500 mb-2.5">
                             1. Select Trip Style & Vibe
@@ -222,10 +476,10 @@ const AiCustomizerModal: React.FC<AiCustomizerModalProps> = ({
                         </div>
                     </div>
 
-                    {/* Travel Pace */}
+                    {/* 2. Travel Pace */}
                     <div>
                         <label className="block text-[11px] font-black uppercase tracking-wider text-stone-500 mb-2">
-                            2. Travel Pace
+                            2. Travel Pace & Daily Density
                         </label>
                         <div className="grid grid-cols-3 gap-2">
                             {(['Relaxed', 'Balanced', 'Explorer'] as const).map(p => (
@@ -241,13 +495,13 @@ const AiCustomizerModal: React.FC<AiCustomizerModalProps> = ({
                                 >
                                     {p === 'Relaxed' && '🌱 Relaxed (1-2 Sights)'}
                                     {p === 'Balanced' && '⚖️ Balanced (2-3 Sights)'}
-                                    {p === 'Explorer' && '⚡ Explorer (4+ Sights)'}
+                                    {p === 'Explorer' && '⚡ Explorer (3-4 Sights)'}
                                 </button>
                             ))}
                         </div>
                     </div>
 
-                    {/* Interests Chips */}
+                    {/* 3. Interests Chips */}
                     <div>
                         <label className="block text-[11px] font-black uppercase tracking-wider text-stone-500 mb-2">
                             3. Highlights & Interests
@@ -274,7 +528,7 @@ const AiCustomizerModal: React.FC<AiCustomizerModalProps> = ({
                         </div>
                     </div>
 
-                    {/* Special Instructions */}
+                    {/* 4. Special Instructions */}
                     <div>
                         <label className="block text-[11px] font-black uppercase tracking-wider text-stone-500 mb-1.5">
                             4. Special Requests / Notes (Optional)
@@ -288,13 +542,13 @@ const AiCustomizerModal: React.FC<AiCustomizerModalProps> = ({
                         />
                     </div>
 
-                    {/* Master Inventory Grounding */}
+                    {/* 5. Master Inventory Grounding */}
                     <div className="bg-amber-50/60 border border-amber-200/80 rounded-2xl p-3.5 flex items-center justify-between">
                         <div className="flex items-center gap-2.5">
                             <Compass className="size-5 text-amber-600 shrink-0" />
                             <div>
-                                <p className="font-bold text-xs text-amber-900">Ground with Master Catalog</p>
-                                <p className="text-[10px] text-amber-700">Matches agency hotels, activities & vehicles with real pricing</p>
+                                <p className="font-bold text-xs text-amber-900">Ground with Master Database</p>
+                                <p className="text-[10px] text-amber-700">Matches agency hotels, activities & vehicles with accurate catalog pricing</p>
                             </div>
                         </div>
                         <input
@@ -343,9 +597,10 @@ const AiDayRegenerateModal: React.FC<{
     onClose: () => void;
     dayNumber: number;
     destinationName: string;
+    cityName: string;
     onRegenerate: (instruction: string) => Promise<void>;
     isProcessing: boolean;
-}> = ({ isOpen, onClose, dayNumber, destinationName, onRegenerate, isProcessing }) => {
+}> = ({ isOpen, onClose, dayNumber, destinationName, cityName, onRegenerate, isProcessing }) => {
     const [instruction, setInstruction] = useState('');
 
     if (!isOpen) return null;
@@ -360,7 +615,7 @@ const AiDayRegenerateModal: React.FC<{
                         </span>
                         <div>
                             <h4 className="font-bold text-sm text-stone-900 dark:text-white">Regenerate Day {dayNumber}</h4>
-                            <p className="text-[11px] text-stone-400">Custom re-plan for {destinationName}</p>
+                            <p className="text-[11px] text-stone-400">Re-plan in <span className="font-bold text-stone-600">{cityName || destinationName}</span></p>
                         </div>
                     </div>
                     <button onClick={onClose} className="text-stone-400 hover:text-stone-600"><X size={16} /></button>
@@ -374,7 +629,7 @@ const AiDayRegenerateModal: React.FC<{
                         rows={3}
                         value={instruction}
                         onChange={e => setInstruction(e.target.value)}
-                        placeholder="e.g. Focus exclusively on water sports and beach clubs in South Goa, with a candle-light seafood dinner."
+                        placeholder="e.g. Focus exclusively on scenic nature viewpoints and authentic local Wazwan dinner."
                         className="w-full bg-stone-50 border border-stone-200 rounded-xl p-3 text-xs text-stone-900 outline-none focus:ring-2 focus:ring-violet-500 font-medium"
                         autoFocus
                     />
@@ -418,7 +673,7 @@ export const StepDayPlanner: React.FC<Props> = ({ onOpenPricing, onOpenTripDetai
         addItem
     } = useItinerary();
 
-    const { masterLocations, masterHotels, masterActivities, masterTransports } = useData();
+    const { masterLocations, masterHotels, masterActivities, masterTransports, masterPlans } = useData();
     const [addingToDay, setAddingToDay] = useState<number | null>(null);
     const [isGenerating, setIsGenerating] = useState(false);
     const [showAiCustomizer, setShowAiCustomizer] = useState(false);
@@ -429,6 +684,27 @@ export const StepDayPlanner: React.FC<Props> = ({ onOpenPricing, onOpenTripDetai
         || tripDetails.destination
         || 'Destination';
 
+    const totalTravelers = (tripDetails.adults || 2) + (tripDetails.children || 0);
+    const guestStr = `${tripDetails.adults || 2} Adults${tripDetails.children ? `, ${tripDetails.children} Children` : ''}`;
+
+    // Multi-destination legs
+    const destinationsList = useMemo(() => {
+        return (tripDetails.destinations || []).map((d, i) => {
+            const locName = masterLocations?.find(l => String(l.id) === String(d.locationId))?.name || 'Destination';
+            return { name: locName, nights: d.nights, order: i };
+        });
+    }, [tripDetails.destinations, masterLocations]);
+
+    // Day to Location Mapping
+    const dayLocationMap = useMemo(() => {
+        return buildDayLocationSchedule(
+            tripDetails.days,
+            tripDetails.destinations || [],
+            tripDetails.destination,
+            masterLocations || []
+        );
+    }, [tripDetails.days, tripDetails.destinations, tripDetails.destination, masterLocations]);
+
     const handleAutoGenerate = async (opts: {
         tripStyle: string;
         pace: 'Relaxed' | 'Balanced' | 'Explorer';
@@ -436,7 +712,7 @@ export const StepDayPlanner: React.FC<Props> = ({ onOpenPricing, onOpenTripDetai
         specialRequests: string;
         useMasterInventory: boolean;
     }) => {
-        if (!tripDetails.destination) {
+        if (!tripDetails.destination && (!tripDetails.destinations || tripDetails.destinations.length === 0)) {
             toast.error('Please select a destination in Trip Details first.');
             return;
         }
@@ -445,29 +721,92 @@ export const StepDayPlanner: React.FC<Props> = ({ onOpenPricing, onOpenTripDetai
         setShowAiCustomizer(false);
 
         try {
-            const guestStr = `${tripDetails.adults || 2} Adults, ${tripDetails.children || 0} Children`;
-            
-            // Build multi-destination list if present
-            const destinationsList = (tripDetails.destinations || []).map((d, i) => {
-                const locName = masterLocations?.find(l => String(l.id) === String(d.locationId))?.name || 'Destination';
-                return { name: locName, nights: d.nights, order: i };
+            const recVehicle = getVehicleRecommendation(totalTravelers);
+
+            // Group Master Hotels by City
+            const hotelsByCity: Record<string, MasterHotelInfo[]> = {};
+            const uniqueCities: string[] = Array.from(new Set(dayLocationMap.map(d => d.city).filter((c): c is string => Boolean(c))));
+
+            uniqueCities.forEach((city: string) => {
+                const matched = (masterHotels || []).filter(h => {
+                    if (!h || h.status === 'Inactive') return false;
+                    const loc = masterLocations?.find(l => String(l.id) === String(h.locationId));
+                    const cName = loc?.name || h.address || '';
+                    return cName.toLowerCase().includes(city.toLowerCase()) || city.toLowerCase().includes(cName.toLowerCase());
+                });
+
+                if (matched.length > 0) {
+                    hotelsByCity[city] = matched.map(h => ({
+                        id: h.id,
+                        name: h.name,
+                        stars: h.rating,
+                        area: h.address || city,
+                        price: h.pricePerNight,
+                        city
+                    }));
+                }
             });
+
+            // Master Transports matching capacity
+            const activeTransports = (masterTransports || []).filter(t => t.status !== 'Inactive');
+            const sortedFleet = [...activeTransports].sort((a, b) => (a.capacity || 4) - (b.capacity || 4));
+            const matchedVehicle = sortedFleet.find(t => (t.capacity || 4) >= totalTravelers) || sortedFleet[0] || null;
 
             // Pass master context if enabled
             let masterContext: any = undefined;
             if (opts.useMasterInventory) {
+                // Check if matching master plan exists
+                const matchingPlan = (masterPlans || []).find(p => {
+                    if (!p || p.status === 'Draft') return false;
+                    const loc = masterLocations?.find(l => String(l.id) === String(p.locationId));
+                    const planLoc = loc?.name || p.title || '';
+                    return uniqueCities.some(city => planLoc.toLowerCase().includes(city.toLowerCase()));
+                });
+
                 masterContext = {
-                    hotels: (masterHotels || []).map(h => ({ id: h.id, name: h.name, stars: h.rating, area: h.address, price: h.pricePerNight })),
-                    activities: (masterActivities || []).map(a => ({ id: a.id, name: a.name, category: a.category, cost: a.cost, duration: a.duration })),
-                    transports: (masterTransports || []).map(t => ({ id: t.id, name: t.name, type: t.type, cost: t.baseRate, capacity: t.capacity }))
+                    hotelsByCity,
+                    hotels: (masterHotels || []).slice(0, 12).map(h => ({
+                        id: h.id,
+                        name: h.name,
+                        stars: h.rating,
+                        area: h.address,
+                        price: h.pricePerNight,
+                        city: masterLocations?.find(l => String(l.id) === String(h.locationId))?.name
+                    })),
+                    activities: (masterActivities || []).map(a => ({
+                        id: a.id,
+                        name: a.name,
+                        category: a.category,
+                        cost: a.cost,
+                        duration: a.duration,
+                        city: masterLocations?.find(l => String(l.id) === String(a.locationId))?.name
+                    })),
+                    transports: sortedFleet.map(t => ({
+                        id: t.id,
+                        name: t.name,
+                        type: t.type,
+                        cost: t.baseRate,
+                        capacity: t.capacity
+                    })),
+                    matchedVehicle: matchedVehicle ? {
+                        id: matchedVehicle.id,
+                        name: matchedVehicle.name,
+                        type: matchedVehicle.type,
+                        cost: matchedVehicle.baseRate,
+                        capacity: matchedVehicle.capacity
+                    } : undefined,
+                    masterPlanSummary: matchingPlan ? `Master Plan "${matchingPlan.title}" (${matchingPlan.duration} Days)` : undefined
                 };
             }
 
             const result = await generateItinerary({
                 destination: destinationName,
                 destinationsList: destinationsList.length > 0 ? destinationsList : undefined,
+                dayLocationMap: dayLocationMap.length > 0 ? dayLocationMap : undefined,
                 days: tripDetails.days,
                 travelers: guestStr,
+                travelerCount: totalTravelers,
+                recommendedVehicle: matchedVehicle ? `${matchedVehicle.name} (${matchedVehicle.capacity} Seater)` : recVehicle.category,
                 startDate: tripDetails.startDate || 'Upcoming',
                 tripStyle: opts.tripStyle,
                 pace: opts.pace,
@@ -525,7 +864,7 @@ export const StepDayPlanner: React.FC<Props> = ({ onOpenPricing, onOpenTripDetai
             });
 
             replaceAllItems(newItems);
-            toast.success('Luxury customized itinerary generated successfully!');
+            toast.success('Luxury customized itinerary generated successfully with city-matched stays & vehicle fleet!');
         } catch (error: any) {
             let msg = error.message || error.toString();
             const lowerMsg = msg.toLowerCase();
@@ -551,7 +890,7 @@ export const StepDayPlanner: React.FC<Props> = ({ onOpenPricing, onOpenTripDetai
                 <div className="flex items-center gap-2">
                     <p className="text-xs font-bold text-stone-500 uppercase tracking-wider">
                         {tripDetails.nights}N / {tripDetails.days}D &nbsp;·&nbsp;
-                        {(tripDetails.adults || 0) + (tripDetails.children || 0)} Guests &nbsp;·&nbsp;
+                        {totalTravelers} Guests &nbsp;·&nbsp;
                         <span className="text-amber-700 font-extrabold">{destinationName}</span>
                     </p>
                 </div>
@@ -581,8 +920,11 @@ export const StepDayPlanner: React.FC<Props> = ({ onOpenPricing, onOpenTripDetai
             {/* Horizontal Kanban Board */}
             <div className="flex-1 overflow-x-auto overflow-y-hidden">
                 <div className="flex h-full gap-4 p-6 w-max min-w-full">
-                    {days.map((day, idx) => {
+                    {days.map((day) => {
                         // Compute location for this day
+                        const scheduledItem = dayLocationMap.find(d => d.day === day);
+                        const scheduledCityName = scheduledItem?.city || destinationName;
+
                         let locationId = tripDetails.destination;
                         if (tripDetails.destinations && tripDetails.destinations.length > 0) {
                             let currentDay = 1;
@@ -604,6 +946,7 @@ export const StepDayPlanner: React.FC<Props> = ({ onOpenPricing, onOpenTripDetai
                                 day={day}
                                 theme={DAY_THEMES[(day - 1) % DAY_THEMES.length]}
                                 locationId={locationId}
+                                cityName={scheduledCityName}
                                 items={getItemsForDay(day)}
                                 meta={getDayMeta(day) || {}}
                                 allDays={days}
@@ -634,12 +977,21 @@ export const StepDayPlanner: React.FC<Props> = ({ onOpenPricing, onOpenTripDetai
                 <ServiceSelector day={addingToDay} onClose={() => setAddingToDay(null)} />
             )}
 
-
             {/* AI Trip Customizer Modal */}
             <AiCustomizerModal
                 isOpen={showAiCustomizer}
                 onClose={() => setShowAiCustomizer(false)}
                 destinationName={destinationName}
+                travelersText={guestStr}
+                travelerCount={totalTravelers}
+                daysCount={tripDetails.days}
+                destinationsList={destinationsList}
+                dayLocationMap={dayLocationMap}
+                masterHotels={masterHotels || []}
+                masterTransports={masterTransports || []}
+                masterActivities={masterActivities || []}
+                masterPlans={masterPlans || []}
+                masterLocations={masterLocations || []}
                 onGenerate={handleAutoGenerate}
                 isGenerating={isGenerating}
             />
@@ -655,6 +1007,7 @@ const DayColumn: React.FC<{
     day: number;
     theme: string;
     locationId: string;
+    cityName?: string;
     items: ItineraryItem[];
     meta: any;
     allDays: number[];
@@ -664,7 +1017,7 @@ const DayColumn: React.FC<{
     onUpdateMeta: (m: any) => void;
     onClearDay: () => void;
     onDuplicateTo: (targetDay: number) => void;
-}> = ({ day, theme, locationId, items, meta, allDays, onAdd, onRemove, onUpdate, onUpdateMeta, onClearDay, onDuplicateTo }) => {
+}> = ({ day, theme, locationId, cityName, items, meta, allDays, onAdd, onRemove, onUpdate, onUpdateMeta, onClearDay, onDuplicateTo }) => {
     const { reorderItems, addItem } = useItinerary();
     const { masterLocations } = useData();
     const [showMenu, setShowMenu] = useState(false);
@@ -688,12 +1041,13 @@ const DayColumn: React.FC<{
 
     const handleRegenerateDay = async (instruction: string) => {
         setIsRegeneratingDay(true);
-        const toastId = toast.loading(`Re-planning Day ${day} with AI...`);
+        const toastId = toast.loading(`Re-planning Day ${day} in ${cityName || 'Destination'} with AI...`);
         try {
-            const locName = masterLocations?.find(l => l.id === locationId)?.name || 'Destination';
+            const locName = masterLocations?.find(l => String(l.id) === String(locationId))?.name || cityName || 'Destination';
             const res = await regenerateSingleDay({
                 dayNumber: day,
                 destination: locName,
+                city: cityName || locName,
                 currentItems: items,
                 promptInstruction: instruction
             });

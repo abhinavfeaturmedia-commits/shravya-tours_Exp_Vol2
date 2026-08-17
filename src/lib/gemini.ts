@@ -308,20 +308,61 @@ export const robustParseJson = (text: string): any => {
     }
 };
 
+export interface MasterHotelInfo {
+    id: string;
+    name: string;
+    stars?: number;
+    area?: string;
+    price?: number;
+    city?: string;
+}
+
+export interface MasterActivityInfo {
+    id: string;
+    name: string;
+    category?: string;
+    cost?: number;
+    duration?: string;
+    city?: string;
+}
+
+export interface MasterTransportInfo {
+    id: string;
+    name: string;
+    type?: string;
+    cost?: number;
+    capacity?: number;
+}
+
+export interface DayLocationMapItem {
+    day: number;
+    city: string;
+    nightsInCity?: number;
+    isTransitDay?: boolean;
+    transitFrom?: string;
+    transitTo?: string;
+}
+
 export interface GenerateItineraryOptions {
     destination: string;
     destinationsList?: Array<{ name: string; nights: number; order: number }>;
+    dayLocationMap?: DayLocationMapItem[];
     days: number;
     travelers: string;
+    travelerCount?: number;
+    recommendedVehicle?: string;
     startDate: string;
     tripStyle?: string; // 'Honeymoon' | 'Family' | 'Adventure' | 'Cultural' | 'Luxury' | 'Leisure' | 'Budget'
     pace?: 'Relaxed' | 'Balanced' | 'Explorer';
     interests?: string[];
     specialRequests?: string;
     masterContext?: {
-        hotels?: Array<{ id: string; name: string; stars?: number; area?: string; price?: number }>;
-        activities?: Array<{ id: string; name: string; category?: string; cost?: number; duration?: string }>;
-        transports?: Array<{ id: string; name: string; type?: string; cost?: number; capacity?: number }>;
+        hotels?: MasterHotelInfo[];
+        hotelsByCity?: Record<string, MasterHotelInfo[]>;
+        activities?: MasterActivityInfo[];
+        transports?: MasterTransportInfo[];
+        matchedVehicle?: MasterTransportInfo;
+        masterPlanSummary?: string;
     };
 }
 
@@ -349,8 +390,11 @@ export const generateItinerary = async (
     const {
         destination,
         destinationsList,
+        dayLocationMap,
         days,
         travelers,
+        travelerCount,
+        recommendedVehicle,
         startDate,
         tripStyle = 'Balanced Vacation',
         pace = 'Balanced',
@@ -359,75 +403,154 @@ export const generateItinerary = async (
         masterContext
     } = opts;
 
-    // Build Master Inventory Context if available
+    // 1. Build Master Database Grounding Context with City Partitioning
     let catalogSnippet = '';
     if (masterContext) {
-        const hList = (masterContext.hotels || []).slice(0, 8).map(h => `- Hotel: "${h.name}" (ID: ${h.id}, ${h.stars || 4}★, ₹${h.price || 0}/night, Area: ${h.area || destination})`).join('\n');
-        const aList = (masterContext.activities || []).slice(0, 12).map(a => `- Activity: "${a.name}" (ID: ${a.id}, ₹${a.cost || 0}, ${a.duration || '2h'}, Category: ${a.category || 'Sightseeing'})`).join('\n');
-        const tList = (masterContext.transports || []).slice(0, 4).map(t => `- Vehicle: "${t.name}" (ID: ${t.id}, ₹${t.cost || 0}/day, ${t.type || 'SUV'})`).join('\n');
+        const sections: string[] = [];
 
-        catalogSnippet = `
-AVAILABLE AGENCY MASTER DATABASE INVENTORY (Use matching ID and names where appropriate):
-${hList ? `[Hotels]\n${hList}\n` : ''}
-${aList ? `[Activities]\n${aList}\n` : ''}
-${tList ? `[Transports]\n${tList}\n` : ''}
-If an item from the master inventory fits the itinerary, use its exact name, "masterId", and estimated cost. Otherwise, you may suggest premier local activities.
+        // Hotels grouped by city
+        if (masterContext.hotelsByCity && Object.keys(masterContext.hotelsByCity).length > 0) {
+            const cityHotelsText = Object.entries(masterContext.hotelsByCity).map(([city, hList]) => {
+                const lines = hList.slice(0, 6).map(h => `  * Hotel: "${h.name}" (ID: ${h.id}, ${h.stars || 4}★, ₹${h.price || 0}/night, Area: ${h.area || city})`).join('\n');
+                return `[Hotels in ${city}]\n${lines}`;
+            }).join('\n\n');
+            sections.push(`AVAILABLE AGENCY MASTER HOTELS (Grouped by City - Strictly assign hotel stays in that day's scheduled city):\n${cityHotelsText}`);
+        } else if (masterContext.hotels && masterContext.hotels.length > 0) {
+            const hList = masterContext.hotels.slice(0, 10).map(h => `- Hotel: "${h.name}" (ID: ${h.id}, ${h.stars || 4}★, ₹${h.price || 0}/night, City/Area: ${h.city || h.area || destination})`).join('\n');
+            sections.push(`AVAILABLE AGENCY MASTER HOTELS:\n${hList}`);
+        }
+
+        // Transports / Fleet matching group size
+        if (masterContext.transports && masterContext.transports.length > 0) {
+            const tList = masterContext.transports.slice(0, 6).map(t => `- Vehicle: "${t.name}" (ID: ${t.id}, Capacity: ${t.capacity || 4} Pax, Type: ${t.type || 'SUV'}, Base: ₹${t.cost || 0}/day)`).join('\n');
+            sections.push(`AVAILABLE FLEET VEHICLES:\n${tList}`);
+        }
+
+        // Curated Activities
+        if (masterContext.activities && masterContext.activities.length > 0) {
+            const aList = masterContext.activities.slice(0, 15).map(a => `- Activity: "${a.name}" (ID: ${a.id}, ₹${a.cost || 0}, ${a.duration || '2h'}, City: ${a.city || destination}, Category: ${a.category || 'Sightseeing'})`).join('\n');
+            sections.push(`AVAILABLE MASTER SIGHTSEEING & ACTIVITIES:\n${aList}`);
+        }
+
+        if (masterContext.masterPlanSummary) {
+            sections.push(`MASTER PLAN TEMPLATE REFERENCE:\n${masterContext.masterPlanSummary}`);
+        }
+
+        if (sections.length > 0) {
+            catalogSnippet = `
+========================================
+AGENCY MASTER DATABASE INVENTORY
+========================================
+${sections.join('\n\n')}
+
+INVENTORY USAGE DIRECTIVE:
+If an item from the master inventory fits the itinerary, use its exact name, "masterId", and estimated cost. Otherwise, suggest premier authentic local experiences.
 `;
+        }
     }
 
-    let multiLegText = '';
-    if (destinationsList && destinationsList.length > 1) {
-        multiLegText = `
+    // 2. Build Daily Location Schedule & Route Flow
+    let routeScheduleText = '';
+    if (dayLocationMap && dayLocationMap.length > 0) {
+        routeScheduleText = `
+DAY-BY-DAY GEOGRAPHIC SCHEDULE & OVERNIGHT CITIES:
+${dayLocationMap.map(d => {
+    if (d.isTransitDay && d.transitFrom && d.transitTo) {
+        return `Day ${d.day}: Transit Day from ${d.transitFrom} to ${d.transitTo} (Overnight in ${d.transitTo})`;
+    }
+    return `Day ${d.day}: City: ${d.city} (Overnight in ${d.city})`;
+}).join('\n')}
+`;
+    } else if (destinationsList && destinationsList.length > 1) {
+        routeScheduleText = `
 MULTI-DESTINATION ITINERARY ROUTE:
 ${destinationsList.map((d, i) => `Leg ${i + 1}: ${d.name} (${d.nights} Nights)`).join(' -> ')}
 Please ensure that inter-destination travel, hotel check-outs, and scenic transfers are scheduled realistically on transit days.
 `;
     }
 
+    // 3. Passenger & Vehicle Sizing Context
+    const vehicleDirective = recommendedVehicle
+        ? `RECOMMENDED VEHICLE: ${recommendedVehicle} (Required for ${travelers} to ensure passenger comfort & luggage capacity)`
+        : `RECOMMENDED VEHICLE: Sized appropriately for ${travelers}`;
+
     const prompt = `
 You are a World-Class Destination Management Company (DMC) Senior Tour Designer for SHRAWELLO Travel Hub.
-Design an experiential, seamless, and premium ${days}-day itinerary for ${destination}.
+Design an experiential, seamless, geographically sequenced, and luxury-grade ${days}-day itinerary for ${destination}.
 
 TRIP PARAMETERS:
-- Travelers: ${travelers}
+- Travelers: ${travelers} (${travelerCount || ''} total pax)
+- ${vehicleDirective}
 - Trip Dates: Starts on ${startDate} (${days} Days)
 - Trip Style & Vibe: ${tripStyle}
-- Travel Pace: ${pace} (e.g. Relaxed: 1-2 curated highlights per day; Balanced: 2-4 items; Explorer: 4-5 items)
+- Travel Pace: ${pace} (Relaxed: 1-2 curated highlights/day; Balanced: 2-3 highlights/day; Explorer: 3-4 highlights/day)
 - Specific Interests: ${interests.length > 0 ? interests.join(', ') : 'Iconic sights, authentic culinary gems, scenic photography & local culture'}
 ${specialRequests ? `- Special Notes/Requests: "${specialRequests}"` : ''}
-${multiLegText}
+
+${routeScheduleText}
 ${catalogSnippet}
 
-EXPERT TOUR DESIGN PRINCIPLES:
-1. GEOGRAPHIC PROXIMITY: Group morning, afternoon, and evening sights in the same sector/neighborhood to minimize transit.
-2. SENSORY & IMMERSIVE DESCRIPTIONS: Avoid plain 1-line text. Write vivid, engaging descriptions with highlights, atmosphere, and practical tips.
-3. MULTI-SERVICE GRANULARITY: Categorize each line item strictly into:
-   - "transport": Airport pickups, inter-city drives, scenic transfers, private cabs.
-   - "hotel": Check-in and property relaxation on Day 1 or inter-city hotel switches.
-   - "activity": Guided monuments, nature treks, boat cruises, heritage walks, culinary tours.
-   - "guide": Monument escort or private local heritage guides.
-   - "note": Essential local tips (e.g., dress codes for temples, altitude acclimation, best photo angles).
-4. REALISTIC COSTS: Provide realistic estimated Net Costs in INR (₹) for private tours, entry fees, and transfers (do NOT just return 0 unless genuinely free).
-5. INCLUSIONS & EXCLUSIONS: Generate 4-6 specific inclusions and 4-6 specific exclusions tailored to this exact trip.
+EXPERT TOUR DESIGN & ROUTING PRINCIPLES:
+1. STRICT CITY-SPECIFIC HOTEL MATCHING:
+   - For every overnight stay, assign a hotel strictly in that day's scheduled city.
+   - When switching cities (e.g. Srinagar to Gulmarg), include a Hotel Check-Out in the departing city, the inter-city scenic drive, and Hotel Check-In at the new city.
+   - If master database has hotels for that city, select the best matching master hotel and include its "masterId".
+
+2. VEHICLE SELECTION AS PER PASSENGER COUNT:
+   - All airport transfers, inter-city drives, and local sightseeing must use the appropriate vehicle sized for ${travelers}.
+   - Detail the vehicle in transport items (e.g., "Private AC Innova Crysta / Tempo Traveller with dedicated professional chauffeur, all toll taxes, parking & fuel included").
+
+3. GEOGRAPHIC ROUTE SEQUENCING & DISTANCE REALISM:
+   - Sequence activities in logical chronological order without backtracking:
+     * Day 1 (Arrival): Airport pickup with driving distance/time -> Check-in & freshen up -> Gentle nearby evening attraction/sunset -> Dinner.
+     * Transit Days: Morning breakfast -> Hotel check-out -> Scenic drive with en-route viewpoints & road distance/transit time (~X km / Y hours) -> Check-in at next destination -> Evening local stroll.
+     * Excursion Days: Group morning and afternoon sights in the same geographical sector/valley.
+     * Final Day (Departure): Relaxed breakfast -> Souvenir shopping -> Airport transfer scheduled with 2.5-3 hours domestic flight check-in buffer.
+   - In transport descriptions and durations, explicitly include approximate driving distance (km) and transit duration (e.g., "Drive: ~52 km / 2.5 hrs via NH1A").
+   - Include acclimatization and weather-appropriate reminders (e.g., Day 1 acclimatization in high-altitude regions like Ladakh/Kashmir).
+
+4. MULTI-SERVICE GRANULARITY & REALISTIC COSTS:
+   - Categorize each item strictly into:
+     * "transport": Airport pickups, inter-city drives, scenic transfers, private cabs.
+     * "hotel": Check-in and property relaxation on Day 1 or inter-city hotel switches.
+     * "activity": Guided monuments, nature treks, boat cruises, heritage walks, culinary tours.
+     * "guide": Monument escort or private local heritage guides.
+     * "note": Essential local tips (dress codes, permits, altitude notes, photo points).
+   - Provide realistic estimated Net Costs in INR (₹) for private tours, entry fees, and transfers.
+
+5. INCLUSIONS & EXCLUSIONS:
+   - Generate 5-7 specific inclusions and 5-7 specific exclusions tailored to this exact trip, vehicle, and activities.
 
 OUTPUT FORMAT:
 Return ONLY a valid JSON object matching this exact structure (no markdown fences, no leading/trailing commentary):
 {
-  "title": "A catchy, evocative luxury package title (e.g. 'Enchanting Kashmir: Houseboats, Glaciers & Mughal Splendor')",
+  "title": "A catchy, evocative luxury package title (e.g. 'Royal Kashmir Panorama: Srinagar Houseboats, Gulmarg Gondola & Pahalgam Valleys')",
   "highlights": ["3-4 bullet point key highlights of this holiday"],
-  "included": ["Daily buffet breakfast at hotels", "Private AC vehicle for all transfers and sightseeing", "Sightseeing entry tickets & shikara ride"],
-  "notIncluded": ["Personal expenses & tips", "Airfare unless specified", "Optional adventure water sports"],
+  "included": [
+    "0${days - 1} Nights accommodation in verified properties as specified",
+    "Daily buffet breakfast & dinner at hotels",
+    "Private AC vehicle (${recommendedVehicle || 'Sized for group'}) for all airport transfers, inter-city drives and sightseeing",
+    "Professional chauffeur, driver allowances, toll taxes, state permits and fuel",
+    "Key sightseeing entry tickets & activities as per itinerary"
+  ],
+  "notIncluded": [
+    "Airfare / Train tickets unless specified",
+    "Lunches and personal dining expenses",
+    "Optional adventure sports, pony rides and camera fees",
+    "Personal expenses, laundry, room service and tips",
+    "Any cost arising due to unforeseen weather disruptions or flight delays"
+  ],
   "days": [
     {
       "day": 1,
-      "title": "Evocative Theme (e.g. 'Arrival in Paradise & Sunset Shikara on Dal Lake')",
-      "notes": "Acclimatize at ease today. Keep warm shawl handy for the evening breeze.",
+      "title": "Evocative Theme (e.g. 'Arrival in Srinagar & Sunset Shikara on Dal Lake')",
+      "notes": "Acclimatize at ease today. Keep warm layer handy for the evening lake breeze.",
       "items": [
         {
           "time": "10:30 AM",
           "type": "transport",
-          "title": "Private Airport Welcome & Hotel Transfer",
-          "description": "Meet your private chauffeur at the arrivals terminal with a warm welcome. Enjoy a scenic drive to your resort with refreshing welcome drinks.",
+          "title": "Private Airport Welcome & Hotel Transfer (Srinagar)",
+          "description": "Meet your private chauffeur at Srinagar International Airport with a warm welcome. Drive ~15 km (35 mins) to your deluxe property along the scenic Dal Lake boulevard.",
           "cost": 1500,
           "duration": "45 Mins",
           "masterId": ""
@@ -435,9 +558,9 @@ Return ONLY a valid JSON object matching this exact structure (no markdown fence
         {
           "time": "01:00 PM",
           "type": "hotel",
-          "title": "Resort Check-In & Leisure Lunch",
-          "description": "Check in to your deluxe lakefront room. Freshen up and savor traditional Kashmiri Wazwan or continental delicacies at the garden cafe.",
-          "cost": 6500,
+          "title": "Hotel Check-In & Leisure Lunch (Srinagar)",
+          "description": "Check in to your deluxe room in Srinagar. Relax, freshen up, and enjoy traditional Kashmiri cuisine at the property.",
+          "cost": 5500,
           "duration": "2 Hours",
           "masterId": ""
         },
@@ -445,7 +568,7 @@ Return ONLY a valid JSON object matching this exact structure (no markdown fence
           "time": "05:00 PM",
           "type": "activity",
           "title": "Romantic Sunset Shikara Cruise on Dal Lake",
-          "description": "Glide over tranquil waters through floating lotus gardens and the historic Char Chinar island as the sun casts a golden glow over Zabarwan hills.",
+          "description": "Glide over tranquil waters through floating lotus gardens and Char Chinar island as the golden hour illuminates Zabarwan hills.",
           "cost": 1200,
           "duration": "1.5 Hours",
           "masterId": ""
@@ -473,35 +596,52 @@ Return ONLY a valid JSON object matching this exact structure (no markdown fence
 export const regenerateSingleDay = async (params: {
     dayNumber: number;
     destination: string;
+    city?: string;
     currentItems: any[];
     promptInstruction: string;
     travelers?: string;
     tripStyle?: string;
+    recommendedVehicle?: string;
 }) => {
-    const { dayNumber, destination, currentItems, promptInstruction, travelers = '2 Guests', tripStyle = 'Curated' } = params;
+    const {
+        dayNumber,
+        destination,
+        city = destination,
+        currentItems,
+        promptInstruction,
+        travelers = '2 Guests',
+        tripStyle = 'Curated',
+        recommendedVehicle
+    } = params;
 
     const prompt = `
 You are an expert travel designer for SHRAWELLO Travel Hub.
-Redesign Day ${dayNumber} of an itinerary in ${destination} for ${travelers} (${tripStyle} style).
+Redesign Day ${dayNumber} of an itinerary in ${city} (${destination}) for ${travelers} (${tripStyle} style).
 
 USER SPECIFIC REQUEST / MODIFICATION:
 "${promptInstruction}"
 
 CURRENT ITEMS ON THIS DAY (FOR REFERENCE):
-${JSON.stringify(currentItems.map(i => ({ title: i.title, type: i.type, time: i.time })))}
+${JSON.stringify(currentItems.map(i => ({ title: i.title, type: i.type, time: i.time, description: i.description })))}
+
+ROUTING & SEQUENCING PRINCIPLES:
+- City: Stays and sights must strictly belong to ${city}.
+- Logical Flow: Morning -> Afternoon -> Evening in geographic sequence without zig-zagging.
+- Distance & Duration: State approximate driving distance (km) and drive times in transport items.
+- Vehicle: ${recommendedVehicle || 'Private vehicle sized for group'}.
 
 Create a refreshed, high-quality, geographically logical plan for Day ${dayNumber}.
 Return ONLY a valid JSON object matching this structure:
 {
   "day": ${dayNumber},
   "title": "New theme/title for this day",
-  "notes": "Practical tip or reminder for this day",
+  "notes": "Practical tip, distance note, or reminder for this day",
   "items": [
     {
       "time": "09:30 AM",
       "type": "activity",
       "title": "Clear descriptive title",
-      "description": "Vivid 2-sentence description with highlights and tips",
+      "description": "Vivid 2-sentence description with highlights, distance/time context, and tips",
       "cost": 1500,
       "duration": "2.5 Hours"
     }
@@ -576,30 +716,95 @@ Return ONLY a valid JSON object:
     return robustParseJson(text);
 };
 
-/**
- * Generates 4-5 destination-tailored FAQs
- */
-export const generateDestinationFAQs = async (destination: string, days: number, highlights?: string[]) => {
-    const prompt = `
-You are a local tour guide and destination specialist for ${destination}.
-Create 4 to 5 essential, practical FAQs that travelers ask when planning a ${days}-day trip to ${destination}.
+export interface GenerateFAQOptions {
+    destination: string;
+    days: number;
+    travelers?: string;
+    tripStyle?: string;
+    included?: string[];
+    notIncluded?: string[];
+    items?: any[];
+    destinationsList?: Array<{ name: string; nights: number }>;
+    vehicleName?: string;
+    highlights?: string[];
+}
 
-Consider destination-specific topics such as:
-1. Best season / weather conditions
-2. Local permit requirements / ID proofs / Border passes
-3. Recommended clothing / dress codes for temples or mountains
-4. Health / altitude sickness precautions or packing advice
-5. Local currency / SIM card / connectivity tips
+/**
+ * Generates 5-7 tailored FAQs based on full itinerary, inclusions, exclusions, vehicle & route
+ */
+export const generateDestinationFAQs = async (
+    destinationOrOptions: string | GenerateFAQOptions,
+    daysArg?: number,
+    highlightsArg?: string[]
+) => {
+    let opts: GenerateFAQOptions;
+    if (typeof destinationOrOptions === 'object') {
+        opts = destinationOrOptions;
+    } else {
+        opts = {
+            destination: destinationOrOptions,
+            days: daysArg || 3,
+            highlights: highlightsArg
+        };
+    }
+
+    const {
+        destination,
+        days,
+        travelers = 'All Travelers',
+        tripStyle = 'Curated Holiday',
+        included = [],
+        notIncluded = [],
+        items = [],
+        destinationsList = [],
+        vehicleName
+    } = opts;
+
+    // Extract item highlights
+    const scheduledActivities = items.filter(i => i.type === 'activity').map(i => i.title).slice(0, 10).join(', ');
+    const scheduledHotels = items.filter(i => i.type === 'hotel').map(i => i.title).slice(0, 6).join(', ');
+    const routeText = destinationsList.length > 1
+        ? destinationsList.map(d => `${d.name} (${d.nights}N)`).join(' -> ')
+        : destination;
+
+    const inclusionsText = included.length > 0 ? included.map(inc => `- Included: ${inc}`).join('\n') : '- Standard hotel and transport inclusions';
+    const exclusionsText = notIncluded.length > 0 ? notIncluded.map(exc => `- Excluded: ${exc}`).join('\n') : '- Personal expenses, airfare';
+
+    const prompt = `
+You are a senior tour manager and destination specialist for SHRAWELLO Travel Hub.
+Create 5 to 7 essential, reassuring, and practical FAQs for travelers booking this specific holiday package.
+
+PACKAGE DETAILS:
+- Route & Destination: ${routeText} (${days} Days)
+- Travelers Group: ${travelers}
+- Style: ${tripStyle}
+- Vehicle Assigned: ${vehicleName || 'Dedicated Private AC Tourist Vehicle'}
+- Scheduled Highlights & Sightseeing: ${scheduledActivities || 'Full guided sightseeing as per plan'}
+- Scheduled Stays: ${scheduledHotels || 'Verified star-rated partner properties'}
+
+PACKAGE TERMS & CONDITIONS:
+${inclusionsText}
+
+PACKAGE EXCLUSIONS:
+${exclusionsText}
+
+FAQ CREATION REQUIREMENTS:
+Generate FAQs that directly address questions travelers have about THIS specific trip:
+1. TRANSPORT & VEHICLE: Address the specific vehicle provided for ${travelers}, driver allowance, luggage capacity, and hill/AC policy.
+2. HOTELS & ROOM SHARING: Clarify check-in/out times, room category, and breakfast/dinner arrangements.
+3. INCLUSIONS CLARIFICATION: Confirm what key entry tickets / boat rides / permits are already covered in the package cost.
+4. EXCLUSIONS & ON-GROUND EXPENSES: Clarify what is on direct payment (e.g. lunch, optional snow activities/pony rides, camera fees).
+5. DESTINATION PREPARATION: Specific clothing/packing tips, altitude sickness / weather precautions, and mandatory ID proofs needed for ${destination}.
 
 Return ONLY a valid JSON array of FAQ objects:
 [
   {
-    "q": "What is the best time to visit ${destination}?",
-    "a": "Detailed, accurate answer..."
+    "q": "What type of vehicle is provided for our trip?",
+    "a": "Clear, reassuring answer mentioning the private AC vehicle, driver allowances, state permits, and fuel included..."
   },
   {
-    "q": "Are special permits or IDs required for sightseeing?",
-    "a": "Detailed, accurate answer..."
+    "q": "Are entry tickets and activities included in the package?",
+    "a": "Detailed answer matching the package inclusions..."
   }
 ]
 `;

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useItinerary, FAQItem } from '../ItineraryContext';
 import { useData } from '../../../context/DataContext';
-import { HelpCircle, Plus, Trash2, ArrowUp, ArrowDown, RotateCcw, ArrowRight, ArrowLeft, Sparkles, Wand2, Loader2 } from 'lucide-react';
+import { HelpCircle, Plus, Trash2, ArrowUp, ArrowDown, RotateCcw, ArrowRight, ArrowLeft, Sparkles, Wand2, Loader2, CheckCircle2, ShieldCheck, Car } from 'lucide-react';
 import { generateDestinationFAQs } from '../../../src/lib/gemini';
 import { toast } from 'sonner';
 
@@ -25,8 +25,8 @@ const GENERAL_DEFAULTS: FAQItem[] = [
 ];
 
 export const StepFAQs: React.FC<Props> = ({ onBack, onDone }) => {
-    const { faqs, setFaqs, tripDetails } = useItinerary();
-    const { masterLocations } = useData();
+    const { faqs, setFaqs, tripDetails, items } = useItinerary();
+    const { masterLocations, masterTransports } = useData();
     const [isGeneratingFaqs, setIsGeneratingFaqs] = useState(false);
 
     const destinationName = masterLocations?.find(
@@ -38,6 +38,9 @@ export const StepFAQs: React.FC<Props> = ({ onBack, onDone }) => {
         destinationName.toLowerCase().includes('leh') ||
         tripDetails.title.toLowerCase().includes('ladakh') ||
         tripDetails.title.toLowerCase().includes('leh');
+
+    const totalTravelers = (tripDetails.adults || 2) + (tripDetails.children || 0);
+    const guestStr = `${tripDetails.adults || 2} Adults${tripDetails.children ? `, ${tripDetails.children} Children` : ''}`;
 
     const handleAdd = () => {
         setFaqs(prev => [...prev, { q: '', a: '' }]);
@@ -73,17 +76,37 @@ export const StepFAQs: React.FC<Props> = ({ onBack, onDone }) => {
     };
 
     const handleGenerateAiFaqs = async () => {
-        if (!destinationName) {
+        if (!destinationName && (!tripDetails.destinations || tripDetails.destinations.length === 0)) {
             toast.error('Please select a destination in Trip Details first.');
             return;
         }
         setIsGeneratingFaqs(true);
-        const toastId = toast.loading(`Generating destination FAQs for ${destinationName}...`);
+        const toastId = toast.loading(`Generating tailored FAQs for ${destinationName}...`);
         try {
-            const aiFaqs = await generateDestinationFAQs(destinationName, tripDetails.days);
+            // Find transport vehicle from items or master data
+            const transportItem = items.find(i => i.type === 'transport');
+            const vehicleName = transportItem?.title || undefined;
+
+            const destinationsList = (tripDetails.destinations || []).map((d, i) => {
+                const locName = masterLocations?.find(l => String(l.id) === String(d.locationId))?.name || 'Destination';
+                return { name: locName, nights: d.nights };
+            });
+
+            const aiFaqs = await generateDestinationFAQs({
+                destination: destinationName,
+                destinationsList: destinationsList.length > 0 ? destinationsList : undefined,
+                days: tripDetails.days,
+                travelers: guestStr,
+                tripStyle: tripDetails.title || 'Custom Tour',
+                included: tripDetails.included || [],
+                notIncluded: tripDetails.notIncluded || [],
+                items: items || [],
+                vehicleName
+            });
+
             if (aiFaqs && Array.isArray(aiFaqs) && aiFaqs.length > 0) {
                 setFaqs(aiFaqs);
-                toast.success(`Generated ${aiFaqs.length} curated FAQs for ${destinationName}!`, { id: toastId });
+                toast.success(`Generated ${aiFaqs.length} tailored FAQs grounded in itinerary & terms!`, { id: toastId });
             } else {
                 toast.error('Could not generate FAQs, loaded defaults.', { id: toastId });
                 handleResetToDefaults();
@@ -107,11 +130,11 @@ export const StepFAQs: React.FC<Props> = ({ onBack, onDone }) => {
     return (
         <div className="min-h-full p-6 md:p-10 flex flex-col max-w-4xl mx-auto">
             {/* Title Block */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
                 <div>
                     <p className="text-xs font-black text-amber-600 uppercase tracking-widest mb-1">Itinerary Builder</p>
                     <h2 className="text-2xl font-black text-stone-900 leading-tight">Package FAQs</h2>
-                    <p className="text-sm text-stone-500 mt-1">Configure questions and answers specifically for this package.</p>
+                    <p className="text-sm text-stone-500 mt-1">Configure questions and answers tailored to this specific tour package.</p>
                 </div>
                 
                 <div className="flex items-center gap-2 flex-wrap">
@@ -119,20 +142,33 @@ export const StepFAQs: React.FC<Props> = ({ onBack, onDone }) => {
                         type="button"
                         onClick={handleGenerateAiFaqs}
                         disabled={isGeneratingFaqs}
-                        className="flex items-center gap-1.5 px-4 py-2 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-md shadow-violet-600/20 transition-all active:scale-95"
+                        className="flex items-center gap-1.5 px-4 py-2.5 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-md shadow-violet-600/20 transition-all active:scale-95"
                     >
                         <Sparkles size={13} className={isGeneratingFaqs ? 'animate-spin' : ''} />
-                        {isGeneratingFaqs ? 'Generating FAQs…' : 'AI Generate Destination FAQs'}
+                        {isGeneratingFaqs ? 'Analyzing Itinerary & Generating…' : 'AI Generate Tailored FAQs'}
                     </button>
                     <button
                         type="button"
                         onClick={handleResetToDefaults}
-                        className="flex items-center gap-1.5 px-4 py-2 border border-stone-200 hover:border-amber-400 bg-white dark:bg-slate-800 text-stone-650 hover:text-amber-600 rounded-xl text-xs font-bold shadow-sm transition-all"
+                        className="flex items-center gap-1.5 px-4 py-2.5 border border-stone-200 hover:border-amber-400 bg-white dark:bg-slate-800 text-stone-650 hover:text-amber-600 rounded-xl text-xs font-bold shadow-sm transition-all"
                     >
                         <RotateCcw size={13} />
                         Reset Defaults
                     </button>
                 </div>
+            </div>
+
+            {/* Context Badge */}
+            <div className="mb-6 bg-gradient-to-r from-violet-50/80 to-amber-50/60 border border-violet-100 rounded-2xl p-3.5 flex items-center justify-between gap-3 text-xs text-stone-600">
+                <div className="flex items-center gap-2">
+                    <CheckCircle2 size={15} className="text-violet-600 shrink-0" />
+                    <span>
+                        AI FAQ Generator synchronizes with your <strong>{tripDetails.days}-day plan</strong>, <strong>{items.length} services</strong>, and <strong>{(tripDetails.included || []).length} inclusions / {(tripDetails.notIncluded || []).length} exclusions</strong>.
+                    </span>
+                </div>
+                <span className="shrink-0 px-2.5 py-0.5 rounded-full bg-white font-bold text-[10px] text-violet-700 border border-violet-200">
+                    {totalTravelers} Guests
+                </span>
             </div>
 
 
