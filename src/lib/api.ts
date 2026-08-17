@@ -702,7 +702,7 @@ export const api = {
                 status: (row.status ? row.status.charAt(0).toUpperCase() + row.status.slice(1) : 'Pending') as BookingStatus,
                 payment: dynamicPayment as any,
                 packageId: row.tour_id || row.package_id,
-                invoiceNo: row.invoice_no || `INV-${row.id}`,
+                invoiceNo: row.invoice_no || (row.booking_number ? `BK-${String(row.booking_number).padStart(4, '0')}` : (row.id ? `INV-${row.id.slice(0, 8).toUpperCase()}` : '')),
                 transactions: txs,
                 supplierBookings: sbs,
                 notes: parseJsonFieldSafe(row.booking_notes, []),

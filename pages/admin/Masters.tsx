@@ -1189,8 +1189,10 @@ export const Masters: React.FC = () => {
                                 break;
                             case 'meal-plans':
                                 detailsContent = (
-                                    <div className="flex flex-col">
-                                        <span className="font-bold">{item.code} - {item.name}</span>
+                                    <div className="flex flex-col gap-1">
+                                        <div className="flex items-center gap-2">
+                                            <span className="px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 text-xs font-bold font-mono uppercase">{item.code}</span>
+                                        </div>
                                         <span className="text-xs text-slate-400 line-clamp-1">{item.description}</span>
                                     </div>
                                 );

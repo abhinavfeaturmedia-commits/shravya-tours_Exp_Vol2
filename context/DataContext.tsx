@@ -595,10 +595,26 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (bulkRes.tasks) setTasks(bulkRes.tasks.map(api.mapTask));
         if (bulkRes.master_transports) setMasterTransports(bulkRes.master_transports.map(api.mapMasterTransport));
         if (bulkRes.master_plans) setMasterPlans(bulkRes.master_plans);
-        if (bulkRes.master_room_types) setMasterRoomTypes(bulkRes.master_room_types);
-        if (bulkRes.master_meal_plans) setMasterMealPlans(bulkRes.master_meal_plans);
-        if (bulkRes.master_lead_sources) setMasterLeadSources(bulkRes.master_lead_sources);
-        if (bulkRes.master_terms_templates) setMasterTermsTemplates(bulkRes.master_terms_templates.map(api.mapMasterTermsTemplate));
+        if (bulkRes.master_room_types && bulkRes.master_room_types.length > 0) {
+          setMasterRoomTypes(bulkRes.master_room_types);
+        } else if (bulkRes.master_room_types) {
+          setMasterRoomTypes(prev => prev.length > 0 ? prev : INITIAL_ROOM_TYPES);
+        }
+        if (bulkRes.master_meal_plans && bulkRes.master_meal_plans.length > 0) {
+          setMasterMealPlans(bulkRes.master_meal_plans);
+        } else if (bulkRes.master_meal_plans) {
+          setMasterMealPlans(prev => prev.length > 0 ? prev : INITIAL_MEAL_PLANS);
+        }
+        if (bulkRes.master_lead_sources && bulkRes.master_lead_sources.length > 0) {
+          setMasterLeadSources(bulkRes.master_lead_sources);
+        } else if (bulkRes.master_lead_sources) {
+          setMasterLeadSources(prev => prev.length > 0 ? prev : INITIAL_LEAD_SOURCES);
+        }
+        if (bulkRes.master_terms_templates && bulkRes.master_terms_templates.length > 0) {
+          setMasterTermsTemplates(bulkRes.master_terms_templates.map(api.mapMasterTermsTemplate));
+        } else if (bulkRes.master_terms_templates) {
+          setMasterTermsTemplates(prev => prev.length > 0 ? prev : INITIAL_TERMS_TEMPLATES);
+        }
         if (bulkRes.proposals) setProposals(bulkRes.proposals);
         if (bulkRes.daily_targets) setDailyTargets(bulkRes.daily_targets.map(api.mapDailyTarget));
         if (bulkRes.time_sessions) setTimeSessions(bulkRes.time_sessions);

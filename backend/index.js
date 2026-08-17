@@ -2152,6 +2152,57 @@ async function ensureCouponsTable() {
 }
 ensureCouponsTable();
 
+// ─── Ensure Default Master Data (Meal Plans, Lead Sources) ───
+async function ensureDefaultMasterData() {
+    try {
+        // Ensure image column on master_meal_plans
+        try {
+            await pool.query('ALTER TABLE master_meal_plans ADD COLUMN IF NOT EXISTS image VARCHAR(500) DEFAULT NULL');
+        } catch (e) { /* ignore */ }
+
+        const [mealCount] = await pool.query('SELECT COUNT(*) as count FROM master_meal_plans');
+        if (mealCount[0].count === 0) {
+            const defaultMealPlans = [
+                ['MP-001', 'EP', 'European Plan', 'Room only, no meals included', 'Active'],
+                ['MP-002', 'CP', 'Continental Plan', 'Breakfast included', 'Active'],
+                ['MP-003', 'MAP', 'Modified American Plan', 'Breakfast and Dinner included', 'Active'],
+                ['MP-004', 'AP', 'American Plan', 'All three meals included', 'Active'],
+                ['MP-005', 'AI', 'All Inclusive', 'All meals, snacks, and beverages included', 'Active']
+            ];
+            for (const [id, code, name, description, status] of defaultMealPlans) {
+                await pool.query(
+                    'INSERT IGNORE INTO master_meal_plans (id, code, name, description, status) VALUES (?, ?, ?, ?, ?)',
+                    [id, code, name, description, status]
+                );
+            }
+            console.log('[Master Data Migration] Default meal plans seeded.');
+        }
+
+        const [leadCount] = await pool.query('SELECT COUNT(*) as count FROM master_lead_sources');
+        if (leadCount[0].count === 0) {
+            const defaultLeadSources = [
+                ['LS-001', 'Walk-in', 'Direct', 'Active', 'Direct walk-in inquiry'],
+                ['LS-002', 'Website', 'Organic', 'Active', 'Inquiry from website booking form'],
+                ['LS-003', 'Referral', 'Referral', 'Active', 'Referred by existing client or partner'],
+                ['LS-004', 'Facebook', 'Paid', 'Active', 'Facebook ads campaign lead'],
+                ['LS-005', 'Google Ads', 'Paid', 'Active', 'Google Search / Display ads lead'],
+                ['LS-006', 'Instagram', 'Organic', 'Active', 'Instagram DM or link in bio'],
+                ['LS-007', 'WhatsApp', 'Direct', 'Active', 'Direct WhatsApp chat inquiry']
+            ];
+            for (const [id, name, category, status, description] of defaultLeadSources) {
+                await pool.query(
+                    'INSERT IGNORE INTO master_lead_sources (id, name, category, status, description) VALUES (?, ?, ?, ?, ?)',
+                    [id, name, category, status, description]
+                );
+            }
+            console.log('[Master Data Migration] Default lead sources seeded.');
+        }
+    } catch (err) {
+        console.error('[Master Data Migration] Failed to ensure master data:', err.message);
+    }
+}
+ensureDefaultMasterData();
+
 // ─── Ensure Trending Destinations Table + cms_gallery_images migration ───
 async function ensureTrendingDestinationsTable() {
     try {

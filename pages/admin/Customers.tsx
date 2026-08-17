@@ -14,17 +14,67 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { normalisePhone } from '../../utils/phoneUtils';
 
 // ─── Booking Match Helper ─────────────────────────────────────────────────────
-// Matches bookings to a customer using: DB foreign-key → email → phone (priority).
+// Matches bookings to a customer using: DB foreign-key (strict) → email → phone.
 // Pass includesCancelled=true to include Cancelled bookings (e.g. for timeline).
 const getCustomerBookings = (customer: Customer, bookings: Booking[], includesCancelled = false) => {
     const custNormPhone = normalisePhone(customer.phone);
+    const hasCustEmail = !!(customer.email && customer.email.trim() !== '');
+
     return bookings.filter(b => {
         if (!includesCancelled && b.status === 'Cancelled') return false;
-        if (b.customerId && b.customerId === customer.id) return true;
-        if (b.email && b.email.trim() !== '' && customer.email && customer.email.trim() !== '' &&
-            b.email.toLowerCase() === customer.email.toLowerCase()) return true;
+
+        // 1. Direct Foreign Key Linkage (Highest Authority)
+        if (b.customerId) {
+            return b.customerId === customer.id;
+        }
+
+        // 2. Unlinked/Legacy: Match by email if provided on both sides
+        const hasBookingEmail = !!(b.email && b.email.trim() !== '');
+        if (hasBookingEmail && hasCustEmail) {
+            return b.email!.trim().toLowerCase() === customer.email!.trim().toLowerCase();
+        }
+
+        // 3. Match by phone only if neither side has a conflicting email
         const bNormPhone = normalisePhone(b.phone);
-        if (bNormPhone && custNormPhone && (bNormPhone === custNormPhone || (custNormPhone.length >= 10 && bNormPhone.length >= 10 && bNormPhone.slice(-10) === custNormPhone.slice(-10)))) return true;
+        if (bNormPhone && custNormPhone && (bNormPhone === custNormPhone || (custNormPhone.length >= 10 && bNormPhone.length >= 10 && bNormPhone.slice(-10) === custNormPhone.slice(-10)))) {
+            // Guard: If booking has an email that differs from customer email, they are distinct people!
+            if (hasBookingEmail && hasCustEmail && b.email!.trim().toLowerCase() !== customer.email!.trim().toLowerCase()) {
+                return false;
+            }
+            return true;
+        }
+
+        return false;
+    });
+};
+
+// ─── Lead Match Helper ────────────────────────────────────────────────────────
+// Matches leads to a customer using: DB foreign-key (strict) → email → phone.
+const getCustomerLeads = (customer: Customer, leads: Lead[]) => {
+    const custNormPhone = normalisePhone(customer.phone);
+    const hasCustEmail = !!(customer.email && customer.email.trim() !== '');
+
+    return leads.filter(l => {
+        // 1. Direct Foreign Key Linkage
+        if (l.customerId) {
+            return l.customerId === customer.id;
+        }
+
+        // 2. Match by email if both exist
+        const hasLeadEmail = !!(l.email && l.email.trim() !== '');
+        if (hasLeadEmail && hasCustEmail) {
+            return l.email!.trim().toLowerCase() === customer.email!.trim().toLowerCase();
+        }
+
+        // 3. Match by phone only if no email conflict
+        const lNormPhone = normalisePhone(l.phone);
+        if (lNormPhone && custNormPhone && (lNormPhone === custNormPhone || (custNormPhone.length >= 10 && lNormPhone.length >= 10 && lNormPhone.slice(-10) === custNormPhone.slice(-10)))) {
+            if (hasLeadEmail && hasCustEmail && l.email!.trim().toLowerCase() !== customer.email!.trim().toLowerCase()) {
+                return false;
+            }
+            return true;
+        }
+
         return false;
     });
 };
@@ -510,23 +560,8 @@ const CustomerDetailsDrawer: React.FC<{
 
     const history = useMemo(() => {
         if (!customer) return [];
-        const custNormPhone = normalisePhone(customer.phone);
-        const relatedBookings = bookings.filter(b => {
-            if (b.status === 'Cancelled') return false;
-            if (b.customerId && b.customerId === customer.id) return true;
-            if (b.email && b.email.trim() !== '' && customer.email && customer.email.trim() !== '' &&
-                b.email.toLowerCase() === customer.email.toLowerCase()) return true;
-            const bNormPhone = normalisePhone(b.phone);
-            if (bNormPhone && custNormPhone && (bNormPhone === custNormPhone || (custNormPhone.length >= 10 && bNormPhone.length >= 10 && bNormPhone.slice(-10) === custNormPhone.slice(-10)))) return true;
-            return false;
-        });
-        const relatedLeads = leads.filter(l => {
-            if (l.customerId && l.customerId === customer.id) return true;
-            if (l.email && customer.email && customer.email.trim() !== '' && l.email.toLowerCase() === customer.email.toLowerCase()) return true;
-            const lNormPhone = normalisePhone(l.phone);
-            if (lNormPhone && custNormPhone && (lNormPhone === custNormPhone || (custNormPhone.length >= 10 && lNormPhone.length >= 10 && lNormPhone.slice(-10) === custNormPhone.slice(-10)))) return true;
-            return false;
-        });
+        const relatedBookings = getCustomerBookings(customer, bookings);
+        const relatedLeads = getCustomerLeads(customer, leads);
         return [
             ...relatedBookings.map(b => ({ type: 'Booking', date: b.date, title: b.title, details: `₹${b.amount} • ${b.status}`, id: b.id })),
             ...relatedLeads.map(l => ({ type: 'Lead', date: l.addedOn, title: l.destination, details: l.status, id: l.id }))
@@ -793,14 +828,11 @@ const CustomerDetailsDrawer: React.FC<{
                             {(() => {
                                 // includesCancelled=true so full booking history appears in timeline
                                 const customerBookings = getCustomerBookings(customer, bookings, true);
-                                const customerLeads = leads.filter(l =>
-                                    (l.email && customer.email && l.email.toLowerCase() === customer.email.toLowerCase()) ||
-                                    (l.phone && customer.phone && l.phone.trim() !== '' && customer.phone.trim() !== '' && l.phone.trim() === customer.phone.trim())
-                                );
+                                const customerLeads = getCustomerLeads(customer, leads);
                                 
                                 const timelineItems = [
-                                    ...customerBookings.map(b => ({ type: 'Booking', date: b.date, title: b.title || 'Trip booked', amount: b.amount, status: b.status, id: b.id })),
-                                    ...customerLeads.map(l => ({ type: 'Enquiry', date: l.addedOn, title: `Enquiry for ${l.destination}`, status: l.status, id: l.id }))
+                                    ...customerBookings.map(b => ({ type: 'Booking', date: b.date, title: b.title || 'Trip booked', amount: b.amount as number | undefined, status: b.status as string, id: b.id })),
+                                    ...customerLeads.map(l => ({ type: 'Enquiry', date: l.addedOn, title: `Enquiry for ${l.destination}`, amount: undefined as number | undefined, status: l.status as string, id: l.id }))
                                 ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
                                 if (timelineItems.length === 0) {

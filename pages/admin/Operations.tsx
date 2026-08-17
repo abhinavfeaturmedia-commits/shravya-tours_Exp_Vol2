@@ -57,7 +57,16 @@ const parseLocalDate = (dateStr: string): Date | null => {
 /** Format a YYYY-MM-DD string for display without UTC shifting */
 const formatLocalDate = (dateStr: string): string => {
     const d = parseLocalDate(dateStr);
-    return d ? d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : dateStr;
+    return d ? d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : (dateStr || '');
+};
+
+/** Format booking badge reference cleanly without long raw UUIDs */
+const formatBookingBadge = (b: Booking): string => {
+    if (b.bookingNumber) return `BK-${String(b.bookingNumber).padStart(4, '0')}`;
+    if (b.invoiceNo && !b.invoiceNo.startsWith('INV-') && b.invoiceNo.length <= 16) return `#${b.invoiceNo}`;
+    if (b.invoiceNo && b.invoiceNo.startsWith('INV-') && b.invoiceNo.length <= 16) return `#${b.invoiceNo}`;
+    if (b.id) return `#BK-${b.id.slice(0, 8).toUpperCase()}`;
+    return '#BK';
 };
 
 /** Format external WhatsApp URLs with protocol if missing */
@@ -79,7 +88,7 @@ const getTourProgress = (dateStr: string, duration: number): { day: number; perc
     end.setHours(23, 59, 59, 999);
 
     if (today < start) {
-        return { day: 0, percent: 0 };
+        return { day: 1, percent: 0 };
     }
     if (today > end) {
         return { day: duration, percent: 100 };
@@ -395,26 +404,22 @@ export const Operations: React.FC = () => {
                 return;
             }
 
-            // ── Priority 2: Explicit LIVE or ISSUE override by Admin ──
-            // Only trigger if liveStatus is explicitly set by admin to 'Live' or 'Issue'
-            if (liveStatusRaw === 'Live' || liveStatusRaw === 'Issue') {
+            // ── Priority 2: UPCOMING (Start date is strictly in the future) ──
+            // Future departures always belong in Upcoming, never on-field today
+            if (start > today) {
+                if (start <= upcomingCutoff) {
+                    upcoming.push({ ...b, paxCount, paxUnknown });
+                }
+                return;
+            }
+
+            // ── Priority 3: LIVE (Today falls within tour start & end date) ──
+            if ((start <= today && end >= today) || (liveStatusRaw === 'Live' && end >= today)) {
                 live.push({ ...b, paxCount, duration, liveEndDate: end, durationEstimated });
                 return;
             }
 
-            // ── Priority 3: Automatic Date Window (Today falls within tour start & end) ──
-            if (start <= today && end >= today) {
-                live.push({ ...b, paxCount, duration, liveEndDate: end, durationEstimated });
-                return;
-            }
-
-            // ── Priority 4: UPCOMING (Start date is in future within upcomingCutoff) ──
-            if (start > today && start <= upcomingCutoff) {
-                upcoming.push({ ...b, paxCount, paxUnknown });
-                return;
-            }
-
-            // ── Priority 5: COMPLETED / PAST TOURS (End date in past) ──
+            // ── Priority 4: COMPLETED / PAST TOURS (End date in past) ──
             if (end < today) {
                 if (!completedIds.has(b.id)) {
                     completed.push(b);
@@ -444,7 +449,10 @@ export const Operations: React.FC = () => {
 
     // ─── Fault Detection ──────────────────────────────────────────────────────
     const faults = useMemo(() => {
-        return tourStats.live.map(tour => {
+        const list: { tour: Booking; issues: { type: 'issue' | 'no-driver' | 'no-guide'; label: string }[] }[] = [];
+
+        // 1. Check live tours
+        tourStats.live.forEach(tour => {
             const issues: { type: 'issue' | 'no-driver' | 'no-guide'; label: string }[] = [];
 
             if ((tour as any).liveStatus === 'Issue') {
@@ -463,9 +471,23 @@ export const Operations: React.FC = () => {
                 issues.push({ type: 'no-guide', label: 'No tour guide assigned' });
             }
 
-            return issues.length > 0 ? { tour, issues } : null;
-        }).filter(Boolean) as { tour: typeof tourStats.live[0]; issues: { type: string; label: string }[] }[];
-    }, [tourStats.live, packages]);
+            if (issues.length > 0) {
+                list.push({ tour, issues });
+            }
+        });
+
+        // 2. Check upcoming tours with explicitly flagged issues
+        tourStats.upcoming.forEach(tour => {
+            if ((tour as any).liveStatus === 'Issue') {
+                list.push({
+                    tour: tour as any,
+                    issues: [{ type: 'issue', label: 'Flagged as Issue by team' }]
+                });
+            }
+        });
+
+        return list;
+    }, [tourStats.live, tourStats.upcoming, packages]);
 
     const [faultPanelOpen, setFaultPanelOpen] = useState(true);
 
@@ -603,20 +625,12 @@ export const Operations: React.FC = () => {
     };
 
     const handleLiveStatusChange = async (bookingId: string, liveStatus: string) => {
-        if (liveStatus === 'Cancelled') {
-            const ok = window.confirm('Are you sure you want to cancel this live tour? This will mark the booking as Cancelled.');
-            if (!ok) return;
-        }
         try {
-            const updatePayload: any = { liveStatus: liveStatus === 'Auto' ? null : liveStatus };
-            if (liveStatus === 'Completed') {
-                updatePayload.status = 'Completed';
-            } else if (liveStatus === 'Cancelled') {
-                updatePayload.status = 'Cancelled';
-            }
+            const isAuto = liveStatus === 'Auto' || liveStatus === 'Resolved';
+            const updatePayload: any = { liveStatus: isAuto ? null : liveStatus };
             await updateBooking(bookingId, updatePayload);
             window.dispatchEvent(new CustomEvent('bookings-changed'));
-            toast.success(liveStatus === 'Auto' ? 'Reset to automatic date classification' : `Tour status updated to ${liveStatus}`);
+            toast.success(isAuto ? 'Reset to automatic date classification' : `Tour operational status set to ${liveStatus}`);
         } catch { toast.error('Failed to update tour status'); }
     };
 
@@ -997,7 +1011,7 @@ export const Operations: React.FC = () => {
                                                 <div>
                                                     <div className="flex items-center gap-2">
                                                         <p className="font-extrabold text-slate-900 dark:text-white text-sm">{tour.customer}</p>
-                                                        <span className="text-slate-400 font-mono text-xs">#{tour.invoiceNo || tour.id}</span>
+                                                        <span className="text-slate-400 font-mono text-xs font-bold">{formatBookingBadge(tour)}</span>
                                                     </div>
                                                     <p className="text-xs text-slate-500 font-medium mt-0.5">{tour.title}</p>
                                                     <div className="flex flex-wrap gap-1.5 mt-2">
@@ -1031,7 +1045,7 @@ export const Operations: React.FC = () => {
                                                     )}
                                                     {(tour as any).liveStatus === 'Issue' && (
                                                         <button
-                                                            onClick={() => handleLiveStatusChange(tour.id, 'Live')}
+                                                            onClick={() => handleLiveStatusChange(tour.id, 'Auto')}
                                                             className="text-xs font-bold px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-xs transition-colors"
                                                         >
                                                             Mark Resolved
@@ -1075,7 +1089,7 @@ export const Operations: React.FC = () => {
                                         : null;
 
                                     const { day: dayOfTour, percent: progressPercent } = getTourProgress(tour.date, tour.duration);
-                                    const endDateLabel = (tour as any).liveEndDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+                                    const endDateLabel = formatLocalDate(tour.endDate || (tour as any).liveEndDate.toISOString());
 
                                     const formattedPhone = tour.phone?.replace(/\D/g, '');
                                     const waPhone = formattedPhone ? (formattedPhone.length === 10 ? `91${formattedPhone}` : formattedPhone) : '';
@@ -1115,10 +1129,10 @@ export const Operations: React.FC = () => {
                                                     </span>
                                                     <button
                                                         onClick={() => navigate(`/admin/bookings?search=${encodeURIComponent(tour.customer)}`)}
-                                                        className="text-slate-400 hover:text-blue-600 text-xs font-mono font-bold transition-colors"
+                                                        className="text-slate-400 hover:text-blue-600 text-xs font-mono font-bold transition-colors truncate max-w-[140px]"
                                                         title="View in Bookings"
                                                     >
-                                                        #{tour.invoiceNo || tour.id}
+                                                        {formatBookingBadge(tour)}
                                                     </button>
                                                 </div>
 
@@ -1191,7 +1205,7 @@ export const Operations: React.FC = () => {
 
                                                 {/* ─── Daily Deliverables Checklist Accordion ─── */}
                                                 {(() => {
-                                                    const currentChecklistDay = selectedDays[tour.id] || dayOfTour;
+                                                    const currentChecklistDay = Math.max(1, Math.min(selectedDays[tour.id] || dayOfTour, tour.duration));
                                                     const dayItems = tourDeliverables.filter(d => d.dayNumber === currentChecklistDay);
                                                     const dayTotal = dayItems.length;
                                                     const dayVerified = dayItems.filter(d => d.status === 'Verified Success').length;
@@ -1397,14 +1411,13 @@ export const Operations: React.FC = () => {
 
                                                 <div className="flex gap-2">
                                                     <select
-                                                        value={tour.liveStatus || 'Live'}
+                                                        value={tour.liveStatus || 'Auto'}
                                                         onChange={(e) => handleLiveStatusChange(tour.id, e.target.value)}
                                                         className="px-2 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold rounded-xl border-none outline-none cursor-pointer"
                                                     >
+                                                        <option value="Auto">⚡ Auto (Date)</option>
                                                         <option value="Live">🟢 Force Live</option>
                                                         <option value="Issue">🔴 Flag Issue</option>
-                                                        <option value="Auto">⚡ Auto (Date)</option>
-                                                        <option value="Cancelled">❌ Cancel</option>
                                                     </select>
 
                                                     <button
@@ -1483,9 +1496,16 @@ export const Operations: React.FC = () => {
                                                         {formatLocalDate(tour.date)}
                                                     </td>
                                                     <td className="px-6 py-4 font-bold text-slate-900 dark:text-white">
-                                                        <div>{tour.customer}</div>
+                                                        <div className="flex items-center gap-1.5">
+                                                            <span>{tour.customer}</span>
+                                                            {(tour as any).liveStatus === 'Issue' && (
+                                                                <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300">
+                                                                    Issue
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                         <div className="text-[10px] text-slate-400 font-normal mt-0.5">
-                                                            {(tour as any).paxUnknown ? '? Pax' : `${tour.paxCount} Pax`}
+                                                            {(tour as any).paxUnknown ? '? Pax' : `${tour.paxCount} Pax`} • <span className="font-mono">{formatBookingBadge(tour)}</span>
                                                         </div>
                                                     </td>
                                                     <td className="px-6 py-4 text-slate-600 dark:text-slate-400 font-medium">{tour.title}</td>
