@@ -143,6 +143,10 @@ const calculateMasterDependencies = (
         masterLocations: MasterLocation[];
     }
 ): MasterDependency => {
+    if (!item) {
+        return { total: 0, packages: [], bookings: [], leads: [], plans: [], details: 'No active dependencies' };
+    }
+
     const id = String(item.id || '');
     const name = String(item.name || item.title || '').toLowerCase().trim();
 
@@ -151,85 +155,109 @@ const calculateMasterDependencies = (
     const matchedLeads: { id: string; name: string; destination: string }[] = [];
     const matchedPlans: { id: string; title: string }[] = [];
 
+    const safePackages = Array.isArray(data.packages) ? data.packages : [];
+    const safeBookings = Array.isArray(data.bookings) ? data.bookings : [];
+    const safeLeads = Array.isArray(data.leads) ? data.leads : [];
+    const safePlans = Array.isArray(data.masterPlans) ? data.masterPlans : [];
+
     if (tab === 'locations') {
         // Match packages by location id or name
-        data.packages.forEach(p => {
-            if (String(p.location) === id || String(p.location || '').toLowerCase().trim() === name) {
-                matchedPackages.push({ id: p.id, title: p.title, location: p.location });
+        safePackages.forEach(p => {
+            if (p && (String(p.location || '') === id || (name && String(p.location || '').toLowerCase().trim() === name))) {
+                matchedPackages.push({ id: String(p.id), title: p.title || 'Tour Package', location: p.location });
             }
         });
         // Match bookings
-        data.bookings.forEach(b => {
-            if (String(b.destination || '').toLowerCase().trim() === name || String(b.location || '') === id) {
-                matchedBookings.push({ id: b.id, title: b.tripTitle || b.packageName || 'Trip', customerName: b.customerName, status: b.status });
+        safeBookings.forEach(b => {
+            if (b && (name && (String(b.destination || '').toLowerCase().trim() === name || String(b.location || '') === id))) {
+                matchedBookings.push({ id: String(b.id), title: b.tripTitle || b.packageName || 'Trip', customerName: b.customerName, status: b.status || 'Confirmed' });
             }
         });
         // Match leads
-        data.leads.forEach(l => {
-            if (String(l.destination || '').toLowerCase().trim() === name || String(l.location || '') === id) {
-                matchedLeads.push({ id: l.id, name: l.name, destination: l.destination });
+        safeLeads.forEach(l => {
+            if (l && (name && (String(l.destination || '').toLowerCase().trim() === name || String(l.location || '') === id))) {
+                matchedLeads.push({ id: String(l.id), name: l.name || 'Lead', destination: l.destination || '' });
             }
         });
         // Match plan templates
-        data.masterPlans.forEach(p => {
-            if (p.locationId === id) {
-                matchedPlans.push({ id: p.id, title: p.title });
+        safePlans.forEach(p => {
+            if (p && String(p.locationId || '') === id) {
+                matchedPlans.push({ id: String(p.id), title: p.title || 'Plan Template' });
             }
         });
     } else if (tab === 'hotels') {
-        // Check plans and packages
-        data.masterPlans.forEach(p => {
-            if (p.days?.some(d => d.hotelId === id)) {
-                matchedPlans.push({ id: p.id, title: p.title });
+        // Check plans
+        safePlans.forEach(p => {
+            const days = Array.isArray(p?.days) ? p.days : [];
+            if (days.some(d => d && String(d.hotelId || '') === id)) {
+                matchedPlans.push({ id: String(p.id), title: p.title || 'Plan Template' });
             }
         });
-        data.packages.forEach(p => {
-            if (p.hotelId === id || p.days?.some((d: any) => d.hotelId === id || d.hotelName?.toLowerCase() === name)) {
-                matchedPackages.push({ id: p.id, title: p.title });
+        // Check packages
+        safePackages.forEach(p => {
+            if (!p) return;
+            const builderDays = Array.isArray(p.builderData?.days) ? p.builderData.days : [];
+            const packageDays = Array.isArray(p.days) ? p.days : [];
+            const isUsedInBuilder = builderDays.some((d: any) => d && (String(d.hotelId || '') === id || (name && String(d.hotelName || '').toLowerCase().trim() === name)));
+            const isUsedInDays = packageDays.some((d: any) => d && typeof d === 'object' && (String(d.hotelId || '') === id || (name && String(d.hotelName || '').toLowerCase().trim() === name)));
+
+            if (String(p.hotelId || '') === id || isUsedInBuilder || isUsedInDays) {
+                matchedPackages.push({ id: String(p.id), title: p.title || 'Tour Package' });
             }
         });
-        data.bookings.forEach(b => {
-            if (String(b.hotel || '').toLowerCase().includes(name)) {
-                matchedBookings.push({ id: b.id, title: b.tripTitle || 'Trip', customerName: b.customerName, status: b.status });
+        // Check bookings
+        safeBookings.forEach(b => {
+            if (b && name && String(b.hotel || '').toLowerCase().includes(name)) {
+                matchedBookings.push({ id: String(b.id), title: b.tripTitle || 'Trip', customerName: b.customerName, status: b.status || 'Confirmed' });
             }
         });
     } else if (tab === 'activities') {
-        data.masterPlans.forEach(p => {
-            if (p.days?.some(d => d.activities?.includes(id))) {
-                matchedPlans.push({ id: p.id, title: p.title });
+        safePlans.forEach(p => {
+            const days = Array.isArray(p?.days) ? p.days : [];
+            if (days.some(d => Array.isArray(d?.activities) && d.activities.some((actId: any) => String(actId || '') === id))) {
+                matchedPlans.push({ id: String(p.id), title: p.title || 'Plan Template' });
             }
         });
-        data.packages.forEach(p => {
-            if (p.activities?.includes(id) || p.days?.some((d: any) => d.activities?.includes(id))) {
-                matchedPackages.push({ id: p.id, title: p.title });
+        safePackages.forEach(p => {
+            if (!p) return;
+            const actArray = Array.isArray(p.activities) ? p.activities : [];
+            const builderDays = Array.isArray(p.builderData?.days) ? p.builderData.days : [];
+            const isUsedInBuilder = builderDays.some((d: any) => Array.isArray(d?.activities) && d.activities.some((a: any) => String(a?.id || a || '') === id));
+
+            if (actArray.some((a: any) => String(a || '') === id) || isUsedInBuilder) {
+                matchedPackages.push({ id: String(p.id), title: p.title || 'Tour Package' });
             }
         });
     } else if (tab === 'transports') {
-        data.masterPlans.forEach(p => {
-            if (p.days?.some(d => d.transportId === id)) {
-                matchedPlans.push({ id: p.id, title: p.title });
+        safePlans.forEach(p => {
+            const days = Array.isArray(p?.days) ? p.days : [];
+            if (days.some(d => d && String(d.transportId || '') === id)) {
+                matchedPlans.push({ id: String(p.id), title: p.title || 'Plan Template' });
             }
         });
-        data.packages.forEach(p => {
-            if (p.transportId === id || p.days?.some((d: any) => d.transportId === id)) {
-                matchedPackages.push({ id: p.id, title: p.title });
+        safePackages.forEach(p => {
+            if (!p) return;
+            const builderDays = Array.isArray(p.builderData?.days) ? p.builderData.days : [];
+            const isUsedInBuilder = builderDays.some((d: any) => d && String(d.transportId || '') === id);
+            if (String(p.transportId || '') === id || isUsedInBuilder) {
+                matchedPackages.push({ id: String(p.id), title: p.title || 'Tour Package' });
             }
         });
-        data.bookings.forEach(b => {
-            if (String(b.transport || '').toLowerCase().includes(name)) {
-                matchedBookings.push({ id: b.id, title: b.tripTitle || 'Trip', customerName: b.customerName, status: b.status });
+        safeBookings.forEach(b => {
+            if (b && name && String(b.transport || '').toLowerCase().includes(name)) {
+                matchedBookings.push({ id: String(b.id), title: b.tripTitle || 'Trip', customerName: b.customerName, status: b.status || 'Confirmed' });
             }
         });
     } else if (tab === 'terms') {
-        data.packages.forEach(p => {
-            if (p.termsTemplateId === id || String(p.termsAndConditions || '').includes(name)) {
-                matchedPackages.push({ id: p.id, title: p.title });
+        safePackages.forEach(p => {
+            if (p && (String(p.termsTemplateId || '') === id || (name && String(p.termsAndConditions || '').toLowerCase().includes(name)))) {
+                matchedPackages.push({ id: String(p.id), title: p.title || 'Tour Package' });
             }
         });
     } else if (tab === 'lead-sources') {
-        data.leads.forEach(l => {
-            if (String(l.source || '').toLowerCase() === name) {
-                matchedLeads.push({ id: l.id, name: l.name, destination: l.destination });
+        safeLeads.forEach(l => {
+            if (l && name && String(l.source || '').toLowerCase().trim() === name) {
+                matchedLeads.push({ id: String(l.id), name: l.name || 'Lead', destination: l.destination || '' });
             }
         });
     }
