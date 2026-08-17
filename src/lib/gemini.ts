@@ -723,10 +723,12 @@ export const generateWeeklyStandupSummary = async (logs: any[], staffNamesMap: R
 
 // List of available free OpenRouter models & Smart Engine
 export const OPENROUTER_FREE_MODELS = [
-  { id: 'meta-llama/llama-3.3-70b-instruct:free', name: 'Meta LLaMA 3.3 70B (Free AI)', provider: 'OpenRouter' },
-  { id: 'deepseek/deepseek-r1:free', name: 'DeepSeek R1 (Free Reasoning)', provider: 'OpenRouter' },
-  { id: 'google/gemini-2.5-flash:free', name: 'Gemini 2.5 Flash (Free AI)', provider: 'OpenRouter' },
-  { id: 'qwen/qwen-2.5-coder-32b-instruct:free', name: 'Qwen 2.5 Coder 32B (Free AI)', provider: 'OpenRouter' },
+  { id: 'nvidia/nemotron-3-ultra-550b-a55b:free', name: 'NVIDIA Nemotron 3 Ultra 550B (1M Context Free)', provider: 'OpenRouter' },
+  { id: 'google/gemma-4-26b-a4b-it:free', name: 'Google Gemma 4 26B (Free High Quality)', provider: 'OpenRouter' },
+  { id: 'google/gemma-4-31b-it:free', name: 'Google Gemma 4 31B (Free High Quality)', provider: 'OpenRouter' },
+  { id: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free', name: 'NVIDIA Nemotron Nano Omni (Free Reasoning)', provider: 'OpenRouter' },
+  { id: 'nvidia/nemotron-3-super-120b-a12b:free', name: 'NVIDIA Nemotron 3 Super 120B (Free AI)', provider: 'OpenRouter' },
+  { id: 'openrouter/free', name: 'OpenRouter Dynamic Free Router (Auto Load-Balance)', provider: 'OpenRouter' },
   { id: 'smart-logic-engine', name: 'Instant Smart Reasoning Engine', provider: 'Deterministic AI' }
 ];
 

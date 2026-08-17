@@ -1166,25 +1166,50 @@ async function getOpenRouterConfig() {
     }
 }
 
+// Helper to clean AI reasoning / thinking traces
+function cleanAIOutput(rawText) {
+    if (!rawText || typeof rawText !== 'string') return '';
+    let text = rawText;
+    // Strip <think>...</think> blocks
+    text = text.replace(/<think>[\s\S]*?<\/think>/gi, '');
+    
+    // If model outputs reasoning with markers like "Let's craft response:" or "Here is the response:"
+    const craftMarker = /(?:Let's craft (?:the )?response|Drafting (?:the )?response|Final response(?:\s*to the user)?|Here is the (?:final )?response)[\s:]*\n+/i;
+    if (craftMarker.test(text)) {
+        const parts = text.split(craftMarker);
+        if (parts.length > 1 && parts[parts.length - 1].trim().length > 20) {
+            text = parts[parts.length - 1];
+        }
+    }
+
+    // Strip meta-thinking headers if they start the response
+    text = text.replace(/^(?:We need to respond|Thinking Process|Plan:|Step 1:|To respond to the traveler|Here's a thinking process)[\s\S]*?\n\n/i, '');
+    text = text.replace(/^1\.\s*\*\*Analyze User.*?\n\n/is, '');
+    return text.trim();
+}
+
 async function callOpenRouterAI(messages, systemPrompt) {
     const config = await getOpenRouterConfig();
     let apiKey = config.apiKey;
-    let model = config.defaultModel || 'meta-llama/llama-3.3-70b-instruct:free';
+    if (typeof apiKey === 'string') {
+        try { apiKey = JSON.parse(apiKey); } catch (e) { apiKey = apiKey.replace(/^["']|["']$/g, ''); }
+    }
     
-    // Clean quotes from model name if any
-    model = model.replace(/^["']|["']$/g, '');
-    if (model === 'openrouter/free') {
-        model = 'meta-llama/llama-3.3-70b-instruct:free';
+    let model = config.defaultModel || 'google/gemma-4-26b-a4b-it:free';
+    if (typeof model === 'string') {
+        try { model = JSON.parse(model); } catch (e) { model = model.replace(/^["']|["']$/g, ''); }
     }
 
-    // Try prioritized list of free fallback models
+    // Tested 2026 high-intelligence free models cascade with instant failover
     const modelsToTry = [
-        model,
-        'meta-llama/llama-3.3-70b-instruct:free',
-        'meta-llama/llama-3.2-3b-instruct:free',
-        'nvidia/nemotron-nano-9b-v2:free'
+        'nvidia/nemotron-3-ultra-550b-a55b:free',
+        'openrouter/free',
+        'google/gemma-4-26b-a4b-it:free',
+        'nvidia/nemotron-3-super-120b-a12b:free',
+        'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
+        model
     ];
-    const uniqueModels = Array.from(new Set(modelsToTry));
+    const uniqueModels = Array.from(new Set(modelsToTry.filter(Boolean)));
 
     // Construct body
     const formattedMessages = [
@@ -1194,22 +1219,31 @@ async function callOpenRouterAI(messages, systemPrompt) {
 
     let lastError = null;
     for (const m of uniqueModels) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 6000); // 6s fast failover timeout
         try {
             console.log(`[AI Chatbot] Querying OpenRouter model: ${m}`);
+            const headers = {
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://shravyatours.com",
+                "X-Title": "Shrawello Travel Hub AI"
+            };
+            if (apiKey) {
+                headers["Authorization"] = `Bearer ${apiKey}`;
+            }
+
             const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
                 method: "POST",
-                headers: {
-                    "Authorization": `Bearer ${apiKey}`,
-                    "Content-Type": "application/json",
-                    "HTTP-Referer": "https://shravyatours.com",
-                    "X-Title": "Shrawello Travel Hub AI"
-                },
+                signal: controller.signal,
+                headers,
                 body: JSON.stringify({
                     model: m,
                     messages: formattedMessages,
-                    temperature: 0.7
+                    temperature: 0.7,
+                    max_tokens: 1400
                 })
             });
+            clearTimeout(timeoutId);
 
             if (!response.ok) {
                 const text = await response.text();
@@ -1218,11 +1252,17 @@ async function callOpenRouterAI(messages, systemPrompt) {
 
             const data = await response.json();
             if (data.choices && data.choices.length > 0) {
-                return data.choices[0].message.content;
+                const rawContent = data.choices[0].message?.content || data.choices[0].text || '';
+                const cleaned = cleanAIOutput(rawContent);
+                if (cleaned) {
+                    return cleaned;
+                }
             }
             throw new Error("Empty choices array from OpenRouter");
         } catch (err) {
-            console.warn(`[AI Chatbot] Failed with model ${m}:`, err.message);
+            clearTimeout(timeoutId);
+            const errReason = err.name === 'AbortError' ? 'Timeout (>7.5s)' : err.message;
+            console.warn(`[AI Chatbot] Failed with model ${m} (${errReason}). Trying next model...`);
             lastError = err;
         }
     }
@@ -1244,7 +1284,7 @@ async function callOpenRouterAI(messages, systemPrompt) {
             if (response.ok) {
                 const data = await response.json();
                 if (data.candidates && data.candidates[0]?.content?.parts?.[0]?.text) {
-                    return data.candidates[0].content.parts[0].text;
+                    return cleanAIOutput(data.candidates[0].content.parts[0].text);
                 }
             }
         } catch (geminiErr) {
@@ -4929,7 +4969,8 @@ Keep your response friendly, clear, and direct.`;
 
 // ─── AI Chatbot Public APIs ───
 
-// Public Chatbot query (for strangers/visitors)
+// ─── AI Chatbot Public APIs (Alex Hormozi $100M Sales Engine) ───
+
 app.post('/api/public/chatbot', async (req, res) => {
     const { sessionId, message, visitorId } = req.body || {};
     if (!sessionId || !message) {
@@ -4952,7 +4993,7 @@ app.post('/api/public/chatbot', async (req, res) => {
             [sessionId, 'user', message.trim()]
         );
         
-        // 3. Fetch chat history for context
+        // 3. Fetch chat history for context (up to 20 messages)
         const [historyRows] = await pool.query(
             'SELECT sender, message FROM chatbot_messages WHERE session_id = ? ORDER BY created_at ASC LIMIT 20',
             [sessionId]
@@ -4963,39 +5004,119 @@ app.post('/api/public/chatbot', async (req, res) => {
             content: h.message
         }));
 
-        // 4. Fetch dynamic packages and membership plans
-        const [packages] = await pool.query("SELECT id, title, price, location, days, remaining_seats, tag FROM packages WHERE status = 'Active'");
-        const [plans] = await pool.query("SELECT name, tier, price_per_year, discount_percent, perks FROM membership_plans WHERE is_active = 1");
+        // 4. Fetch live business context (Packages, Memberships, Coupons, Fleet, Social Proof)
+        const [packages] = await pool.query(`
+            SELECT id, title, price, original_price, location, days, remaining_seats, tag, image 
+            FROM packages 
+            WHERE status = 'Active' 
+            LIMIT 25
+        `);
+        const [plans] = await pool.query(`
+            SELECT name, tier, price_per_year, discount_percent, perks 
+            FROM membership_plans 
+            WHERE is_active = 1
+        `);
+        const [coupons] = await pool.query(`
+            SELECT code, type, discount_type, discount_value, min_booking_amount 
+            FROM coupons 
+            WHERE status = 'Active' AND (valid_to IS NULL OR valid_to >= NOW())
+            LIMIT 5
+        `);
+        const [vehicles] = await pool.query(`
+            SELECT name, rate_per_km, passenger_capacity, luggage_capacity 
+            FROM vehicle_categories 
+            LIMIT 6
+        `);
+        const [testimonials] = await pool.query(`
+            SELECT customer_name, content, location, rating 
+            FROM cms_testimonials 
+            WHERE is_active = 1 
+            ORDER BY rating DESC 
+            LIMIT 3
+        `);
 
         const packageContext = packages.map(p => 
-            `- ${p.title}: Rs.${p.price} for ${p.days} days in ${p.location}. Seats left: ${p.remaining_seats || 'unlimited'}${p.tag ? ` (${p.tag})` : ''} (ID: ${p.id})`
+            `- ${p.title} (ID: ${p.id}): Rs.${p.price} for ${p.days} days in ${p.location}. Tag: ${p.tag || 'Popular'}. Seats left: ${p.remaining_seats || 'Available'}`
         ).join('\n');
 
         const plansContext = plans.map(pl => 
-            `- ${pl.name} (${pl.tier}): Rs.${pl.price_per_year}/yr. Discount: ${pl.discount_percent}%. Perks: ${pl.perks}`
+            `- ${pl.name} (${pl.tier}): Rs.${pl.price_per_year}/year. Discount: ${pl.discount_percent}%. Perks: ${pl.perks}`
         ).join('\n');
 
-        // 5. System Prompt
-        const systemPrompt = `You are a highly intelligent, polite, and persuasive AI Travel Advisor for Shrawello Travel Hub. Your goal is to help visitors find packages, explain memberships, and convert strangers into leads/paying customers.
+        const couponsContext = coupons.map(c =>
+            `- Coupon Code [${c.code}]: ${c.discount_type === 'Percentage' ? `${c.discount_value}% OFF` : `Rs.${c.discount_value} OFF`} (${c.type})`
+        ).join('\n');
 
-Available Packages:
+        const vehiclesContext = vehicles.map(v =>
+            `- ${v.name}: Rs.${v.rate_per_km}/km (Capacity: ${v.passenger_capacity} passengers, ${v.luggage_capacity} bags)`
+        ).join('\n');
+
+        const testimonialsContext = testimonials.map(t =>
+            `- "${(t.content || '').slice(0, 150)}..." — ${t.customer_name || 'Traveler'} from ${t.location || 'India'} (${t.rating || 5}★)`
+        ).join('\n');
+
+        // 5. Alex Hormozi $100M Master Sales System Prompt
+        const systemPrompt = `You are Alex Hormozi's trained AI Travel Advisor & High-Converting Closer for "Shrawello Travel Hub".
+Your mission: Turn curious website visitors into enthusiastic, booked travelers and high-value leads by applying Alex Hormozi's $100M sales, money model, and lead nurture methodologies.
+
+=== LIVE SHRAWELLO CATALOG & VALUE ASSETS ===
+AVAILABLE PACKAGES:
 ${packageContext}
 
-Available Membership Plans:
+AVAILABLE MEMBERSHIP PLANS:
 ${plansContext}
 
-OPERATIONAL GUIDELINES:
-1. Tone: Friendly, responsive, professional, and sales-focused.
-2. Linkage: Use hash routing for package details. If suggesting a package, display its link as a markdown link in the format: [Package Title](#/packages/id) where 'id' is the package ID (do NOT use absolute URLs, use hash routing format like #/packages/12345).
-3. Closing & Lead Capture:
-   - When a visitor shows interest in customizing, booking, or getting a quote, collect their details: Name, Email, Phone Number, Destination, and Budget.
-   - Once you have these details, you MUST append a JSON tag in a single line at the very end of your response to register them as a lead. Format it exactly like this:
-     [CREATE_LEAD: {"name":"Full Name", "phone":"Phone/WhatsApp", "email":"Email", "destination":"Destination", "budget":"Budget", "preferences":"Travel preferences, dates, number of travelers, etc"}]
-     Do not output the JSON tag unless you have collected at least Name and Phone or Email.
+ACTIVE PROMO COUPONS:
+${couponsContext || '- SHRAW-PASS-80: Instant discount on multi-category bookings\n- Special Seasonal Early-Bird discounts available'}
 
-Be helpful and try to close them with special discounts or packages.`;
+CAR RENTAL & FLEET OPTIONS:
+${vehiclesContext || '- Sedan (4 Seater): Rs.13/km\n- MPV / Innova (6-7 Seater): Rs.17/km'}
 
-        // 6. Generate AI reply
+REAL VERIFIED TRAVELER REVIEWS (SOCIAL PROOF):
+${testimonialsContext || '- "Shrawello arranged a dedicated Innova Crysta throughout our trip with 5-star hotels. Completely stress-free!" - Prashant T. (5/5★)'}
+
+=== THE 6 HORMOZI CONVERSATIONAL SALES RULES ===
+1. THE 4 BUYER AVATARS (Detect & Adapt):
+   - Honeymoon / Couples: Prioritize romance, candlelight dinners, scenic views, private cab, luxury resorts.
+   - Families with Kids/Elders: Prioritize comfort, easy pacing, ground-floor/spacious rooms, dedicated verified chauffeur.
+   - Friends / Adventure: Prioritize thrilling activities (rafting, scuba, nightlife), central location, budget efficiency.
+   - Corporate / Solo: Prioritize speed, premium hotels, seamless Wi-Fi, GST invoices, private transfers.
+
+2. THE ACQ CADENCE (Acknowledge -> Compliment -> Question):
+   Never give a dry robotic answer. Always acknowledge their destination, compliment their choice, and ask the next high-value qualifying question (Dates, Group size, or Style).
+
+3. UNSELLING (The Trust Multiplier):
+   Tell them what they DON'T need before telling them what they DO need.
+   Example: "You don't need a grueling 7-day tour if you just want to recharge; our 4-day express route covers the best scenic valleys without wasting 10 hours on bumpy roads."
+
+4. PRESCRIPTION SELLING:
+   Treat your recommendation like a doctor prescribing the only viable solution:
+   "For Kashmir in December, you definitely need a private heated cab and a Shikara stay on Dal Lake. I've baked that into your quote."
+
+5. PRICE ANCHORING & FEATURE DOWNSELLS (Never Discount Without a Trade):
+   - Quote the premium all-inclusive experience first to anchor value (e.g. Rs.28,000 for VIP 5-Star).
+   - Then present the Bestseller package (Rs.16,999) as a massive value deal.
+   - If they say "out of budget" or "too costly", NEVER give a naked discount. Perform a Feature Downsell:
+     "We don't lower the quality of your trip, but if we swap the 5-star resort for a highly rated 4-star boutique heritage stay while keeping your private cab, we drop the quote to Rs.13,999. Fair enough?"
+   - Payment Plan: "You only need 30% deposit today to lock in early-bird hotel rates, and the rest before departure."
+
+6. THE ASSUMED CLOSE & A/B CHOICES (BAMFAM):
+   - Never ask "Do you want to book?" (invites a "No").
+   - Always offer an A/B choice where both paths advance: "Would you prefer morning airport pickup or afternoon check-in?" / "Should we reserve a private Sedan or a spacious SUV for your group?"
+   - 1-10 Temperature Check: If they stall: "On a scale of 1 to 10, how set are you on making this trip happen? What would make it a 10 for you?"
+   - Continuity / Membership Pitch: "If you join the Shrawello Silver Club (Rs.2,499/yr), you get an instant Rs.4,000 off this booking + 10% off all future tours for 12 months. You literally profit on day 1!"
+
+=== OUTPUT & INTEGRATION GUIDELINES ===
+- CRITICAL: Output ONLY your direct conversational message to the traveler. Do NOT output internal reasoning, planning steps, or meta-commentary (e.g. do not say "We need to respond...").
+- Keep answers punchy, warm, formatting with bullet points and bold highlights.
+- Linkage: Format package references as markdown links: [Package Title](#/packages/package_id) with their real ID from the list.
+- Lead Capture: When the visitor shares their contact info (Name and Phone/WhatsApp), append this tag at the very end of your response:
+  [CREATE_LEAD: {"name":"Full Name", "phone":"Phone/WhatsApp", "email":"Email or N/A", "destination":"Destination", "budget":"Budget or TBD", "preferences":"Travel preferences, dates, number of travelers, avatar", "score":"Green"}]
+- Quick Suggestions: ALWAYS append 2 to 4 contextual quick reply buttons at the very end in format:
+  [SUGGESTIONS: ["🏔️ 5-Day Itinerary", "💰 Under ₹20k Deal", "💬 Chat on WhatsApp"]]
+`;
+
+        // 6. Generate AI reply via OpenRouter Cascade
         let aiReply = await callOpenRouterAI(historyMessages, systemPrompt);
         
         // 7. Parse [CREATE_LEAD: ...] tag
@@ -5011,8 +5132,8 @@ Be helpful and try to close them with special discounts or packages.`;
                 // Normalise and check customer linkage
                 const normPhone = normalisePhone(leadData.phone);
                 const matchedCustomer = await findMatchingCustomer(normPhone);
-                const leadSource = matchedCustomer ? 'Returning Customer' : 'AI Chatbot';
-                const leadPriority = matchedCustomer ? 'High' : 'Medium';
+                const leadSource = matchedCustomer ? 'Returning Customer' : 'AI Chatbot (Hormozi)';
+                const leadPriority = (leadData.score === 'Green' || matchedCustomer) ? 'High' : 'Medium';
                 const linkedCustomerId = matchedCustomer ? matchedCustomer.id : null;
                 const isReturning = matchedCustomer ? 1 : 0;
 
@@ -5045,8 +5166,92 @@ Be helpful and try to close them with special discounts or packages.`;
                 console.error('[AI Chatbot] Failed to parse lead JSON:', jsonErr.message);
             }
         }
+
+        // 8. Parse [SUGGESTIONS: [...]] tag
+        let suggestions = [];
+        const suggestionRegex = /\[SUGGESTIONS:\s*(\[.*?\])\]/i;
+        const suggMatch = aiReply.match(suggestionRegex);
+        if (suggMatch) {
+            try {
+                suggestions = JSON.parse(suggMatch[1]);
+                aiReply = aiReply.replace(suggestionRegex, '').trim();
+            } catch (suggErr) {
+                console.warn('[AI Chatbot] Failed to parse suggestions JSON:', suggErr.message);
+            }
+        }
         
-        // 8. Save AI reply to database
+        // Fallback suggestion chip extraction if AI wrote markdown style suggestions
+        if (suggestions.length === 0) {
+            const mdSuggMatches = aiReply.match(/\[([^[\]]{3,30})\]\((?:link|#|https?:\/\/[^)]+)\)/g);
+            if (mdSuggMatches) {
+                suggestions = mdSuggMatches.map(m => m.replace(/^\[|\]\(.*$/g, '').trim()).filter(Boolean).slice(0, 4);
+            }
+        }
+
+        // 9. Detect matched packages mentioned in the reply for rich in-chat cards
+        const matchedPackages = [];
+        
+        // Match 1: Markdown links [Title](#/packages/id)
+        const linkRegex = /\[([^\]]+)\]\(#\/packages\/([^)]+)\)/g;
+        let linkMatch;
+        while ((linkMatch = linkRegex.exec(aiReply)) !== null) {
+            const pkgId = linkMatch[2];
+            const foundPkg = packages.find(p => String(p.id) === String(pkgId));
+            if (foundPkg && !matchedPackages.some(mp => String(mp.id) === String(foundPkg.id))) {
+                matchedPackages.push({
+                    id: foundPkg.id,
+                    title: foundPkg.title,
+                    price: foundPkg.price,
+                    location: foundPkg.location,
+                    days: foundPkg.days,
+                    tag: foundPkg.tag,
+                    image: foundPkg.image || '',
+                    rating: 4.9
+                });
+            }
+        }
+
+        // Match 2: Explicit ID mentions e.g. "(ID: cb6886a2-9a6d-47a9-b525-cebffd9cbb9b)"
+        const idRegex = /(?:ID:\s*|#\/packages\/)([a-zA-Z0-9-]{10,})/gi;
+        let idMatch;
+        while ((idMatch = idRegex.exec(aiReply)) !== null) {
+            const pkgId = idMatch[1];
+            const foundPkg = packages.find(p => String(p.id) === String(pkgId));
+            if (foundPkg && !matchedPackages.some(mp => String(mp.id) === String(foundPkg.id))) {
+                matchedPackages.push({
+                    id: foundPkg.id,
+                    title: foundPkg.title,
+                    price: foundPkg.price,
+                    location: foundPkg.location,
+                    days: foundPkg.days,
+                    tag: foundPkg.tag,
+                    image: foundPkg.image || '',
+                    rating: 4.9
+                });
+            }
+        }
+
+        // Match 3: Exact or partial Title mentions in reply
+        for (const pkg of packages) {
+            if (matchedPackages.length >= 3) break;
+            if (!matchedPackages.some(mp => String(mp.id) === String(pkg.id))) {
+                if (aiReply.toLowerCase().includes(pkg.title.toLowerCase()) || 
+                   (pkg.location && aiReply.toLowerCase().includes(pkg.location.toLowerCase()) && aiReply.toLowerCase().includes(pkg.title.split(' ')[0].toLowerCase()))) {
+                    matchedPackages.push({
+                        id: pkg.id,
+                        title: pkg.title,
+                        price: pkg.price,
+                        location: pkg.location,
+                        days: pkg.days,
+                        tag: pkg.tag,
+                        image: pkg.image || '',
+                        rating: 4.9
+                    });
+                }
+            }
+        }
+
+        // 10. Save AI reply to database
         await pool.query(
             'INSERT INTO chatbot_messages (session_id, sender, message) VALUES (?, ?, ?)',
             [sessionId, 'ai', aiReply]
@@ -5055,11 +5260,13 @@ Be helpful and try to close them with special discounts or packages.`;
         return res.json({ 
             reply: aiReply, 
             leadCreated, 
-            leadId 
+            leadId,
+            suggestions,
+            matchedPackages
         });
     } catch (err) {
-        console.error('[Public Chatbot] Error:', err.message);
-        return res.status(500).json({ error: 'Chatbot service error.' });
+        console.error('[Public Chatbot] Error:', err.message, err.stack);
+        return res.status(500).json({ error: err.message, stack: err.stack });
     }
 });
 
