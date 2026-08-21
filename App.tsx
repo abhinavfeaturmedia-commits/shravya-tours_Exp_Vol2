@@ -29,6 +29,7 @@ const Careers = lazy(() => import('./pages/Careers').then(module => ({ default: 
 const InteractiveItinerary = lazy(() => import('./pages/InteractiveItinerary').then(module => ({ default: module.InteractiveItinerary })));
 const BlogList = lazy(() => import('./pages/BlogList').then(module => ({ default: module.BlogList })));
 const BlogPostDetail = lazy(() => import('./pages/BlogPostDetail').then(module => ({ default: module.BlogPostDetail })));
+const DigitalCard = lazy(() => import('./pages/DigitalCard').then(module => ({ default: module.DigitalCard })));
 
 
 
@@ -131,6 +132,20 @@ const App: React.FC = () => {
                 </Route>
 
                 <Route path="/login" element={<Login />} />
+
+                {/* Digital Visiting Card & QR Code Routes */}
+                <Route path="/rohit" element={<DigitalCard />} />
+                <Route path="/card/rohit" element={<DigitalCard />} />
+                <Route path="/manali" element={<DigitalCard />} />
+                <Route path="/monali" element={<DigitalCard />} />
+                <Route path="/card/manali" element={<DigitalCard />} />
+                <Route path="/card/monali" element={<DigitalCard />} />
+                <Route path="/card/:name" element={<DigitalCard />} />
+                <Route path="/vcard" element={<DigitalCard />} />
+                <Route path="/vcard/rohit" element={<DigitalCard />} />
+                <Route path="/vcard/manali" element={<DigitalCard />} />
+                <Route path="/vcard/monali" element={<DigitalCard />} />
+                <Route path="/card" element={<DigitalCard />} />
 
                 {/* Admin Routes using AdminLayout (Sidebar/Topbar) */}
                 <Route path="/admin" element={<AdminLayout />}>
