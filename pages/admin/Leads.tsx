@@ -9,7 +9,7 @@ import { TransferRequestModal } from '../../components/ui/TransferRequestModal';
 import { Lead, BookingStatus, FollowUpType, Customer, BookingType, Task } from '../../types'; // Removed unused imports
 import { api } from '../../src/lib/api';
 import { toast } from 'sonner'; // Use sonner for consistency if available, or keep existing toast
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import {
     Phone, Mail, MapPin, Calendar, Users, Clock, X, Plus, Search,
     ChevronRight, Sparkles, Edit2, Trash2, ArrowRight, MessageCircle,
@@ -1333,6 +1333,9 @@ export const Leads: React.FC = () => {
                                     <span className="material-symbols-outlined text-[20px]">upload_file</span> <span className="hidden sm:inline">Import</span>
                                 </button>
                             )}
+                            <Link to="/admin/reports?entity=leads" className="flex-1 md:flex-none justify-center px-4 md:px-5 py-3 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold shadow-sm flex items-center gap-2 transition-colors hover:bg-slate-200 dark:hover:bg-slate-700 whitespace-nowrap">
+                                <span className="material-symbols-outlined text-[20px] text-primary">analytics</span> <span className="hidden sm:inline">Report Center</span>
+                            </Link>
                             <button onClick={handleExport} className="flex-1 md:flex-none justify-center px-4 md:px-6 py-3 bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold shadow-sm flex items-center gap-2 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap">
                                 <span className="material-symbols-outlined text-[20px]">download</span> <span className="hidden sm:inline">Export</span>
                             </button>

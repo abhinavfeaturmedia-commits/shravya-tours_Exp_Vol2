@@ -126,16 +126,11 @@ export const Operations: React.FC = () => {
     const { bookings, packages, vendors, addSupplierBooking, updateSupplierBooking, updateBooking, refreshData } = useData() as any;
     const { staff, updateStaff, currentUser } = useAuth();
     const navigate = useNavigate();
-    const [activeTab, setActiveTab] = useState<'Tours' | 'Attendance'>('Tours');
     const [isRefreshing, setIsRefreshing] = useState(false);
 
     // ─── Search & Filters ─────────────────────────────────────────────────────
     const [searchQuery, setSearchQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState<'all' | 'live' | 'attention' | 'unassigned' | 'upcoming'>('all');
-
-    // ─── Staff Search & Filter (Attendance) ──────────────────────────────────
-    const [staffSearchQuery, setStaffSearchQuery] = useState('');
-    const [staffRoleFilter, setStaffRoleFilter] = useState<string>('all');
 
     // ─── Upcoming window toggle (7 / 14 / 30 / 60 days) ─────────────────────────
     const [upcomingDays, setUpcomingDays] = useState<7 | 14 | 30 | 60>(30);
@@ -507,8 +502,7 @@ export const Operations: React.FC = () => {
             verifiedItems += tourDeliverables.filter(d => d.status === 'Verified Success').length;
         });
 
-        const presentStaff = staff.filter((s: any) => s.attendanceStatus === 'Present').length;
-        const fieldStaff = staff.filter((s: any) => s.attendanceStatus === 'Remote' || s.attendanceStatus === 'On Field').length;
+        const completedCount = tourStats.completed.length;
 
         return {
             activeLiveCount,
@@ -518,10 +512,9 @@ export const Operations: React.FC = () => {
             upcomingCount,
             totalDeliverablesCount: totalItems,
             verifiedDeliverablesCount: verifiedItems,
-            presentStaff,
-            fieldStaff
+            completedCount
         };
-    }, [tourStats, faults, deliverables, staff]);
+    }, [tourStats, faults, deliverables]);
 
     // ─── Search & Filtered Lists ──────────────────────────────────────────────
     const filteredLive = useMemo(() => {
@@ -569,60 +562,6 @@ export const Operations: React.FC = () => {
             );
         });
     }, [tourStats.completed, searchQuery]);
-
-    // ─── Attendance Logic ─────────────────────────────────────────────────────
-    const isAdmin = currentUser?.role === 'admin' || currentUser?.userType === 'Admin';
-
-    const handleStatusChange = async (empId: number, newStatus: string) => {
-        const isSelf = Number(currentUser?.id) === empId || Number((currentUser as any)?.staffId) === empId;
-        if (!isAdmin && !isSelf) {
-            toast.error('You can only update your own attendance.');
-            return;
-        }
-        try {
-            const today = new Date().toISOString().split('T')[0];
-            const nowISO = new Date().toISOString();
-            const logId = `ATL-${empId}-${today}`;
-            if (newStatus === 'Present' || newStatus === 'On Field' || newStatus === 'Remote') {
-                await api.upsertAttendanceLog({ id: logId, staffId: empId, date: today, status: newStatus as any, checkInTime: nowISO });
-                await updateStaff(empId, { attendanceStatus: newStatus as any, checkInTime: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) });
-            } else {
-                await api.upsertAttendanceLog({ id: logId, staffId: empId, date: today, status: newStatus as any, checkOutTime: nowISO });
-                await updateStaff(empId, { attendanceStatus: newStatus as any, checkInTime: newStatus === 'Absent' ? '-' : undefined });
-            }
-            toast.success('Attendance updated');
-        } catch {
-            toast.error('Failed to update attendance');
-        }
-    };
-
-    const handleCheckOut = async (empId: number) => {
-        const isSelfCO = Number(currentUser?.id) === empId || Number((currentUser as any)?.staffId) === empId;
-        if (!isAdmin && !isSelfCO) { toast.error('You can only check out yourself.'); return; }
-        try {
-            const today = new Date().toISOString().split('T')[0];
-            const logId = `ATL-${empId}-${today}`;
-            await api.updateAttendanceLog(logId, { checkOutTime: new Date().toISOString() });
-            await updateStaff(empId, { checkInTime: '-' });
-            toast.success('Checked out successfully');
-        } catch { toast.error('Failed to check out'); }
-    };
-
-    const handleLocationChange = async (id: number, newLocation: string) => {
-        const isSelfLoc = Number(currentUser?.id) === id || Number((currentUser as any)?.staffId) === id;
-        if (!isAdmin && !isSelfLoc) return;
-        try {
-            const today = new Date().toISOString().split('T')[0];
-            const logId = `ATL-${id}-${today}`;
-            const currentStatus = staff.find((s: any) => s.id === id)?.attendanceStatus || 'Present';
-            await api.upsertAttendanceLog({ id: logId, staffId: id, date: today, status: currentStatus as any, location: newLocation });
-            await updateStaff(id, { currentLocation: newLocation });
-            toast.success('Location updated');
-        } catch (e) {
-            console.error('Failed to update location', e);
-            toast.error('Failed to update location');
-        }
-    };
 
     const handleLiveStatusChange = async (bookingId: string, liveStatus: string) => {
         try {
@@ -786,31 +725,6 @@ export const Operations: React.FC = () => {
         vendors.filter((v: any) => v.category === 'Guide' || v.category === 'Activity' || v.category === 'Other'),
         [vendors]);
 
-    // Attendance summary counts
-    const attSummary = useMemo(() => ({
-        present: staff.filter((s: any) => s.attendanceStatus === 'Present').length,
-        field: staff.filter((s: any) => s.attendanceStatus === 'Remote' || s.attendanceStatus === 'On Field').length,
-        leave: staff.filter((s: any) => s.attendanceStatus === 'On Leave').length,
-        absent: staff.filter((s: any) => !s.attendanceStatus || s.attendanceStatus === 'Absent').length,
-    }), [staff]);
-
-    const filteredStaff = useMemo(() => {
-        return staff.filter((emp: any) => {
-            const q = staffSearchQuery.toLowerCase().trim();
-            const matchesQuery = !q || (
-                emp.name.toLowerCase().includes(q) ||
-                (emp.role && emp.role.toLowerCase().includes(q)) ||
-                (emp.currentLocation && emp.currentLocation.toLowerCase().includes(q))
-            );
-            if (!matchesQuery) return false;
-
-            if (staffRoleFilter !== 'all') {
-                return emp.role?.toLowerCase() === staffRoleFilter.toLowerCase();
-            }
-            return true;
-        });
-    }, [staff, staffSearchQuery, staffRoleFilter]);
-
     return (
         <div className="flex flex-col h-full admin-page-bg min-h-screen">
             {/* ── Header ── */}
@@ -823,7 +737,7 @@ export const Operations: React.FC = () => {
                         <span className="font-display text-2xl sm:text-3xl font-extrabold tracking-tight">Operations Control Center</span>
                     </h2>
                     <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm font-medium mt-0.5">
-                        Real-time tracking for active tours, transport assignments, deliverable checklists &amp; field staff.
+                        Real-time tracking for active tours, transport assignments &amp; deliverable checklists.
                     </p>
                 </div>
                 <div className="flex items-center gap-3">
@@ -835,104 +749,87 @@ export const Operations: React.FC = () => {
                     >
                         <RefreshCw size={16} className={isRefreshing ? 'animate-spin text-blue-600' : ''} />
                     </button>
-                    <div className="flex bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
-                        <button
-                            onClick={() => setActiveTab('Tours')}
-                            className={`px-4 py-2 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 ${activeTab === 'Tours' ? 'bg-white dark:bg-slate-700 shadow-xs text-blue-600 dark:text-blue-400' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
-                        >
-                            <Compass size={14} /> Tour Operations
-                        </button>
-                        <button
-                            onClick={() => setActiveTab('Attendance')}
-                            className={`px-4 py-2 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 ${activeTab === 'Attendance' ? 'bg-white dark:bg-slate-700 shadow-xs text-blue-600 dark:text-blue-400' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
-                        >
-                            <UserCheck size={14} /> Field Attendance
-                        </button>
-                    </div>
                 </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
+                <div className="max-w-7xl mx-auto space-y-6">
 
-                {/* ══ TOURS TAB ══ */}
-                {activeTab === 'Tours' && (
-                    <div className="max-w-7xl mx-auto space-y-6">
-
-                        {/* ── KPI Summary Dashboard Control Header ── */}
-                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
-                            <div className="bg-white dark:bg-[#1A2633] p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs relative overflow-hidden group hover:border-blue-300 transition-all">
-                                <div className="flex items-center justify-between text-xs font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
-                                    <span>Active Live Tours</span>
-                                    <span className="relative flex h-2.5 w-2.5">
-                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
-                                    </span>
-                                </div>
-                                <div className="flex items-baseline gap-2 mt-1">
-                                    <span className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">{kpiSummary.activeLiveCount}</span>
-                                    <span className="text-xs font-bold text-slate-500 dark:text-slate-400">({kpiSummary.totalLivePax} Guests)</span>
-                                </div>
-                                <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full mt-3 overflow-hidden">
-                                    <div className="bg-green-500 h-full rounded-full" style={{ width: `${Math.min(kpiSummary.activeLiveCount * 25, 100)}%` }}></div>
-                                </div>
+                    {/* ── KPI Summary Dashboard Control Header ── */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
+                        <div className="bg-white dark:bg-[#1A2633] p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs relative overflow-hidden group hover:border-blue-300 transition-all">
+                            <div className="flex items-center justify-between text-xs font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                                <span>Active Live Tours</span>
+                                <span className="relative flex h-2.5 w-2.5">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
+                                </span>
                             </div>
-
-                            <div className="bg-white dark:bg-[#1A2633] p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs group hover:border-amber-300 transition-all">
-                                <div className="flex items-center justify-between text-xs font-extrabold text-amber-600 dark:text-amber-400 uppercase tracking-wider mb-1">
-                                    <span>Attention Required</span>
-                                    <AlertTriangle size={15} className="text-amber-500" />
-                                </div>
-                                <div className="flex items-baseline gap-2 mt-1">
-                                    <span className={`text-3xl font-black tracking-tight ${kpiSummary.attentionNeededCount > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-900 dark:text-white'}`}>
-                                        {kpiSummary.attentionNeededCount}
-                                    </span>
-                                    <span className="text-xs font-bold text-slate-500 dark:text-slate-400">Tours</span>
-                                </div>
-                                <p className="text-[10px] font-bold text-slate-400 mt-2 truncate">
-                                    {kpiSummary.unassignedTransportCount > 0 ? `${kpiSummary.unassignedTransportCount} missing transport` : 'All transport assigned'}
-                                </p>
+                            <div className="flex items-baseline gap-2 mt-1">
+                                <span className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">{kpiSummary.activeLiveCount}</span>
+                                <span className="text-xs font-bold text-slate-500 dark:text-slate-400">({kpiSummary.totalLivePax} Guests)</span>
                             </div>
-
-                            <div className="bg-white dark:bg-[#1A2633] p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs group hover:border-blue-300 transition-all">
-                                <div className="flex items-center justify-between text-xs font-extrabold text-blue-600 dark:text-blue-400 uppercase tracking-wider mb-1">
-                                    <span>Upcoming Arrivals</span>
-                                    <Calendar size={15} className="text-blue-500" />
-                                </div>
-                                <div className="flex items-baseline gap-2 mt-1">
-                                    <span className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">{kpiSummary.upcomingCount}</span>
-                                    <span className="text-xs font-bold text-slate-500 dark:text-slate-400">Next {upcomingDays}d</span>
-                                </div>
-                                <p className="text-[10px] font-bold text-slate-400 mt-2">Scheduled tour departures</p>
-                            </div>
-
-                            <div className="bg-white dark:bg-[#1A2633] p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs group hover:border-indigo-300 transition-all">
-                                <div className="flex items-center justify-between text-xs font-extrabold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider mb-1">
-                                    <span>Checklist Health</span>
-                                    <CheckSquare size={15} className="text-indigo-500" />
-                                </div>
-                                <div className="flex items-baseline gap-2 mt-1">
-                                    <span className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">
-                                        {kpiSummary.totalDeliverablesCount > 0 ? `${Math.round((kpiSummary.verifiedDeliverablesCount / kpiSummary.totalDeliverablesCount) * 100)}%` : '0%'}
-                                    </span>
-                                    <span className="text-xs font-bold text-slate-500 dark:text-slate-400">({kpiSummary.verifiedDeliverablesCount}/{kpiSummary.totalDeliverablesCount})</span>
-                                </div>
-                                <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full mt-3 overflow-hidden">
-                                    <div className="bg-indigo-500 h-full rounded-full" style={{ width: `${kpiSummary.totalDeliverablesCount > 0 ? (kpiSummary.verifiedDeliverablesCount / kpiSummary.totalDeliverablesCount) * 100 : 0}%` }}></div>
-                                </div>
-                            </div>
-
-                            <div className="bg-white dark:bg-[#1A2633] p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs group hover:border-emerald-300 transition-all col-span-2 sm:col-span-1">
-                                <div className="flex items-center justify-between text-xs font-extrabold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider mb-1">
-                                    <span>Field Operations Staff</span>
-                                    <UserCheck size={15} className="text-emerald-500" />
-                                </div>
-                                <div className="flex items-baseline gap-2 mt-1">
-                                    <span className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">{kpiSummary.presentStaff + kpiSummary.fieldStaff}</span>
-                                    <span className="text-xs font-bold text-slate-500 dark:text-slate-400">/ {staff.length} Active</span>
-                                </div>
-                                <p className="text-[10px] font-bold text-slate-400 mt-2">{kpiSummary.fieldStaff} On Field / Remote</p>
+                            <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full mt-3 overflow-hidden">
+                                <div className="bg-green-500 h-full rounded-full" style={{ width: `${Math.min(kpiSummary.activeLiveCount * 25, 100)}%` }}></div>
                             </div>
                         </div>
+
+                        <div className="bg-white dark:bg-[#1A2633] p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs group hover:border-amber-300 transition-all">
+                            <div className="flex items-center justify-between text-xs font-extrabold text-amber-600 dark:text-amber-400 uppercase tracking-wider mb-1">
+                                <span>Attention Required</span>
+                                <AlertTriangle size={15} className="text-amber-500" />
+                            </div>
+                            <div className="flex items-baseline gap-2 mt-1">
+                                <span className={`text-3xl font-black tracking-tight ${kpiSummary.attentionNeededCount > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-900 dark:text-white'}`}>
+                                    {kpiSummary.attentionNeededCount}
+                                </span>
+                                <span className="text-xs font-bold text-slate-500 dark:text-slate-400">Tours</span>
+                            </div>
+                            <p className="text-[10px] font-bold text-slate-400 mt-2 truncate">
+                                {kpiSummary.unassignedTransportCount > 0 ? `${kpiSummary.unassignedTransportCount} missing transport` : 'All transport assigned'}
+                            </p>
+                        </div>
+
+                        <div className="bg-white dark:bg-[#1A2633] p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs group hover:border-blue-300 transition-all">
+                            <div className="flex items-center justify-between text-xs font-extrabold text-blue-600 dark:text-blue-400 uppercase tracking-wider mb-1">
+                                <span>Upcoming Arrivals</span>
+                                <Calendar size={15} className="text-blue-500" />
+                            </div>
+                            <div className="flex items-baseline gap-2 mt-1">
+                                <span className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">{kpiSummary.upcomingCount}</span>
+                                <span className="text-xs font-bold text-slate-500 dark:text-slate-400">Next {upcomingDays}d</span>
+                            </div>
+                            <p className="text-[10px] font-bold text-slate-400 mt-2">Scheduled tour departures</p>
+                        </div>
+
+                        <div className="bg-white dark:bg-[#1A2633] p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs group hover:border-indigo-300 transition-all">
+                            <div className="flex items-center justify-between text-xs font-extrabold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider mb-1">
+                                <span>Checklist Health</span>
+                                <CheckSquare size={15} className="text-indigo-500" />
+                            </div>
+                            <div className="flex items-baseline gap-2 mt-1">
+                                <span className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">
+                                    {kpiSummary.totalDeliverablesCount > 0 ? `${Math.round((kpiSummary.verifiedDeliverablesCount / kpiSummary.totalDeliverablesCount) * 100)}%` : '0%'}
+                                </span>
+                                <span className="text-xs font-bold text-slate-500 dark:text-slate-400">({kpiSummary.verifiedDeliverablesCount}/{kpiSummary.totalDeliverablesCount})</span>
+                            </div>
+                            <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full mt-3 overflow-hidden">
+                                <div className="bg-indigo-500 h-full rounded-full" style={{ width: `${kpiSummary.totalDeliverablesCount > 0 ? (kpiSummary.verifiedDeliverablesCount / kpiSummary.totalDeliverablesCount) * 100 : 0}%` }}></div>
+                            </div>
+                        </div>
+
+                        <div className="bg-white dark:bg-[#1A2633] p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs group hover:border-emerald-300 transition-all col-span-2 sm:col-span-1">
+                            <div className="flex items-center justify-between text-xs font-extrabold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider mb-1">
+                                <span>Completed Tours</span>
+                                <CheckCircle size={15} className="text-emerald-500" />
+                            </div>
+                            <div className="flex items-baseline gap-2 mt-1">
+                                <span className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">{kpiSummary.completedCount}</span>
+                                <span className="text-xs font-bold text-slate-500 dark:text-slate-400">Tours</span>
+                            </div>
+                            <p className="text-[10px] font-bold text-slate-400 mt-2">Executed &amp; finalized</p>
+                        </div>
+                    </div>
 
                         {/* ── Search & Filter Controls ── */}
                         <div className="bg-white dark:bg-[#1A2633] p-3.5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col md:flex-row items-center justify-between gap-3">
@@ -1600,135 +1497,7 @@ export const Operations: React.FC = () => {
                             </div>
                         )}
                     </div>
-                )}
-
-                {/* ══ ATTENDANCE TAB ══ */}
-                {activeTab === 'Attendance' && (
-                    <div className="max-w-5xl mx-auto space-y-5">
-                        {/* Attendance Summary Stat Cards */}
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                            <div className="bg-emerald-50 dark:bg-emerald-900/20 p-4 rounded-2xl border border-emerald-200/60 dark:border-emerald-800/50">
-                                <div className="text-xs font-extrabold text-emerald-700 dark:text-emerald-400 uppercase">Present</div>
-                                <div className="text-2xl font-black text-emerald-800 dark:text-emerald-300 mt-1">{attSummary.present}</div>
-                            </div>
-                            <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-2xl border border-blue-200/60 dark:border-blue-800/50">
-                                <div className="text-xs font-extrabold text-blue-700 dark:text-blue-400 uppercase">On Field / Remote</div>
-                                <div className="text-2xl font-black text-blue-800 dark:text-blue-300 mt-1">{attSummary.field}</div>
-                            </div>
-                            <div className="bg-amber-50 dark:bg-amber-900/20 p-4 rounded-2xl border border-amber-200/60 dark:border-amber-800/50">
-                                <div className="text-xs font-extrabold text-amber-700 dark:text-amber-400 uppercase">On Leave</div>
-                                <div className="text-2xl font-black text-amber-800 dark:text-amber-300 mt-1">{attSummary.leave}</div>
-                            </div>
-                            <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-2xl border border-red-200/60 dark:border-red-800/50">
-                                <div className="text-xs font-extrabold text-red-700 dark:text-red-400 uppercase">Absent</div>
-                                <div className="text-2xl font-black text-red-800 dark:text-red-300 mt-1">{attSummary.absent}</div>
-                            </div>
-                        </div>
-
-                        {/* Search & Filter Bar for Staff */}
-                        <div className="bg-white dark:bg-[#1A2633] p-4 rounded-2xl shadow-xs border border-slate-200/80 dark:border-slate-800 flex flex-col sm:flex-row justify-between items-center gap-3">
-                            <div className="relative w-full sm:w-72">
-                                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                <input
-                                    type="text"
-                                    value={staffSearchQuery}
-                                    onChange={(e) => setStaffSearchQuery(e.target.value)}
-                                    placeholder="Search staff by name or role..."
-                                    className="w-full pl-9 pr-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs outline-none text-slate-900 dark:text-white"
-                                />
-                            </div>
-
-                            <select
-                                value={staffRoleFilter}
-                                onChange={(e) => setStaffRoleFilter(e.target.value)}
-                                className="px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold rounded-xl outline-none text-slate-700 dark:text-slate-300"
-                            >
-                                <option value="all">All Staff Roles</option>
-                                <option value="admin">Admin</option>
-                                <option value="operations">Operations</option>
-                                <option value="driver">Driver</option>
-                                <option value="guide">Guide</option>
-                            </select>
-                        </div>
-
-                        <div className="bg-white dark:bg-[#1A2633] rounded-2xl shadow-xs border border-slate-200/80 dark:border-slate-800 overflow-hidden">
-                            <table className="w-full text-left border-collapse">
-                                <thead className="bg-slate-50 dark:bg-slate-900/50 text-[11px] uppercase font-black text-slate-400 border-b border-slate-100 dark:border-slate-800">
-                                    <tr>
-                                        <th className="px-6 py-4">Employee</th>
-                                        <th className="px-6 py-4">Status</th>
-                                        <th className="px-6 py-4">Check-In</th>
-                                        <th className="px-6 py-4">Current Location</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
-                                    {filteredStaff.map((emp: any) => (
-                                        <tr key={emp.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
-                                            <td className="px-6 py-4">
-                                                <div className="font-extrabold text-slate-900 dark:text-white flex items-center gap-2.5">
-                                                    <div
-                                                        style={{ backgroundColor: getAvatarBg(emp.color) }}
-                                                        className="size-8 rounded-full flex items-center justify-center text-xs text-white font-black flex-shrink-0 shadow-xs"
-                                                    >
-                                                        {emp.initials}
-                                                    </div>
-                                                    <div>
-                                                        <div>{emp.name}</div>
-                                                        <div className="text-[10px] text-slate-400 font-semibold capitalize">{emp.role}</div>
-                                                    </div>
-                                                </div>
-                                            </td>
-                                            <td className="px-6 py-4">
-                                                <select
-                                                    value={emp.attendanceStatus || 'Absent'}
-                                                    onChange={(e) => handleStatusChange(emp.id, e.target.value)}
-                                                    disabled={!isAdmin && Number(currentUser?.id) !== emp.id && Number((currentUser as any)?.staffId) !== emp.id}
-                                                    className={`px-3 py-1.5 rounded-xl text-xs font-black border-none outline-none cursor-pointer disabled:opacity-50
-                                                        ${emp.attendanceStatus === 'Present' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300' :
-                                                            emp.attendanceStatus === 'On Field' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300' :
-                                                                emp.attendanceStatus === 'Remote' ? 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300' :
-                                                                    emp.attendanceStatus === 'On Leave' ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300' :
-                                                                        'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300'}`}
-                                                >
-                                                    <option value="Present">Present</option>
-                                                    <option value="Absent">Absent</option>
-                                                    <option value="On Field">On Field</option>
-                                                    <option value="Remote">Remote</option>
-                                                    <option value="On Leave">On Leave</option>
-                                                </select>
-                                            </td>
-                                            <td className="px-6 py-4 text-sm font-mono text-slate-600 dark:text-slate-400">
-                                                <div className="flex items-center gap-2">
-                                                    <span>{emp.checkInTime || '-'}</span>
-                                                    {emp.attendanceStatus && emp.attendanceStatus !== 'Absent' && emp.checkInTime && emp.checkInTime !== '-' && (isAdmin || Number(currentUser?.id) === emp.id || Number((currentUser as any)?.staffId) === emp.id) && (
-                                                        <button onClick={() => handleCheckOut(emp.id)} className="text-[10px] text-red-500 hover:text-red-700 font-black flex items-center gap-0.5 bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded-md" title="Check Out">
-                                                            <LogOut size={10} /> Out
-                                                        </button>
-                                                    )}
-                                                </div>
-                                            </td>
-                                            <td className="px-6 py-4 text-sm font-medium text-slate-600 dark:text-slate-400">
-                                                <div className="flex items-center gap-2">
-                                                    {emp.attendanceStatus === 'On Field' && <Map size={14} className="text-blue-500" />}
-                                                    <input
-                                                        type="text"
-                                                        defaultValue={emp.currentLocation || (emp.attendanceStatus === 'Present' ? 'Office' : '')}
-                                                        onBlur={(e) => handleLocationChange(emp.id, e.target.value)}
-                                                        disabled={!isAdmin && Number(currentUser?.id) !== emp.id && Number((currentUser as any)?.staffId) !== emp.id}
-                                                        className="bg-transparent border-b border-transparent hover:border-slate-300 focus:border-blue-500 outline-none w-36 transition-colors text-xs font-semibold disabled:opacity-50 text-slate-800 dark:text-slate-200"
-                                                        placeholder="Set Location..."
-                                                    />
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                )}
-
-            </div>
+                </div>
 
             {/* ══ PREP / SUPPLIER ASSIGNMENT MODAL ══ */}
             {prepModalOpen && selectedBookingForPrep && (

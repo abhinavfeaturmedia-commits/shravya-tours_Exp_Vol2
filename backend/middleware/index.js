@@ -7,7 +7,7 @@
 
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'change-me';
+const getJwtSecret = () => process.env.JWT_SECRET || 'super_secret_jwt_key_please_change';
 
 // ═══════════════════════════════════════════
 // ALLOWED TABLES WHITELIST
@@ -15,7 +15,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'change-me';
 
 export const ALLOWED_TABLES = new Set([
     'packages', 'bookings', 'booking_transactions', 'supplier_bookings',
-    'leads', 'lead_logs', 'daily_inventory',
+    'leads', 'lead_logs', 'daily_inventory', 'inventory_slots',
     'vendors', 'accounts', 'account_transactions',
     'staff_members', 'customers', 'campaigns', 'expenses',
     'master_locations', 'master_hotels', 'tasks',
@@ -26,7 +26,7 @@ export const ALLOWED_TABLES = new Set([
     'follow_ups', 'proposals', 'daily_targets', 'time_sessions',
     'assignment_rules', 'user_activities', 'audit_logs', 'settings',
     'invoices', 'invoice_items', 'invoice_custom_fields',
-    'attendance_logs',
+    'attendance_logs', 'attendance_breaks', 'staff_leaves', 'attendance_settings',
     'membership_plans', 'customer_memberships',
     'partners', 'partner_commissions',
     'coupons',
@@ -34,7 +34,8 @@ export const ALLOWED_TABLES = new Set([
     'marketing_targets', 'marketing_log_comments', 'marketing_log_reactions',
     'marketing_log_leads', 'marketing_log_bookings', 'in_app_notifications',
     'booking_daily_deliverables',
-    'vehicle_categories', 'vehicles', 'drivers', 'car_bookings', 'car_booking_payments', 'car_reviews'
+    'vehicle_categories', 'vehicles', 'drivers', 'car_bookings', 'car_booking_payments', 'car_reviews',
+    'report_history'
 ]);
 
 // ═══════════════════════════════════════════
@@ -44,6 +45,7 @@ export const ALLOWED_TABLES = new Set([
 export const TABLE_TO_MODULE = {
     'packages': 'inventory',
     'daily_inventory': 'inventory',
+    'inventory_slots': 'inventory',
     'bookings': 'bookings',
     'booking_transactions': 'invoices',
     'supplier_bookings': 'operations',
@@ -100,7 +102,8 @@ export const TABLE_TO_MODULE = {
     'drivers': 'operations',
     'car_bookings': 'operations',
     'car_booking_payments': 'operations',
-    'car_reviews': 'operations'
+    'car_reviews': 'operations',
+    'report_history': 'reports'
 };
 
 // ═══════════════════════════════════════════
@@ -113,7 +116,7 @@ export function authMiddleware(req, res, next) {
         return res.status(401).json({ error: 'Unauthorized' });
     }
     try {
-        const decoded = jwt.verify(header.split(' ')[1], JWT_SECRET);
+        const decoded = jwt.verify(header.split(' ')[1], getJwtSecret());
         req.user = decoded;
         next();
     } catch {
@@ -251,7 +254,7 @@ export function optionalAuthMiddleware(req, res, next) {
         const header = req.headers.authorization;
         if (header && header.startsWith('Bearer ')) {
             try {
-                req.user = jwt.verify(header.split(' ')[1], JWT_SECRET);
+                req.user = jwt.verify(header.split(' ')[1], getJwtSecret());
             } catch { /* not authenticated — fine for public reads */ }
         }
         return next();

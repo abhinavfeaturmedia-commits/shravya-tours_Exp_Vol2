@@ -23,6 +23,22 @@ This walkthrough summarizes the visual and code updates implemented to add advan
 
 ---
 
+## Root Cause & Fix Applied
+
+### Issue:
+The page initially crashed with `Cannot read properties of undefined (reading 'length')` because `useData()` was being destructured for properties (`expenses`, `staff`, `partners`, `inventory`) where:
+- `expenses` and `partners` were not properties on `useData()` (they are separate backend tables)
+- `staff` belongs to `useAuth()`
+- `inventory` in `useData()` is an object map `Record<string, DailySlot>`, not an array with `.length`.
+
+### Inventory Data Pipeline & Synthesis
+- **Database Table Mapping**: Whitelisted and mapped `inventory_slots` and `daily_inventory` across `backend/index.js` and `backend/middleware/index.js`.
+- **Active Utilization Aggregation**: In [api.ts](file:///c:/Users/Abhinav/Documents/Antigravity%20Files/shravya-tours_Exp_Vol2/src/lib/api.ts), inventory extraction synthesizes explicit manual slot overrides from `inventory_slots` with real-time reservation departures from `bookings` (tracking trips, pax occupied, available remaining capacity, and allocated revenue per day).
+- **Report Normalization**: In [reportExporter.ts](file:///c:/Users/Abhinav/Documents/Antigravity%20Files/shravya-tours_Exp_Vol2/utils/reportExporter.ts), mapped inventory columns (`Date`, `Asset / Departure Title`, `Service Type`, `Capacity (Pax)`, `Active Bookings`, `Pax Booked`, `Available Remaining`, `Allocated Revenue (INR)`, `Blocked Status`, `Operational Status`, `Notes`) for instant CSV/Excel/JSON export and preview.
+- **Top Badge Counter**: Display dynamically reflects active operational inventory schedule days.
+
+---
+
 ## Verification & Testing
 
 1. **Compilation Check**: Verified the project compiles successfully using:

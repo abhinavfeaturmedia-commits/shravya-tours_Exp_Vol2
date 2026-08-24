@@ -12,6 +12,7 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { authMiddleware } from '../middleware/index.js';
+import { recordStaffLoginAndAutoClockIn } from './attendance.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'change-me';
 
@@ -82,12 +83,17 @@ export function createAuthRoutes(app, pool) {
                 { expiresIn: '7d' }
             );
 
-            // Update last_active
+            // Update last_active & auto-register daily attendance session
             if (staffProfile) {
                 await pool.query(
                     "UPDATE staff_members SET last_active = DATE_FORMAT(NOW(), '%Y-%m-%dT%H:%i:%sZ') WHERE id = ?",
                     [staffProfile.id]
                 ).catch(e => console.error('Failed to update last_active:', e.message));
+
+                // Auto clock in and start session #1
+                await recordStaffLoginAndAutoClockIn(pool, staffProfile, req, 'web_login').catch(e => {
+                    console.warn('[Auto Clock-In on Login Warn]:', e.message);
+                });
             }
 
             console.log(`Login successful: ${trimmedEmail} (role: ${effectiveRole}, staffId: ${staffProfile?.id})`);
@@ -118,11 +124,58 @@ export function createAuthRoutes(app, pool) {
                 const now = new Date();
                 const isoNow = now.toISOString().replace('.000', '').replace(/\.\d{3}/, '');
                 staff[0].last_active = isoNow;
+
+                // Auto clock in and resume/create session on session restore
+                await recordStaffLoginAndAutoClockIn(pool, staff[0], req, 'session_restore').catch(e => {
+                    console.warn('[Auto Clock-In on /me Warn]:', e.message);
+                });
             }
             res.json({ user: req.user, staff: staff[0] || null });
         } catch (error) {
             console.error(error);
             res.status(500).json({ error: 'Failed to fetch user info' });
+        }
+    });
+
+    // POST /api/auth/logout — Explicit user logout
+    app.post('/api/auth/logout', authMiddleware, async (req, res) => {
+        try {
+            const email = req.user?.email;
+            let staffId = req.user?.staffId;
+            if (!staffId && email) {
+                const [staff] = await pool.query('SELECT id FROM staff_members WHERE email = ?', [email]);
+                if (staff.length > 0) staffId = staff[0].id;
+            }
+
+            if (staffId) {
+                // Close active session
+                await pool.query(`
+                    UPDATE attendance_sessions SET
+                        session_end = NOW(),
+                        logout_type = 'user_logout',
+                        updated_at = NOW()
+                    WHERE staff_id = ? AND session_end IS NULL
+                `, [staffId]);
+
+                // Auto-clockout on user logout if requested (or by default)
+                const today = new Date().toISOString().split('T')[0];
+                const logId = `ATL-${staffId}-${today}`;
+                if (req.body?.clockOut !== false) {
+                    await pool.query(`
+                        UPDATE attendance_logs SET
+                            check_out_time = NOW(),
+                            status = 'Clocked Out',
+                            auto_clocked_out = 0,
+                            updated_at = NOW()
+                        WHERE id = ? AND check_out_time IS NULL
+                    `, [logId]);
+                }
+            }
+
+            res.json({ success: true, message: 'Logged out successfully' });
+        } catch (e) {
+            console.error('Logout error:', e);
+            res.status(500).json({ error: 'Failed to process logout' });
         }
     });
 
@@ -139,8 +192,8 @@ export function createAuthRoutes(app, pool) {
             }
             res.json({ status: 'success' });
         } catch (error) {
-            console.error('Create user error:', error);
-            res.status(500).json({ error: 'Failed to create user', details: error.message });
+            console.error(error);
+            res.status(500).json({ error: 'Failed to create user' });
         }
     });
 }

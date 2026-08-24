@@ -1,5 +1,5 @@
 import imageCompression from 'browser-image-compression';
-import { Package, Booking, Lead, LeadLog, BookingStatus, BookingType, StaffMember, Customer, MasterRoomType, MasterMealPlan, MasterActivity, MasterTransport, MasterPlan, MasterLeadSource, MasterTermsTemplate, CMSBanner, CMSTestimonial, CMSGalleryImage, CMSPost, FollowUp, Proposal, DailyTarget, TimeSession, AssignmentRule, UserActivity, Campaign, MasterHotel, Task, AuditLog, Expense, AttendanceLog, Coupon, DailyMarketingLog, MarketingTarget, LogComment, LogReaction, InAppNotification, BookingDailyDeliverable, DailySlot, MembershipPlan, Account, AccountTransaction } from '../../types';
+import { Package, Booking, Lead, LeadLog, BookingStatus, BookingType, StaffMember, Customer, MasterRoomType, MasterMealPlan, MasterActivity, MasterTransport, MasterPlan, MasterLeadSource, MasterTermsTemplate, CMSBanner, CMSTestimonial, CMSGalleryImage, CMSPost, FollowUp, Proposal, DailyTarget, TimeSession, AssignmentRule, UserActivity, Campaign, MasterHotel, Task, AuditLog, Expense, AttendanceLog, StaffLeave, AttendanceSettings, TodayAttendanceResponse, AttendanceReportResponse, Coupon, DailyMarketingLog, MarketingTarget, LogComment, LogReaction, InAppNotification, BookingDailyDeliverable, DailySlot, MembershipPlan, Account, AccountTransaction, ReportHistoryItem } from '../../types';
 import { normalisePhone } from '../../utils/phoneUtils';
 import { parsePaxString, formatPaxString } from '../../utils/paxUtils';
 
@@ -3340,5 +3340,283 @@ export const api = {
             method: 'DELETE'
         });
     },
+
+    // --- REPORTS & EXPORT HISTORY API ---
+    reports: {
+        getHistory: async (): Promise<ReportHistoryItem[]> => {
+            try {
+                const res = await crud.getAll('report_history', { order: 'created_at', asc: false, limit: 200 });
+                const rawList = res.data || [];
+                return rawList.map((item: any) => ({
+                    ...item,
+                    filters_applied: typeof item.filters_applied === 'string'
+                        ? parseJsonFieldSafe(item.filters_applied, {})
+                        : (item.filters_applied || {})
+                }));
+            } catch (err) {
+                console.warn('[Reports API] Failed to fetch report history from MySQL:', err);
+                const local = localStorage.getItem('shrawello_report_history');
+                return local ? JSON.parse(local) : [];
+            }
+        },
+
+        logExport: async (report: Omit<ReportHistoryItem, 'id' | 'created_at'>): Promise<ReportHistoryItem> => {
+            const newRecord = {
+                id: `REP-${Date.now()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
+                report_type: report.report_type,
+                file_name: report.file_name,
+                file_format: report.file_format || 'csv',
+                record_count: report.record_count || 0,
+                file_size_kb: report.file_size_kb || 0,
+                generated_by: report.generated_by || 'Admin',
+                filters_applied: typeof report.filters_applied === 'object' ? JSON.stringify(report.filters_applied) : (report.filters_applied || '{}'),
+                created_at: new Date().toISOString()
+            };
+
+            try {
+                await crud.create('report_history', newRecord);
+            } catch (err) {
+                console.warn('[Reports API] Could not persist to DB, saving locally:', err);
+            }
+
+            // Sync with local storage as backup
+            try {
+                const existing = JSON.parse(localStorage.getItem('shrawello_report_history') || '[]');
+                const updated = [newRecord, ...existing].slice(0, 100);
+                localStorage.setItem('shrawello_report_history', JSON.stringify(updated));
+            } catch (e) {
+                /* ignore */
+            }
+
+            return {
+                ...newRecord,
+                filters_applied: report.filters_applied
+            } as ReportHistoryItem;
+        },
+
+        deleteHistory: async (id: string): Promise<void> => {
+            try {
+                await crud.remove('report_history', id);
+            } catch (err) {
+                console.warn('[Reports API] Failed to delete from DB:', err);
+            }
+            try {
+                const existing = JSON.parse(localStorage.getItem('shrawello_report_history') || '[]');
+                const filtered = existing.filter((item: any) => item.id !== id);
+                localStorage.setItem('shrawello_report_history', JSON.stringify(filtered));
+            } catch (e) {
+                /* ignore */
+            }
+        },
+
+        clearHistory: async (): Promise<void> => {
+            try {
+                const history = await api.reports.getHistory();
+                for (const item of history) {
+                    await crud.remove('report_history', item.id).catch(() => {});
+                }
+            } catch (err) {
+                console.warn('[Reports API] Batch delete error:', err);
+            }
+            localStorage.removeItem('shrawello_report_history');
+        },
+
+        getLiveCounts: async (): Promise<Record<string, number>> => {
+            const counts: Record<string, number> = {};
+            const tables = ['bookings', 'leads', 'customers', 'expenses', 'invoices', 'vendors', 'car_bookings', 'partners', 'staff_members', 'audit_logs', 'packages'];
+            
+            await Promise.allSettled([
+                ...tables.map(async (tbl) => {
+                    try {
+                        const res = await crud.getAll(tbl, { limit: 1000 });
+                        const arr = Array.isArray(res) ? res : (Array.isArray(res?.data) ? res.data : []);
+                        counts[tbl] = arr.length;
+                    } catch {
+                        counts[tbl] = 0;
+                    }
+                }),
+                (async () => {
+                    try {
+                        const [invRes, bkRes] = await Promise.all([
+                            crud.getAll('inventory_slots', { limit: 1000 }).catch(() => ({ data: [] })),
+                            crud.getAll('bookings', { limit: 1000 }).catch(() => ({ data: [] }))
+                        ]);
+                        const invRows = Array.isArray(invRes) ? invRes : (Array.isArray(invRes?.data) ? invRes.data : []);
+                        const bkRows = Array.isArray(bkRes) ? bkRes : (Array.isArray(bkRes?.data) ? bkRes.data : []);
+                        
+                        const activeDates = new Set<string>();
+                        invRows.forEach((r: any) => { if (r.date) activeDates.add(String(r.date).slice(0, 10)); });
+                        bkRows.forEach((b: any) => { if (b.date) activeDates.add(String(b.date).slice(0, 10)); });
+                        
+                        const count = Math.max(activeDates.size, invRows.length, 30);
+                        counts['daily_inventory'] = count;
+                        counts['inventory_slots'] = count;
+                    } catch {
+                        counts['daily_inventory'] = 30;
+                    }
+                })()
+            ]);
+            return counts;
+        },
+
+        fetchEntityRows: async (table: string): Promise<any[]> => {
+            try {
+                if (table === 'daily_inventory' || table === 'inventory_slots') {
+                    const [invRes, bkRes] = await Promise.all([
+                        crud.getAll('inventory_slots', { limit: 2000 }).catch(() => ({ data: [] })),
+                        crud.getAll('bookings', { limit: 2000 }).catch(() => ({ data: [] }))
+                    ]);
+                    const invRows = Array.isArray(invRes) ? invRes : (Array.isArray(invRes?.data) ? invRes.data : []);
+                    const bkRows = Array.isArray(bkRes) ? bkRes : (Array.isArray(bkRes?.data) ? bkRes.data : []);
+
+                    const slotsByDate: Record<string, any> = {};
+                    invRows.forEach((r: any) => {
+                        const d = r.date ? String(r.date).slice(0, 10) : '';
+                        if (d) slotsByDate[d] = r;
+                    });
+
+                    const bookingsByDate: Record<string, { trips: number; pax: number; revenue: number; titles: string[] }> = {};
+                    bkRows.forEach((b: any) => {
+                        if (b.status === 'Cancelled' || !b.date) return;
+                        const ds = String(b.date).slice(0, 10);
+                        if (!bookingsByDate[ds]) {
+                            bookingsByDate[ds] = { trips: 0, pax: 0, revenue: 0, titles: [] };
+                        }
+                        const pax = b.paxCount || (Number(b.paxAdult || 0) + Number(b.paxChild || 0)) || 1;
+                        bookingsByDate[ds].trips += 1;
+                        bookingsByDate[ds].pax += pax;
+                        bookingsByDate[ds].revenue += Number(b.amount || 0);
+                        if (b.title && !bookingsByDate[ds].titles.includes(b.title)) {
+                            bookingsByDate[ds].titles.push(b.title);
+                        }
+                    });
+
+                    const allDatesSet = new Set<string>([
+                        ...Object.keys(slotsByDate),
+                        ...Object.keys(bookingsByDate)
+                    ]);
+
+                    const now = new Date();
+                    for (let i = -15; i <= 30; i++) {
+                        const d = new Date(now);
+                        d.setDate(d.getDate() + i);
+                        allDatesSet.add(d.toISOString().slice(0, 10));
+                    }
+
+                    const sortedDates = Array.from(allDatesSet).sort();
+                    return sortedDates.map(dateStr => {
+                        const slot = slotsByDate[dateStr];
+                        const bk = bookingsByDate[dateStr] || { trips: 0, pax: 0, revenue: 0, titles: [] };
+                        const capacity = Number(slot?.capacity || 50);
+                        const isBlocked = Boolean(slot?.is_blocked || slot?.isBlocked);
+                        const paxBooked = bk.pax;
+                        const remaining = Math.max(0, capacity - paxBooked);
+
+                        return {
+                            id: slot?.id || `inv-${dateStr}`,
+                            date: dateStr,
+                            assetId: slot?.asset_id || (bk.titles.length > 0 ? bk.titles.slice(0, 2).join(', ') : 'All Departures'),
+                            assetType: slot?.asset_type || 'Tour Departure',
+                            capacity: capacity,
+                            booked: bk.trips,
+                            paxBooked: paxBooked,
+                            remaining: remaining,
+                            revenue: bk.revenue,
+                            isBlocked: isBlocked,
+                            status: isBlocked ? 'Blocked' : (paxBooked >= capacity ? 'Sold Out' : (paxBooked > 0 ? 'Active Booking' : 'Available')),
+                            notes: slot?.notes || (bk.trips > 0 ? `${bk.trips} bookings (${paxBooked} pax)` : 'Open for reservations')
+                        };
+                    });
+                }
+
+                const res = await crud.getAll(table, { limit: 2500 });
+                return Array.isArray(res) ? res : (Array.isArray(res?.data) ? res.data : []);
+            } catch (err) {
+                console.warn(`[Reports API] Failed to fetch rows for ${table}:`, err);
+                return [];
+            }
+        }
+    },
+
+    // ─── ATTENDANCE & ROSTER ───
+    getTodayAttendance: async (): Promise<TodayAttendanceResponse> => {
+        return fetchApi('/api/attendance/today');
+    },
+    startAttendanceSession: async (data?: { staffId?: number; loginType?: string; location?: string; notes?: string }) => {
+        return fetchApi('/api/attendance/session/start', { method: 'POST', body: JSON.stringify(data || {}) });
+    },
+    endAttendanceSession: async (data?: { sessionId?: string; staffId?: number; logoutType?: string; clockOut?: boolean }) => {
+        return fetchApi('/api/attendance/session/end', { method: 'POST', body: JSON.stringify(data || {}) });
+    },
+    logout: async (clockOut = true) => {
+        return fetchApi('/api/auth/logout', { method: 'POST', body: JSON.stringify({ clockOut }) }).catch(() => {});
+    },
+    sendAttendanceHeartbeat: async (data: { sessionId?: string; staffId?: number; activeDeltaSeconds?: number; idleDeltaSeconds?: number; systemDeltaSeconds?: number; isActive?: boolean }) => {
+        return fetchApi('/api/attendance/heartbeat', { method: 'POST', body: JSON.stringify(data) });
+    },
+    getTodaySessions: async (staffId?: number) => {
+        return fetchApi('/api/attendance/sessions/today' + (staffId ? `?staffId=${staffId}` : ''));
+    },
+    getStaffSessions: async (staffId: number, startDate?: string, endDate?: string) => {
+        const qs = new URLSearchParams();
+        if (startDate) qs.set('startDate', startDate);
+        if (endDate) qs.set('endDate', endDate);
+        return fetchApi(`/api/attendance/sessions/staff/${staffId}${qs.toString() ? `?${qs.toString()}` : ''}`);
+    },
+    clockIn: async (data?: { staffId?: number; location?: string; notes?: string }) => {
+        return fetchApi('/api/attendance/clock-in', { method: 'POST', body: JSON.stringify(data || {}) });
+    },
+    clockOut: async (data?: { staffId?: number; notes?: string }) => {
+        return fetchApi('/api/attendance/clock-out', { method: 'POST', body: JSON.stringify(data || {}) });
+    },
+    startBreak: async (data?: { staffId?: number; breakType?: string }) => {
+        return fetchApi('/api/attendance/break/start', { method: 'POST', body: JSON.stringify(data || {}) });
+    },
+    endBreak: async (data?: { staffId?: number }) => {
+        return fetchApi('/api/attendance/break/end', { method: 'POST', body: JSON.stringify(data || {}) });
+    },
+    sendHeartbeat: async () => {
+        return fetchApi('/api/attendance/heartbeat', { method: 'POST', body: JSON.stringify({}) });
+    },
+    quickMarkAttendance: async (data: { staffId: number; status: string; checkInTime?: string; checkOutTime?: string; notes?: string }) => {
+        return fetchApi('/api/attendance/quick-mark', { method: 'POST', body: JSON.stringify(data) });
+    },
+    adjustAttendance: async (id: string, data: any) => {
+        return fetchApi(`/api/attendance/adjust/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) });
+    },
+    getMyAttendanceHistory: async (month?: string, staffId?: number) => {
+        const qs = new URLSearchParams();
+        if (month) qs.set('month', month);
+        if (staffId) qs.set('staffId', String(staffId));
+        return fetchApi(`/api/attendance/my-history${qs.toString() ? `?${qs.toString()}` : ''}`);
+    },
+    submitRegularization: async (data: { date: string; requestedCheckIn?: string; requestedCheckOut?: string; reason: string }) => {
+        return fetchApi('/api/attendance/regularize', { method: 'POST', body: JSON.stringify(data) });
+    },
+    getAttendanceReports: async (filters: { startDate?: string; endDate?: string; department?: string; staffId?: number }): Promise<AttendanceReportResponse> => {
+        const qs = new URLSearchParams();
+        if (filters.startDate) qs.set('startDate', filters.startDate);
+        if (filters.endDate) qs.set('endDate', filters.endDate);
+        if (filters.department) qs.set('department', filters.department);
+        if (filters.staffId) qs.set('staffId', String(filters.staffId));
+        return fetchApi(`/api/attendance/reports${qs.toString() ? `?${qs.toString()}` : ''}`);
+    },
+    getStaffLeaves: async (): Promise<StaffLeave[]> => {
+        return fetchApi('/api/attendance/leaves');
+    },
+    applyStaffLeave: async (data: { staffId?: number; leaveType: string; startDate: string; endDate: string; daysCount?: number; reason: string }) => {
+        return fetchApi('/api/attendance/leaves/apply', { method: 'POST', body: JSON.stringify(data) });
+    },
+    updateStaffLeaveStatus: async (leaveId: string, data: { status: 'Approved' | 'Rejected' | 'Cancelled'; rejectionReason?: string }) => {
+        return fetchApi(`/api/attendance/leaves/${encodeURIComponent(leaveId)}/status`, { method: 'PUT', body: JSON.stringify(data) });
+    },
+    getAttendanceSettings: async (): Promise<AttendanceSettings> => {
+        return fetchApi('/api/attendance/settings');
+    },
+    updateAttendanceSettings: async (settings: Partial<AttendanceSettings>) => {
+        return fetchApi('/api/attendance/settings', { method: 'PUT', body: JSON.stringify(settings) });
+    },
+
+    crud
 };
 

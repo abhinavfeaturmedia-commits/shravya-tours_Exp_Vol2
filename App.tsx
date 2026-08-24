@@ -38,6 +38,7 @@ const DigitalCard = lazy(() => import('./pages/DigitalCard').then(module => ({ d
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard').then(module => ({ default: module.AdminDashboard })));
 const Inventory = lazy(() => import('./pages/admin/Inventory').then(module => ({ default: module.Inventory })));
 const Analytics = lazy(() => import('./pages/admin/Analytics').then(module => ({ default: module.Analytics || module.default })));
+const Reports = lazy(() => import('./pages/admin/Reports').then(module => ({ default: module.Reports })));
 const Operations = lazy(() => import('./pages/admin/Operations').then(module => ({ default: module.Operations })));
 const ItineraryBuilder = lazy(() => import('./pages/admin/ItineraryBuilder').then(module => ({ default: module.ItineraryBuilder })));
 const StaffManagement = lazy(() => import('./pages/admin/StaffManagement').then(module => ({ default: module.StaffManagement })));
@@ -71,6 +72,7 @@ const OfferBannersManager = lazy(() => import('./pages/admin/OfferBannersManager
 const AdminKYCManager = lazy(() => import('./pages/admin/AdminKYCManager').then(module => ({ default: module.AdminKYCManager })));
 const TrainingManager = lazy(() => import('./pages/admin/TrainingManager').then(module => ({ default: module.TrainingManager })));
 const StaffTraining = lazy(() => import('./pages/admin/StaffTraining').then(module => ({ default: module.StaffTraining })));
+const Attendance = lazy(() => import('./pages/admin/Attendance').then(module => ({ default: module.Attendance || module.default })));
 
 // Partner Portal Pages
 const PartnerLogin = lazy(() => import('./pages/partner/PartnerLogin').then(m => ({ default: m.PartnerLogin })));
@@ -152,6 +154,8 @@ const App: React.FC = () => {
                   <Route index element={<AdminDashboard />} />
                   <Route path="dashboard" element={<Navigate to="/admin" replace />} />
                   <Route path="analytics" element={<Analytics />} />
+                  <Route path="reports" element={<Reports />} />
+                  <Route path="data-extractor" element={<Reports />} />
                   <Route path="operations" element={<Operations />} />
                   <Route path="bookings" element={<Bookings />} />
                   <Route path="inventory" element={<Inventory />} />
@@ -172,6 +176,7 @@ const App: React.FC = () => {
                   <Route path="audit" element={<AuditLogs />} />
                   <Route path="activity" element={<ActivityLogs />} />
                   <Route path="productivity" element={<Productivity />} />
+                  <Route path="attendance" element={<Attendance />} />
                   <Route path="staff" element={<StaffManagement />} />
                   <Route path="team-performance" element={<TeamPerformance />} />
                   <Route path="packages" element={<AdminPackages />} />

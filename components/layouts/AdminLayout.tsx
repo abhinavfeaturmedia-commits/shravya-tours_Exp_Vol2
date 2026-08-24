@@ -9,6 +9,7 @@ import { SuggestPopup, isDismissed, isSnoozed } from '../../components/ui/Sugges
 import { getPaymentDueBookings } from '../../src/hooks/useSuggestions';
 import { api } from '../../src/lib/api';
 import { InAppNotification } from '../../types';
+import { AttendanceTopWidget } from '../attendance/AttendanceTopWidget';
 
 interface NavItem {
   name: string;
@@ -39,7 +40,9 @@ const TOP_NAV_CATEGORIES: NavCategory[] = [
     quickAction: { label: 'Go to Analytics', icon: 'bar_chart', path: '/admin/analytics', module: 'reports' },
     items: [
       { name: 'Dashboard', path: '/admin', icon: 'dashboard', module: 'dashboard', desc: 'Real-time metrics, revenue KPIs & quick ops', tag: '#Realtime' },
+      { name: 'Staff Attendance', path: '/admin/attendance', icon: 'fingerprint', module: 'dashboard', desc: 'Live presence, shifts & attendance roster', tag: '#Roster' },
       { name: 'Analytics', path: '/admin/analytics', icon: 'bar_chart', module: 'reports', desc: 'Revenue breakdown, growth & sales insights', tag: '#Reports' },
+      { name: 'Reports Extractor', path: '/admin/reports', icon: 'file_download', module: 'reports', desc: 'Data extractor, aggregated CSV/Excel reports & history', tag: '#Exports' },
     ]
   },
   {
@@ -101,6 +104,7 @@ const TOP_NAV_CATEGORIES: NavCategory[] = [
     quickAction: { label: '+ Add Master Data', icon: 'dataset', path: '/admin/masters', module: 'masters' },
     items: [
       { name: 'Staff Members', path: '/admin/staff', icon: 'badge', module: 'staff', desc: 'Employee accounts, roles & access permissions', tag: '#Roles' },
+      { name: 'Staff Attendance', path: '/admin/attendance', icon: 'fingerprint', module: 'staff', desc: 'Live presence, shifts, leaves & roster', tag: '#Attendance' },
       { name: 'Team Performance', path: '/admin/team-performance', icon: 'monitoring', module: 'staff', desc: 'Sales targets, agent KPIs & productivity', tag: '#KPIs' },
       { name: 'Tour Packages', path: '/admin/packages', icon: 'inventory_2', module: 'inventory', desc: 'Tour package catalog & holiday offerings', tag: '#Tours' },
       { name: 'Testimonials', path: '/admin/testimonials', icon: 'rate_review', module: 'testimonials', desc: 'Client reviews & website testimonials', tag: '#Reviews' },
@@ -455,8 +459,8 @@ export const AdminLayout: React.FC = () => {
       )}
 
       <header className={`print:hidden sticky ${isMasquerading ? 'top-8' : 'top-0'} z-[110] bg-white/95 dark:bg-[#0F172A]/95 backdrop-blur-xl border-b border-slate-200/80 dark:border-slate-800/80 shadow-sm transition-all`}>
-        <div className="max-w-[1700px] mx-auto h-16 px-4 lg:px-8 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3 shrink-0 pr-3 xl:pr-5 border-r border-slate-200/60 dark:border-slate-800/60">
+        <div className="max-w-[1750px] mx-auto h-16 px-3 sm:px-4 lg:px-6 flex items-center justify-between gap-2 xl:gap-3">
+          <div className="flex items-center gap-2.5 shrink-0 pr-2.5 xl:pr-4 border-r border-slate-200/60 dark:border-slate-800/60">
             <button
               onClick={() => setIsMobileDrawerOpen(true)}
               className="lg:hidden p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
@@ -465,13 +469,13 @@ export const AdminLayout: React.FC = () => {
               <span className="material-symbols-outlined text-2xl">menu</span>
             </button>
 
-            <Link to="/admin" className="flex items-center gap-2.5 group">
-              <div className="h-9 w-auto flex items-center justify-center transition-transform group-hover:scale-105">
+            <Link to="/admin" className="flex items-center gap-2 group">
+              <div className="h-8 xl:h-9 w-auto flex items-center justify-center transition-transform group-hover:scale-105">
                 <img src="/logo.png" alt="SHRAWELLO Logo" className="h-full object-contain drop-shadow-sm" />
               </div>
               <div className="flex flex-col">
-                <span className="font-black text-base tracking-tight leading-none text-slate-900 dark:text-white">SHRAWELLO</span>
-                <span className="text-[9px] font-bold text-transparent bg-clip-text bg-gradient-to-r from-indigo-500 to-purple-500 uppercase tracking-[0.18em] mt-0.5">Admin Hub</span>
+                <span className="font-black text-sm xl:text-base tracking-tight leading-none text-slate-900 dark:text-white">SHRAWELLO</span>
+                <span className="text-[8px] xl:text-[9px] font-bold text-transparent bg-clip-text bg-gradient-to-r from-indigo-500 to-purple-500 uppercase tracking-[0.18em] mt-0.5">Admin Hub</span>
               </div>
             </Link>
           </div>
@@ -495,7 +499,7 @@ export const AdminLayout: React.FC = () => {
                 >
                   <button
                     onClick={() => setActiveMegaCategory(isOpen ? null : category.key)}
-                    className={`group flex items-center gap-2 px-3.5 py-2 rounded-2xl text-xs font-bold transition-all duration-200 cursor-pointer ${
+                    className={`group flex items-center gap-1.5 xl:gap-2 px-2.5 xl:px-3.5 py-1.5 xl:py-2 rounded-xl xl:rounded-2xl text-xs font-bold transition-all duration-200 cursor-pointer ${
                       isCategoryActive || isOpen
                         ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-md ring-2 ring-indigo-500/30 scale-[1.02]'
                         : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/80 hover:text-slate-900 dark:hover:text-white'
@@ -628,17 +632,17 @@ export const AdminLayout: React.FC = () => {
           </nav>
 
           {/* Right Section Header Controls (Anchored & Shrink-0) */}
-          <div className="flex items-center gap-1.5 lg:gap-3 shrink-0">
+          <div className="flex items-center gap-1.5 lg:gap-2 xl:gap-2.5 shrink-0 ml-auto">
             
             {/* Search Bar Input Trigger */}
             <button
               onClick={() => setIsCommandPaletteOpen(true)}
-              className="flex items-center gap-2 h-10 px-3 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-xs font-medium border border-transparent"
+              className="flex items-center gap-1.5 h-9 lg:h-10 px-2.5 xl:px-3 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-xs font-medium border border-transparent"
               title="Search System (Cmd/Ctrl + K)"
             >
               <span className="material-symbols-outlined text-[18px]">search</span>
-              <span className="hidden xl:inline text-slate-400">Search...</span>
-              <span className="hidden xl:inline-flex text-[9px] font-bold text-slate-400 bg-white dark:bg-slate-700 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-600">
+              <span className="hidden 2xl:inline text-slate-400">Search...</span>
+              <span className="hidden 2xl:inline-flex text-[9px] font-bold text-slate-400 bg-white dark:bg-slate-700 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-600">
                 ⌘K
               </span>
             </button>
@@ -655,17 +659,32 @@ export const AdminLayout: React.FC = () => {
               </div>
             </div>
 
+            {/* Attendance Live Status Pill & Dropdown */}
+            <AttendanceTopWidget />
+
+            {/* Public Website Button (2xl+) */}
+            <Link
+              to="/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hidden 2xl:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold border border-slate-200/60 dark:border-slate-700/60 transition-colors shrink-0"
+              title="Open Public Website"
+            >
+              <span className="material-symbols-outlined text-[16px] text-slate-500">home</span>
+              <span>Website</span>
+            </Link>
+
             {/* Notification Bell Dropdown */}
             <div className="relative shrink-0">
               <button
                 onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
-                className="relative size-10 rounded-full text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors border border-transparent"
+                className="relative size-9 lg:size-10 rounded-full text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors border border-transparent"
                 title="Notifications"
               >
-                <span className="material-symbols-outlined text-[22px]">notifications</span>
+                <span className="material-symbols-outlined text-[20px] lg:text-[22px]">notifications</span>
                 {(followUps.some(f => f.status === 'Pending' && f.reminderEnabled && f.scheduledAt && new Date(f.scheduledAt) <= new Date() && !dismissedIds.has(f.id)) ||
                   inAppNotifications.some(n => !n.isRead)) && (
-                  <span className="absolute top-2 right-2 size-2.5 bg-red-500 rounded-full border-2 border-white dark:border-[#0F172A] animate-pulse" />
+                  <span className="absolute top-2 right-2 size-2 bg-red-500 rounded-full border-2 border-white dark:border-[#0F172A] animate-pulse" />
                 )}
               </button>
 
@@ -673,7 +692,7 @@ export const AdminLayout: React.FC = () => {
               {isNotificationsOpen && (
                 <>
                   <div className="fixed inset-0 z-[140]" onClick={() => setIsNotificationsOpen(false)} />
-                  <div className="absolute right-0 mt-2 w-96 max-w-[calc(100vw-2rem)] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden z-[150] animate-in slide-in-from-top-2">
+                  <div className="absolute right-0 top-full mt-2 w-80 sm:w-96 max-w-[calc(100vw-1.5rem)] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden z-[150] animate-in slide-in-from-top-2">
                     <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20">
                       <div className="flex items-center gap-2">
                         <span className="material-symbols-outlined text-[18px] text-indigo-500">notifications_active</span>
@@ -742,51 +761,54 @@ export const AdminLayout: React.FC = () => {
             <div ref={profileMenuRef} className="relative shrink-0">
               <button
                 onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
-                className="flex items-center gap-2 p-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                className="flex items-center gap-1.5 p-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                 title={`${currentUser.name} (${currentUser.role})`}
               >
                 <div className="size-9 lg:size-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white font-bold flex items-center justify-center text-xs lg:text-sm shadow-md ring-2 ring-indigo-500/20 shrink-0">
                   {currentUser.initials}
                 </div>
-                <div className="hidden xl:flex flex-col text-left leading-tight pr-1">
+                <div className="hidden 2xl:flex flex-col text-left leading-tight pr-1">
                   <span className="text-xs font-bold text-slate-900 dark:text-white truncate max-w-[120px]">{currentUser.name}</span>
                   <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">{currentUser.role}</span>
                 </div>
-                <span className="hidden xl:inline material-symbols-outlined text-[18px] text-slate-400">expand_more</span>
+                <span className="hidden 2xl:inline material-symbols-outlined text-[18px] text-slate-400">expand_more</span>
               </button>
 
               {/* Profile Menu Popover */}
               {isProfileMenuOpen && (
-                <div className="absolute right-0 mt-2 w-64 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden z-[150] animate-in slide-in-from-top-2 p-2 space-y-1">
-                  <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
-                    <p className="text-sm font-bold text-slate-900 dark:text-white">{currentUser.name}</p>
-                    <p className="text-xs text-slate-500">{currentUser.email || currentUser.role}</p>
-                  </div>
-                  <Link
-                    to="/"
-                    target="_blank"
-                    className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                  >
-                    <span className="material-symbols-outlined text-[18px] text-indigo-500">open_in_new</span>
-                    <span>View Live Website</span>
-                  </Link>
-                  <Link
-                    to="/admin/settings"
-                    className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                  >
-                    <span className="material-symbols-outlined text-[18px] text-purple-500">settings</span>
-                    <span>Account Settings</span>
-                  </Link>
-                  <div className="border-t border-slate-100 dark:border-slate-800 pt-1">
-                    <button
-                      onClick={handleLogout}
-                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+                <>
+                  <div className="fixed inset-0 z-[140]" onClick={() => setIsProfileMenuOpen(false)} />
+                  <div className="absolute right-0 top-full mt-2 w-64 max-w-[calc(100vw-1.5rem)] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl shadow-slate-900/20 border border-slate-200 dark:border-slate-700 overflow-hidden z-[150] animate-in slide-in-from-top-2 p-2 space-y-1">
+                    <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
+                      <p className="text-sm font-bold text-slate-900 dark:text-white">{currentUser.name}</p>
+                      <p className="text-xs text-slate-500">{currentUser.email || currentUser.role}</p>
+                    </div>
+                    <Link
+                      to="/"
+                      target="_blank"
+                      className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                     >
-                      <span className="material-symbols-outlined text-[18px]">logout</span>
-                      <span>Log Out</span>
-                    </button>
+                      <span className="material-symbols-outlined text-[18px] text-indigo-500">open_in_new</span>
+                      <span>View Live Website</span>
+                    </Link>
+                    <Link
+                      to="/admin/settings"
+                      className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                    >
+                      <span className="material-symbols-outlined text-[18px] text-purple-500">settings</span>
+                      <span>Account Settings</span>
+                    </Link>
+                    <div className="border-t border-slate-100 dark:border-slate-800 pt-1">
+                      <button
+                        onClick={handleLogout}
+                        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">logout</span>
+                        <span>Log Out</span>
+                      </button>
+                    </div>
                   </div>
-                </div>
+                </>
               )}
             </div>
           </div>

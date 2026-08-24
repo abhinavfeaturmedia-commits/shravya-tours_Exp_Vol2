@@ -1,7 +1,7 @@
-// @refresh reset
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { StaffMember, StaffPermissions } from '../types';
 import { api } from '../src/lib/api';
+import { activityTracker } from '../src/lib/activityTracker';
 
 // Helper for localStorage
 const STORAGE_KEY = 'shravya_auth_data';
@@ -396,8 +396,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
     }, [loadUserProfile, logAuthAction]);
 
+    // Automatically initialize activityTracker globally whenever an active user is loaded
+    useEffect(() => {
+        if (currentUser?.id) {
+            activityTracker.init(currentUser.id, 180);
+        }
+    }, [currentUser?.id]);
+
     const logout = useCallback(async () => {
         const userEmail = currentUser?.email || 'Unknown User';
+        try {
+            await activityTracker.endSession('user_logout', true);
+            await api.logout(true);
+        } catch (e) {
+            console.warn('Logout session end error:', e);
+        }
         localStorage.removeItem(STORAGE_KEY_MOCK);
         localStorage.removeItem(JWT_KEY);
         setCurrentUser(null);

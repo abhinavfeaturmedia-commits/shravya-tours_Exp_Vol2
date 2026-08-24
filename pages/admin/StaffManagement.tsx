@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth, DEFAULT_PERMISSIONS } from '../../context/AuthContext';
 import { toast } from '../../components/ui/Toast';
 import { StaffMember, StaffPermissions } from '../../types';
@@ -941,7 +942,14 @@ export const StaffManagement: React.FC = () => {
                                             )}
                                         </div>
 
-                                        <div className="flex gap-1">
+                                        <div className="flex items-center gap-1">
+                                            <Link
+                                                to="/admin/attendance"
+                                                className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-lg transition-colors flex items-center justify-center"
+                                                title="View Attendance & Roster"
+                                            >
+                                                <span className="material-symbols-outlined text-[20px]">fingerprint</span>
+                                            </Link>
                                             <button onClick={() => handleOpenEdit(selectedMember)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-colors" title="Edit Profile"><span className="material-symbols-outlined text-[20px]">edit</span></button>
                                             <button onClick={() => handleDelete(selectedMember.id)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors" title="Remove User"><span className="material-symbols-outlined text-[20px]">delete</span></button>
                                         </div>

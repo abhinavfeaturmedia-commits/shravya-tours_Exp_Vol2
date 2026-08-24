@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -23,14 +24,10 @@ import { initEmailService, sendTestEmail, sendCustomEmail, sendAgentIntroduction
 // To adopt a module: import it here, delete the inline copy.
 // ═══════════════════════════════════════════
 // Available modules (uncomment to adopt):
-// import { createAuthRoutes } from './routes/auth.js';
-// import { runStartupMigrations } from './migrations/startup.js';
-// import { normalisePhone, findMatchingCustomer } from './utils/phone.js';
-// import { sanitizeDbBody, isValidColumn, createAuditLogger } from './utils/helpers.js';
-// import { authMiddleware, optionalAuthMiddleware, validateTable, writeGuard, createPermissionGuard, injectPackageStatusFilter } from './middleware/index.js';
-// ═══════════════════════════════════════════
-
+import { createAuthRoutes } from './routes/auth.js';
 import { createTrainingRoutes } from './routes/training.js';
+import { createAttendanceRoutes } from './routes/attendance.js';
+import { runStartupMigrations } from './migrations/startup.js';
 
 dotenv.config();
 
@@ -89,6 +86,10 @@ export const pool = mysql.createPool({
 });
 
 initEmailService(pool);
+createAuthRoutes(app, pool);
+createTrainingRoutes(app, pool);
+createAttendanceRoutes(app, pool);
+runStartupMigrations(pool);
 
 // ─── DB Migration: Add new task columns if not present ───
 async function runMigration() {
@@ -367,6 +368,25 @@ async function runMigration() {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `);
         console.log('[Migration] expenses table verified/created');
+
+        // ─── Report History Table (Persistent Export History) ───
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS report_history (
+                id VARCHAR(64) PRIMARY KEY,
+                report_type VARCHAR(100) NOT NULL,
+                file_name VARCHAR(255) NOT NULL,
+                file_format VARCHAR(20) NOT NULL DEFAULT 'csv',
+                record_count INT NOT NULL DEFAULT 0,
+                file_size_kb DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+                generated_by VARCHAR(255) NOT NULL DEFAULT 'Admin',
+                filters_applied LONGTEXT DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_report_type (report_type),
+                INDEX idx_created_at (created_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+        console.log('[Migration] report_history table verified/created');
 
         // ─── Offer Banners Table ───
         await pool.query(`
@@ -2629,7 +2649,7 @@ async function generateBookingPlaybook(bookingId, type, assignedTo, userEmail) {
 // Allowed tables (whitelist to prevent SQL injection)
 const ALLOWED_TABLES = new Set([
     'packages', 'bookings', 'booking_transactions', 'supplier_bookings',
-    'leads', 'lead_logs', 'daily_inventory',
+    'leads', 'lead_logs', 'daily_inventory', 'inventory_slots',
     'vendors', 'accounts', 'account_transactions',
     'staff_members', 'customers', 'campaigns', 'expenses',
     'master_locations', 'master_hotels', 'tasks',
@@ -2649,7 +2669,8 @@ const ALLOWED_TABLES = new Set([
     'marketing_log_leads', 'marketing_log_bookings', 'in_app_notifications',
     'booking_daily_deliverables',
     'vehicle_categories', 'vehicles', 'drivers', 'car_bookings', 'car_booking_payments', 'car_reviews',
-    'training_videos', 'training_video_views'
+    'training_videos', 'training_video_views',
+    'report_history'
 ]);
 
 // ─── Auth Middleware ───
@@ -2698,6 +2719,7 @@ function writeGuard(req, res, next) {
 const TABLE_TO_MODULE = {
     'packages': 'inventory',
     'daily_inventory': 'inventory',
+    'inventory_slots': 'inventory',
     'bookings': 'bookings',
     'booking_transactions': 'invoices',
     'supplier_bookings': 'operations',
@@ -2754,7 +2776,8 @@ const TABLE_TO_MODULE = {
     'drivers': 'operations',
     'car_bookings': 'operations',
     'car_booking_payments': 'operations',
-    'car_reviews': 'operations'
+    'car_reviews': 'operations',
+    'report_history': 'reports'
 };
 
 // ─── Permission Cache (60s TTL) ─────────────────────────────────────────────
@@ -2950,128 +2973,8 @@ app.get('/api/db-test', async (req, res) => {
 // Serving and uploads handled at the end of the file
 
 // ═══════════════════════════════════════════
-// AUTH ROUTES
+// AUTH ROUTES (Handled via createAuthRoutes in ./routes/auth.js)
 // ═══════════════════════════════════════════
-
-app.post('/api/auth/login', async (req, res) => {
-    const { email, password } = req.body || {};
-
-    // Validate required fields
-    if (!email || !password) {
-        return res.status(400).json({ error: 'Email and password are required' });
-    }
-
-    // SECURITY: Dev/demo bypass removed. All logins must go through proper bcrypt auth.
-    // If you need to reset admin password, set ADMIN_DEFAULT_PASSWORD env var and restart.
-
-    try {
-        const trimmedEmail = email?.trim();
-        // Check staff_members table for the user
-        const [staff] = await pool.query('SELECT * FROM staff_members WHERE email = ?', [trimmedEmail]);
-
-        // Check users table for password auth
-        const [users] = await pool.query('SELECT * FROM users WHERE email = ?', [trimmedEmail]);
-
-        if (users.length > 0) {
-            const valid = await bcrypt.compare(password, users[0].password_hash);
-            if (!valid) {
-                console.warn(`Login failed for ${trimmedEmail}: Invalid password`);
-                return res.status(401).json({ error: 'Invalid credentials' });
-            }
-        } else if (staff.length > 0 && staff[0].password_hash) {
-            // Fallback: staff member has a password in staff_members table (no users row yet)
-            const valid = await bcrypt.compare(password, staff[0].password_hash);
-            if (!valid) {
-                console.warn(`Login failed for ${trimmedEmail}: Invalid staff password`);
-                return res.status(401).json({ error: 'Invalid credentials' });
-            }
-            // Auto-create the users row so future logins work normally
-            try {
-                await pool.query(
-                    'INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)',
-                    [trimmedEmail, staff[0].password_hash, staff[0].user_type === 'Admin' ? 'admin' : 'staff']
-                );
-                console.log(`Auto-created users record for staff: ${trimmedEmail}`);
-            } catch (insertErr) {
-                // Ignore duplicate key errors silently
-                if (insertErr.code !== 'ER_DUP_ENTRY') console.warn('Auto-create users row warning:', insertErr.message);
-            }
-        } else {
-            console.warn(`Login failed for ${trimmedEmail}: User record not found in users table`);
-            return res.status(401).json({ error: 'Invalid credentials' });
-        }
-
-        const staffProfile = staff.length > 0 ? staff[0] : null;
-
-        // Derive effective role: if staff member is Admin, promote to 'admin' in JWT
-        // so the frontend isAdminOverride flag works correctly
-        const effectiveRole = (staffProfile?.user_type === 'Admin') ? 'admin' : (users[0]?.role || 'staff');
-
-        const userId = users[0]?.id || null;
-        const token = jwt.sign(
-            { id: userId, email: trimmedEmail, role: effectiveRole, staffId: staffProfile?.id },
-            JWT_SECRET,
-            { expiresIn: '7d' }
-        );
-
-        // Update last_active on every successful login
-        if (staffProfile) {
-            await pool.query(
-                "UPDATE staff_members SET last_active = DATE_FORMAT(NOW(), '%Y-%m-%dT%H:%i:%sZ') WHERE email = ?",
-                [trimmedEmail]
-            ).catch(e => console.error('Failed to update last_active:', e.message));
-        }
-
-        console.log(`Login successful: ${trimmedEmail} (role: ${effectiveRole})`);
-        return res.json({ token, user: { id: userId, email: trimmedEmail, role: effectiveRole }, staff: staffProfile });
-    } catch (error) {
-        console.error('Login error:', error);
-        return res.status(500).json({ error: 'Login failed' });
-    }
-});
-
-// Get current user info from token
-app.get('/api/auth/me', authMiddleware, async (req, res) => {
-    try {
-        const [staff] = await pool.query('SELECT * FROM staff_members WHERE email = ?', [req.user.email]);
-        // Update last_active on every session restore (page load with valid JWT)
-        if (staff.length > 0) {
-            await pool.query(
-                "UPDATE staff_members SET last_active = DATE_FORMAT(NOW(), '%Y-%m-%dT%H:%i:%sZ') WHERE email = ?",
-                [req.user.email]
-            ).catch(e => console.error('Failed to update last_active on /me:', e.message));
-            // Return the record with updated last_active so frontend sees it immediately
-            const now = new Date();
-            const isoNow = now.toISOString().replace('.000', '').replace(/\.\d{3}/, '');
-            staff[0].last_active = isoNow;
-        }
-        res.json({ user: req.user, staff: staff[0] || null });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Failed to fetch user info' });
-    }
-});
-
-// Create auth user (admin only)
-app.post('/api/auth/create-user', authMiddleware, async (req, res) => {
-    const { email, password, role } = req.body;
-    try {
-
-        const hash = await bcrypt.hash(password, 10);
-        // Use UPSERT logic: if email exists, update the password. This allows admins to use the "reset password" feature
-        // or fix users who were created in staff_members but failed to create in users.
-        const [existing] = await pool.query('SELECT id FROM users WHERE email = ?', [email]);
-        if (existing.length > 0) {
-            await pool.query('UPDATE users SET password_hash = ?, role = ? WHERE email = ?', [hash, role || 'staff', email]);
-        } else {
-            await pool.query('INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)', [email, hash, role || 'staff']);
-        }
-        res.json({ status: 'success' });
-    } catch (error) {
-        console.error('Create user error:', error);
-        res.status(500).json({ error: 'Failed to create user', details: error.message });
-    }
-});
 
 // ═══════════════════════════════════════════
 // CUSTOMER PORTAL AUTH & PORTAL ROUTES

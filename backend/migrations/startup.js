@@ -224,20 +224,149 @@ export async function runStartupMigrations(pool) {
                 INDEX idx_date_asset (date, asset_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `);
-        console.log('[Migration] inventory_slots table verified/created');
-
-        // Clean up expired OTPs
-        await pool.query(`DELETE FROM otp_tokens WHERE expires_at < NOW() - INTERVAL 1 HOUR`).catch(() => {});
-
-        // Backfill missing customer names/emails in customer_memberships table from customers table
+        // ─── Attendance & Sessions Tables & Column Migrations ───
         await pool.query(`
-            UPDATE customer_memberships cm
-            JOIN customers c ON cm.customer_id = c.id
-            SET 
-                cm.customer_name = COALESCE(NULLIF(cm.customer_name, ''), c.name),
-                cm.customer_email = COALESCE(NULLIF(cm.customer_email, ''), c.email)
-            WHERE (cm.customer_name IS NULL OR cm.customer_name = '' OR cm.customer_email IS NULL OR cm.customer_email = '')
-        `).catch(() => {});
+            CREATE TABLE IF NOT EXISTS attendance_logs (
+                id VARCHAR(64) PRIMARY KEY,
+                staff_id INT NOT NULL,
+                date DATE NOT NULL,
+                status VARCHAR(50) NOT NULL DEFAULT 'Present',
+                first_login_time DATETIME DEFAULT NULL,
+                check_in_time DATETIME DEFAULT NULL,
+                check_out_time DATETIME DEFAULT NULL,
+                break_start_time DATETIME DEFAULT NULL,
+                total_break_minutes INT NOT NULL DEFAULT 0,
+                worked_minutes INT NOT NULL DEFAULT 0,
+                active_minutes INT NOT NULL DEFAULT 0,
+                idle_minutes INT NOT NULL DEFAULT 0,
+                system_minutes INT NOT NULL DEFAULT 0,
+                overtime_minutes INT NOT NULL DEFAULT 0,
+                is_late TINYINT(1) NOT NULL DEFAULT 0,
+                late_minutes INT NOT NULL DEFAULT 0,
+                login_count INT NOT NULL DEFAULT 1,
+                auto_clocked_in TINYINT(1) NOT NULL DEFAULT 0,
+                auto_clocked_out TINYINT(1) NOT NULL DEFAULT 0,
+                last_activity_time DATETIME DEFAULT NULL,
+                shift_name VARCHAR(100) DEFAULT 'General Shift',
+                location VARCHAR(255) DEFAULT NULL,
+                ip_address VARCHAR(100) DEFAULT NULL,
+                device_info VARCHAR(255) DEFAULT NULL,
+                notes TEXT DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY uk_staff_date (staff_id, date),
+                INDEX idx_date_status (date, status)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS attendance_breaks (
+                id VARCHAR(64) PRIMARY KEY,
+                attendance_id VARCHAR(64) NOT NULL,
+                staff_id INT NOT NULL,
+                break_type VARCHAR(50) NOT NULL DEFAULT 'Tea/Lunch',
+                start_time DATETIME NOT NULL,
+                end_time DATETIME DEFAULT NULL,
+                duration_minutes INT NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_attendance (attendance_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS attendance_sessions (
+                id VARCHAR(64) PRIMARY KEY,
+                attendance_id VARCHAR(64) NOT NULL,
+                staff_id INT NOT NULL,
+                session_number INT NOT NULL DEFAULT 1,
+                session_start DATETIME NOT NULL,
+                session_end DATETIME DEFAULT NULL,
+                last_ping_time DATETIME NOT NULL,
+                active_minutes INT NOT NULL DEFAULT 0,
+                idle_minutes INT NOT NULL DEFAULT 0,
+                system_minutes INT NOT NULL DEFAULT 0,
+                login_type VARCHAR(50) NOT NULL DEFAULT 'web_login',
+                logout_type VARCHAR(50) DEFAULT NULL,
+                ip_address VARCHAR(100) DEFAULT NULL,
+                device_info VARCHAR(255) DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_attendance (attendance_id),
+                INDEX idx_staff_date (staff_id, session_start)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS staff_leaves (
+                id VARCHAR(64) PRIMARY KEY,
+                staff_id INT NOT NULL,
+                leave_type VARCHAR(50) NOT NULL DEFAULT 'Casual',
+                start_date DATE NOT NULL,
+                end_date DATE NOT NULL,
+                days_count DECIMAL(4, 1) NOT NULL DEFAULT 1.0,
+                reason TEXT NOT NULL,
+                status VARCHAR(50) NOT NULL DEFAULT 'Pending',
+                approved_by INT DEFAULT NULL,
+                approval_date DATETIME DEFAULT NULL,
+                rejection_reason TEXT DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_staff_status (staff_id, status)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS attendance_settings (
+                id VARCHAR(32) PRIMARY KEY DEFAULT 'default',
+                shift_start VARCHAR(10) NOT NULL DEFAULT '09:30',
+                shift_end VARCHAR(10) NOT NULL DEFAULT '18:30',
+                grace_period_mins INT NOT NULL DEFAULT 15,
+                half_day_hours DECIMAL(3, 1) NOT NULL DEFAULT 4.5,
+                full_day_hours DECIMAL(3, 1) NOT NULL DEFAULT 8.0,
+                work_days VARCHAR(100) NOT NULL DEFAULT 'Mon,Tue,Wed,Thu,Fri,Sat',
+                auto_clockout_time VARCHAR(10) NOT NULL DEFAULT '23:59',
+                auto_clockin_on_login TINYINT(1) NOT NULL DEFAULT 1,
+                idle_threshold_seconds INT NOT NULL DEFAULT 180,
+                auto_clockout_idle_minutes INT NOT NULL DEFAULT 60,
+                ip_restriction_enabled TINYINT(1) NOT NULL DEFAULT 0,
+                allowed_ips TEXT DEFAULT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+
+        await pool.query(`
+            INSERT IGNORE INTO attendance_settings (id, shift_start, shift_end, grace_period_mins, half_day_hours, full_day_hours, work_days, auto_clockout_time, auto_clockin_on_login, idle_threshold_seconds, auto_clockout_idle_minutes, ip_restriction_enabled)
+            VALUES ('default', '09:30', '18:30', 15, 4.5, 8.0, 'Mon,Tue,Wed,Thu,Fri,Sat', '23:59', 1, 180, 60, 0)
+        `);
+
+        // Safely add missing columns to attendance_logs if existing table
+        try {
+            const [logCols] = await pool.query("SHOW COLUMNS FROM attendance_logs");
+            const logColNames = logCols.map(c => c.Field);
+            if (!logColNames.includes('first_login_time')) await pool.query("ALTER TABLE attendance_logs ADD COLUMN first_login_time DATETIME DEFAULT NULL AFTER status").catch(() => {});
+            if (!logColNames.includes('active_minutes')) await pool.query("ALTER TABLE attendance_logs ADD COLUMN active_minutes INT NOT NULL DEFAULT 0 AFTER worked_minutes").catch(() => {});
+            if (!logColNames.includes('idle_minutes')) await pool.query("ALTER TABLE attendance_logs ADD COLUMN idle_minutes INT NOT NULL DEFAULT 0 AFTER active_minutes").catch(() => {});
+            if (!logColNames.includes('system_minutes')) await pool.query("ALTER TABLE attendance_logs ADD COLUMN system_minutes INT NOT NULL DEFAULT 0 AFTER idle_minutes").catch(() => {});
+            if (!logColNames.includes('login_count')) await pool.query("ALTER TABLE attendance_logs ADD COLUMN login_count INT NOT NULL DEFAULT 1 AFTER late_minutes").catch(() => {});
+            if (!logColNames.includes('auto_clocked_in')) await pool.query("ALTER TABLE attendance_logs ADD COLUMN auto_clocked_in TINYINT(1) NOT NULL DEFAULT 0 AFTER login_count").catch(() => {});
+            if (!logColNames.includes('auto_clocked_out')) await pool.query("ALTER TABLE attendance_logs ADD COLUMN auto_clocked_out TINYINT(1) NOT NULL DEFAULT 0 AFTER auto_clocked_in").catch(() => {});
+            if (!logColNames.includes('last_activity_time')) await pool.query("ALTER TABLE attendance_logs ADD COLUMN last_activity_time DATETIME DEFAULT NULL AFTER auto_clocked_out").catch(() => {});
+        } catch (e) {
+            console.warn('[Migration Log Columns Error]', e.message);
+        }
+
+        // Safely add missing columns to attendance_settings
+        try {
+            const [settingCols] = await pool.query("SHOW COLUMNS FROM attendance_settings");
+            const settingColNames = settingCols.map(c => c.Field);
+            if (!settingColNames.includes('auto_clockin_on_login')) await pool.query("ALTER TABLE attendance_settings ADD COLUMN auto_clockin_on_login TINYINT(1) NOT NULL DEFAULT 1").catch(() => {});
+            if (!settingColNames.includes('idle_threshold_seconds')) await pool.query("ALTER TABLE attendance_settings ADD COLUMN idle_threshold_seconds INT NOT NULL DEFAULT 180").catch(() => {});
+            if (!settingColNames.includes('auto_clockout_idle_minutes')) await pool.query("ALTER TABLE attendance_settings ADD COLUMN auto_clockout_idle_minutes INT NOT NULL DEFAULT 60").catch(() => {});
+        } catch (e) {
+            console.warn('[Migration Settings Columns Error]', e.message);
+        }
+
+        console.log('[Migration] Attendance and sessions schema verified/migrated');
 
         console.log('[Migration] All startup migrations completed successfully.');
     } catch (err) {

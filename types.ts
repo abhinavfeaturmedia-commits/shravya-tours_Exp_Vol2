@@ -170,15 +170,171 @@ export interface BookingDailyDeliverable {
 }
 
 // Attendance log entry persisted per-day per-staff in MySQL attendance_logs table
+export type AttendanceStatus = 'Present' | 'Late' | 'Absent' | 'On Break' | 'On Field' | 'Remote' | 'On Leave' | 'Half Day' | 'Pending Regularization';
+
 export interface AttendanceLog {
   id: string;
   staffId: number;
   date: string;           // YYYY-MM-DD
-  status: 'Present' | 'Absent' | 'On Field' | 'Remote' | 'On Leave';
+  status: AttendanceStatus;
   checkInTime?: string;   // ISO DateTime string
   checkOutTime?: string;  // ISO DateTime string
-  location?: string;
-  notes?: string;
+  breakStartTime?: string | null;
+  totalBreakMinutes?: number;
+  workedMinutes?: number;
+  systemActiveMinutes?: number;
+  isLate?: boolean;
+  lateMinutes?: number;
+  overtimeMinutes?: number;
+  shiftName?: string;
+  location?: string | null;
+  ipAddress?: string | null;
+  deviceInfo?: string | null;
+  notes?: string | null;
+  regularizationStatus?: 'None' | 'Requested' | 'Approved' | 'Rejected' | null;
+  regularizationReason?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface AttendanceBreak {
+  id: string;
+  attendanceId: string;
+  staffId: number;
+  breakType: string;
+  startTime: string;
+  endTime?: string | null;
+  durationMinutes?: number;
+  createdAt?: string;
+}
+
+export interface AttendanceSession {
+  id: string;
+  attendanceId: string;
+  staffId: number;
+  sessionNumber: number;
+  sessionStart: string;
+  sessionEnd?: string | null;
+  lastPingTime: string;
+  activeMinutes: number;
+  idleMinutes: number;
+  systemMinutes: number;
+  loginType: 'web_login' | 'auto_resume' | 'tab_open';
+  logoutType?: 'manual_logout' | 'session_timeout' | 'tab_close' | 'shift_end' | null;
+  ipAddress?: string | null;
+  deviceInfo?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface StaffLeave {
+  id: string;
+  staffId: number;
+  staffName?: string;
+  department?: string;
+  role?: string;
+  initials?: string;
+  color?: string;
+  leaveType: 'Casual' | 'Sick' | 'Paid' | 'Unpaid' | 'Half Day';
+  startDate: string;
+  endDate: string;
+  daysCount: number;
+  reason: string;
+  status: 'Pending' | 'Approved' | 'Rejected' | 'Cancelled';
+  approvedBy?: number | null;
+  approvedByName?: string | null;
+  approvedAt?: string | null;
+  rejectionReason?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface AttendanceSettings {
+  id?: string;
+  shift_start?: string;
+  shift_end?: string;
+  grace_period_mins?: number;
+  half_day_hours?: number;
+  full_day_hours?: number;
+  work_days?: string;
+  auto_clockout_time?: string;
+  auto_clockin_on_login?: number | boolean;
+  idle_threshold_seconds?: number;
+  auto_clockout_idle_minutes?: number;
+  ip_restriction_enabled?: number | boolean;
+  allowed_ips?: string | null;
+  updated_at?: string;
+}
+
+export interface TodayRosterItem {
+  id: string;
+  staffId: number;
+  name: string;
+  email: string;
+  role: string;
+  userType: string;
+  department: string;
+  initials: string;
+  color: string;
+  lastActive?: string | null;
+  status: AttendanceStatus;
+  isLate: boolean;
+  firstLoginTime?: string | null;
+  checkInTime?: string | null;
+  checkOutTime?: string | null;
+  breakStartTime?: string | null;
+  workedMinutes: number;
+  activeMinutes: number;
+  idleMinutes: number;
+  systemMinutes: number;
+  systemActiveMinutes: number;
+  totalBreakMinutes: number;
+  loginCount: number;
+  autoClockedIn: boolean;
+  autoClockedOut?: boolean;
+  shiftName: string;
+  location?: string | null;
+  notes?: string | null;
+  sessions?: AttendanceSession[];
+}
+
+export interface TodayRosterKPIs {
+  presentCount: number;
+  lateCount: number;
+  onLeaveCount: number;
+  absentPendingCount: number;
+  totalStaff: number;
+}
+
+export interface TodayAttendanceResponse {
+  date: string;
+  kpis: TodayRosterKPIs;
+  roster: TodayRosterItem[];
+  currentStaff: {
+    id: number;
+    name: string;
+    email: string;
+    role: string;
+    userType: string;
+    department: string;
+    initials: string;
+    color: string;
+  } | null;
+  currentAttendance: TodayRosterItem | null;
+  settings: AttendanceSettings;
+}
+
+export interface AttendanceReportResponse {
+  dateRange: { startDate: string; endDate: string };
+  kpis: {
+    totalPunches: number;
+    onTimeCount: number;
+    lateCount: number;
+    punctualityRate: number;
+    totalWorkedHours: string;
+  };
+  staffList: { id: number; name: string; department: string; role: string; initials: string; color: string }[];
+  records: (AttendanceLog & { staff_name: string; department: string; role: string; initials: string; color: string })[];
 }
 
 export interface LeadLog {
@@ -1111,5 +1267,50 @@ export interface InAppNotification {
   createdAt?: string;
 }
 
+export interface ReportHistoryItem {
+  id: string;
+  report_type: string;
+  file_name: string;
+  file_format: 'csv' | 'xlsx' | 'json';
+  record_count: number;
+  file_size_kb: number;
+  generated_by: string;
+  filters_applied?: {
+    startDate?: string;
+    endDate?: string;
+    preset?: string;
+    status?: string;
+    paymentStatus?: string;
+    search?: string;
+    [key: string]: any;
+  } | string;
+  created_at: string;
+  updated_at?: string;
+}
 
+export type ReportEntityKey = 
+  | 'bookings'
+  | 'leads'
+  | 'customers'
+  | 'expenses'
+  | 'invoices'
+  | 'daily_inventory'
+  | 'vendors'
+  | 'car_bookings'
+  | 'partners'
+  | 'staff_members'
+  | 'audit_logs'
+  | 'packages';
 
+export interface ReportEntityMeta {
+  key: ReportEntityKey;
+  label: string;
+  category: 'Sales & CRM' | 'Finance & Billing' | 'Operations & Inventory' | 'Team & System';
+  icon: string;
+  color: string;
+  table: string;
+  description: string;
+  badgeBg: string;
+  badgeText: string;
+  countKey?: string;
+}

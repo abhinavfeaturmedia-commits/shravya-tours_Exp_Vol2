@@ -9,7 +9,7 @@ import { LedgerManagementModal } from '../../components/admin/LedgerManagementMo
 
 import { ActionMenu } from '../../components/ui/ActionMenu';
 import { SuggestPopup, isDismissed, isSnoozed } from '../../components/ui/SuggestPopup';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useSettings } from '../../context/SettingsContext';
 import { toast } from 'sonner';
@@ -2526,7 +2526,10 @@ export const Bookings: React.FC = () => {
                         <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">Track reservations, manage payments, and assign services.</p>
                     </div>
                     <div className="flex items-center gap-3">
-                        <button onClick={handleExport} className="hidden sm:flex items-center gap-2 px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-bold hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors dark:text-white">
+                        <Link to="/admin/reports?entity=bookings" className="hidden sm:flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-sm font-bold transition-all border border-slate-200 dark:border-slate-700">
+                            <span className="material-symbols-outlined text-[18px] text-primary">analytics</span> Report Center
+                        </Link>
+                        <button onClick={handleExport} className="hidden sm:flex items-center gap-2 px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-xl text-sm font-bold hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors dark:text-white">
                             <span className="material-symbols-outlined text-[18px]">download</span> Export Excel
                         </button>
                         {hasPermission('bookings', 'manage') && (
