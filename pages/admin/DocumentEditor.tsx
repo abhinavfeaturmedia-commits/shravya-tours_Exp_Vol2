@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { Save, ArrowLeft, Plus, Trash2, CheckCircle2, Printer, CreditCard, User, Mail, MapPin, Calendar, Users, FileCheck, ChevronDown, Loader2, Search, Link, Copy, Edit3, X, Check, FileText, ChevronRight, AlertCircle, Phone } from 'lucide-react';
+import { Save, ArrowLeft, Plus, Trash2, CheckCircle2, Printer, CreditCard, User, Mail, MapPin, Calendar, Users, FileCheck, ChevronDown, Loader2, Search, Link, Copy, Edit3, X, Check, FileText, ChevronRight, AlertCircle, Phone, List, ListOrdered } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSettings } from '../../context/SettingsContext';
 import { useData } from '../../context/DataContext';
@@ -10,6 +10,265 @@ import { parsePaxString } from '../../utils/paxUtils';
 import { formatTripDuration } from '../../utils/packageUtils';
 import { INDIAN_GST_STATES, isValidGstin, getStateFromGstin, getIndianFinancialYear } from '../../utils/gstUtils';
 import { SendEmailModal } from '../../components/admin/SendEmailModal';
+
+interface DescriptionEditorCellProps {
+    value: string;
+    onChange: (val: string) => void;
+    placeholder?: string;
+}
+
+const DescriptionEditorCell: React.FC<DescriptionEditorCellProps> = ({ value, onChange, placeholder }) => {
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const [isFocused, setIsFocused] = useState(false);
+
+    useEffect(() => {
+        if (textareaRef.current) {
+            textareaRef.current.style.height = 'auto';
+            textareaRef.current.style.height = `${Math.max(68, textareaRef.current.scrollHeight)}px`;
+        }
+    }, [value]);
+
+    const applyFormat = (type: 'bold' | 'italic' | 'strike' | 'code' | 'ordered-list' | 'bullet-list' | 'quote' | 'vehicle' | 'duty' | 'route') => {
+        const el = textareaRef.current;
+        if (!el) return;
+        const start = el.selectionStart || 0;
+        const end = el.selectionEnd || 0;
+        const fullText = value || '';
+        const selectedText = fullText.substring(start, end);
+
+        let newText = fullText;
+        let newCursorStart = start;
+        let newCursorEnd = end;
+
+        if (type === 'bold') {
+            if (selectedText) {
+                newText = fullText.substring(0, start) + `**${selectedText}**` + fullText.substring(end);
+                newCursorStart = start + 2;
+                newCursorEnd = end + 2;
+            } else {
+                newText = fullText.substring(0, start) + `**text**` + fullText.substring(end);
+                newCursorStart = start + 2;
+                newCursorEnd = start + 6;
+            }
+        } else if (type === 'italic') {
+            if (selectedText) {
+                newText = fullText.substring(0, start) + `*${selectedText}*` + fullText.substring(end);
+                newCursorStart = start + 1;
+                newCursorEnd = end + 1;
+            } else {
+                newText = fullText.substring(0, start) + `*text*` + fullText.substring(end);
+                newCursorStart = start + 1;
+                newCursorEnd = start + 5;
+            }
+        } else if (type === 'strike') {
+            if (selectedText) {
+                newText = fullText.substring(0, start) + `~~${selectedText}~~` + fullText.substring(end);
+                newCursorStart = start + 2;
+                newCursorEnd = end + 2;
+            } else {
+                newText = fullText.substring(0, start) + `~~text~~` + fullText.substring(end);
+                newCursorStart = start + 2;
+                newCursorEnd = start + 6;
+            }
+        } else if (type === 'code') {
+            if (selectedText) {
+                newText = fullText.substring(0, start) + `\`${selectedText}\`` + fullText.substring(end);
+                newCursorStart = start + 1;
+                newCursorEnd = end + 1;
+            } else {
+                newText = fullText.substring(0, start) + `\`code\`` + fullText.substring(end);
+                newCursorStart = start + 1;
+                newCursorEnd = start + 5;
+            }
+        } else if (type === 'bullet-list') {
+            if (selectedText) {
+                const formatted = selectedText.split('\n').map(l => l.startsWith('• ') ? l : `• ${l}`).join('\n');
+                newText = fullText.substring(0, start) + formatted + fullText.substring(end);
+                newCursorStart = start;
+                newCursorEnd = start + formatted.length;
+            } else {
+                const prefix = start > 0 && fullText[start - 1] !== '\n' ? '\n• ' : '• ';
+                newText = fullText.substring(0, start) + prefix + fullText.substring(end);
+                newCursorStart = start + prefix.length;
+                newCursorEnd = newCursorStart;
+            }
+        } else if (type === 'ordered-list') {
+            if (selectedText) {
+                const lines = selectedText.split('\n');
+                const formatted = lines.map((l, i) => /^\d+\.\s*/.test(l) ? l : `${i + 1}. ${l}`).join('\n');
+                newText = fullText.substring(0, start) + formatted + fullText.substring(end);
+                newCursorStart = start;
+                newCursorEnd = start + formatted.length;
+            } else {
+                const prefix = start > 0 && fullText[start - 1] !== '\n' ? '\n1. ' : '1. ';
+                newText = fullText.substring(0, start) + prefix + fullText.substring(end);
+                newCursorStart = start + prefix.length;
+                newCursorEnd = newCursorStart;
+            }
+        } else if (type === 'quote') {
+            if (selectedText) {
+                const formatted = selectedText.split('\n').map(l => l.startsWith('> ') ? l : `> ${l}`).join('\n');
+                newText = fullText.substring(0, start) + formatted + fullText.substring(end);
+                newCursorStart = start;
+                newCursorEnd = start + formatted.length;
+            } else {
+                const prefix = start > 0 && fullText[start - 1] !== '\n' ? '\n> ' : '> ';
+                newText = fullText.substring(0, start) + prefix + fullText.substring(end);
+                newCursorStart = start + prefix.length;
+                newCursorEnd = newCursorStart;
+            }
+        } else if (type === 'vehicle') {
+            const snippet = (start > 0 && fullText[start - 1] !== '\n' ? '\n' : '') + `Vehicle: `;
+            newText = fullText.substring(0, start) + snippet + fullText.substring(end);
+            newCursorStart = start + snippet.length;
+            newCursorEnd = newCursorStart;
+        } else if (type === 'duty') {
+            const snippet = (start > 0 && fullText[start - 1] !== '\n' ? '\n' : '') + `Duty: Outstation / Local`;
+            newText = fullText.substring(0, start) + snippet + fullText.substring(end);
+            newCursorStart = start + snippet.length;
+            newCursorEnd = newCursorStart;
+        } else if (type === 'route') {
+            const snippet = (start > 0 && fullText[start - 1] !== '\n' ? '\n' : '') + `Route: `;
+            newText = fullText.substring(0, start) + snippet + fullText.substring(end);
+            newCursorStart = start + snippet.length;
+            newCursorEnd = newCursorStart;
+        }
+
+        onChange(newText);
+        setTimeout(() => {
+            if (textareaRef.current) {
+                textareaRef.current.focus();
+                textareaRef.current.setSelectionRange(newCursorStart, newCursorEnd);
+            }
+        }, 10);
+    };
+
+    return (
+        <div className={`w-full rounded-xl border transition-all duration-150 overflow-hidden bg-white dark:bg-slate-900 ${
+            isFocused 
+                ? 'border-orange-500 ring-2 ring-orange-500/20 shadow-sm' 
+                : 'border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+        }`}>
+            {/* ── Docked Header Toolbar ── */}
+            <div className="bg-slate-100/80 dark:bg-slate-800/80 px-2 py-1 border-b border-slate-200/60 dark:border-slate-800 flex items-center justify-between gap-1 flex-wrap select-none">
+                {/* Formatting Tools */}
+                <div className="flex items-center gap-0.5">
+                    {/* Bold */}
+                    <button
+                        type="button"
+                        title="Bold (**text**)"
+                        onMouseDown={(e) => { e.preventDefault(); applyFormat('bold'); }}
+                        className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-[11px] font-black text-slate-700 dark:text-slate-200 active:scale-95 transition-all"
+                    >
+                        B
+                    </button>
+
+                    {/* Italic */}
+                    <button
+                        type="button"
+                        title="Italic (*text*)"
+                        onMouseDown={(e) => { e.preventDefault(); applyFormat('italic'); }}
+                        className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-[11px] font-serif italic font-bold text-slate-700 dark:text-slate-200 active:scale-95 transition-all"
+                    >
+                        I
+                    </button>
+
+                    {/* Strikethrough */}
+                    <button
+                        type="button"
+                        title="Strikethrough (~~text~~)"
+                        onMouseDown={(e) => { e.preventDefault(); applyFormat('strike'); }}
+                        className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-[11px] font-bold line-through text-slate-700 dark:text-slate-200 active:scale-95 transition-all"
+                    >
+                        S
+                    </button>
+
+                    {/* Monospace Code */}
+                    <button
+                        type="button"
+                        title="Code / Monospace (`text`)"
+                        onMouseDown={(e) => { e.preventDefault(); applyFormat('code'); }}
+                        className="px-1.5 h-6 flex items-center justify-center rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-[10px] font-mono font-bold text-slate-700 dark:text-slate-200 active:scale-95 transition-all"
+                    >
+                        &lt;&gt;
+                    </button>
+
+                    <div className="w-[1px] h-3.5 bg-slate-300 dark:bg-slate-700 mx-0.5" />
+
+                    {/* Numbered List */}
+                    <button
+                        type="button"
+                        title="Numbered List (1. Item)"
+                        onMouseDown={(e) => { e.preventDefault(); applyFormat('ordered-list'); }}
+                        className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 active:scale-95 transition-all"
+                    >
+                        <ListOrdered size={13} />
+                    </button>
+
+                    {/* Bullet List */}
+                    <button
+                        type="button"
+                        title="Bullet List (• Item)"
+                        onMouseDown={(e) => { e.preventDefault(); applyFormat('bullet-list'); }}
+                        className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 active:scale-95 transition-all"
+                    >
+                        <List size={13} />
+                    </button>
+
+                    {/* Quote / Note */}
+                    <button
+                        type="button"
+                        title="Quote / Note (> Note)"
+                        onMouseDown={(e) => { e.preventDefault(); applyFormat('quote'); }}
+                        className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-[11px] font-serif font-black tracking-tighter text-slate-700 dark:text-slate-200 active:scale-95 transition-all"
+                    >
+                        99
+                    </button>
+                </div>
+
+                {/* Quick Travel Insert Chips */}
+                <div className="flex items-center gap-1">
+                    <button
+                        type="button"
+                        title="Insert 'Vehicle: '"
+                        onMouseDown={(e) => { e.preventDefault(); applyFormat('vehicle'); }}
+                        className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-white dark:bg-slate-700/80 hover:bg-orange-500 hover:text-white dark:hover:bg-orange-500 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700 shadow-2xs transition-all active:scale-95"
+                    >
+                        +Vehicle
+                    </button>
+                    <button
+                        type="button"
+                        title="Insert 'Duty: '"
+                        onMouseDown={(e) => { e.preventDefault(); applyFormat('duty'); }}
+                        className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-white dark:bg-slate-700/80 hover:bg-orange-500 hover:text-white dark:hover:bg-orange-500 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700 shadow-2xs transition-all active:scale-95"
+                    >
+                        +Duty
+                    </button>
+                    <button
+                        type="button"
+                        title="Insert 'Route: '"
+                        onMouseDown={(e) => { e.preventDefault(); applyFormat('route'); }}
+                        className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-white dark:bg-slate-700/80 hover:bg-orange-500 hover:text-white dark:hover:bg-orange-500 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700 shadow-2xs transition-all active:scale-95"
+                    >
+                        +Route
+                    </button>
+                </div>
+            </div>
+
+            {/* ── Textarea Input ── */}
+            <textarea
+                ref={textareaRef}
+                value={value}
+                onChange={(e) => onChange(e.target.value)}
+                onFocus={() => setIsFocused(true)}
+                onBlur={() => setIsFocused(false)}
+                placeholder={placeholder || "Enter details of tour packages, vehicles, flights, stays..."}
+                rows={2}
+                className="w-full min-h-[64px] bg-transparent outline-none text-slate-800 dark:text-slate-100 leading-relaxed font-semibold transition-all text-xs px-3 py-2 resize-y placeholder:text-slate-400 dark:placeholder:text-slate-500"
+            />
+        </div>
+    );
+};
 
 const ones = ['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen'];
 const tens = ['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
@@ -2213,12 +2472,10 @@ export const DocumentEditor: React.FC = () => {
                                         <tr key={index} className={`group transition-colors border-b border-slate-100 dark:border-slate-800/50 last:border-0 ${index % 2 !== 0 ? 'bg-slate-50/50 dark:bg-slate-800/10' : 'bg-white dark:bg-[#111827]'}`} style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
                                             <td className="px-4 py-4.5 align-middle text-slate-400 dark:text-slate-500 font-bold text-xs">{index + 1}.</td>
                                             <td className="px-4 py-4.5 align-middle">
-                                                <textarea
+                                                <DescriptionEditorCell
                                                     value={item.description}
-                                                    onChange={(e) => handleItemChange(index, 'description', e.target.value)}
-                                                    placeholder="Enter details of tour packages, flights, stays..."
-                                                    rows={2}
-                                                    className="w-full bg-slate-50 dark:bg-slate-800/40 outline-none resize-none text-slate-700 dark:text-slate-200 leading-relaxed font-semibold focus:border-orange-500 focus:ring-0 border border-slate-200/60 dark:border-slate-800 focus:bg-white dark:focus:bg-slate-900 rounded-xl transition-all text-xs px-2.5 py-1.5"
+                                                    onChange={(val) => handleItemChange(index, 'description', val)}
+                                                    placeholder="Enter details of tour packages, vehicles, flights, stays..."
                                                 />
                                             </td>
                                             {docData.is_gst === 1 && (
@@ -2374,13 +2631,13 @@ export const DocumentEditor: React.FC = () => {
                                         {/* ── Helper: Editable Fixed Label Row ─────────────── */}
                                         {(
                                             [
-                                                { key: 'driver_stay_allowance', defaultLabel: 'Driver Stay Allowance', valueKey: 'driver_stay_allowance' },
-                                                { key: 'extra_km_charges', defaultLabel: 'Extra Km Charges', valueKey: 'extra_km_charges' },
-                                                { key: 'extra_hrs_charges', defaultLabel: 'Extra Hrs. Charges', valueKey: 'extra_hrs_charges' },
-                                                // NOTE: 'advance_received' is intentionally excluded here.
-                                                // It is rendered separately below with a non-editable label.
+                                                { key: 'driver_stay_allowance', defaultLabel: 'Driver Allowance', legacyDefault: 'Driver Stay Allowance', valueKey: 'driver_stay_allowance' },
+                                                { key: 'extra_km_charges', defaultLabel: 'Toll/Parking/Permit charges', legacyDefault: 'Extra Km Charges', valueKey: 'extra_km_charges' },
+                                                { key: 'extra_hrs_charges', defaultLabel: 'Extra Km/Hr charges', legacyDefault: 'Extra Hrs. Charges', valueKey: 'extra_hrs_charges' },
                                             ] as const
-                                        ).map(({ key, defaultLabel, valueKey }) => (
+                                        ).map(({ key, defaultLabel, legacyDefault, valueKey }) => {
+                                            const displayLabel = (!fieldLabels[key] || fieldLabels[key] === legacyDefault) ? defaultLabel : fieldLabels[key];
+                                            return (
                                             <div key={key} className="flex justify-between items-center group">
                                                 {/* Editable label */}
                                                 <div className="flex items-center gap-1 flex-1 min-w-0 mr-2">
@@ -2388,7 +2645,7 @@ export const DocumentEditor: React.FC = () => {
                                                         <input
                                                             type="text"
                                                             autoFocus
-                                                            value={fieldLabels[key] ?? defaultLabel}
+                                                            value={displayLabel}
                                                             onChange={e => setFieldLabels(prev => ({ ...prev, [key]: e.target.value }))}
                                                             onBlur={() => setEditingLabel(null)}
                                                             onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Escape') setEditingLabel(null); }}
@@ -2397,7 +2654,7 @@ export const DocumentEditor: React.FC = () => {
                                                     ) : (
                                                         <>
                                                             <span className="font-semibold text-slate-500 dark:text-slate-400 truncate">
-                                                                {fieldLabels[key] || defaultLabel}:
+                                                                {displayLabel}:
                                                             </span>
                                                             <button
                                                                 type="button"
@@ -2420,7 +2677,8 @@ export const DocumentEditor: React.FC = () => {
                                                     <span className="hidden print:inline-block tabular-nums font-bold">₹{Math.round(Number((docData as any)[valueKey] || 0)).toLocaleString('en-IN')}</span>
                                                 </div>
                                             </div>
-                                        ))}
+                                            );
+                                        })}
 
                                         {/* ── Advance Received: label is fixed/non-editable, only amount is editable ── */}
                                         <div className="flex justify-between items-center">

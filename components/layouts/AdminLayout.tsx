@@ -40,6 +40,7 @@ const TOP_NAV_CATEGORIES: NavCategory[] = [
     quickAction: { label: 'Go to Analytics', icon: 'bar_chart', path: '/admin/analytics', module: 'reports' },
     items: [
       { name: 'Dashboard', path: '/admin', icon: 'dashboard', module: 'dashboard', desc: 'Real-time metrics, revenue KPIs & quick ops', tag: '#Realtime' },
+      { name: 'Inbox & Approvals', path: '/admin/inbox', icon: 'all_inbox', module: 'dashboard', desc: 'Central governance queue: Payments, Leaves, Ops, KYC', tag: '#Approvals' },
       { name: 'Staff Attendance', path: '/admin/attendance', icon: 'fingerprint', module: 'dashboard', desc: 'Live presence, shifts & attendance roster', tag: '#Roster' },
       { name: 'Analytics', path: '/admin/analytics', icon: 'bar_chart', module: 'reports', desc: 'Revenue breakdown, growth & sales insights', tag: '#Reports' },
       { name: 'Reports Extractor', path: '/admin/reports', icon: 'file_download', module: 'reports', desc: 'Data extractor, aggregated CSV/Excel reports & history', tag: '#Exports' },
@@ -672,6 +673,15 @@ export const AdminLayout: React.FC = () => {
             >
               <span className="material-symbols-outlined text-[16px] text-slate-500">home</span>
               <span>Website</span>
+            </Link>
+
+            {/* Inbox & Approvals Hub Quick Button */}
+            <Link
+              to="/admin/inbox"
+              className="relative size-9 lg:size-10 rounded-full text-slate-500 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:text-emerald-600 dark:hover:text-emerald-400 flex items-center justify-center transition-colors border border-transparent"
+              title="Inbox & Approvals Hub"
+            >
+              <span className="material-symbols-outlined text-[20px] lg:text-[22px]">all_inbox</span>
             </Link>
 
             {/* Notification Bell Dropdown */}

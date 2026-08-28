@@ -1178,10 +1178,17 @@ export function createAttendanceRoutes(app, pool) {
     app.get('/api/attendance/leaves', authMiddleware, async (req, res) => {
         try {
             const [leaves] = await pool.query(`
-                SELECT l.*, s.name as staff_name, s.department, s.role, s.initials, s.color,
+                SELECT l.*, 
+                       COALESCE(s.name, CONCAT('Staff #', l.staff_id)) as staff_name, 
+                       s.email as staff_email,
+                       s.phone as staff_phone,
+                       COALESCE(s.department, 'Operations') as department, 
+                       COALESCE(s.role, 'Staff') as role, 
+                       s.initials, 
+                       s.color,
                        approver.name as approved_by_name
                 FROM staff_leaves l
-                JOIN staff_members s ON l.staff_id = s.id
+                LEFT JOIN staff_members s ON l.staff_id = s.id
                 LEFT JOIN staff_members approver ON l.approved_by = approver.id
                 ORDER BY l.created_at DESC
             `);

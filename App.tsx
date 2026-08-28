@@ -36,6 +36,7 @@ const DigitalCard = lazy(() => import('./pages/DigitalCard').then(module => ({ d
 
 
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard').then(module => ({ default: module.AdminDashboard })));
+const InboxApprovalsHub = lazy(() => import('./pages/admin/InboxApprovalsHub').then(module => ({ default: module.InboxApprovalsHub })));
 const Inventory = lazy(() => import('./pages/admin/Inventory').then(module => ({ default: module.Inventory })));
 const Analytics = lazy(() => import('./pages/admin/Analytics').then(module => ({ default: module.Analytics || module.default })));
 const Reports = lazy(() => import('./pages/admin/Reports').then(module => ({ default: module.Reports })));
@@ -153,6 +154,8 @@ const App: React.FC = () => {
                 <Route path="/admin" element={<AdminLayout />}>
                   <Route index element={<AdminDashboard />} />
                   <Route path="dashboard" element={<Navigate to="/admin" replace />} />
+                  <Route path="inbox" element={<InboxApprovalsHub />} />
+                  <Route path="approvals" element={<Navigate to="/admin/inbox" replace />} />
                   <Route path="analytics" element={<Analytics />} />
                   <Route path="reports" element={<Reports />} />
                   <Route path="data-extractor" element={<Reports />} />

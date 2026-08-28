@@ -421,7 +421,18 @@ export const generateBookingInvoice = async (booking: any, customer: any) => {
 
 const cleanText = (val: any): string => {
     if (val === null || val === undefined) return '';
-    return String(val).replace(/[^\x00-\x7F]/g, "").trim(); // strip non-ASCII
+    let str = String(val);
+    // Standardize bullet points
+    str = str.replace(/[\u2022\u2023\u25E6\u2043\u2219]/g, "• ");
+    // Convert markdown bold, italic, strikethrough, code cleanly
+    str = str.replace(/\*\*(.*?)\*\*/g, "$1");
+    str = str.replace(/\*(.*?)\*/g, "$1");
+    str = str.replace(/~~(.*?)~~/g, "$1");
+    str = str.replace(/`([^`]+)`/g, "$1");
+    // Normalize blockquotes
+    str = str.replace(/^>\s*/gm, "“ ");
+    // Strip non-printable characters while preserving newlines, spaces and clean symbols
+    return str.replace(/[^\x20-\x7E\n\r•“”]/g, "").trim();
 };
 
 export function numberToWords(amount: number): string {
@@ -813,21 +824,23 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
     if (docData.is_gst === 1) {
         const isIGST = docData.gst_type === 'IGST';
         if (isIGST) {
-            tableHeaders = [['#', 'DESCRIPTION', 'HSN/SAC', 'QTY', 'RATE', 'TAXABLE VAL', 'IGST', 'TOTAL']];
+            tableHeaders = [['#', 'DESCRIPTION', 'HSN/SAC', 'QTY', 'DAYS / KM', 'RATE', 'TAXABLE VAL', 'IGST', 'TOTAL']];
             tableColStyles = {
-                0: { cellWidth: 8, halign: 'center' },
-                1: { halign: 'left', cellWidth: 52 },
-                2: { cellWidth: 18, halign: 'center' },
+                0: { cellWidth: 7, halign: 'center' },
+                1: { halign: 'left', cellWidth: 47 },
+                2: { cellWidth: 16, halign: 'center' },
                 3: { cellWidth: 10, halign: 'center' },
-                4: { cellWidth: 24, halign: 'right' },
-                5: { cellWidth: 24, halign: 'right' },
-                6: { cellWidth: 22, halign: 'right' },
-                7: { cellWidth: 22, halign: 'right' }
+                4: { cellWidth: 18, halign: 'center' },
+                5: { cellWidth: 20, halign: 'right' },
+                6: { cellWidth: 21, halign: 'right' },
+                7: { cellWidth: 21, halign: 'right' },
+                8: { cellWidth: 20, halign: 'right' }
             };
 
             bodyData = items.map((item, idx) => {
                 const qty = Number(item.quantity) || 1;
-                const daysKm = parseDaysKm(item.total_days_km);
+                const daysKmStr = item.total_days_km ? String(item.total_days_km) : '1';
+                const daysKm = parseDaysKm(daysKmStr);
                 const rate = Number(item.unit_price) || 0;
                 const baseAmount = daysKm * rate;
                 const taxRate = Number(item.tax_rate) || 0;
@@ -838,6 +851,7 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
                     item.description ? cleanText(item.description) : 'Tour Service Operator',
                     item.hsn_sac || '9985',
                     qty.toString(),
+                    daysKmStr.toString(),
                     `Rs. ${Math.round(rate).toLocaleString('en-IN')}`,
                     `Rs. ${Math.round(baseAmount).toLocaleString('en-IN')}`,
                     `${taxRate}%\nRs. ${Math.round(taxAmount).toLocaleString('en-IN')}`,
@@ -847,24 +861,26 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
 
             const totalTaxAmt = items.reduce((acc, item) => acc + (parseDaysKm(item.total_days_km) * Number(item.unit_price || 0) * (Number(item.tax_rate || 0) / 100)), 0);
             const totalFullAmt = subtotalAmount + totalTaxAmt;
-            bodyData.push(['', 'TOTAL', '', '', '', `Rs. ${Math.round(subtotalAmount).toLocaleString('en-IN')}`, `Rs. ${Math.round(totalTaxAmt).toLocaleString('en-IN')}`, `Rs. ${Math.round(totalFullAmt).toLocaleString('en-IN')}`]);
+            bodyData.push(['', 'TOTAL', '', '', '', '', `Rs. ${Math.round(subtotalAmount).toLocaleString('en-IN')}`, `Rs. ${Math.round(totalTaxAmt).toLocaleString('en-IN')}`, `Rs. ${Math.round(totalFullAmt).toLocaleString('en-IN')}`]);
         } else {
-            tableHeaders = [['#', 'DESCRIPTION', 'HSN/SAC', 'QTY', 'RATE', 'TAXABLE VAL', 'CGST', 'SGST', 'TOTAL']];
+            tableHeaders = [['#', 'DESCRIPTION', 'HSN/SAC', 'QTY', 'DAYS / KM', 'RATE', 'TAXABLE VAL', 'CGST', 'SGST', 'TOTAL']];
             tableColStyles = {
-                0: { cellWidth: 8, halign: 'center' },
-                1: { halign: 'left', cellWidth: 46 },
-                2: { cellWidth: 18, halign: 'center' },
-                3: { cellWidth: 10, halign: 'center' },
-                4: { cellWidth: 22, halign: 'right' },
-                5: { cellWidth: 22, halign: 'right' },
-                6: { cellWidth: 18, halign: 'right' },
+                0: { cellWidth: 7, halign: 'center' },
+                1: { halign: 'left', cellWidth: 41 },
+                2: { cellWidth: 15, halign: 'center' },
+                3: { cellWidth: 9, halign: 'center' },
+                4: { cellWidth: 17, halign: 'center' },
+                5: { cellWidth: 18, halign: 'right' },
+                6: { cellWidth: 19, halign: 'right' },
                 7: { cellWidth: 18, halign: 'right' },
-                8: { cellWidth: 18, halign: 'right' }
+                8: { cellWidth: 18, halign: 'right' },
+                9: { cellWidth: 18, halign: 'right' }
             };
 
             bodyData = items.map((item, idx) => {
                 const qty = Number(item.quantity) || 1;
-                const daysKm = parseDaysKm(item.total_days_km);
+                const daysKmStr = item.total_days_km ? String(item.total_days_km) : '1';
+                const daysKm = parseDaysKm(daysKmStr);
                 const rate = Number(item.unit_price) || 0;
                 const baseAmount = daysKm * rate;
                 const taxRate = Number(item.tax_rate) || 0;
@@ -875,6 +891,7 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
                     item.description ? cleanText(item.description) : 'Tour Service Operator',
                     item.hsn_sac || '9985',
                     qty.toString(),
+                    daysKmStr.toString(),
                     `Rs. ${Math.round(rate).toLocaleString('en-IN')}`,
                     `Rs. ${Math.round(baseAmount).toLocaleString('en-IN')}`,
                     `${(taxRate / 2)}%\nRs. ${Math.round(taxAmount / 2).toLocaleString('en-IN')}`,
@@ -885,22 +902,22 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
 
             const totalTaxAmt = items.reduce((acc, item) => acc + (parseDaysKm(item.total_days_km) * Number(item.unit_price || 0) * (Number(item.tax_rate || 0) / 100)), 0);
             const totalFullAmt = subtotalAmount + totalTaxAmt;
-            bodyData.push(['', 'TOTAL', '', '', '', `Rs. ${Math.round(subtotalAmount).toLocaleString('en-IN')}`, `Rs. ${Math.round(totalTaxAmt / 2).toLocaleString('en-IN')}`, `Rs. ${Math.round(totalTaxAmt / 2).toLocaleString('en-IN')}`, `Rs. ${Math.round(totalFullAmt).toLocaleString('en-IN')}`]);
+            bodyData.push(['', 'TOTAL', '', '', '', '', `Rs. ${Math.round(subtotalAmount).toLocaleString('en-IN')}`, `Rs. ${Math.round(totalTaxAmt / 2).toLocaleString('en-IN')}`, `Rs. ${Math.round(totalTaxAmt / 2).toLocaleString('en-IN')}`, `Rs. ${Math.round(totalFullAmt).toLocaleString('en-IN')}`]);
         }
     } else {
-        tableHeaders = [['#', 'DESCRIPTION', 'QTY', 'TOTAL DAYS / KM', 'RATE', 'AMOUNT']];
+        tableHeaders = [['#', 'DESCRIPTION', 'QTY', 'DAYS / KM', 'RATE', 'AMOUNT']];
         tableColStyles = {
             0: { cellWidth: 8, halign: 'center' },
-            1: { halign: 'left', cellWidth: 65 },
-            2: { cellWidth: 13, halign: 'center' },
-            3: { cellWidth: 32, halign: 'center' },
-            4: { cellWidth: 31, halign: 'right' },
-            5: { cellWidth: 31, halign: 'right' }
+            1: { halign: 'left', cellWidth: 62 },
+            2: { cellWidth: 12, halign: 'center' },
+            3: { cellWidth: 26, halign: 'center' },
+            4: { cellWidth: 36, halign: 'right' },
+            5: { cellWidth: 36, halign: 'right' }
         };
 
         bodyData = items.map((item, idx) => {
             const qty = Number(item.quantity) || 1;
-            const daysKmStr = item.total_days_km || '1';
+            const daysKmStr = item.total_days_km ? String(item.total_days_km) : '1';
             const daysKmVal = parseDaysKm(daysKmStr);
             const rate = Number(item.unit_price) || 0;
             const total = daysKmVal * rate;
@@ -914,7 +931,7 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
             ];
         });
 
-        bodyData.push(['', 'TOTAL', '', totalQtyDays > 0 ? totalQtyDays.toString() : '1', '',
+        bodyData.push(['', 'TOTAL', '', '', '',
             `Rs. ${Math.round(subtotalAmount).toLocaleString('en-IN')}`]);
     }
 
@@ -989,11 +1006,16 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
     const advanceReceived = Number(docData.advance_received || 0);
     const amountPaid = Number(docData.amount_paid || 0);
 
-    // Resolve custom field labels (fallback to defaults)
+    // Resolve custom field labels (fallback to defaults with legacy default migration)
     const fl = fieldLabels || {};
-    const lDriver = fl['driver_stay_allowance'] || 'Driver Stay Allowance';
-    const lExtraKm = fl['extra_km_charges'] || 'Extra Km Charges';
-    const lExtraHrs = fl['extra_hrs_charges'] || 'Extra Hrs. Charges';
+    const getEffectiveLabel = (key: string, oldDefault: string, newDefault: string) => {
+        const val = fl[key];
+        if (!val || val === oldDefault) return newDefault;
+        return val;
+    };
+    const lDriver = getEffectiveLabel('driver_stay_allowance', 'Driver Stay Allowance', 'Driver Allowance');
+    const lExtraKm = getEffectiveLabel('extra_km_charges', 'Extra Km Charges', 'Toll/Parking/Permit charges');
+    const lExtraHrs = getEffectiveLabel('extra_hrs_charges', 'Extra Hrs. Charges', 'Extra Km/Hr charges');
     const lAdvance = fl['advance_received'] || 'Advance Received';
     const lDiscount = fl['discount'] || 'Discount';
 
@@ -1006,9 +1028,9 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
     if (taxTotal > 0) {
         rowCount += (docData.is_gst === 1 && docData.gst_type !== 'IGST') ? 2 : 1;
     }
-    if (discountAmt > 0) rowCount++;
+    if (discountAmt > 0) rowCount += 1.4;
     rowCount += cfList.length; // custom extra fields
-    const totalsCardH = rowCount * 4.2 + 30; // compact & clean
+    const totalsCardH = Math.ceil(rowCount * 4.3 + 32); // compact & clean
 
     const bottomSectionH = Math.max(wordsBoxH + 3.5 + bankCardH, totalsCardH);
 
@@ -1180,18 +1202,38 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
             drawTotRow("Tax Total", taxTotal);
         }
     }
-    if (discountAmt > 0) drawTotRow(lDiscount, discountAmt, true, false, [220, 38, 38]);
+    if (discountAmt > 0) {
+        doc.setFillColor(254, 242, 242);
+        doc.setDrawColor(254, 202, 202);
+        doc.setLineWidth(0.2);
+        doc.roundedRect(117, ry - 0.8, 74, 5.2, 1.2, 1.2, 'FD');
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(7);
+        doc.setTextColor(220, 38, 38);
+        doc.text(lDiscount || 'Discount', 121, ry + 2.7);
+        doc.setFontSize(7.5);
+        doc.text(`- Rs. ${Math.round(discountAmt).toLocaleString('en-IN')}`, 191, ry + 2.7, { align: 'right' });
+        ry += 6.0;
+    }
 
     // Custom extra charge/deduction fields
     cfList.forEach(cf => {
         const cfAmt = Number(cf.amount || 0);
-        drawTotRow(
-            cf.label || 'Custom Field',
-            cfAmt,
-            Boolean(cf.is_deduction),
-            false,
-            cf.is_deduction ? [220, 38, 38] : undefined
-        );
+        if (cf.is_deduction) {
+            doc.setFillColor(254, 242, 242);
+            doc.setDrawColor(254, 202, 202);
+            doc.setLineWidth(0.2);
+            doc.roundedRect(117, ry - 0.8, 74, 5.0, 1.2, 1.2, 'FD');
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(6.8);
+            doc.setTextColor(220, 38, 38);
+            doc.text(cf.label || 'Deduction', 121, ry + 2.5);
+            doc.setFontSize(7.2);
+            doc.text(`- Rs. ${Math.round(cfAmt).toLocaleString('en-IN')}`, 191, ry + 2.5, { align: 'right' });
+            ry += 5.8;
+        } else {
+            drawTotRow(cf.label || 'Custom Field', cfAmt, false, false);
+        }
     });
 
     // Divider
