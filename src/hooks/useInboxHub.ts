@@ -14,6 +14,7 @@ export type InboxItemCategory =
   | 'operations' 
   | 'crm' 
   | 'hr' 
+  | 'tasks'
   | 'partner_kyc' 
   | 'transfer';
 
@@ -33,6 +34,8 @@ export interface UnifiedInboxItem {
   requesterPhone?: string;
   requesterInitials: string;
   avatarColor: string;
+  activityIcon: string;
+  iconBgColor: string;
   amount?: number;
   referenceCode?: string;
   priority: InboxItemPriority;
@@ -42,6 +45,9 @@ export interface UnifiedInboxItem {
   isOverdue?: boolean;
   timeAgo: string;
   starred?: boolean;
+  deepLinkUrl?: string;
+  resolutionNote?: string;
+  resolvedAt?: string;
   metadata: Record<string, any>;
   actions: {
     canApprove?: boolean;
@@ -63,6 +69,22 @@ const AVATAR_BG_COLORS = [
   'bg-cyan-600'
 ];
 
+export function resolveStaffDisplayName(val?: any): string {
+  if (!val) return 'System / Manager';
+  const str = String(val).trim();
+  if (str === '1' || str.toLowerCase() === 'admin') return 'Admin (Manager)';
+  if (/^\d+$/.test(str)) return `Staff #${str}`;
+  return str;
+}
+
+export function resolveStaffInitials(val?: any): string {
+  if (!val) return 'TK';
+  const str = String(val).trim();
+  if (str === '1' || str.toLowerCase() === 'admin') return 'AD';
+  if (/^\d+$/.test(str)) return `S${str}`;
+  return getInitials(str);
+}
+
 function getInitials(name: string): string {
   if (!name) return '??';
   const parts = name.trim().split(/\s+/);
@@ -78,7 +100,21 @@ function getAvatarColor(key: string): string {
   return AVATAR_BG_COLORS[Math.abs(hash) % AVATAR_BG_COLORS.length];
 }
 
-function formatRelativeTime(dateStr?: string): string {
+export function formatCleanDate(dateStr?: string): string {
+  if (!dateStr) return 'N/A';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+
+  const dateFormatted = d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  const hasTime = dateStr.includes('T') && !dateStr.endsWith('T00:00:00.000Z') && !dateStr.endsWith('T00:00:00');
+  if (hasTime) {
+    const timeFormatted = d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+    return `${dateFormatted}, ${timeFormatted}`;
+  }
+  return dateFormatted;
+}
+
+export function formatRelativeTime(dateStr?: string): string {
   if (!dateStr) return 'Recently';
   const time = new Date(dateStr).getTime();
   if (isNaN(time)) return 'Recently';
@@ -94,13 +130,12 @@ function formatRelativeTime(dateStr?: string): string {
 
 export const useInboxHub = () => {
   const queryClient = useQueryClient();
-  const { currentUser, hasPermission } = useAuth();
+  const { currentUser } = useAuth();
   const { transactions, updateTransactionStatus } = useFinance();
   const { transfers, approveTransfer, rejectTransfer } = useTransfers();
-  const { expenses, updateExpenseMutation } = useExpenses() as any;
   const { bookings, updateBooking, leads, updateLead, followUps, updateFollowUp, tasks, updateTask } = useData();
 
-  // Local persistent state for starred items and decision notes
+  // Local persistent state for starred items
   const [starredIds, setStarredIds] = useState<string[]>(() => {
     try {
       return JSON.parse(localStorage.getItem('shravya_inbox_starred') || '[]');
@@ -165,22 +200,23 @@ export const useInboxHub = () => {
     transactions.forEach(tx => {
       const isPending = tx.status === 'Pending';
       const isApproved = tx.status === 'Verified';
-      const isRejected = tx.status === 'Rejected';
-
       const isStarred = starredIds.includes(`pay_${tx.id}`);
+
       items.push({
         id: `pay_${tx.id}`,
         originalId: tx.id,
         category: 'finance',
         categoryLabel: 'Finance & Payments',
         type: 'Payment Verification',
-        title: `Payment Verification: ${tx.customer || 'Customer'} (₹${(tx.amount || 0).toLocaleString('en-IN')})`,
+        title: `Payment Verification: ${tx.customer || 'Customer'}`,
         subtitle: `Ref: ${tx.reference || 'N/A'} • Method: ${tx.method} • ${tx.bookingName || 'Tour Booking'}`,
         requesterName: tx.customer || 'Traveler',
         requesterEmail: tx.email,
         requesterPhone: tx.phone,
         requesterInitials: getInitials(tx.customer || 'CU'),
         avatarColor: getAvatarColor(tx.customer || tx.id),
+        activityIcon: 'payments',
+        iconBgColor: 'bg-emerald-500 text-white',
         amount: tx.amount,
         referenceCode: tx.reference || `TX-${tx.id.substring(0, 8)}`,
         priority: tx.amount && tx.amount > 50000 ? 'Urgent' : 'High',
@@ -188,6 +224,7 @@ export const useInboxHub = () => {
         createdAt: tx.date || new Date().toISOString(),
         timeAgo: formatRelativeTime(tx.date),
         starred: isStarred,
+        deepLinkUrl: '/admin/finance-verification',
         metadata: {
           ...tx,
           bookingId: tx.bookingId,
@@ -206,20 +243,21 @@ export const useInboxHub = () => {
     transfers.forEach(tr => {
       const isPending = tr.status === 'Pending';
       const isApproved = tr.status === 'Approved';
-      const isRejected = tr.status === 'Rejected';
       const isStarred = starredIds.includes(`tr_${tr.id}`);
 
       items.push({
         id: `tr_${tr.id}`,
         originalId: tr.id,
         category: 'transfer',
-        categoryLabel: 'Lead/Booking Transfers',
+        categoryLabel: 'Ownership Transfers',
         type: `${tr.item_type} Transfer`,
         title: `Transfer ${tr.item_type}: ${tr.item_name || tr.item_id}`,
         subtitle: `From ${tr.from_staff_name || 'Staff'} ➔ To ${tr.to_staff_name || 'Staff'} • Reason: "${tr.reason}"`,
         requesterName: tr.requested_by_name || tr.from_staff_name || 'Staff Member',
         requesterInitials: getInitials(tr.requested_by_name || tr.from_staff_name || 'ST'),
         avatarColor: getAvatarColor(tr.requested_by_name || tr.id),
+        activityIcon: 'swap_horiz',
+        iconBgColor: 'bg-amber-500 text-white',
         amount: tr.item_value,
         referenceCode: `TR-${tr.id.substring(0, 8)}`,
         priority: 'Medium',
@@ -227,6 +265,7 @@ export const useInboxHub = () => {
         createdAt: tr.created_at || new Date().toISOString(),
         timeAgo: formatRelativeTime(tr.created_at),
         starred: isStarred,
+        deepLinkUrl: '/admin/leads',
         metadata: {
           ...tr
         },
@@ -243,7 +282,6 @@ export const useInboxHub = () => {
       const raw = lv as any;
       const isPending = raw.status === 'Pending';
       const isApproved = raw.status === 'Approved';
-      const isRejected = raw.status === 'Rejected';
       const isStarred = starredIds.includes(`leave_${raw.id}`);
 
       const staffName = raw.staff_name || raw.staffName || (raw.staff_id ? `Staff #${raw.staff_id}` : 'Staff Member');
@@ -267,18 +305,21 @@ export const useInboxHub = () => {
         categoryLabel: 'HR & Staff Leaves',
         type: `${leaveType} Leave (${daysCount} Day${daysCount > 1 ? 's' : ''})`,
         title: `Leave Request: ${staffName} (${leaveType})`,
-        subtitle: `${startDate} to ${endDate} • ${department} (${role}) • Reason: "${reason}"`,
+        subtitle: `${formatCleanDate(startDate)} to ${formatCleanDate(endDate)} • ${department} (${role})`,
         requesterName: staffName,
         requesterEmail: email,
         requesterPhone: phone,
         requesterInitials: initials,
         avatarColor: color,
+        activityIcon: 'beach_access',
+        iconBgColor: 'bg-pink-500 text-white',
         referenceCode: `LV-${String(raw.id).substring(0, 6).toUpperCase()}`,
         priority: leaveType === 'Sick' ? 'Urgent' : 'Medium',
         status: isPending ? 'Pending' : isApproved ? 'Approved' : 'Rejected',
         createdAt: createdAt,
         timeAgo: formatRelativeTime(createdAt),
         starred: isStarred,
+        deepLinkUrl: '/admin/hr',
         metadata: {
           ...raw,
           staffName,
@@ -298,20 +339,19 @@ export const useInboxHub = () => {
       });
     });
 
-    // 4. 🚗 OPERATIONS: Driver & Vehicle Allocation Missing (< 48h to departure)
+    // 4. 🚗 OPERATIONS: Driver & Vehicle Allocation Missing
     bookings.forEach(b => {
       if (b.status === 'Cancelled' || b.status === 'Completed') return;
 
       const departureDate = new Date(b.date).getTime();
       const hoursUntilTrip = (departureDate - now) / (1000 * 3600);
-
-      // Check if driver or vehicle is unassigned
       const hasDriver = !!(b.supplierBookings?.some(sb => sb.serviceType === 'Transport' && sb.driverName) || b.details?.includes('Driver:'));
       const isImminent = hoursUntilTrip > -24 && hoursUntilTrip <= 48;
 
       if (!hasDriver && isImminent) {
         const isStarred = starredIds.includes(`ops_driver_${b.id}`);
         const urgency: InboxItemPriority = hoursUntilTrip <= 24 ? 'Urgent' : 'High';
+        const formattedDeparture = formatCleanDate(b.date);
 
         items.push({
           id: `ops_driver_${b.id}`,
@@ -319,13 +359,15 @@ export const useInboxHub = () => {
           category: 'operations',
           categoryLabel: 'Live Operations & Cabs',
           type: 'Driver Allocation Needed',
-          title: `Assign Driver & Vehicle: ${b.title || b.customer}`,
-          subtitle: `Starts in ${Math.max(0, Math.round(hoursUntilTrip))}h (${b.date}) • ${b.guests || '1 Pax'} • Customer: ${b.customer}`,
+          title: `Assign Driver: ${b.title || b.customer}`,
+          subtitle: `Starts in ${Math.max(0, Math.round(hoursUntilTrip))}h (${formattedDeparture}) • ${b.guests || '1 Pax'}`,
           requesterName: b.customer,
           requesterEmail: b.email,
           requesterPhone: b.phone,
           requesterInitials: getInitials(b.customer),
           avatarColor: getAvatarColor(b.customer),
+          activityIcon: 'directions_car',
+          iconBgColor: 'bg-blue-500 text-white',
           amount: b.amount,
           referenceCode: b.invoiceNo || (b.bookingNumber ? `BK-${String(b.bookingNumber).padStart(4, '0')}` : b.id.substring(0, 8)),
           priority: urgency,
@@ -335,6 +377,7 @@ export const useInboxHub = () => {
           isOverdue: hoursUntilTrip < 0,
           timeAgo: formatRelativeTime(b.date),
           starred: isStarred,
+          deepLinkUrl: '/admin/bookings',
           metadata: {
             ...b,
             hoursUntilTrip: Math.round(hoursUntilTrip)
@@ -356,12 +399,14 @@ export const useInboxHub = () => {
             category: 'operations',
             categoryLabel: 'Supplier Confirmations',
             type: `${sb.serviceType} Voucher Confirmation`,
-            title: `Confirm ${sb.serviceType} Booking: ${b.customer}`,
+            title: `Confirm ${sb.serviceType}: ${b.customer}`,
             subtitle: `Trip: ${b.title} • Vendor Cost: ₹${(sb.cost || 0).toLocaleString('en-IN')}`,
             requesterName: b.customer,
             requesterPhone: b.phone,
             requesterInitials: getInitials(b.customer),
             avatarColor: getAvatarColor(b.customer),
+            activityIcon: 'hotel',
+            iconBgColor: 'bg-indigo-500 text-white',
             amount: sb.cost,
             referenceCode: `SUP-${sb.id.substring(0, 6)}`,
             priority: 'High',
@@ -369,6 +414,7 @@ export const useInboxHub = () => {
             createdAt: b.date,
             timeAgo: formatRelativeTime(b.date),
             starred: isStarred,
+            deepLinkUrl: '/admin/bookings',
             metadata: {
               ...sb,
               bookingId: b.id,
@@ -400,11 +446,13 @@ export const useInboxHub = () => {
           category: 'crm',
           categoryLabel: 'Sales & Follow-ups',
           type: `Overdue ${f.type} Reminder`,
-          title: `Overdue Follow-up: ${f.leadName || 'Lead Inquiry'} (${f.type})`,
-          subtitle: `Scheduled: ${new Date(f.scheduledAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })} • Notes: "${f.description || f.notes || 'Call lead'}"`,
+          title: `Follow-up: ${f.leadName || 'Lead Inquiry'} (${f.type})`,
+          subtitle: `Scheduled: ${formatCleanDate(f.scheduledAt)} • "${f.description || f.notes || 'Call lead'}"`,
           requesterName: f.leadName || 'Lead Traveler',
           requesterInitials: getInitials(f.leadName || 'LD'),
           avatarColor: getAvatarColor(f.leadName || f.id),
+          activityIcon: 'call',
+          iconBgColor: 'bg-purple-500 text-white',
           referenceCode: `FU-${f.id.substring(0, 6)}`,
           priority: 'Urgent',
           status: 'Pending',
@@ -413,6 +461,7 @@ export const useInboxHub = () => {
           isOverdue: true,
           timeAgo: formatRelativeTime(f.scheduledAt),
           starred: isStarred,
+          deepLinkUrl: '/admin/leads',
           metadata: {
             ...f
           },
@@ -441,6 +490,8 @@ export const useInboxHub = () => {
           requesterPhone: l.phone,
           requesterInitials: getInitials(l.name),
           avatarColor: getAvatarColor(l.name),
+          activityIcon: 'person_add',
+          iconBgColor: 'bg-purple-500 text-white',
           amount: l.potentialValue,
           referenceCode: l.leadNumber ? `LD-${String(l.leadNumber).padStart(4, '0')}` : l.id.substring(0, 8),
           priority: 'High',
@@ -448,6 +499,7 @@ export const useInboxHub = () => {
           createdAt: l.addedOn || new Date().toISOString(),
           timeAgo: formatRelativeTime(l.addedOn),
           starred: isStarred,
+          deepLinkUrl: '/admin/leads',
           metadata: {
             ...l
           },
@@ -470,18 +522,21 @@ export const useInboxHub = () => {
           categoryLabel: 'B2B Partners & KYC',
           type: 'Partner Onboarding Approval',
           title: `Partner Registration: ${p.name} (${p.company_name || 'Travel Agency'})`,
-          subtitle: `Location: ${p.location || 'India'} • Email: ${p.email} • Phone: ${p.phone}`,
+          subtitle: `Location: ${p.location || 'India'} • Email: ${p.email}`,
           requesterName: p.name,
           requesterEmail: p.email,
           requesterPhone: p.phone,
           requesterInitials: getInitials(p.name),
           avatarColor: getAvatarColor(p.name),
+          activityIcon: 'handshake',
+          iconBgColor: 'bg-teal-500 text-white',
           referenceCode: `PTR-${p.id.substring(0, 6).toUpperCase()}`,
           priority: 'Medium',
           status: 'Pending',
           createdAt: p.created_at || new Date().toISOString(),
           timeAgo: formatRelativeTime(p.created_at),
           starred: isStarred,
+          deepLinkUrl: '/admin/b2b-partners',
           metadata: {
             ...p
           },
@@ -503,19 +558,22 @@ export const useInboxHub = () => {
           category: 'partner_kyc',
           categoryLabel: 'KYC Document Audits',
           type: 'Partner KYC Audit',
-          title: `KYC Review: ${kyc.name} (${kyc.company_name || 'Partner'})`,
-          subtitle: `Docs: PAN, GST, ID Proof submitted on ${kyc.kyc_submitted_at ? new Date(kyc.kyc_submitted_at).toLocaleDateString() : 'Recently'}`,
+          title: `KYC Audit: ${kyc.name} (${kyc.company_name || 'Partner'})`,
+          subtitle: `PAN, GST & ID Proof submitted on ${formatCleanDate(kyc.kyc_submitted_at)}`,
           requesterName: kyc.name,
           requesterEmail: kyc.email,
           requesterPhone: kyc.phone,
           requesterInitials: getInitials(kyc.name),
           avatarColor: getAvatarColor(kyc.name),
+          activityIcon: 'badge',
+          iconBgColor: 'bg-teal-500 text-white',
           referenceCode: `KYC-${kyc.id.substring(0, 6).toUpperCase()}`,
           priority: 'High',
           status: 'Pending',
           createdAt: kyc.kyc_submitted_at || new Date().toISOString(),
           timeAgo: formatRelativeTime(kyc.kyc_submitted_at),
           starred: isStarred,
+          deepLinkUrl: '/admin/b2b-partners',
           metadata: {
             ...kyc
           },
@@ -528,22 +586,43 @@ export const useInboxHub = () => {
       }
     });
 
-    // 7. 📋 PRODUCTIVITY TASKS (Assigned & Urgent)
+    // 7. 📋 PRODUCTIVITY TASKS (Assigned & Urgent Playbooks)
     tasks.forEach(t => {
       if (t.status === 'Pending' || t.status === 'In Progress') {
-        const isUrgent = t.priority === 'Urgent' || t.priority === 'High';
         const isStarred = starredIds.includes(`task_${t.id}`);
+        const assignedByName = resolveStaffDisplayName(t.assignedBy);
+        const assignedToName = resolveStaffDisplayName(t.assignedTo);
+        const initials = resolveStaffInitials(t.assignedBy);
+
+        // Pick intuitive icon based on task title
+        let taskIcon = 'checklist';
+        const lowerTitle = t.title.toLowerCase();
+        if (lowerTitle.includes('pick-up') || lowerTitle.includes('driver') || lowerTitle.includes('cab') || lowerTitle.includes('transport')) {
+          taskIcon = 'local_taxi';
+        } else if (lowerTitle.includes('hotel') || lowerTitle.includes('supplier') || lowerTitle.includes('room') || lowerTitle.includes('stay')) {
+          taskIcon = 'hotel';
+        } else if (lowerTitle.includes('proposal') || lowerTitle.includes('itinerary') || lowerTitle.includes('quote')) {
+          taskIcon = 'description';
+        } else if (lowerTitle.includes('flight') || lowerTitle.includes('train') || lowerTitle.includes('ticket')) {
+          taskIcon = 'flight';
+        }
+
+        // Clean title (strip redundant "Task:" prefix if already present)
+        const cleanTitle = t.title.replace(/^Task:\s*/i, '');
+
         items.push({
           id: `task_${t.id}`,
           originalId: t.id,
-          category: 'hr',
-          categoryLabel: 'Assigned Tasks',
-          type: 'Assigned Playbook Task',
-          title: `Task: ${t.title}`,
-          subtitle: `Priority: ${t.priority} • Due: ${t.dueDate || 'Today'} • ${t.description || 'No notes'}`,
-          requesterName: 'System / Manager',
-          requesterInitials: 'TK',
+          category: 'tasks',
+          categoryLabel: 'Tasks & Playbooks',
+          type: 'Playbook Directive',
+          title: cleanTitle,
+          subtitle: t.description || 'Assigned operations task awaiting completion.',
+          requesterName: assignedByName,
+          requesterInitials: initials,
           avatarColor: 'bg-indigo-600',
+          activityIcon: taskIcon,
+          iconBgColor: 'bg-indigo-500 text-white',
           referenceCode: `TSK-${t.id.substring(0, 6)}`,
           priority: t.priority as InboxItemPriority,
           status: 'Pending',
@@ -551,8 +630,12 @@ export const useInboxHub = () => {
           dueAt: t.dueDate,
           timeAgo: formatRelativeTime(t.createdAt),
           starred: isStarred,
+          deepLinkUrl: '/admin/productivity',
           metadata: {
-            ...t
+            ...t,
+            cleanTitle,
+            assignedByName,
+            assignedToName
           },
           actions: {
             canApprove: true,
@@ -591,6 +674,7 @@ export const useInboxHub = () => {
         operations: pendingItems.filter(i => i.category === 'operations').length,
         crm: pendingItems.filter(i => i.category === 'crm').length,
         hr: pendingItems.filter(i => i.category === 'hr').length,
+        tasks: pendingItems.filter(i => i.category === 'tasks').length,
         partner_kyc: pendingItems.filter(i => i.category === 'partner_kyc').length,
         transfer: pendingItems.filter(i => i.category === 'transfer').length,
       }
@@ -632,7 +716,7 @@ export const useInboxHub = () => {
       } else if (item.category === 'crm' && item.type.includes('Follow-up')) {
         updateFollowUp(item.originalId, { status: 'Done', completedAt: new Date().toISOString() });
         toast.success(`Follow-up marked as completed!`);
-      } else if (item.category === 'hr' && item.type.includes('Task')) {
+      } else if (item.category === 'tasks' || (item.category === 'hr' && item.type.includes('Task'))) {
         updateTask(item.originalId, { status: 'Completed', completedAt: new Date().toISOString(), completionNote: decisionNote });
         toast.success(`Task marked as completed!`);
       } else if (item.category === 'operations') {
@@ -686,6 +770,9 @@ export const useInboxHub = () => {
         if (!res.ok) throw new Error('Failed to block partner');
         await refetchPartners();
         toast.success(`Partner registration rejected`);
+      } else if (item.category === 'tasks') {
+        updateTask(item.originalId, { status: 'Pending', description: `${item.metadata.description || ''} [Rejected: ${rejectionReason}]` });
+        toast.success(`Task rejected with feedback`);
       }
 
       queryClient.invalidateQueries({ queryKey: ['finance-transactions'] });
@@ -703,7 +790,21 @@ export const useInboxHub = () => {
       toast.error('Please enter feedback or clarifications needed.');
       return;
     }
-    toast.success(`Feedback sent back to requester: "${feedbackNote.substring(0, 40)}..."`);
+
+    try {
+      if (item.category === 'tasks') {
+        updateTask(item.originalId, {
+          status: 'In Progress',
+          description: `${item.metadata.description || ''}\n[Feedback: ${feedbackNote}]`
+        });
+      } else if (item.category === 'hr' && item.type.includes('Leave')) {
+        await api.updateStaffLeaveStatus(item.originalId, { status: 'Rejected', rejectionReason: `Sent back for revision: ${feedbackNote}` });
+        await refetchLeaves();
+      }
+      toast.success(`Feedback sent back to requester: "${feedbackNote.substring(0, 40)}..."`);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to send back feedback');
+    }
   };
 
   return {

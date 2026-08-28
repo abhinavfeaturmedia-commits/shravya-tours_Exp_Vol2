@@ -4,13 +4,13 @@ import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
 import { api } from '../src/lib/api';
 import { toast } from 'sonner';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Bar, ComposedChart, Line } from 'recharts';
+import { Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ComposedChart, Line } from 'recharts';
 import { formatPrice, formatPriceCompact } from '../utils/packageUtils';
 
 export const AdminDashboard: React.FC = () => {
     const navigate = useNavigate();
     const {
-        bookings: globalBookings, packages, leads: globalLeads, vendors, masterLocations, masterHotels, masterActivities,
+        bookings: globalBookings, packages, leads: globalLeads, masterLocations, masterHotels, masterActivities,
         tasks, followUps, customers, getActiveMembershipForCustomer
     } = useData();
     const { currentUser, staff } = useAuth();
@@ -76,7 +76,7 @@ export const AdminDashboard: React.FC = () => {
 
     // --- Enhanced Business Intelligence Calculations ---
 
-    // ─── Shared helper: net cash received for a booking (verified txs only) ───
+    // Shared helper: net cash received for a booking (verified txs only)
     const getNetPaid = (b: any): number => {
         const paid = (b.transactions || [])
             .filter((t: any) => t.type === 'Payment' && t.status === 'Verified')
@@ -87,7 +87,7 @@ export const AdminDashboard: React.FC = () => {
         return Math.max(0, paid - refunded);
     };
 
-    // Fix #1 — Revenue = sum of verified payments received, not just Paid-status bookings
+    // Revenue = sum of verified payments received
     const totalRevenue = useMemo(() =>
         bookings
             .filter(b => b.status !== 'Cancelled')
@@ -99,7 +99,6 @@ export const AdminDashboard: React.FC = () => {
         .filter(b => b.status !== 'Cancelled')
         .reduce((acc, b) => acc + b.amount, 0);
 
-    const bookingCount = bookings.length;
     const activePackages = packages.filter(p => p.status === 'Active').length;
 
     // Membership Metrics
@@ -114,32 +113,46 @@ export const AdminDashboard: React.FC = () => {
     }, [customers, getActiveMembershipForCustomer]);
 
     // Lead Analytics
-    const newLeadsCount = leads.filter(l => l.status === 'New').length;
     const hotLeadsCount = leads.filter(l => l.status === 'Hot').length;
     const convertedLeadsCount = leads.filter(l => l.status === 'Converted').length;
 
-    // Fix #3 — Pipeline Value: only active pipeline statuses (exclude Cold & Converted)
+    // Pipeline Value: active pipeline statuses (exclude Cold & Converted)
     const ACTIVE_PIPELINE_STATUSES = ['New', 'Warm', 'Hot', 'Offer Sent'];
+    const activeLeadsCount = leads.filter(l => ACTIVE_PIPELINE_STATUSES.includes(l.status)).length;
     const totalLeadsValue = leads
         .filter(l => ACTIVE_PIPELINE_STATUSES.includes(l.status))
-        .reduce((sum, l) => sum + l.potentialValue, 0);
+        .reduce((sum, l) => sum + (l.potentialValue || 0), 0);
 
-    // Fix #2 — Win Rate: Converted ÷ (Converted + Cold) — closed-deal denominator only
+    // Win Rate: Converted ÷ (Converted + Cold)
     const closedLeadsCount = leads.filter(l => l.status === 'Converted' || l.status === 'Cold').length;
     const winRate = closedLeadsCount > 0
         ? Math.round((convertedLeadsCount / closedLeadsCount) * 100)
         : 0;
-    // Legacy conversionRate kept for smart-alerts threshold check
+
     const conversionRate = leads.length > 0
         ? Math.round((convertedLeadsCount / leads.length) * 100)
         : 0;
 
-    // Pending Actions
+    // Pending Actions & Operational Ticker Stats
     const pendingBookings = bookings.filter(b => b.status === 'Pending').length;
     const ongoingBookings = bookings.filter(b => b.status === 'Confirmed' && today >= b.date && today <= (b.endDate || b.date)).length;
     const unpaidBookings = bookings.filter(b => b.payment === 'Unpaid').length;
 
-    // Fix #6 — Count new bookings this week by CREATION date, not travel date
+    const urgentTasksCount = useMemo(() => {
+        return (tasks || []).filter(t => t.status !== 'Completed' && (t.priority === 'Urgent' || t.priority === 'High')).length;
+    }, [tasks]);
+
+    const unassignedDriversCount = useMemo(() => {
+        const now = Date.now();
+        return bookings.filter(b => {
+            if (b.status === 'Cancelled' || b.status === 'Completed') return false;
+            const departureDate = new Date(b.date).getTime();
+            const hoursUntilTrip = (departureDate - now) / (1000 * 3600);
+            const hasDriver = !!(b.supplierBookings?.some(sb => sb.serviceType === 'Transport' && sb.driverName) || b.details?.includes('Driver:'));
+            return !hasDriver && hoursUntilTrip > -24 && hoursUntilTrip <= 48;
+        }).length;
+    }, [bookings]);
+
     const thisWeekNewBookings = bookings.filter(b => {
         const createdDate = new Date((b as any).createdAt || b.date);
         const weekAgo = new Date();
@@ -190,7 +203,7 @@ export const AdminDashboard: React.FC = () => {
         return alerts;
     }, [hotLeadsCount, unpaidBookings, pendingBookings, conversionRate]);
 
-    // Dynamic Activity Log with better time display
+    // Dynamic Activity Log
     const recentActivities = useMemo(() => {
         const getRelativeTime = (dateStr: string) => {
             const date = new Date(dateStr);
@@ -238,14 +251,13 @@ export const AdminDashboard: React.FC = () => {
         activities: masterActivities?.length || 0
     };
 
-    // --- Sales Leaderboard Calculation ---
+    // Sales Leaderboard Calculation
     const salesLeaderboard = useMemo(() => {
         const daysToSubtract = parseInt(salesTimeFilter);
         const cutoffDate = new Date();
         cutoffDate.setDate(cutoffDate.getDate() - daysToSubtract);
         cutoffDate.setHours(0, 0, 0, 0);
 
-        // Filter valid bookings within timeframe
         const validBookings = globalBookings.filter(b => {
             if (isRestricted && !matchesUserAssigned(b.assignedTo)) return false;
             if (b.status === 'Cancelled') return false;
@@ -258,7 +270,6 @@ export const AdminDashboard: React.FC = () => {
         validBookings.forEach(b => {
             if (b.assignedTo) {
                 const existing = salesMap.get(b.assignedTo) || { count: 0, revenue: 0, name: 'Unknown Staff', initials: 'US', color: 'slate' };
-                // Find staff details if first time
                 if (existing.count === 0) {
                     const st = staff.find(s => String(s.id) === String(b.assignedTo));
                     if (st) {
@@ -280,10 +291,10 @@ export const AdminDashboard: React.FC = () => {
         return Array.from(salesMap.values()).sort((a, b) => {
             if (b.count !== a.count) return b.count - a.count;
             return b.revenue - a.revenue;
-        }).slice(0, 5); // Top 5
+        }).slice(0, 5);
     }, [globalBookings, salesTimeFilter, staff, isRestricted, currentUser]);
 
-    // --- 1. Lead Conversion Funnel ---
+    // Lead Conversion Funnel
     const leadFunnel = useMemo(() => {
         const counts = { New: 0, Warm: 0, Hot: 0, 'Offer Sent': 0, Converted: 0, Cold: 0 };
         leads.forEach(l => {
@@ -301,7 +312,7 @@ export const AdminDashboard: React.FC = () => {
         ].filter(f => f.count > 0);
     }, [leads]);
 
-    // --- 2. Upcoming Departures (Next 14 Days) ---
+    // Upcoming Departures (Next 14 Days)
     const upcomingDepartures = useMemo(() => {
         const now = new Date();
         now.setHours(0, 0, 0, 0);
@@ -310,15 +321,13 @@ export const AdminDashboard: React.FC = () => {
 
         return bookings.filter(b => {
             if (b.status === 'Cancelled') return false;
-            // Extract start date from generic booking date (assuming the primary date field is start date for this context)
             const bDate = new Date(b.date);
             return bDate >= now && bDate <= in14Days;
         }).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()).slice(0, 5);
     }, [bookings]);
 
-    // --- 3. My Pending Follow-ups & Tasks ---
+    // Pending Follow-ups & Tasks
     const myActionItems = useMemo(() => {
-        // Collect FollowUps
         const pendingFollowUps = (followUps || []).filter(f => {
             if (f.assignedTo !== currentUser?.id) return false;
             return f.status === 'Pending' || f.status === 'Scheduled' || f.status === 'Overdue';
@@ -329,13 +338,12 @@ export const AdminDashboard: React.FC = () => {
             desc: f.description,
             date: new Date(f.scheduledAt),
             icon: f.type === 'WhatsApp' ? 'forum' : f.type === 'Call' ? 'call' : 'mail',
-            color: f.status === 'Overdue' ? 'text-rose-500 bg-rose-50' : 'text-amber-500 bg-amber-50',
+            color: f.status === 'Overdue' ? 'text-rose-500 bg-rose-50 dark:bg-rose-950/40' : 'text-amber-500 bg-amber-50 dark:bg-amber-950/40',
             link: '/admin/leads'
         }));
 
-        // Collect Tasks
         const pendingTasks = (tasks || []).filter(t => {
-            if (t.assignedTo !== currentUser?.id) return false;
+            if (t.assignedTo !== currentUser?.id && t.assignedTo !== '1') return false;
             return t.status === 'Pending' || t.status === 'In Progress' || t.status === 'Overdue';
         }).map(t => ({
             id: t.id,
@@ -344,8 +352,8 @@ export const AdminDashboard: React.FC = () => {
             desc: t.description || 'Action required',
             date: new Date(t.dueDate),
             icon: 'task_alt',
-            color: t.status === 'Overdue' || t.priority === 'Urgent' ? 'text-rose-500 bg-rose-50' : 'text-indigo-500 bg-indigo-50',
-            link: '/admin/tasks' // Assuming tasks page exists, or generic
+            color: t.status === 'Overdue' || t.priority === 'Urgent' ? 'text-rose-500 bg-rose-50 dark:bg-rose-950/40' : 'text-indigo-500 bg-indigo-50 dark:bg-indigo-950/40',
+            link: '/admin/inbox'
         }));
 
         return [...pendingFollowUps, ...pendingTasks]
@@ -353,13 +361,12 @@ export const AdminDashboard: React.FC = () => {
             .slice(0, 5);
     }, [followUps, tasks, currentUser]);
 
-    // --- 4. Top Destinations ---
+    // Top Destinations
     const topDestinations = useMemo(() => {
         const destMap = new Map<string, number>();
         bookings.forEach(b => {
             if (b.status !== 'Cancelled' && b.title) {
-                // Approximate destination by booking title if location isn't strictly normalized
-                const dest = b.title.split('-')[0].trim() || 'Unknown';
+                const dest = b.title.split('-')[0].trim() || 'Custom Tour';
                 destMap.set(dest, (destMap.get(dest) || 0) + 1);
             }
         });
@@ -369,27 +376,22 @@ export const AdminDashboard: React.FC = () => {
             .slice(0, 4);
     }, [bookings]);
 
-    // --- 5. Outstanding Payments & Dues ---
+    // Outstanding Payments & Financial Health
     const financialHealth = useMemo(() => {
         let receivables = 0;
         let payables = 0;
 
         bookings.forEach(b => {
             if (b.status === 'Cancelled') return;
-
-            // Fix #8 — Receivables: clamp to 0 to prevent negative values on overpayments
-            // Use verified payments only — Pending transactions don't count as collected
             const netPaid = getNetPaid(b);
             const remaining = b.amount - netPaid;
-            // Only add to receivables if there IS an outstanding balance
             if (remaining > 0) receivables += remaining;
 
-            // Payables calculations (Supplier Bookings)
             if (b.supplierBookings) {
                 b.supplierBookings.forEach(sb => {
                     if (sb.bookingStatus !== 'Cancelled' && (sb.paymentStatus === 'Unpaid' || sb.paymentStatus === 'Partially Paid')) {
-                        const remaining = Math.max(0, sb.cost - (sb.paidAmount || 0));
-                        if (remaining > 0) payables += remaining;
+                        const rem = Math.max(0, sb.cost - (sb.paidAmount || 0));
+                        if (rem > 0) payables += rem;
                     }
                 });
             }
@@ -398,7 +400,9 @@ export const AdminDashboard: React.FC = () => {
         return { receivables, payables };
     }, [bookings]);
 
-    // --- 6. Lead Source Performance ---
+    const netWorkingCapital = financialHealth.receivables - financialHealth.payables;
+
+    // Lead Source Performance
     const leadSourcesData = useMemo(() => {
         const sourceMap = new Map<string, { total: number, converted: number }>();
         leads.forEach(l => {
@@ -419,7 +423,7 @@ export const AdminDashboard: React.FC = () => {
             .slice(0, 4);
     }, [leads]);
 
-    // --- 7. Enhanced Revenue & Financial Intelligence Calculations ---
+    // Revenue Overview Analytics
     const [chartMetricMode, setChartMetricMode] = useState<'collected' | 'comparison' | 'profit'>('collected');
 
     const revenueAnalytics = useMemo(() => {
@@ -432,10 +436,10 @@ export const AdminDashboard: React.FC = () => {
         
         const monthlyData = months.map(m => ({
             name: m,
-            revenue: 0,        // Cash collected from verified transactions
-            bookingValue: 0,   // Invoice total value
-            vendorCosts: 0,    // Supplier payouts
-            netProfit: 0,      // Estimated margin
+            revenue: 0,
+            bookingValue: 0,
+            vendorCosts: 0,
+            netProfit: 0,
             bookings: 0,
             monthIndex: months.indexOf(m)
         }));
@@ -487,14 +491,11 @@ export const AdminDashboard: React.FC = () => {
             if (m.revenue > peakMonth.revenue) peakMonth = m;
         });
 
-        const estYearProfit = Math.max(0, totalYearInvoiced - totalYearVendorCosts);
-
         return {
             monthlyData,
             totalYearCollected,
             totalYearInvoiced,
             totalYearVendorCosts,
-            estYearProfit,
             yoyGrowth,
             collectionEfficiency,
             peakMonth,
@@ -597,212 +598,373 @@ export const AdminDashboard: React.FC = () => {
         else setGreeting('Good Evening');
     }, []);
 
+    // Collection efficiency percentage
+    const collectionRatePct = totalBookingValue > 0 ? Math.min(100, Math.round((totalRevenue / totalBookingValue) * 100)) : 100;
+
     return (
-        <div className="p-6 lg:p-10 max-w-[1600px] mx-auto space-y-8">
+        <div className="p-4 sm:p-6 lg:p-8 max-w-[1700px] mx-auto space-y-6">
 
-            {/* 1. Hero Section */}
-            <div className="relative overflow-hidden rounded-[2.5rem] bg-slate-900 dark:bg-[#1A202C] text-white shadow-2xl shadow-slate-900/10">
-                <div className="absolute inset-0 bg-gradient-to-br from-indigo-600 via-purple-700 to-slate-900 opacity-90"></div>
+            {/* ─── 1. Executive Horizon Command Header (Compact & Actionable) ─── */}
+            <div className="relative overflow-hidden rounded-3xl bg-slate-900 dark:bg-slate-950 text-white shadow-xl border border-slate-800">
+                {/* Subtle Ambient Background Lighting */}
+                <div className="absolute inset-0 bg-gradient-to-r from-indigo-950/90 via-slate-900/90 to-purple-950/80"></div>
+                <div className="absolute -top-20 -right-20 w-80 h-80 bg-indigo-500/15 rounded-full blur-3xl pointer-events-none"></div>
 
-                {/* Abstract Shapes */}
-                <div className="hidden md:block absolute top-0 right-0 w-[500px] h-[500px] bg-white/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3 pointer-events-none"></div>
-                <div className="hidden md:block absolute bottom-0 left-0 w-[300px] h-[300px] bg-indigo-500/20 rounded-full blur-3xl translate-y-1/3 -translate-x-1/3 pointer-events-none"></div>
-
-                <div className="relative z-10 p-6 lg:p-12 flex flex-col md:flex-row justify-between items-start md:items-end gap-6 md:gap-8">
-                    <div className="space-y-4 max-w-2xl">
-                        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 backdrop-blur-md border border-white/10 text-xs font-bold uppercase tracking-widest text-indigo-100">
-                            <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
-                            System Online
+                <div className="relative z-10 p-5 sm:p-7 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-5">
+                    
+                    {/* Left: Greeting & Live Operational Ticker */}
+                    <div className="space-y-2.5 max-w-3xl">
+                        <div className="flex items-center gap-2">
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-[11px] font-black uppercase tracking-wider text-emerald-400">
+                                <span className="size-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                                Live Operating Cockpit
+                            </span>
+                            <span className="text-xs text-slate-400 font-medium">
+                                · {new Date().toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}
+                            </span>
                         </div>
-                        <h1 className="text-3xl md:text-5xl font-black tracking-tight leading-tight">
-                            {greeting}, {currentUser?.name || 'there'}.
+
+                        <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
+                            {greeting}, {currentUser?.name?.split(' ')[0] || 'Abhinav'}.
                         </h1>
-                        <p className="text-base md:text-lg text-indigo-100 font-medium leading-relaxed opacity-90">
-                            Here's what's happening today. {isRestricted ? (
-                                <>In your assigned queue, you have <span className="text-white font-bold underline decoration-indigo-400 decoration-2 underline-offset-4">{pendingBookings} assigned pending bookings</span> and <span className="text-white font-bold underline decoration-green-400 decoration-2 underline-offset-4">{ongoingBookings} ongoing tours</span>.</>
-                            ) : (
-                                <>You have <span className="text-white font-bold underline decoration-indigo-400 decoration-2 underline-offset-4">{pendingBookings} pending bookings</span> and <span className="text-white font-bold underline decoration-green-400 decoration-2 underline-offset-4">{ongoingBookings} ongoing tours</span>.</>
+
+                        {/* Live Situational Awareness Ticker */}
+                        <div className="flex flex-wrap items-center gap-2 pt-1">
+                            <button
+                                onClick={() => navigate('/admin/bookings?status=Pending')}
+                                className="px-2.5 py-1 rounded-xl text-xs font-bold bg-white/10 hover:bg-white/15 border border-white/10 text-slate-200 flex items-center gap-1.5 transition-all active:scale-95"
+                            >
+                                <span className="size-2 rounded-full bg-amber-400"></span>
+                                <span><strong className="text-white">{pendingBookings}</strong> Pending Bookings</span>
+                            </button>
+
+                            <button
+                                onClick={() => navigate('/admin/inbox')}
+                                className="px-2.5 py-1 rounded-xl text-xs font-bold bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/30 text-rose-200 flex items-center gap-1.5 transition-all active:scale-95"
+                            >
+                                <span className="material-symbols-outlined text-[14px] text-rose-400">bolt</span>
+                                <span><strong className="text-white">{urgentTasksCount}</strong> Urgent SLAs</span>
+                            </button>
+
+                            {unassignedDriversCount > 0 && (
+                                <button
+                                    onClick={() => navigate('/admin/inbox')}
+                                    className="px-2.5 py-1 rounded-xl text-xs font-bold bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 text-blue-200 flex items-center gap-1.5 transition-all active:scale-95"
+                                >
+                                    <span className="material-symbols-outlined text-[14px] text-blue-400">local_taxi</span>
+                                    <span><strong className="text-white">{unassignedDriversCount}</strong> Drivers Needed</span>
+                                </button>
                             )}
-                        </p>
+
+                            {financialHealth.receivables > 0 && (
+                                <button
+                                    onClick={() => navigate('/admin/finance-verification')}
+                                    className="px-2.5 py-1 rounded-xl text-xs font-bold bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-emerald-200 flex items-center gap-1.5 transition-all active:scale-95"
+                                >
+                                    <span className="material-symbols-outlined text-[14px] text-emerald-400">payments</span>
+                                    <span><strong className="text-white">{formatPriceCompact(financialHealth.receivables)}</strong> Uncollected</span>
+                                </button>
+                            )}
+                        </div>
                     </div>
 
-                    <div className="flex flex-col sm:flex-row w-full md:w-auto gap-4">
-                        <button onClick={() => navigate('/admin/itinerary-builder')} className="group w-full sm:w-auto flex justify-center items-center gap-3 px-6 py-4 bg-white text-slate-900 rounded-2xl font-bold shadow-xl shadow-white/10 hover:bg-indigo-50 transition-all active:scale-95">
-                            <div className="size-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center group-hover:scale-110 transition-transform">
-                                <span className="material-symbols-outlined text-[18px]">add</span>
-                            </div>
+                    {/* Right: Quick Launch Command Hub */}
+                    <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto shrink-0">
+                        <button
+                            onClick={() => navigate('/admin/itinerary-builder')}
+                            className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl font-bold text-xs shadow-lg shadow-emerald-600/20 transition-all active:scale-95 cursor-pointer"
+                        >
+                            <span className="material-symbols-outlined text-[18px]">add_circle</span>
                             <span>Create Package</span>
                         </button>
-                        <button onClick={() => navigate('/admin/bookings')} className="w-full sm:w-auto flex justify-center items-center gap-3 px-6 py-4 bg-white/10 text-white backdrop-blur-md border border-white/10 rounded-2xl font-bold hover:bg-white/20 transition-all active:scale-95">
-                            <span>Manage Bookings</span>
-                            <span className="material-symbols-outlined text-[20px]">arrow_forward</span>
+
+                        <button
+                            onClick={() => navigate('/admin/leads')}
+                            className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 bg-white/10 hover:bg-white/15 text-white border border-white/15 rounded-xl font-bold text-xs transition-all active:scale-95 cursor-pointer"
+                        >
+                            <span className="material-symbols-outlined text-[18px]">person_add</span>
+                            <span>Add Lead</span>
+                        </button>
+
+                        <button
+                            onClick={() => navigate('/admin/invoices/new')}
+                            className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 bg-white/10 hover:bg-white/15 text-white border border-white/15 rounded-xl font-bold text-xs transition-all active:scale-95 cursor-pointer"
+                        >
+                            <span className="material-symbols-outlined text-[18px]">receipt_long</span>
+                            <span>New Invoice</span>
+                        </button>
+
+                        <button
+                            onClick={() => navigate('/admin/inbox')}
+                            className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600/80 hover:bg-indigo-600 text-white border border-indigo-500/40 rounded-xl font-bold text-xs transition-all active:scale-95 cursor-pointer"
+                        >
+                            <span className="material-symbols-outlined text-[18px]">inbox</span>
+                            <span>Inbox Hub</span>
                         </button>
                     </div>
                 </div>
             </div>
 
-            {/* 2. Key Performance Indicators - Premium Gradient Cards */}
-            <div className="flex overflow-x-auto snap-x snap-mandatory gap-4 pb-2 -mx-6 px-6 lg:mx-0 lg:px-0 lg:grid lg:grid-cols-5 lg:gap-6 lg:overflow-visible hide-scrollbar">
-                {[
-                    {
-                        label: 'Revenue Collected',
-                        value: formatPriceCompact(totalRevenue),
-                        icon: 'payments',
-                        gradient: 'from-emerald-500 to-teal-600',
-                        shadowColor: 'shadow-emerald-500/20',
-                        // Fix #6 — use booking creation date, not travel date
-                        trend: thisWeekNewBookings > 0 ? `${thisWeekNewBookings} new this week` : 'No new bookings',
-                        trendUp: thisWeekNewBookings > 0,
-                        subtitle: totalBookingValue > totalRevenue ? `of ${formatPriceCompact(totalBookingValue)} invoiced` : undefined,
-                    },
-                    { label: 'Active Members', value: activeMembersCount, icon: 'workspace_premium', gradient: 'from-amber-400 to-orange-500', shadowColor: 'shadow-amber-500/20', trend: 'Growing base', trendUp: true, subtitle: undefined },
-                    {
-                        // Fix #2 — Win Rate: Converted ÷ (Converted + Cold)
-                        label: 'Win Rate',
-                        value: `${winRate}%`,
-                        icon: 'trending_up',
-                        gradient: 'from-blue-500 to-indigo-600',
-                        shadowColor: 'shadow-blue-500/20',
-                        trend: winRate > 50 ? 'Above avg' : 'Needs focus',
-                        trendUp: winRate > 50,
-                        subtitle: `${convertedLeadsCount} won of ${closedLeadsCount} closed`,
-                    },
-                    {
-                        // Fix #3 — Pipeline: only active statuses, not Cold/Converted
-                        label: 'Active Pipeline',
-                        value: formatPriceCompact(totalLeadsValue),
-                        icon: 'account_balance',
-                        gradient: 'from-violet-500 to-purple-600',
-                        shadowColor: 'shadow-violet-500/20',
-                        trend: `${hotLeadsCount} hot leads`,
-                        trendUp: hotLeadsCount > 0,
-                        subtitle: `${leads.filter(l => ACTIVE_PIPELINE_STATUSES.includes(l.status)).length} active leads`,
-                    },
-                    { label: 'Active Packages', value: activePackages, icon: 'travel_explore', gradient: 'from-orange-500 to-rose-500', shadowColor: 'shadow-orange-500/20', trend: `${masterDataStats.locations} destinations`, trendUp: null, subtitle: undefined },
-                ].map((kpi, idx) => (
-                    <div key={idx} className="min-w-[85vw] sm:min-w-[45vw] lg:min-w-0 shrink-0 snap-center group relative bg-white dark:bg-slate-900/50 rounded-3xl border border-slate-100 dark:border-slate-800 overflow-hidden card-lift">
-                        {/* Gradient Background Accent */}
-                        <div className={`absolute top-0 right-0 w-32 h-32 bg-gradient-to-br ${kpi.gradient} opacity-10 rounded-full -translate-y-1/2 translate-x-1/2 group-hover:scale-150 transition-transform duration-500`} />
-
-                        <div className="relative p-6">
-                            <div className="flex justify-between items-start mb-4">
-                                <div className={`size-14 rounded-2xl bg-gradient-to-br ${kpi.gradient} text-white flex items-center justify-center shadow-xl ${kpi.shadowColor} group-hover:scale-110 group-hover:rotate-3 transition-all duration-300`}>
-                                    <span className="material-symbols-outlined text-2xl">{kpi.icon}</span>
-                                </div>
-                                <div className={`px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wide flex items-center gap-1.5 backdrop-blur-sm ${kpi.trendUp ? 'bg-emerald-100/80 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : kpi.trendUp === false ? 'bg-amber-100/80 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' : 'bg-slate-100/80 text-slate-600 dark:bg-slate-800/80 dark:text-slate-400'}`}>
-                                    {kpi.trendUp && <span className="material-symbols-outlined text-[12px]">arrow_upward</span>}
-                                    {kpi.trendUp === false && <span className="material-symbols-outlined text-[12px]">priority_high</span>}
-                                    {kpi.trend}
-                                </div>
+            {/* ─── 2. Interactive KPI Bento Cards with Progress Visualizers ─── */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                
+                {/* 1. Revenue Collected */}
+                <div
+                    onClick={() => navigate('/admin/finance-verification')}
+                    className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs hover:border-emerald-500/50 hover:shadow-md transition-all cursor-pointer group flex flex-col justify-between"
+                >
+                    <div>
+                        <div className="flex items-center justify-between mb-3">
+                            <div className="size-11 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold shadow-xs">
+                                <span className="material-symbols-outlined text-2xl">payments</span>
                             </div>
-                            <div>
-                                <p className="text-slate-500 dark:text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1">{kpi.label}</p>
-                                <h3 className="text-4xl kpi-number text-slate-900 dark:text-white mt-1">{kpi.value}</h3>
-                                {kpi.subtitle && (
-                                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-1 font-medium">{kpi.subtitle}</p>
-                                )}
-                            </div>
+                            <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300">
+                                {thisWeekNewBookings > 0 ? `+${thisWeekNewBookings} this week` : 'Live'}
+                            </span>
                         </div>
+
+                        <p className="text-slate-400 dark:text-slate-500 text-[10px] font-black uppercase tracking-wider">
+                            Revenue Collected
+                        </p>
+                        <h3 className="text-2xl lg:text-3xl font-black text-slate-900 dark:text-white mt-0.5">
+                            {formatPriceCompact(totalRevenue)}
+                        </h3>
                     </div>
-                ))}
+
+                    {/* Progress Bar & Subtitle */}
+                    <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800/80">
+                        <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 mb-1">
+                            <span>Collection Rate</span>
+                            <span className="text-emerald-600 dark:text-emerald-400 font-extrabold">{collectionRatePct}%</span>
+                        </div>
+                        <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                            <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${collectionRatePct}%` }}></div>
+                        </div>
+                        <p className="text-[10px] text-slate-400 mt-1 truncate">of {formatPriceCompact(totalBookingValue)} invoiced</p>
+                    </div>
+                </div>
+
+                {/* 2. Active Members */}
+                <div
+                    onClick={() => navigate('/admin/memberships')}
+                    className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs hover:border-amber-500/50 hover:shadow-md transition-all cursor-pointer group flex flex-col justify-between"
+                >
+                    <div>
+                        <div className="flex items-center justify-between mb-3">
+                            <div className="size-11 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold shadow-xs">
+                                <span className="material-symbols-outlined text-2xl">workspace_premium</span>
+                            </div>
+                            <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300">
+                                Loyalty
+                            </span>
+                        </div>
+
+                        <p className="text-slate-400 dark:text-slate-500 text-[10px] font-black uppercase tracking-wider">
+                            Active Members
+                        </p>
+                        <h3 className="text-2xl lg:text-3xl font-black text-slate-900 dark:text-white mt-0.5">
+                            {activeMembersCount}
+                        </h3>
+                    </div>
+
+                    <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-[11px] font-bold text-slate-500">
+                        <span>VIP Tier Retention</span>
+                        <span className="text-amber-600 font-extrabold">Active</span>
+                    </div>
+                </div>
+
+                {/* 3. Win Rate */}
+                <div
+                    onClick={() => navigate('/admin/leads')}
+                    className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs hover:border-blue-500/50 hover:shadow-md transition-all cursor-pointer group flex flex-col justify-between"
+                >
+                    <div>
+                        <div className="flex items-center justify-between mb-3">
+                            <div className="size-11 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold shadow-xs">
+                                <span className="material-symbols-outlined text-2xl">trending_up</span>
+                            </div>
+                            <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300">
+                                {winRate > 50 ? 'Above Avg' : 'Normal'}
+                            </span>
+                        </div>
+
+                        <p className="text-slate-400 dark:text-slate-500 text-[10px] font-black uppercase tracking-wider">
+                            Win Rate
+                        </p>
+                        <h3 className="text-2xl lg:text-3xl font-black text-slate-900 dark:text-white mt-0.5">
+                            {winRate}%
+                        </h3>
+                    </div>
+
+                    <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800/80">
+                        <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                            <div className="h-full bg-blue-500 rounded-full" style={{ width: `${winRate}%` }}></div>
+                        </div>
+                        <p className="text-[10px] text-slate-400 mt-1 font-medium truncate">
+                            {convertedLeadsCount} won of {closedLeadsCount} closed
+                        </p>
+                    </div>
+                </div>
+
+                {/* 4. Active Pipeline */}
+                <div
+                    onClick={() => navigate('/admin/leads')}
+                    className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs hover:border-purple-500/50 hover:shadow-md transition-all cursor-pointer group flex flex-col justify-between"
+                >
+                    <div>
+                        <div className="flex items-center justify-between mb-3">
+                            <div className="size-11 rounded-xl bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 flex items-center justify-center font-bold shadow-xs">
+                                <span className="material-symbols-outlined text-2xl">account_balance</span>
+                            </div>
+                            <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300">
+                                {hotLeadsCount} Hot
+                            </span>
+                        </div>
+
+                        <p className="text-slate-400 dark:text-slate-500 text-[10px] font-black uppercase tracking-wider">
+                            Active Pipeline
+                        </p>
+                        <h3 className="text-2xl lg:text-3xl font-black text-slate-900 dark:text-white mt-0.5">
+                            {formatPriceCompact(totalLeadsValue)}
+                        </h3>
+                    </div>
+
+                    <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-[11px] font-bold text-slate-500">
+                        <span>Active Enquiries</span>
+                        <span className="text-purple-600 font-extrabold">{activeLeadsCount} leads</span>
+                    </div>
+                </div>
+
+                {/* 5. Active Packages */}
+                <div
+                    onClick={() => navigate('/admin/packages')}
+                    className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs hover:border-rose-500/50 hover:shadow-md transition-all cursor-pointer group flex flex-col justify-between"
+                >
+                    <div>
+                        <div className="flex items-center justify-between mb-3">
+                            <div className="size-11 rounded-xl bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 flex items-center justify-center font-bold shadow-xs">
+                                <span className="material-symbols-outlined text-2xl">travel_explore</span>
+                            </div>
+                            <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950 text-rose-800 dark:text-rose-300">
+                                Active
+                            </span>
+                        </div>
+
+                        <p className="text-slate-400 dark:text-slate-500 text-[10px] font-black uppercase tracking-wider">
+                            Tour Catalog
+                        </p>
+                        <h3 className="text-2xl lg:text-3xl font-black text-slate-900 dark:text-white mt-0.5">
+                            {activePackages}
+                        </h3>
+                    </div>
+
+                    <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-[11px] font-bold text-slate-500">
+                        <span>Destinations</span>
+                        <span className="text-rose-600 font-extrabold">{masterDataStats.locations} places</span>
+                    </div>
+                </div>
+
             </div>
 
-            {/* Smart Alerts Section - Modern Glassmorphism */}
+            {/* ─── 3. Actionable Smart Alerts Section ─── */}
             {smartAlerts.length > 0 && (
-                <div className="space-y-3">
+                <div className="space-y-2.5">
                     <div className="md:hidden">
-                        <button onClick={() => setIsAlertsExpanded(!isAlertsExpanded)} className="w-full flex items-center justify-between p-4 rounded-2xl bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20 border border-indigo-100 dark:border-indigo-800/30 font-bold text-indigo-900 dark:text-indigo-100 active:scale-[0.98] transition-transform">
-                            <div className="flex items-center gap-3">
-                                <span className="material-symbols-outlined text-indigo-500">notifications_active</span>
-                                <span>{smartAlerts.length} Actionable Alert{smartAlerts.length > 1 ? 's' : ''}</span>
+                        <button
+                            onClick={() => setIsAlertsExpanded(!isAlertsExpanded)}
+                            className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-800/40 font-bold text-xs text-indigo-900 dark:text-indigo-200"
+                        >
+                            <div className="flex items-center gap-2">
+                                <span className="material-symbols-outlined text-indigo-600 text-[18px]">notifications_active</span>
+                                <span>{smartAlerts.length} Actionable Alerts</span>
                             </div>
                             <span className={`material-symbols-outlined transition-transform duration-300 ${isAlertsExpanded ? 'rotate-180' : ''}`}>expand_more</span>
                         </button>
                     </div>
-                    <div className={`${isAlertsExpanded ? 'flex flex-col gap-3' : 'hidden'} md:block md:space-y-3`}>
+
+                    <div className={`${isAlertsExpanded ? 'flex flex-col gap-2' : 'hidden'} md:grid md:grid-cols-2 gap-3`}>
                         {smartAlerts.map((alert, idx) => (
-                        <div key={idx} className={`group flex items-center justify-between p-5 rounded-2xl backdrop-blur-sm border transition-all duration-300 hover:scale-[1.01] ${alert.type === 'warning'
-                            ? 'bg-gradient-to-r from-amber-50/90 to-orange-50/90 dark:from-amber-900/20 dark:to-orange-900/20 border-amber-200/50 dark:border-amber-700/30'
-                            : alert.type === 'success'
-                                ? 'bg-gradient-to-r from-emerald-50/90 to-teal-50/90 dark:from-emerald-900/20 dark:to-teal-900/20 border-emerald-200/50 dark:border-emerald-700/30'
-                                : 'bg-gradient-to-r from-blue-50/90 to-indigo-50/90 dark:from-blue-900/20 dark:to-indigo-900/20 border-blue-200/50 dark:border-blue-700/30'
-                            }`}>
-                            <div className="flex items-center gap-4">
-                                <div className={`size-10 rounded-xl flex items-center justify-center ${alert.type === 'warning'
-                                    ? 'bg-gradient-to-br from-amber-400 to-orange-500'
-                                    : alert.type === 'success'
-                                        ? 'bg-gradient-to-br from-emerald-400 to-teal-500'
-                                        : 'bg-gradient-to-br from-blue-400 to-indigo-500'
-                                    }`}>
-                                    <span className="material-symbols-outlined text-white text-[20px]">
-                                        {alert.type === 'warning' ? 'priority_high' : alert.type === 'success' ? 'check' : 'info'}
-                                    </span>
-                                </div>
-                                <span className="font-semibold text-slate-700 dark:text-slate-200">{alert.message}</span>
-                            </div>
-                            <button
-                                onClick={() => navigate(alert.path)}
-                                className={`px-5 py-2.5 rounded-xl text-sm font-bold transition-all btn-press shadow-lg ${alert.type === 'warning'
-                                    ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-amber-500/25 hover:shadow-amber-500/40'
-                                    : alert.type === 'success'
-                                        ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-emerald-500/25 hover:shadow-emerald-500/40'
-                                        : 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white shadow-blue-500/25 hover:shadow-blue-500/40'
-                                    }`}
+                            <div
+                                key={idx}
+                                className={`flex items-center justify-between p-3.5 rounded-2xl border transition-all ${
+                                    alert.type === 'warning'
+                                        ? 'bg-amber-50/80 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800/50 text-amber-900 dark:text-amber-200'
+                                        : alert.type === 'success'
+                                        ? 'bg-emerald-50/80 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/50 text-emerald-900 dark:text-emerald-200'
+                                        : 'bg-blue-50/80 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800/50 text-blue-900 dark:text-blue-200'
+                                }`}
                             >
-                                {alert.action}
-                            </button>
-                        </div>
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                    <span className="material-symbols-outlined text-[20px] shrink-0">
+                                        {alert.type === 'warning' ? 'priority_high' : alert.type === 'success' ? 'verified' : 'info'}
+                                    </span>
+                                    <span className="font-bold text-xs truncate">{alert.message}</span>
+                                </div>
+                                <button
+                                    onClick={() => navigate(alert.path)}
+                                    className="px-3 py-1 rounded-xl text-xs font-black bg-white dark:bg-slate-900 shadow-xs border border-slate-200 dark:border-slate-700 hover:bg-slate-50 transition-colors shrink-0 ml-2 cursor-pointer"
+                                >
+                                    {alert.action} →
+                                </button>
+                            </div>
                         ))}
                     </div>
                 </div>
             )}
 
-            {/* Financial Health Ribbon - Quick visibility for Top Mgmt */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-2">
-                <div className="bg-gradient-to-r from-emerald-500 to-teal-600 rounded-2xl p-6 text-white flex items-center justify-between shadow-lg shadow-emerald-500/20">
-                    <div>
-                        <p className="text-emerald-100 text-sm font-bold uppercase tracking-wider mb-1">To Collect (Receivables)</p>
-                        <h4 className="text-3xl font-black">{formatPriceCompact(financialHealth.receivables)}</h4>
-                        <p className="text-xs text-emerald-100 mt-2 font-medium">Pending payments from customers</p>
+            {/* ─── 4. Unified Cashflow & Working Capital Radar ─── */}
+            <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
+                <div className="flex items-center gap-3.5">
+                    <div className="size-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+                        <span className="material-symbols-outlined text-2xl">account_balance_wallet</span>
                     </div>
-                    <div className="size-16 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-md border border-white/20">
-                        <span className="material-symbols-outlined text-[32px]">system_update_alt</span>
+                    <div>
+                        <div className="flex items-center gap-2">
+                            <h4 className="font-black text-slate-900 dark:text-white text-sm">Working Capital & Dues Radar</h4>
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                                netWorkingCapital >= 0
+                                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                    : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                            }`}>
+                                {netWorkingCapital >= 0 ? `+${formatPriceCompact(netWorkingCapital)} Net Liquidity` : `${formatPriceCompact(netWorkingCapital)} Net Position`}
+                            </span>
+                        </div>
+                        <p className="text-xs text-slate-400 mt-0.5 font-medium">Real-time comparison between pending client receivables and vendor payables</p>
                     </div>
                 </div>
-                <div className="bg-gradient-to-r from-rose-500 to-orange-600 rounded-2xl p-6 text-white flex items-center justify-between shadow-lg shadow-rose-500/20">
-                    <div>
-                        <p className="text-rose-100 text-sm font-bold uppercase tracking-wider mb-1">To Pay (Payables)</p>
-                        <h4 className="text-3xl font-black">{formatPriceCompact(financialHealth.payables)}</h4>
-                        <p className="text-xs text-rose-100 mt-2 font-medium">Pending dues to vendors & hotels</p>
+
+                <div className="flex items-center gap-3">
+                    <div className="px-4 py-2 rounded-2xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200/60 dark:border-emerald-800/40">
+                        <span className="text-[9px] font-black uppercase text-emerald-700 dark:text-emerald-300 tracking-wider block">To Collect (Receivables)</span>
+                        <span className="text-base font-black text-emerald-700 dark:text-emerald-300 mt-0.5 block">{formatPriceCompact(financialHealth.receivables)}</span>
                     </div>
-                    <div className="size-16 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-md border border-white/20">
-                        <span className="material-symbols-outlined text-[32px]">publish</span>
+
+                    <div className="px-4 py-2 rounded-2xl bg-rose-50/80 dark:bg-rose-950/40 border border-rose-200/60 dark:border-rose-800/40">
+                        <span className="text-[9px] font-black uppercase text-rose-700 dark:text-rose-300 tracking-wider block">To Pay (Payables)</span>
+                        <span className="text-base font-black text-rose-700 dark:text-rose-300 mt-0.5 block">{formatPriceCompact(financialHealth.payables)}</span>
                     </div>
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+            {/* ─── 5. Main Split Grid: Charts & Operational Dispatch ─── */}
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
 
-                {/* 3. Main Chart & Table Area */}
-                <div className="xl:col-span-2 flex flex-col gap-8">
+                {/* Left (Col Span 2): Revenue Chart & Recent Bookings Table */}
+                <div className="xl:col-span-2 flex flex-col gap-6">
 
-                    {/* Modern Executive Revenue Overview Chart Card */}
-                    <div className="bg-white dark:bg-[#151d29] p-6 lg:p-8 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col gap-6">
+                    {/* Executive Revenue Overview Chart Card */}
+                    <div className="bg-white dark:bg-slate-900 p-5 lg:p-7 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col gap-5">
                         
-                        {/* Header Toolbar: Title, View Segment Toggles, Controls */}
-                        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800/80 pb-5">
+                        {/* Header Controls */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800/80 pb-4">
                             <div>
                                 <div className="flex items-center gap-2">
-                                    <div className="size-8 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold">
-                                        <span className="material-symbols-outlined text-[20px]">show_chart</span>
-                                    </div>
-                                    <h3 className="text-xl font-bold text-slate-900 dark:text-white">Revenue Overview</h3>
-                                    
+                                    <h3 className="text-lg font-black text-slate-900 dark:text-white">Revenue Overview</h3>
                                     {revenueAnalytics.yoyGrowth !== 0 && (
-                                        <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full flex items-center gap-0.5 ${
+                                        <span className={`text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-0.5 ${
                                             revenueAnalytics.yoyGrowth > 0
-                                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300'
-                                                : 'bg-rose-100 text-rose-700 dark:bg-rose-950/80 dark:text-rose-300'
+                                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                                : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
                                         }`}>
                                             <span className="material-symbols-outlined text-[12px]">
                                                 {revenueAnalytics.yoyGrowth > 0 ? 'trending_up' : 'trending_down'}
@@ -811,19 +973,19 @@ export const AdminDashboard: React.FC = () => {
                                         </span>
                                     )}
                                 </div>
-                                <p className="text-slate-500 text-xs font-medium mt-1">
-                                    Real-time financial collection, invoice volume & margin statistics
+                                <p className="text-slate-400 text-xs font-medium mt-0.5">
+                                    Monthly collection timeline, invoicing volume, and profit margins
                                 </p>
                             </div>
 
                             {/* View Mode Segmented Controls & Export Action */}
                             <div className="flex flex-wrap items-center gap-2">
-                                <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
+                                <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
                                     <button
                                         onClick={() => setChartMetricMode('collected')}
-                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                                             chartMetricMode === 'collected'
-                                                ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm'
+                                                ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
                                                 : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
                                         }`}
                                     >
@@ -831,30 +993,30 @@ export const AdminDashboard: React.FC = () => {
                                     </button>
                                     <button
                                         onClick={() => setChartMetricMode('comparison')}
-                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                                             chartMetricMode === 'comparison'
-                                                ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm'
+                                                ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
                                                 : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
                                         }`}
                                     >
-                                        Cash vs Invoiced
+                                        Invoiced
                                     </button>
                                     <button
                                         onClick={() => setChartMetricMode('profit')}
-                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                                             chartMetricMode === 'profit'
-                                                ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-sm'
+                                                ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-xs'
                                                 : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
                                         }`}
                                     >
-                                        Est. Margin
+                                        Margin
                                     </button>
                                 </div>
 
                                 <select
                                     value={selectedYear}
                                     onChange={(e) => setSelectedYear(e.target.value)}
-                                    className="bg-slate-100 dark:bg-slate-800/80 border border-slate-200/60 dark:border-slate-700/60 text-xs font-bold rounded-xl px-3 py-2 text-slate-700 dark:text-slate-300 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors focus:ring-2 focus:ring-indigo-500 outline-none"
+                                    className="bg-slate-100 dark:bg-slate-800 border-none text-xs font-bold rounded-xl px-2.5 py-1.5 text-slate-700 dark:text-slate-300 cursor-pointer outline-none"
                                 >
                                     <option value="This Year">This Year ({new Date().getFullYear()})</option>
                                     <option value="Last Year">Last Year ({new Date().getFullYear() - 1})</option>
@@ -862,8 +1024,8 @@ export const AdminDashboard: React.FC = () => {
 
                                 <button
                                     onClick={handleExportRevenueCSV}
-                                    className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
-                                    title="Export Monthly Financial Data to CSV"
+                                    className="p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 transition-colors"
+                                    title="Export to CSV"
                                 >
                                     <span className="material-symbols-outlined text-[18px]">file_download</span>
                                 </button>
@@ -871,36 +1033,36 @@ export const AdminDashboard: React.FC = () => {
                         </div>
 
                         {/* Executive Metric Highlights Strip */}
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50/70 dark:bg-slate-900/40 p-4 rounded-2xl border border-slate-100 dark:border-slate-800/60">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 bg-slate-50/70 dark:bg-slate-800/40 p-3.5 rounded-2xl border border-slate-100 dark:border-slate-800/60">
                             <div>
-                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Collected Cash</p>
-                                <p className="text-lg font-black text-indigo-600 dark:text-indigo-400 mt-0.5">
+                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Collected Cash</p>
+                                <p className="text-base font-black text-indigo-600 dark:text-indigo-400 mt-0.5">
                                     {formatPriceCompact(revenueAnalytics.totalYearCollected)}
                                 </p>
                             </div>
                             <div>
-                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Gross Invoiced</p>
-                                <p className="text-lg font-black text-amber-500 mt-0.5">
+                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Gross Invoiced</p>
+                                <p className="text-base font-black text-amber-500 mt-0.5">
                                     {formatPriceCompact(revenueAnalytics.totalYearInvoiced)}
                                 </p>
                             </div>
                             <div>
-                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Collection Efficiency</p>
-                                <p className="text-lg font-black text-emerald-500 mt-0.5">
+                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Collection Efficiency</p>
+                                <p className="text-base font-black text-emerald-500 mt-0.5">
                                     {revenueAnalytics.collectionEfficiency}%
                                 </p>
                             </div>
                             <div>
-                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Peak Performance</p>
+                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Peak Month</p>
                                 <p className="text-xs font-bold text-slate-800 dark:text-slate-200 mt-1 flex items-center gap-1">
-                                    <span className="bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 px-1.5 py-0.5 rounded font-black">{revenueAnalytics.peakMonth.name}</span>
+                                    <span className="bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 px-1.5 py-0.5 rounded font-black text-[10px]">{revenueAnalytics.peakMonth.name}</span>
                                     <span>{formatPriceCompact(revenueAnalytics.peakMonth.revenue)}</span>
                                 </p>
                             </div>
                         </div>
 
                         {/* Interactive Recharts Visualization Container */}
-                        <div className="relative h-[320px] w-full mt-2">
+                        <div className="relative h-[280px] w-full mt-1">
                             <ResponsiveContainer width="100%" height="100%">
                                 <ComposedChart 
                                     data={revenueData} 
@@ -909,15 +1071,11 @@ export const AdminDashboard: React.FC = () => {
                                 >
                                     <defs>
                                         <linearGradient id="colorCollected" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%" stopColor="#6366f1" stopOpacity={0.4}/>
+                                            <stop offset="5%" stopColor="#6366f1" stopOpacity={0.35}/>
                                             <stop offset="95%" stopColor="#6366f1" stopOpacity={0.0}/>
                                         </linearGradient>
-                                        <linearGradient id="colorInvoiced" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.3}/>
-                                            <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.0}/>
-                                        </linearGradient>
                                         <linearGradient id="colorProfit" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%" stopColor="#10b981" stopOpacity={0.4}/>
+                                            <stop offset="5%" stopColor="#10b981" stopOpacity={0.35}/>
                                             <stop offset="95%" stopColor="#10b981" stopOpacity={0.0}/>
                                         </linearGradient>
                                     </defs>
@@ -928,317 +1086,237 @@ export const AdminDashboard: React.FC = () => {
                                         dataKey="name" 
                                         axisLine={false} 
                                         tickLine={false} 
-                                        tick={{ fill: '#94a3b8', fontSize: 12, fontWeight: 700 }}
+                                        tick={{ fill: '#94a3b8', fontSize: 11, fontWeight: 700 }}
                                         dy={10}
                                     />
                                     
                                     <YAxis 
                                         axisLine={false} 
                                         tickLine={false} 
-                                        tick={{ fill: '#94a3b8', fontSize: 11, fontWeight: 600 }}
+                                        tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 600 }}
                                         tickFormatter={(value) => formatPriceCompact(value)}
                                         dx={-5}
                                     />
                                     
                                     <Tooltip content={<CustomTooltip />} />
 
-                                    {/* Primary Cash Collected Area */}
                                     {(chartMetricMode === 'collected' || chartMetricMode === 'comparison') && (
                                         <Area 
                                             type="monotone" 
                                             dataKey="revenue" 
                                             stroke="#6366f1" 
-                                            strokeWidth={4}
+                                            strokeWidth={3}
                                             fillOpacity={1} 
                                             fill="url(#colorCollected)" 
-                                            activeDot={{ r: 8, strokeWidth: 2, stroke: '#ffffff', fill: '#6366f1' }}
+                                            activeDot={{ r: 7, strokeWidth: 2, stroke: '#ffffff', fill: '#6366f1' }}
                                         />
                                     )}
 
-                                    {/* Comparison Mode: Gross Invoiced Line */}
                                     {chartMetricMode === 'comparison' && (
                                         <Line 
                                             type="monotone" 
                                             dataKey="bookingValue" 
                                             stroke="#f59e0b" 
-                                            strokeWidth={3}
+                                            strokeWidth={2.5}
                                             strokeDasharray="4 4"
-                                            dot={{ r: 4, fill: '#f59e0b' }}
-                                            activeDot={{ r: 7, strokeWidth: 2, stroke: '#ffffff', fill: '#f59e0b' }}
+                                            dot={{ r: 3, fill: '#f59e0b' }}
+                                            activeDot={{ r: 6, strokeWidth: 2, stroke: '#ffffff', fill: '#f59e0b' }}
                                         />
                                     )}
 
-                                    {/* Est Net Margin Mode */}
                                     {chartMetricMode === 'profit' && (
                                         <Area 
                                             type="monotone" 
                                             dataKey="netProfit" 
                                             stroke="#10b981" 
-                                            strokeWidth={4}
+                                            strokeWidth={3}
                                             fillOpacity={1} 
                                             fill="url(#colorProfit)" 
-                                            activeDot={{ r: 8, strokeWidth: 2, stroke: '#ffffff', fill: '#10b981' }}
+                                            activeDot={{ r: 7, strokeWidth: 2, stroke: '#ffffff', fill: '#10b981' }}
                                         />
                                     )}
                                 </ComposedChart>
                             </ResponsiveContainer>
                         </div>
-
-                        {/* Chart Footer Links & Deep-Links */}
-                        <div className="flex items-center justify-between border-t border-slate-100 dark:border-slate-800/80 pt-4 text-xs font-semibold text-slate-500">
-                            <div className="flex items-center gap-4">
-                                <span className="flex items-center gap-1.5">
-                                    <span className="size-2.5 rounded-full bg-indigo-500"></span>
-                                    <span>Collected</span>
-                                </span>
-                                {chartMetricMode === 'comparison' && (
-                                    <span className="flex items-center gap-1.5">
-                                        <span className="size-2.5 rounded-full bg-amber-500"></span>
-                                        <span>Invoiced Total</span>
-                                    </span>
-                                )}
-                                {chartMetricMode === 'profit' && (
-                                    <span className="flex items-center gap-1.5">
-                                        <span className="size-2.5 rounded-full bg-emerald-500"></span>
-                                        <span>Est. Net Profit</span>
-                                    </span>
-                                )}
-                            </div>
-
-                            <Link 
-                                to="/admin/analytics" 
-                                className="text-indigo-600 dark:text-indigo-400 hover:underline font-bold flex items-center gap-1"
-                            >
-                                <span>Full Financial Analytics</span>
-                                <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
-                            </Link>
-                        </div>
                     </div>
 
-                    {/* Recent Bookings Table */}
-                    <div className="bg-white dark:bg-[#151d29] rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden flex flex-col">
-                        <div className="p-8 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
-                            <h3 className="text-xl font-bold text-slate-900 dark:text-white">Recent Bookings</h3>
-                            <Link to="/admin/bookings" className="text-sm font-bold text-indigo-600 hover:text-indigo-700 flex items-center gap-1 group">
-                                View All <span className="material-symbols-outlined text-lg transition-transform group-hover:translate-x-1">arrow_right_alt</span>
+                    {/* Recent Bookings & Dispatch Readiness */}
+                    <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-xs overflow-hidden flex flex-col">
+                        <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
+                            <div>
+                                <h3 className="text-base font-black text-slate-900 dark:text-white">Recent Bookings & Tours</h3>
+                                <p className="text-xs text-slate-400 font-medium mt-0.5">Active client departures and payment progress</p>
+                            </div>
+                            <Link to="/admin/bookings" className="text-xs font-bold text-indigo-600 hover:text-indigo-700 flex items-center gap-1 group">
+                                <span>All Bookings</span>
+                                <span className="material-symbols-outlined text-[16px] transition-transform group-hover:translate-x-1">arrow_forward</span>
                             </Link>
                         </div>
-                        {/* Desktop Table View */}
+
+                        {/* Desktop Table */}
                         <div className="hidden md:block overflow-x-auto">
-                            <table className="w-full text-left text-sm">
-                                <thead className="bg-slate-50/50 dark:bg-slate-900/50 text-xs font-black uppercase tracking-widest text-slate-400">
+                            <table className="w-full text-left text-xs">
+                                <thead className="bg-slate-50/80 dark:bg-slate-800/50 text-[10px] font-black uppercase tracking-wider text-slate-400">
                                     <tr>
-                                        <th className="px-8 py-5">Customer</th>
-                                        <th className="px-8 py-5">Destination</th>
-                                        <th className="px-8 py-5">Date</th>
-                                        <th className="px-8 py-5">Amount</th>
-                                        <th className="px-8 py-5 text-right">Status</th>
+                                        <th className="px-5 py-3.5">Customer & Tour</th>
+                                        <th className="px-5 py-3.5">Departure</th>
+                                        <th className="px-5 py-3.5">Gross Amount</th>
+                                        <th className="px-5 py-3.5 text-right">Payment</th>
+                                        <th className="px-5 py-3.5 text-right">Actions</th>
                                     </tr>
                                 </thead>
-                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                    {bookings.slice(0, 5).map((row, i) => (
-                                        <tr key={i} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group cursor-pointer" onClick={() => navigate('/admin/bookings')}>
-                                            <td className="px-8 py-5">
-                                                <div className="flex items-center gap-4">
-                                                    <div className="size-10 rounded-full bg-gradient-to-tr from-slate-200 to-slate-100 dark:from-slate-700 dark:to-slate-600 flex items-center justify-center font-black text-slate-500 dark:text-slate-300 text-xs shadow-sm">
-                                                        {row.customer.charAt(0)}
+                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
+                                    {bookings.slice(0, 5).map((row, i) => {
+                                        const daysLeft = Math.ceil((new Date(row.date).getTime() - Date.now()) / (1000 * 3600 * 24));
+                                        return (
+                                            <tr key={i} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors group cursor-pointer" onClick={() => navigate('/admin/bookings')}>
+                                                <td className="px-5 py-3.5">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="size-8 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-black flex items-center justify-center text-xs">
+                                                            {row.customer?.charAt(0) || 'C'}
+                                                        </div>
+                                                        <div>
+                                                            <p className="font-bold text-slate-900 dark:text-white text-xs">{row.customer}</p>
+                                                            <p className="text-[11px] text-slate-400 line-clamp-1">{row.title}</p>
+                                                        </div>
                                                     </div>
-                                                    <div>
-                                                        <p className="font-bold text-slate-900 dark:text-white">{row.customer}</p>
-                                                        <p className="text-xs font-medium text-slate-500 font-mono mt-0.5">{row.id}</p>
-                                                    </div>
-                                                </div>
-                                            </td>
-                                            <td className="px-8 py-5 font-medium text-slate-600 dark:text-slate-300">
-                                                {row.title}
-                                            </td>
-                                            <td className="px-8 py-5 font-medium text-slate-500">
-                                                {new Date(row.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                                            </td>
-                                            <td className="px-8 py-5 font-bold text-slate-900 dark:text-white">
-                                                {formatPrice(row.amount)}
-                                            </td>
-                                            <td className="px-8 py-5 text-right">
-                                                <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${row.payment === 'Paid' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
-                                                    row.payment === 'Deposit' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :
-                                                        'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
+                                                </td>
+                                                <td className="px-5 py-3.5">
+                                                    <p className="font-bold text-slate-700 dark:text-slate-300">{new Date(row.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</p>
+                                                    <p className="text-[10px] text-slate-400">
+                                                        {daysLeft > 0 ? `Starts in ${daysLeft}d` : daysLeft === 0 ? 'Starts Today' : 'Completed'}
+                                                    </p>
+                                                </td>
+                                                <td className="px-5 py-3.5 font-black text-slate-900 dark:text-white">
+                                                    {formatPrice(row.amount)}
+                                                </td>
+                                                <td className="px-5 py-3.5 text-right">
+                                                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                                        row.payment === 'Paid'
+                                                            ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800'
+                                                            : row.payment === 'Deposit'
+                                                            ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-400 border border-blue-200 dark:border-blue-800'
+                                                            : 'bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-400 border border-rose-200 dark:border-rose-800'
                                                     }`}>
-                                                    {row.payment}
-                                                </span>
-                                            </td>
-                                        </tr>
-                                    ))}
+                                                        ● {row.payment}
+                                                    </span>
+                                                </td>
+                                                <td className="px-5 py-3.5 text-right">
+                                                    {row.phone && (
+                                                        <a
+                                                            href={`https://wa.me/${row.phone.replace(/\D/g, '')}`}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            onClick={(e) => e.stopPropagation()}
+                                                            className="p-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-600 inline-flex items-center justify-center transition-colors"
+                                                            title="WhatsApp Customer"
+                                                        >
+                                                            <span className="material-symbols-outlined text-[15px]">chat</span>
+                                                        </a>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         </div>
 
-                        {/* Mobile Cards View */}
-                        <div className="md:hidden flex flex-col divide-y divide-slate-100 dark:divide-slate-800">
-                            {bookings.slice(0, 5).map((row, i) => (
-                                <div key={i} className="p-5 hover:bg-slate-50 dark:hover:bg-slate-800/50 active:bg-slate-100 transition-colors cursor-pointer" onClick={() => navigate('/admin/bookings')}>
-                                    <div className="flex justify-between items-start mb-3">
-                                        <div className="flex items-center gap-3">
-                                            <div className="size-10 rounded-full bg-gradient-to-tr from-slate-200 to-slate-100 dark:from-slate-700 dark:to-slate-600 flex items-center justify-center font-black text-slate-500 dark:text-slate-300 text-sm shadow-sm">
-                                                {row.customer.charAt(0)}
-                                            </div>
-                                            <div>
-                                                <p className="font-bold text-slate-900 dark:text-white text-sm">{row.customer}</p>
-                                                <p className="text-[11px] font-medium text-slate-500 line-clamp-1">{row.title}</p>
-                                            </div>
+                        {/* Mobile Cards */}
+                        <div className="md:hidden divide-y divide-slate-100 dark:divide-slate-800">
+                            {bookings.slice(0, 4).map((row, i) => (
+                                <div key={i} className="p-4 hover:bg-slate-50 transition-colors cursor-pointer" onClick={() => navigate('/admin/bookings')}>
+                                    <div className="flex justify-between items-start">
+                                        <div>
+                                            <p className="font-bold text-slate-900 dark:text-white text-xs">{row.customer}</p>
+                                            <p className="text-[11px] text-slate-400 line-clamp-1">{row.title}</p>
                                         </div>
-                                        <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider whitespace-nowrap ${row.payment === 'Paid' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
-                                            row.payment === 'Deposit' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :
-                                                'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
-                                            }`}>
-                                            {row.payment}
-                                        </span>
-                                    </div>
-                                    <div className="flex justify-between items-center pl-13">
-                                        <div className="flex items-center gap-1.5 text-slate-400">
-                                            <span className="material-symbols-outlined text-[14px]">calendar_today</span>
-                                            <p className="text-[11px] font-medium">
-                                                {new Date(row.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                                            </p>
-                                        </div>
-                                        <p className="font-black text-slate-900 dark:text-white text-sm">
-                                            {formatPrice(row.amount)}
-                                        </p>
+                                        <span className="text-xs font-black text-slate-900 dark:text-white">{formatPrice(row.amount)}</span>
                                     </div>
                                 </div>
                             ))}
-                            {bookings.length === 0 && (
-                                <div className="p-8 text-center text-sm font-medium text-slate-400">
-                                    No recent bookings found.
-                                </div>
-                            )}
                         </div>
                     </div>
 
-                    {/* New Row: 3 Intelligence Widgets grid under Main Area */}
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-4">
-                        {/* Widget: Lead Conversion Funnel */}
-                        <div className="bg-white dark:bg-[#151d29] p-6 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col h-full">
-                            <div className="flex items-center gap-2 mb-6">
-                                <span className="material-symbols-outlined text-indigo-500">filter_alt</span>
-                                <h3 className="font-bold text-slate-900 dark:text-white">Lead Funnel</h3>
+                    {/* 3 Intelligence Sub-Widgets */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        {/* Lead Funnel */}
+                        <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col justify-between">
+                            <div className="flex items-center gap-2 mb-3">
+                                <span className="material-symbols-outlined text-indigo-500 text-[18px]">filter_alt</span>
+                                <h4 className="font-black text-xs text-slate-900 dark:text-white">Lead Funnel</h4>
                             </div>
-                            <div className="flex-1 flex flex-col justify-center space-y-4">
+                            <div className="space-y-2.5">
                                 {leadFunnel.map((stage, i) => (
                                     <div key={i} className="space-y-1">
-                                        <div className="flex justify-between text-xs font-bold">
-                                            <span className="text-slate-700 dark:text-slate-300">{stage.stage}</span>
-                                            <span className="text-slate-500">{stage.count}</span>
+                                        <div className="flex justify-between text-[10px] font-bold">
+                                            <span className="text-slate-600 dark:text-slate-300">{stage.stage}</span>
+                                            <span className="text-slate-400">{stage.count}</span>
                                         </div>
-                                        <div className="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden flex justify-end">
-                                            <div
-                                                className={`h-full rounded-full bg-gradient-to-r ${stage.color}`}
-                                                style={{ width: stage.width }}
-                                            />
+                                        <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden flex justify-end">
+                                            <div className={`h-full rounded-full bg-gradient-to-r ${stage.color}`} style={{ width: stage.width }} />
                                         </div>
                                     </div>
                                 ))}
-                                {leadFunnel.length === 0 && <p className="text-sm text-center text-slate-500">No active leads</p>}
                             </div>
                         </div>
 
-                        {/* Widget: Top Destinations */}
-                        <div className="bg-white dark:bg-[#151d29] p-6 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col h-full">
-                            <div className="flex items-center gap-2 mb-6">
-                                <span className="material-symbols-outlined text-emerald-500">map</span>
-                                <h3 className="font-bold text-slate-900 dark:text-white">Trending Specs</h3>
+                        {/* Top Destinations */}
+                        <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col justify-between">
+                            <div className="flex items-center gap-2 mb-3">
+                                <span className="material-symbols-outlined text-emerald-500 text-[18px]">map</span>
+                                <h4 className="font-black text-xs text-slate-900 dark:text-white">Trending Tours</h4>
                             </div>
-                            <div className="space-y-3 flex-1">
+                            <div className="space-y-2">
                                 {topDestinations.map((dest, i) => (
-                                    <div key={i} className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50">
-                                        <div className="flex items-center gap-3">
-                                            <span className="text-sm font-black text-slate-400 dark:text-slate-600">#{i + 1}</span>
-                                            <span className="text-sm font-bold text-slate-900 dark:text-white">{dest.name}</span>
-                                        </div>
-                                        <span className="text-xs font-bold text-emerald-600 bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400 px-2 py-1 rounded-md">
-                                            {dest.count} trips
-                                        </span>
+                                    <div key={i} className="flex items-center justify-between p-2 rounded-xl bg-slate-50 dark:bg-slate-800/40 text-xs">
+                                        <span className="font-bold text-slate-800 dark:text-slate-200 truncate">{dest.name}</span>
+                                        <span className="text-[10px] font-black text-emerald-600 bg-emerald-100 dark:bg-emerald-950 px-1.5 py-0.5 rounded">{dest.count} tours</span>
                                     </div>
                                 ))}
-                                {topDestinations.length === 0 && <p className="text-sm text-center text-slate-500 mt-4">No destinations recorded</p>}
                             </div>
                         </div>
 
-                        {/* Widget: Lead Sources */}
-                        <div className="bg-white dark:bg-[#151d29] p-6 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col h-full">
-                            <div className="flex items-center gap-2 mb-6">
-                                <span className="material-symbols-outlined text-purple-500">hub</span>
-                                <h3 className="font-bold text-slate-900 dark:text-white">Source Perf.</h3>
+                        {/* Lead Sources */}
+                        <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col justify-between">
+                            <div className="flex items-center gap-2 mb-3">
+                                <span className="material-symbols-outlined text-purple-500 text-[18px]">hub</span>
+                                <h4 className="font-black text-xs text-slate-900 dark:text-white">Lead Channels</h4>
                             </div>
-                            <div className="space-y-4 flex-1">
+                            <div className="space-y-2">
                                 {leadSourcesData.map((src, i) => (
-                                    <div key={i} className="flex items-center justify-between border-b last:border-0 border-slate-100 dark:border-slate-800 pb-3 last:pb-0">
-                                        <div>
-                                            <p className="text-sm font-bold text-slate-900 dark:text-white">{src.source}</p>
-                                            <p className="text-xs font-medium text-slate-500">{src.total} total leads</p>
-                                        </div>
-                                        <div className="text-right">
-                                            <p className="text-sm font-black text-indigo-600 dark:text-indigo-400">{src.rate}%</p>
-                                            <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">WIN RATE</p>
-                                        </div>
+                                    <div key={i} className="flex items-center justify-between text-xs py-1 border-b last:border-0 border-slate-100 dark:border-slate-800">
+                                        <span className="font-bold text-slate-700 dark:text-slate-300">{src.source}</span>
+                                        <span className="text-[11px] font-black text-purple-600">{src.rate}% win</span>
                                     </div>
                                 ))}
-                                {leadSourcesData.length === 0 && <p className="text-sm text-center text-slate-500 mt-4">No sources recorded</p>}
                             </div>
                         </div>
                     </div>
                 </div>
 
-                {/* 4. Right Sidebar (Widgets) */}
-                <div className="flex flex-col gap-8">
+                {/* Right (Col Span 1): Priority Action Queue & Operational Radars */}
+                <div className="flex flex-col gap-6">
 
                     {/* Pending Deletion Requests (Admin Only) */}
                     {currentUser?.userType === 'Admin' && deletionRequests.length > 0 && (
-                        <div className="bg-gradient-to-br from-orange-50 to-rose-50 dark:from-orange-950/20 dark:to-rose-950/20 p-8 rounded-[2.5rem] border border-orange-100 dark:border-rose-900/30 shadow-sm relative overflow-hidden">
-                            <div className="absolute top-0 right-0 p-6 opacity-10 pointer-events-none">
-                                <span className="material-symbols-outlined text-8xl text-orange-600">delete_sweep</span>
+                        <div className="bg-rose-50/80 dark:bg-rose-950/30 p-5 rounded-3xl border border-rose-200 dark:border-rose-800/60 shadow-xs">
+                            <div className="flex items-center justify-between mb-3">
+                                <h4 className="font-black text-xs text-rose-900 dark:text-rose-200 flex items-center gap-1.5">
+                                    <span className="material-symbols-outlined text-[16px] text-rose-600">delete_sweep</span>
+                                    <span>Pending Deletions ({deletionRequests.length})</span>
+                                </h4>
                             </div>
-                            <div className="relative z-10 flex items-center justify-between mb-6">
-                                <div>
-                                    <h3 className="font-bold text-lg text-orange-900 dark:text-orange-400 flex items-center gap-2">
-                                        <span className="material-symbols-outlined text-orange-600">admin_panel_settings</span>
-                                        Pending Deletions
-                                    </h3>
-                                    <p className="text-xs text-orange-700/70 dark:text-orange-300/50 mt-1 font-medium">Require Admin Approval</p>
-                                </div>
-                                <span className="size-8 rounded-full bg-orange-200 text-orange-700 dark:bg-orange-900/50 dark:text-orange-400 font-black flex items-center justify-center shadow-inner">
-                                    {deletionRequests.length}
-                                </span>
-                            </div>
-
-                            <div className="relative z-10 space-y-3 max-h-[350px] overflow-y-auto pr-2 custom-scrollbar">
+                            <div className="space-y-2.5 max-h-[220px] overflow-y-auto pr-1">
                                 {deletionRequests.map((req) => (
-                                    <div key={req.id} className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-orange-100 dark:border-orange-900/20 shadow-sm flex flex-col gap-3">
-                                        <div>
-                                            <div className="flex items-center justify-between">
-                                                <h4 className="text-sm font-bold text-slate-900 dark:text-white truncate">{req.record_name}</h4>
-                                                <span className="text-[10px] font-black uppercase text-orange-600 bg-orange-100 dark:bg-orange-900/30 px-2 py-0.5 rounded-full">{req.table_name}</span>
-                                            </div>
-                                            <p className="text-xs text-slate-500 mt-1">Requested by: <span className="font-bold text-slate-700 dark:text-slate-300">{req.requested_by}</span></p>
-                                            <div className="mt-2 text-xs bg-slate-50 dark:bg-slate-800/50 p-2 rounded-lg text-slate-600 dark:text-slate-400 border border-slate-100 dark:border-slate-800">
-                                                <span className="font-bold">Reason:</span> {req.reason}
-                                            </div>
+                                    <div key={req.id} className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-rose-100 dark:border-rose-900/40 text-xs flex flex-col gap-2">
+                                        <div className="flex items-center justify-between">
+                                            <span className="font-bold text-slate-900 dark:text-white truncate">{req.record_name}</span>
+                                            <span className="text-[9px] font-black uppercase text-rose-600 bg-rose-100 dark:bg-rose-950 px-1.5 py-0.5 rounded">{req.table_name}</span>
                                         </div>
-                                        
-                                        <div className="flex gap-2 mt-1">
-                                            <button 
-                                                onClick={() => handleRejectDeletion(req.id)}
-                                                disabled={isProcessingDel === req.id}
-                                                className="flex-1 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors disabled:opacity-50"
-                                            >
-                                                Reject
-                                            </button>
-                                            <button 
-                                                onClick={() => handleApproveDeletion(req.id)}
-                                                disabled={isProcessingDel === req.id}
-                                                className="flex-1 py-1.5 rounded-xl bg-orange-500 text-white text-xs font-bold hover:bg-orange-600 transition-colors shadow-md shadow-orange-500/20 disabled:opacity-50 flex justify-center items-center"
-                                            >
-                                                {isProcessingDel === req.id ? 'Processing...' : 'Approve Delete'}
-                                            </button>
+                                        <div className="flex gap-1.5">
+                                            <button onClick={() => handleRejectDeletion(req.id)} className="flex-1 py-1 rounded-lg border border-slate-200 text-slate-600 text-[11px] font-bold">Reject</button>
+                                            <button onClick={() => handleApproveDeletion(req.id)} className="flex-1 py-1 rounded-lg bg-rose-600 text-white text-[11px] font-bold">Approve</button>
                                         </div>
                                     </div>
                                 ))}
@@ -1246,17 +1324,84 @@ export const AdminDashboard: React.FC = () => {
                         </div>
                     )}
 
-                    {/* Sales by User Leaderboard */}
-                    <div className="bg-white dark:bg-[#151d29] p-8 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-sm">
-                        <div className="flex justify-between items-center mb-6">
-                            <h3 className="font-bold text-lg text-slate-900 dark:text-white flex items-center gap-2">
-                                <span className="material-symbols-outlined text-amber-500">emoji_events</span>
-                                Top Performers
-                            </h3>
+                    {/* My Action Queue (Prioritized Operational Directives) */}
+                    <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
+                        <div className="flex items-center justify-between mb-3.5">
+                            <div className="flex items-center gap-2">
+                                <span className="material-symbols-outlined text-rose-500 text-[18px]">assignment</span>
+                                <h4 className="font-black text-xs text-slate-900 dark:text-white">Priority Action Queue</h4>
+                            </div>
+                            <span className="size-5 rounded-full bg-rose-100 text-rose-600 dark:bg-rose-900/50 dark:text-rose-400 text-[10px] font-black flex items-center justify-center">
+                                {myActionItems.length}
+                            </span>
+                        </div>
+
+                        <div className="space-y-2">
+                            {myActionItems.length > 0 ? myActionItems.map((item, i) => (
+                                <div
+                                    key={i}
+                                    onClick={() => navigate(item.link)}
+                                    className="p-3 rounded-2xl bg-slate-50/70 dark:bg-slate-800/40 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-colors cursor-pointer flex items-start gap-2.5 group"
+                                >
+                                    <div className={`mt-0.5 size-7 rounded-lg flex items-center justify-center ${item.color} shrink-0`}>
+                                        <span className="material-symbols-outlined text-[15px]">{item.icon}</span>
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-xs font-bold text-slate-900 dark:text-white truncate">{item.title}</p>
+                                        <p className="text-[11px] text-slate-400 line-clamp-1">{item.desc}</p>
+                                    </div>
+                                </div>
+                            )) : (
+                                <div className="p-5 text-center text-xs text-slate-400 font-medium">
+                                    ✓ All caught up! No pending actions.
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Upcoming Departures */}
+                    <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
+                        <div className="flex justify-between items-center mb-3.5">
+                            <div className="flex items-center gap-2">
+                                <span className="material-symbols-outlined text-teal-500 text-[18px]">flight_takeoff</span>
+                                <h4 className="font-black text-xs text-slate-900 dark:text-white">Upcoming Departures</h4>
+                            </div>
+                            <span className="text-[10px] font-black text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full">Next 14d</span>
+                        </div>
+
+                        <div className="space-y-2.5">
+                            {upcomingDepartures.length > 0 ? upcomingDepartures.map((dep, i) => (
+                                <div key={i} className="flex items-center justify-between p-2.5 rounded-2xl bg-slate-50/70 dark:bg-slate-800/40 text-xs">
+                                    <div>
+                                        <p className="font-bold text-slate-900 dark:text-white">{dep.customer}</p>
+                                        <p className="text-[11px] text-slate-400">{dep.title?.split('-')[0]}</p>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="font-black text-teal-600 dark:text-teal-400">{new Date(dep.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</p>
+                                        <p className="text-[9px] font-bold text-slate-400 uppercase">
+                                            {Math.ceil((new Date(dep.date).getTime() - Date.now()) / (1000 * 3600 * 24))}d left
+                                        </p>
+                                    </div>
+                                </div>
+                            )) : (
+                                <div className="p-5 text-center text-xs text-slate-400 font-medium">
+                                    No imminent departures in next 14 days.
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Sales Leaderboard */}
+                    <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
+                        <div className="flex justify-between items-center mb-3">
+                            <h4 className="font-black text-xs text-slate-900 dark:text-white flex items-center gap-1.5">
+                                <span className="material-symbols-outlined text-amber-500 text-[18px]">emoji_events</span>
+                                <span>Top Sales Performers</span>
+                            </h4>
                             <select
                                 value={salesTimeFilter}
                                 onChange={(e) => setSalesTimeFilter(e.target.value as any)}
-                                className="bg-slate-50 dark:bg-slate-900 border-none text-xs font-bold rounded-lg px-3 py-1.5 text-slate-600 dark:text-slate-300 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors focus:ring-1 focus:ring-indigo-500 outline-none"
+                                className="bg-slate-100 dark:bg-slate-800 border-none text-[10px] font-bold rounded-lg px-2 py-1 text-slate-600 dark:text-slate-300 cursor-pointer outline-none"
                             >
                                 <option value="7">7 Days</option>
                                 <option value="14">14 Days</option>
@@ -1264,138 +1409,44 @@ export const AdminDashboard: React.FC = () => {
                             </select>
                         </div>
 
-                        <div className="space-y-4">
-                            {salesLeaderboard.length > 0 ? salesLeaderboard.map((user, i) => (
-                                <div key={i} className="flex items-center justify-between p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors border border-transparent hover:border-slate-100 dark:hover:border-slate-800/50">
-                                    <div className="flex items-center gap-3">
-                                        <div className={`relative size-10 rounded-full bg-gradient-to-br from-${user.color}-400 to-${user.color}-600 flex items-center justify-center text-white font-bold text-sm shadow-md`}>
+                        <div className="space-y-2">
+                            {salesLeaderboard.map((user, i) => (
+                                <div key={i} className="flex items-center justify-between p-2 rounded-xl bg-slate-50 dark:bg-slate-800/40 text-xs">
+                                    <div className="flex items-center gap-2.5">
+                                        <div className="size-7 rounded-full bg-indigo-600 text-white font-bold flex items-center justify-center text-[10px]">
                                             {user.initials}
-                                            {i === 0 && (
-                                                <div className="absolute -top-1 -right-1 size-4 bg-yellow-400 rounded-full shadow-sm flex items-center justify-center border-2 border-white dark:border-[#151d29]">
-                                                    <span className="material-symbols-outlined text-[10px] text-yellow-900">star</span>
-                                                </div>
-                                            )}
                                         </div>
                                         <div>
-                                            <p className="text-sm font-bold text-slate-900 dark:text-white">{user.name}</p>
-                                            <p className="text-xs font-medium text-slate-500">{user.count} {user.count === 1 ? 'Sale' : 'Sales'}</p>
+                                            <p className="font-bold text-slate-900 dark:text-white">{user.name}</p>
+                                            <p className="text-[10px] text-slate-400">{user.count} deals</p>
                                         </div>
                                     </div>
-                                    <div className="text-right">
-                                        <p className="text-sm font-black text-indigo-600 dark:text-indigo-400">{formatPriceCompact(user.revenue)}</p>
-                                    </div>
+                                    <span className="font-black text-indigo-600 dark:text-indigo-400">{formatPriceCompact(user.revenue)}</span>
                                 </div>
-                            )) : (
-                                <div className="text-center py-6 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800 border-dashed">
-                                    <span className="material-symbols-outlined text-slate-400 text-3xl mb-2">monitoring</span>
-                                    <p className="text-slate-500 text-sm font-medium">No sales found in this period</p>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* Widget: My Action Items (Follow-ups & Tasks) */}
-                    <div className="bg-white dark:bg-[#151d29] p-8 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-sm">
-                        <div className="flex items-center justify-between mb-6">
-                            <h3 className="font-bold text-lg text-slate-900 dark:text-white flex items-center gap-2">
-                                <span className="material-symbols-outlined text-rose-500">assignment</span>
-                                My Action Queue
-                            </h3>
-                            <span className="size-6 rounded-full bg-rose-100 text-rose-600 dark:bg-rose-900/30 dark:text-rose-400 text-xs font-bold flex items-center justify-center">
-                                {myActionItems.length}
-                            </span>
-                        </div>
-                        <div className="space-y-3">
-                            {myActionItems.length > 0 ? myActionItems.map((item, i) => (
-                                <div key={i} onClick={() => navigate(item.link)} className="flex items-start gap-4 p-4 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors border border-transparent hover:border-slate-100 dark:hover:border-slate-800/50 group">
-                                    <div className={`mt-0.5 size-8 shrink-0 rounded-lg flex items-center justify-center ${item.color} dark:bg-opacity-10 shadow-sm`}>
-                                        <span className="material-symbols-outlined text-[16px]">{item.icon}</span>
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <p className="text-sm font-bold text-slate-900 dark:text-white truncate">{item.title}</p>
-                                        <p className="text-xs font-medium text-slate-500 line-clamp-1 mt-0.5">{item.desc}</p>
-                                        <div className="flex items-center gap-2 mt-1.5 opacity-70 group-hover:opacity-100 transition-opacity">
-                                            <span className="material-symbols-outlined text-[12px] text-slate-400">schedule</span>
-                                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                                                {item.date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                                            </span>
-                                        </div>
-                                    </div>
-                                </div>
-                            )) : (
-                                <div className="text-center py-6 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800 border-dashed">
-                                    <span className="material-symbols-outlined text-emerald-400 text-3xl mb-2">done_all</span>
-                                    <p className="text-slate-500 text-sm font-medium">All caught up! No pending actions.</p>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* Widget: Upcoming Departures */}
-                    <div className="bg-white dark:bg-[#151d29] p-8 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-sm">
-                        <div className="flex justify-between items-center mb-6">
-                            <h3 className="font-bold text-lg text-slate-900 dark:text-white flex items-center gap-2">
-                                <span className="material-symbols-outlined text-teal-500">flight_takeoff</span>
-                                Upcoming Departures
-                            </h3>
-                            <span className="text-xs font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-md">Next 14d</span>
-                        </div>
-                        <div className="space-y-4">
-                            {upcomingDepartures.length > 0 ? upcomingDepartures.map((dep, i) => (
-                                <div key={i} className="flex items-center justify-between border-b last:border-0 border-slate-100 dark:border-slate-800 pb-4 last:pb-0">
-                                    <div>
-                                        <p className="text-sm font-bold text-slate-900 dark:text-white mb-0.5">{dep.customer}</p>
-                                        <p className="text-xs font-medium text-slate-500 flex items-center gap-1">
-                                            <span className="material-symbols-outlined text-[14px]">place</span>
-                                            {dep.title.split('-')[0]}
-                                        </p>
-                                    </div>
-                                    <div className="text-right">
-                                        <p className="text-sm font-black text-teal-600 dark:text-teal-400">
-                                            {new Date(dep.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                                        </p>
-                                        <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
-                                            {Math.ceil((new Date(dep.date).getTime() - new Date().getTime()) / (1000 * 3600 * 24))} Days Left
-                                        </p>
-                                    </div>
-                                </div>
-                            )) : (
-                                <div className="text-center py-6 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800 border-dashed">
-                                    <p className="text-slate-500 text-sm font-medium">No departures in the next 14 days.</p>
-                                </div>
-                            )}
+                            ))}
                         </div>
                     </div>
 
                     {/* Recent Activity Timeline */}
-                    <div className="bg-white dark:bg-[#151d29] p-8 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-sm flex-1">
-                        <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-6">Activity Log</h3>
-                        <div className="relative pl-4 space-y-8 before:absolute before:left-[7px] before:top-2 before:bottom-2 before:w-[2px] before:bg-slate-100 dark:before:bg-slate-800">
-                            {recentActivities.length > 0 ? recentActivities.map((item, i) => (
-                                <div key={i} className="relative pl-6">
-                                    <div className={`absolute -left-[9px] top-0 bg-white dark:bg-[#151d29] border-4 border-white dark:border-[#151d29] rounded-full z-10`}>
-                                        <span className={`material-symbols-outlined text-[20px] ${item.color} bg-slate-50 dark:bg-slate-800 rounded-full p-1`}>{item.icon}</span>
-                                    </div>
-                                    <div>
-                                        <p className="text-sm font-bold text-slate-900 dark:text-white">{item.title}</p>
-                                        <p className="text-xs text-slate-500 mt-0.5 line-clamp-1">{item.desc}</p>
-                                        <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase tracking-wide">{item.displayTime}</p>
+                    <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
+                        <h4 className="font-black text-xs text-slate-900 dark:text-white mb-3">Live System Activity</h4>
+                        <div className="space-y-3">
+                            {recentActivities.map((item, i) => (
+                                <div key={i} className="flex items-start gap-2.5 text-xs">
+                                    <span className={`material-symbols-outlined text-[16px] ${item.color} mt-0.5 shrink-0`}>{item.icon}</span>
+                                    <div className="flex-1 min-w-0">
+                                        <p className="font-bold text-slate-900 dark:text-white truncate">{item.title}</p>
+                                        <p className="text-[10px] text-slate-400">{item.displayTime}</p>
                                     </div>
                                 </div>
-                            )) : (
-                                <p className="text-slate-500 italic">No recent activity.</p>
-                            )}
+                            ))}
                         </div>
-                        <button
-                            onClick={() => navigate('/admin/activity')}
-                            className="w-full mt-8 py-3 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-                        >
-                            View Full History
-                        </button>
                     </div>
 
                 </div>
+
             </div>
+
         </div>
     );
 };
