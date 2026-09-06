@@ -99,18 +99,31 @@ export const AdminDashboard: React.FC = () => {
             .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
     }, [unlinkedTransactions]);
 
-    // Revenue = sum of verified payments received on bookings + unlinked verified bank deposits
-    const totalRevenue = useMemo(() => {
-        const bookingRevenue = bookings
+    // Booking-only revenue (verified payments directly tied to non-cancelled bookings)
+    const bookingRevenue = useMemo(() => {
+        return bookings
             .filter(b => b.status !== 'Cancelled')
             .reduce((acc, b) => acc + getNetPaid(b), 0);
+    }, [bookings]);
+
+    // Revenue = sum of verified payments received on bookings + unlinked verified bank deposits
+    const totalRevenue = useMemo(() => {
         return bookingRevenue + unlinkedVerifiedSum;
-    }, [bookings, unlinkedVerifiedSum]);
+    }, [bookingRevenue, unlinkedVerifiedSum]);
 
     // Total booking value (invoice total, for reference)
     const totalBookingValue = bookings
         .filter(b => b.status !== 'Cancelled')
         .reduce((acc, b) => acc + b.amount, 0);
+
+    // Bookings with pending dues (amount - netPaid > 0)
+    const bookingsWithDues = useMemo(() => {
+        return bookings.filter(b => b.status !== 'Cancelled' && (b.amount - getNetPaid(b)) > 0);
+    }, [bookings]);
+
+    const totalDuesAmount = useMemo(() => {
+        return bookingsWithDues.reduce((sum, b) => sum + Math.max(0, b.amount - getNetPaid(b)), 0);
+    }, [bookingsWithDues]);
 
     const activePackages = packages.filter(p => p.status === 'Active').length;
 
@@ -149,7 +162,7 @@ export const AdminDashboard: React.FC = () => {
     // Pending Actions & Operational Ticker Stats
     const pendingBookings = bookings.filter(b => b.status === 'Pending').length;
     const ongoingBookings = bookings.filter(b => b.status === 'Confirmed' && today >= b.date && today <= (b.endDate || b.date)).length;
-    const unpaidBookings = bookings.filter(b => b.payment === 'Unpaid').length;
+    const unpaidBookings = bookingsWithDues.length;
 
     const urgentTasksCount = useMemo(() => {
         return (tasks || []).filter(t => t.status !== 'Completed' && (t.priority === 'Urgent' || t.priority === 'High')).length;
@@ -186,10 +199,10 @@ export const AdminDashboard: React.FC = () => {
             });
         }
 
-        if (unpaidBookings > 0) {
+        if (bookingsWithDues.length > 0) {
             alerts.push({
                 type: 'warning',
-                message: `${unpaidBookings} booking${unpaidBookings > 1 ? 's' : ''} pending payment`,
+                message: `${bookingsWithDues.length} booking${bookingsWithDues.length > 1 ? 's' : ''} pending payment (${formatPriceCompact(totalDuesAmount)} uncollected)`,
                 action: 'Collect Payment',
                 path: '/admin/bookings?status=payment_pending'
             });
@@ -204,17 +217,17 @@ export const AdminDashboard: React.FC = () => {
             });
         }
 
-        if (conversionRate > 25) {
+        if (winRate > 25) {
             alerts.push({
                 type: 'success',
-                message: `Great conversion rate: ${conversionRate}%! Keep it up.`,
+                message: `Strong deal win rate: ${winRate}% on closed leads (${conversionRate}% overall conversion)!`,
                 action: 'View Analytics',
                 path: '/admin/analytics'
             });
         }
 
         return alerts;
-    }, [hotLeadsCount, unpaidBookings, pendingBookings, conversionRate]);
+    }, [hotLeadsCount, bookingsWithDues.length, totalDuesAmount, pendingBookings, winRate, conversionRate]);
 
     // Dynamic Activity Log
     const recentActivities = useMemo(() => {
@@ -468,6 +481,7 @@ export const AdminDashboard: React.FC = () => {
         }));
 
         let totalYearCollected = 0;
+        let totalYearBookingCollected = 0;
         let totalYearInvoiced = 0;
         let totalYearVendorCosts = 0;
         let totalYearOpex = 0;
@@ -494,6 +508,7 @@ export const AdminDashboard: React.FC = () => {
                 monthlyData[month].bookings += 1;
 
                 totalYearCollected += paid;
+                totalYearBookingCollected += paid;
                 totalYearInvoiced += (b.amount || 0);
                 totalYearVendorCosts += vCost;
             } else if (bYear === prevYear) {
@@ -548,7 +563,7 @@ export const AdminDashboard: React.FC = () => {
             : totalYearCollected > 0 ? 100 : 0;
 
         const collectionEfficiency = totalYearInvoiced > 0
-            ? Math.min(100, Math.round((totalYearCollected / totalYearInvoiced) * 100))
+            ? Math.min(100, Math.round((totalYearBookingCollected / totalYearInvoiced) * 100))
             : 100;
 
         let peakMonth = monthlyData[0];
@@ -688,8 +703,8 @@ export const AdminDashboard: React.FC = () => {
         else setGreeting('Good Evening');
     }, []);
 
-    // Collection efficiency percentage
-    const collectionRatePct = totalBookingValue > 0 ? Math.min(100, Math.round((totalRevenue / totalBookingValue) * 100)) : 100;
+    // Collection efficiency percentage (verified payments against invoiced booking value)
+    const collectionRatePct = totalBookingValue > 0 ? Math.min(100, Math.round((bookingRevenue / totalBookingValue) * 100)) : 100;
 
     return (
         <div className="p-4 sm:p-6 lg:p-8 max-w-[1700px] mx-auto space-y-6">
@@ -830,7 +845,9 @@ export const AdminDashboard: React.FC = () => {
                         <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
                             <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${collectionRatePct}%` }}></div>
                         </div>
-                        <p className="text-[10px] text-slate-400 mt-1 truncate">of {formatPriceCompact(totalBookingValue)} invoiced</p>
+                        <p className="text-[10px] text-slate-400 mt-1 truncate">
+                            of {formatPriceCompact(totalBookingValue)} invoiced • {formatPriceCompact(totalDuesAmount)} pending
+                        </p>
                     </div>
                 </div>
 
@@ -863,7 +880,7 @@ export const AdminDashboard: React.FC = () => {
                     </div>
                 </div>
 
-                {/* 3. Win Rate */}
+                {/* 3. Deal Win Rate */}
                 <div
                     onClick={() => navigate('/admin/leads')}
                     className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs hover:border-blue-500/50 hover:shadow-md transition-all cursor-pointer group flex flex-col justify-between"
@@ -879,7 +896,7 @@ export const AdminDashboard: React.FC = () => {
                         </div>
 
                         <p className="text-slate-400 dark:text-slate-500 text-[10px] font-black uppercase tracking-wider">
-                            Win Rate
+                            Deal Win Rate
                         </p>
                         <h3 className="text-2xl lg:text-3xl font-black text-slate-900 dark:text-white mt-0.5">
                             {winRate}%
@@ -891,7 +908,7 @@ export const AdminDashboard: React.FC = () => {
                             <div className="h-full bg-blue-500 rounded-full" style={{ width: `${winRate}%` }}></div>
                         </div>
                         <p className="text-[10px] text-slate-400 mt-1 font-medium truncate">
-                            {convertedLeadsCount} won of {closedLeadsCount} closed
+                            {convertedLeadsCount} won of {closedLeadsCount} closed ({conversionRate}% total)
                         </p>
                     </div>
                 </div>

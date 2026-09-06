@@ -86,6 +86,7 @@ export interface Booking {
   details?: string;
   packageId?: string;
   assignedTo?: number;
+  assignedStaffIds?: number[];
   supplierBookings?: SupplierBooking[];
   transactions?: BookingTransaction[];
   notes?: BookingNote[];
@@ -357,8 +358,6 @@ export interface Expense {
   receiptUrl?: string;
 }
 
-
-
 export interface AuditLog {
   id: string;
   action: string; // e.g., "Deleted Lead", "Updated Staff"
@@ -367,6 +366,11 @@ export interface AuditLog {
   details: string;
   timestamp: string;
   severity: 'Info' | 'Warning' | 'Critical';
+  staffId?: number | string;
+  staffName?: string;
+  entityType?: string;
+  entityId?: string;
+  changes?: Record<string, { old: any; new: any }> | string;
 }
 
 export interface Lead {
@@ -392,7 +396,8 @@ export interface Lead {
   notes?: string;
   logs: LeadLog[];
   avatarColor?: string;
-  assignedTo?: number;             // Staff ID
+  assignedTo?: number;             // Primary Staff ID
+  assignedStaffIds?: number[];     // Multi-Staff IDs
   whatsapp?: string;               // WhatsApp Number
   isWhatsappSame?: boolean;
   aiScore?: number;                // 0-100

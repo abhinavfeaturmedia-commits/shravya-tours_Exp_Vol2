@@ -92,6 +92,22 @@ const parseJsonFieldSafe = (field: any, defaultValue: any) => {
     return field || defaultValue;
 };
 
+export const parseStaffListSafe = (rawList: any, primaryId?: any): number[] => {
+    let ids: number[] = [];
+    if (typeof rawList === 'string') {
+        try {
+            const parsed = JSON.parse(rawList);
+            if (Array.isArray(parsed)) ids = parsed.map(Number).filter(n => !isNaN(n) && n > 0);
+        } catch (_) {}
+    } else if (Array.isArray(rawList)) {
+        ids = rawList.map(Number).filter(n => !isNaN(n) && n > 0);
+    }
+    if (primaryId && !ids.includes(Number(primaryId))) {
+        ids.unshift(Number(primaryId));
+    }
+    return ids;
+};
+
 export const parsePermissionsSafe = (raw: any): any => {
     let parsed = raw;
     while (typeof parsed === 'string') {
@@ -698,6 +714,7 @@ export const api = {
                 email: row.customer_email || '',
                 phone: row.customer_phone || '',
                 assignedTo: row.assigned_to ? Number(row.assigned_to) : undefined,
+                assignedStaffIds: parseStaffListSafe(row.assigned_staff_ids, row.assigned_to),
                 title: row.title || row.package_title || 'Unknown Package',
                 date: formattedDate,
                 endDate: formattedEndDate || formattedDate,
@@ -820,6 +837,7 @@ export const api = {
             notes: booking.details || '',
             booking_notes: booking.notes ? JSON.stringify(booking.notes) : '[]',
             assigned_to: booking.assignedTo || null,
+            assigned_staff_ids: booking.assignedStaffIds || (booking.assignedTo ? [booking.assignedTo] : []),
             partner_id: booking.partnerId || null,
             lead_id: booking.leadId || null,
             
@@ -869,6 +887,9 @@ export const api = {
         }
         if (updates.assignedTo !== undefined) {
             dbUpdates.assigned_to = updates.assignedTo || null;
+        }
+        if (updates.assignedStaffIds !== undefined) {
+            dbUpdates.assigned_staff_ids = updates.assignedStaffIds;
         }
         if (updates.partnerId !== undefined) {
             dbUpdates.partner_id = updates.partnerId || null;
@@ -979,6 +1000,7 @@ export const api = {
             })),
             avatarColor: row.avatar_color,
             assignedTo: row.assigned_to ? Number(row.assigned_to) : undefined,
+            assignedStaffIds: parseStaffListSafe(row.assigned_staff_ids, row.assigned_to),
             whatsapp: row.whatsapp,
             isWhatsappSame: row.is_whatsapp_same,
             aiScore: row.ai_score,
@@ -1034,6 +1056,7 @@ export const api = {
             preferences: lead.preferences || lead.notes || null,
             avatar_color: lead.avatarColor,
             assigned_to: lead.assignedTo || null,
+            assigned_staff_ids: lead.assignedStaffIds || (lead.assignedTo ? [lead.assignedTo] : []),
             whatsapp: lead.whatsapp,
             is_whatsapp_same: lead.isWhatsappSame,
             service_type: lead.serviceType,
@@ -1089,6 +1112,7 @@ export const api = {
         if (updates.source !== undefined) dbUpdates.source = updates.source;
         if (updates.preferences !== undefined || (updates as any).notes !== undefined) dbUpdates.preferences = updates.preferences !== undefined ? updates.preferences : (updates as any).notes;
         if (updates.assignedTo !== undefined) dbUpdates.assigned_to = updates.assignedTo;
+        if (updates.assignedStaffIds !== undefined) dbUpdates.assigned_staff_ids = updates.assignedStaffIds;
         if (updates.whatsapp !== undefined) dbUpdates.whatsapp = updates.whatsapp;
         if (updates.isWhatsappSame !== undefined) dbUpdates.is_whatsapp_same = updates.isWhatsappSame;
         if (updates.serviceType !== undefined) dbUpdates.service_type = updates.serviceType;
@@ -2501,12 +2525,42 @@ export const api = {
     // --- AUDIT LOGS ---
     getAuditLogs: async (): Promise<AuditLog[]> => {
         const { data } = await crud.getAll('audit_logs', { order: 'timestamp', asc: false, limit: 500 });
-        return (data || []).map((r: any) => ({ ...r, performedBy: r.performed_by }));
+        return (data || []).map((r: any) => ({
+            ...r,
+            performedBy: r.performed_by,
+            staffId: r.staff_id,
+            staffName: r.staff_name,
+            entityType: r.entity_type,
+            entityId: r.entity_id,
+            changes: typeof r.changes === 'string' ? parseJsonFieldSafe(r.changes, null) : r.changes
+        }));
+    },
+    getEntityAuditTrail: async (entityType: 'lead' | 'booking' | string, entityId: string): Promise<AuditLog[]> => {
+        const res = await fetchApi(`/api/audit-trail?entity_type=${encodeURIComponent(entityType)}&entity_id=${encodeURIComponent(entityId)}`);
+        return (res?.data || []).map((r: any) => ({
+            id: r.id,
+            action: r.action,
+            module: r.module,
+            details: r.details,
+            timestamp: r.timestamp,
+            severity: r.severity || 'Info',
+            performedBy: r.performed_by,
+            staffId: r.staff_id,
+            staffName: r.staff_name,
+            entityType: r.entity_type,
+            entityId: r.entity_id,
+            changes: typeof r.changes === 'string' ? parseJsonFieldSafe(r.changes, null) : r.changes
+        }));
     },
     createAuditLog: async (log: Omit<AuditLog, 'id'>) => {
         await crud.create('audit_logs', {
             action: log.action, module: log.module, details: log.details,
-            severity: log.severity, performed_by: log.performedBy, timestamp: log.timestamp
+            severity: log.severity, performed_by: log.performedBy, timestamp: log.timestamp,
+            staff_id: (log as any).staffId || null,
+            staff_name: (log as any).staffName || null,
+            entity_type: (log as any).entityType || null,
+            entity_id: (log as any).entityId || null,
+            changes: (log as any).changes ? JSON.stringify((log as any).changes) : null
         });
     },
 

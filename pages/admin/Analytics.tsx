@@ -244,13 +244,13 @@ const TrendChart: React.FC<{ pts: TrendPoint[]; fmt: (n: number) => string }> = 
             <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
                <div>
                   <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
-                     Avg Profit Margin
+                     Avg Trip Margin (Cash)
                   </div>
                   <div className="text-sm font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">
                      {insights.avgMargin.toFixed(1)}% Margin
                   </div>
                </div>
-               <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-300 flex items-center justify-center font-bold text-xs">
+               <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-300 flex items-center justify-center font-bold text-xs" title="Gross trip margin on cash received (before OPEX)">
                   📈
                </div>
             </div>
@@ -1636,7 +1636,7 @@ export const Analytics: React.FC = () => {
                   onChange={(e) => setTimeRange(e.target.value as any)}
                   className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-sm rounded-lg px-4 py-2.5 font-bold shadow-sm focus:ring-2 focus:ring-primary outline-none"
                >
-                  <option value="all">All Time (96 Bookings)</option>
+                  <option value="all">All Time ({filteredBookings.length} Bookings)</option>
                   <option value="7days">Last 7 Days</option>
                   <option value="thisMonth">This Month</option>
                   <option value="30days">Last 30 Days</option>
@@ -1693,7 +1693,7 @@ export const Analytics: React.FC = () => {
                      <h3 className="text-3xl kpi-number text-slate-900 dark:text-white mt-2">{fmt(metrics.totalInvoiced)}</h3>
                      <p className="text-indigo-600 dark:text-indigo-400 text-xs font-semibold mt-2 flex items-center gap-1">
                         <span className="bg-indigo-50 dark:bg-indigo-900/30 px-1.5 py-0.5 rounded font-bold">Billed</span>
-                        {filteredBookings.length} bookings total
+                        {filteredBookings.length} bookings total ({Math.round((metrics.bookingCashCollected / (metrics.totalInvoiced || 1)) * 100)}% collected)
                      </p>
                   </div>
 
@@ -1706,7 +1706,7 @@ export const Analytics: React.FC = () => {
                      <h3 className="text-3xl kpi-number text-emerald-600 dark:text-emerald-400 mt-2">{fmt(metrics.totalCashCollected)}</h3>
                      <p className="text-emerald-600 text-xs font-semibold mt-2 flex items-center gap-1">
                         <span className="bg-emerald-50 dark:bg-emerald-900/30 px-1.5 py-0.5 rounded font-bold">Bank Ledger</span>
-                        {fmtShort(metrics.bookingCashCollected)} + {fmtShort(metrics.unlinkedAmount)} extra
+                        Trip Cash: {fmtShort(metrics.bookingCashCollected)} (+{fmtShort(metrics.unlinkedAmount)} other credits)
                      </p>
                   </div>
 
@@ -1778,7 +1778,7 @@ export const Analytics: React.FC = () => {
                            onClick={() => setShowReceivablesModal(true)}
                            className="text-xs font-bold text-amber-600 hover:text-amber-700 bg-amber-50 dark:bg-amber-900/30 px-2.5 py-1 rounded-lg transition-all"
                         >
-                           View 4 Client Dues
+                           View {metrics.pendingBookingsList.length} Client Due{metrics.pendingBookingsList.length !== 1 ? 's' : ''}
                         </button>
                      </div>
 
@@ -1788,7 +1788,9 @@ export const Analytics: React.FC = () => {
                            <div className="flex justify-between items-end mb-2">
                               <div>
                                  <span className="text-sm font-bold text-slate-700 dark:text-slate-300">Customer Dues Pending</span>
-                                 <p className="text-xs text-slate-400">Kommareddy (₹50.4K), Pratik (₹6K), Popat (₹4.8K), Amit (₹1.6K)</p>
+                                 <p className="text-xs text-slate-400 truncate max-w-sm">
+                                    {metrics.pendingBookingsList.map(b => `${b.customer} (${fmtShort(b.outstanding)})`).join(', ') || 'No outstanding dues'}
+                                 </p>
                               </div>
                               <span className="text-lg kpi-number text-amber-600">{fmt(metrics.pendingCollections)}</span>
                            </div>
@@ -3162,7 +3164,7 @@ export const Analytics: React.FC = () => {
                   {/* Summary Callout Banner */}
                   <div className="px-6 py-3 bg-amber-500/10 border-b border-amber-200/50 dark:border-amber-900/30 flex items-center justify-between text-xs">
                      <span className="font-semibold text-amber-800 dark:text-amber-200">
-                        Total Pending Collection from 4 Clients:
+                        Total Pending Collection from {metrics.pendingBookingsList.length} Client{metrics.pendingBookingsList.length !== 1 ? 's' : ''}:
                      </span>
                      <span className="font-black text-sm text-amber-600 dark:text-amber-400">
                         {fmt(metrics.pendingCollections)}

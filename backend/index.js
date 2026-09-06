@@ -2891,11 +2891,20 @@ async function permissionGuard(req, res, next) {
                 // Only restrict if staff has restricted query scope (not 'Show All Queries' or 'Global')
                 if (queryScope !== 'Show All Queries' && queryScope !== 'Global') {
                     if ((method === 'PUT' || method === 'DELETE') && req.params.id) {
-                        const [existing] = await pool.query(`SELECT assigned_to FROM \`${table}\` WHERE id = ?`, [req.params.id]);
+                        const [existing] = await pool.query(`SELECT assigned_to, assigned_staff_ids FROM \`${table}\` WHERE id = ?`, [req.params.id]);
                         if (existing.length > 0) {
                             const owner = String(existing[0].assigned_to || '');
                             const staffId = String(req.user.staffId || '');
-                            if (owner && owner !== staffId) {
+                            let isAssigned = (owner && owner === staffId);
+                            if (!isAssigned && existing[0].assigned_staff_ids) {
+                                try {
+                                    const arr = typeof existing[0].assigned_staff_ids === 'string' ? JSON.parse(existing[0].assigned_staff_ids) : existing[0].assigned_staff_ids;
+                                    if (Array.isArray(arr) && arr.some(id => String(id) === staffId)) {
+                                        isAssigned = true;
+                                    }
+                                } catch (_) {}
+                            }
+                            if (!isAssigned && owner) {
                                 return res.status(403).json({ error: `Unauthorized: You cannot modify records outside your ownership scope.` });
                             }
                         }
@@ -2911,12 +2920,68 @@ async function permissionGuard(req, res, next) {
     }
 }
 
-// ─── Server-Side Audit Logger ───
-async function auditLog(action, table, details, performedBy) {
+// ─── Resolve Current Staff Information (Identity & Accountability) ───
+async function getStaffInfo(req) {
+    if (!req?.user) return { id: null, name: 'System', email: 'system', role: 'system' };
+    let staffId = req.user.staffId || null;
+    let staffName = req.user.name || null;
+    let email = req.user.email || null;
+    let role = req.user.role || 'Staff';
+
+    if (email && (!staffId || !staffName)) {
+        try {
+            const [rows] = await pool.query('SELECT id, name, user_type FROM staff_members WHERE LOWER(email) = LOWER(?)', [email]);
+            if (rows.length > 0) {
+                if (!staffId) staffId = rows[0].id;
+                if (!staffName) staffName = rows[0].name;
+                if (!role || role === 'staff') role = rows[0].user_type;
+            }
+        } catch (_) {}
+    }
+
+    if (staffId && !staffName) {
+        try {
+            const [rows] = await pool.query('SELECT name, user_type FROM staff_members WHERE id = ?', [staffId]);
+            if (rows.length > 0) {
+                staffName = rows[0].name;
+                if (!role || role === 'staff') role = rows[0].user_type;
+            }
+        } catch (_) {}
+    }
+
+    return {
+        id: staffId ? Number(staffId) : null,
+        name: staffName || email || 'Staff',
+        email: email,
+        role: role
+    };
+}
+
+// ─── Server-Side Audit Logger (Structured with Staff ID & Entity Attribution) ───
+async function auditLog(action, table, details, performedBy, extra = {}) {
     try {
+        const staffId = extra.staffId !== undefined ? extra.staffId : null;
+        const staffName = extra.staffName || null;
+        const entityType = extra.entityType || (table === 'leads' ? 'lead' : table === 'bookings' ? 'booking' : null);
+        const entityId = extra.entityId ? String(extra.entityId) : null;
+        const severity = extra.severity || 'Info';
+        const changes = extra.changes ? (typeof extra.changes === 'object' ? JSON.stringify(extra.changes) : String(extra.changes)) : null;
+
         await pool.query(
-            'INSERT INTO `audit_logs` (action, module, details, severity, performed_by, timestamp) VALUES (?, ?, ?, ?, ?, ?)',
-            [action, table, details, 'Info', performedBy || 'System', new Date().toISOString()]
+            'INSERT INTO `audit_logs` (action, module, details, severity, performed_by, staff_id, staff_name, entity_type, entity_id, changes, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [
+                action,
+                table,
+                details,
+                severity,
+                performedBy || staffName || 'System',
+                staffId,
+                staffName,
+                entityType,
+                entityId,
+                changes,
+                new Date().toISOString()
+            ]
         );
     } catch (e) {
         console.error('Audit log write failed:', e.message);
@@ -2974,6 +3039,36 @@ app.get('/api/db-test', async (req, res) => {
     } catch (error) {
         console.error('Database connection failed:', error);
         res.status(500).json({ status: 'error', message: 'Database connection failed' });
+    }
+});
+
+// ─── GET /api/audit-trail ───
+// Returns structured audit history for a specific lead or booking
+app.get('/api/audit-trail', authMiddleware, async (req, res) => {
+    try {
+        const { entity_type, entity_id } = req.query;
+        if (!entity_type || !entity_id) {
+            return res.status(400).json({ error: 'entity_type and entity_id are required' });
+        }
+
+        const [rows] = await pool.query(
+            `SELECT id, action, module, details, severity, performed_by, staff_id, staff_name, entity_type, entity_id, changes, timestamp
+             FROM audit_logs 
+             WHERE (entity_type = ? AND entity_id = ?)
+                OR (module = ? AND details LIKE ?)
+             ORDER BY id DESC LIMIT 200`,
+            [
+                entity_type,
+                entity_id,
+                entity_type === 'lead' ? 'Leads' : 'Bookings',
+                `%${entity_id}%`
+            ]
+        );
+
+        res.json({ data: rows });
+    } catch (err) {
+        console.error('GET /api/audit-trail error:', err);
+        res.status(500).json({ error: 'Failed to fetch audit trail' });
     }
 });
 
@@ -7265,15 +7360,24 @@ app.get('/api/crud/:table', optionalAuthMiddleware, injectPackageStatusFilter, v
 
             if (staffIds.length > 0) {
                 const myDataTables = ['leads', 'bookings', 'follow_ups', 'tasks'];
-                if (myDataTables.includes(table)) {
+                if (table === 'leads' || table === 'bookings') {
+                    const placeholders = staffIds.map(() => '?').join(',');
+                    const jsonChecks = staffIds.map(() => `JSON_CONTAINS(COALESCE(\`assigned_staff_ids\`, '[]'), ?)`).join(' OR ');
+                    whereClauses.push(`(\`assigned_to\` IN (${placeholders}) OR ${jsonChecks})`);
+                    params.push(...staffIds, ...staffIds.map(String));
+                } else if (myDataTables.includes(table)) {
                     whereClauses.push(`\`assigned_to\` IN (${staffIds.map(() => '?').join(',')})`);
                     params.push(...staffIds);
                 } else if (table === 'proposals' || table === 'lead_logs') {
-                    whereClauses.push(`\`lead_id\` IN (SELECT \`id\` FROM \`leads\` WHERE \`assigned_to\` IN (${staffIds.map(() => '?').join(',')}))`);
-                    params.push(...staffIds);
+                    const placeholders = staffIds.map(() => '?').join(',');
+                    const jsonChecks = staffIds.map(() => `JSON_CONTAINS(COALESCE(assigned_staff_ids, '[]'), ?)`).join(' OR ');
+                    whereClauses.push(`\`lead_id\` IN (SELECT \`id\` FROM \`leads\` WHERE (\`assigned_to\` IN (${placeholders}) OR ${jsonChecks}))`);
+                    params.push(...staffIds, ...staffIds.map(String));
                 } else if (table === 'booking_transactions' || table === 'supplier_bookings') {
-                    whereClauses.push(`\`booking_id\` IN (SELECT \`id\` FROM \`bookings\` WHERE \`assigned_to\` IN (${staffIds.map(() => '?').join(',')}))`);
-                    params.push(...staffIds);
+                    const placeholders = staffIds.map(() => '?').join(',');
+                    const jsonChecks = staffIds.map(() => `JSON_CONTAINS(COALESCE(assigned_staff_ids, '[]'), ?)`).join(' OR ');
+                    whereClauses.push(`\`booking_id\` IN (SELECT \`id\` FROM \`bookings\` WHERE (\`assigned_to\` IN (${placeholders}) OR ${jsonChecks}))`);
+                    params.push(...staffIds, ...staffIds.map(String));
                 }
             }
         }
@@ -7367,20 +7471,32 @@ app.get('/api/crud/:table/:id', optionalAuthMiddleware, validateTable, permissio
         if (req.user && req.user.role !== 'admin' && req.user.role !== 'Admin' && !isAdmin) {
             const staffId = req.user.staffId;
             const myDataTables = ['leads', 'bookings', 'follow_ups', 'tasks'];
+            const checkRecordOwnership = (rec) => {
+                if (!rec) return false;
+                if (String(rec.assigned_to || '') === String(staffId)) return true;
+                if (rec.assigned_staff_ids) {
+                    try {
+                        const parsed = typeof rec.assigned_staff_ids === 'string' ? JSON.parse(rec.assigned_staff_ids) : rec.assigned_staff_ids;
+                        if (Array.isArray(parsed) && parsed.map(String).includes(String(staffId))) return true;
+                    } catch (_) {}
+                }
+                return false;
+            };
+
             if (myDataTables.includes(table)) {
-                if (String(rows[0].assigned_to || '') !== String(staffId)) {
+                if (!checkRecordOwnership(rows[0])) {
                     return res.status(403).json({ error: 'Unauthorized: You do not own this record.' });
                 }
             } else if (table === 'proposals' || table === 'lead_logs') {
                 const leadId = rows[0].lead_id;
-                const [leadRows] = await pool.query('SELECT assigned_to FROM leads WHERE id = ?', [leadId]);
-                if (leadRows.length === 0 || String(leadRows[0].assigned_to || '') !== String(staffId)) {
+                const [leadRows] = await pool.query('SELECT assigned_to, assigned_staff_ids FROM leads WHERE id = ?', [leadId]);
+                if (leadRows.length === 0 || !checkRecordOwnership(leadRows[0])) {
                     return res.status(403).json({ error: 'Unauthorized: You do not own this record.' });
                 }
             } else if (table === 'booking_transactions' || table === 'supplier_bookings') {
                 const bookingId = rows[0].booking_id;
-                const [bookingRows] = await pool.query('SELECT assigned_to FROM bookings WHERE id = ?', [bookingId]);
-                if (bookingRows.length === 0 || String(bookingRows[0].assigned_to || '') !== String(staffId)) {
+                const [bookingRows] = await pool.query('SELECT assigned_to, assigned_staff_ids FROM bookings WHERE id = ?', [bookingId]);
+                if (bookingRows.length === 0 || !checkRecordOwnership(bookingRows[0])) {
                     return res.status(403).json({ error: 'Unauthorized: You do not own this record.' });
                 }
             }
@@ -7546,6 +7662,29 @@ app.post('/api/crud/:table', authMiddleware, validateTable, writeGuard, permissi
             body.assigned_to = isNaN(parsed) ? null : parsed;
         }
 
+        // ─── Multi-Staff Assignment Normalization ───
+        if (table === 'leads' || table === 'bookings') {
+            let staffIds = [];
+            if (body.assigned_staff_ids !== undefined && body.assigned_staff_ids !== null) {
+                let parsed = body.assigned_staff_ids;
+                if (typeof parsed === 'string') {
+                    try { parsed = JSON.parse(parsed); } catch(_) { parsed = []; }
+                }
+                if (Array.isArray(parsed)) {
+                    staffIds = Array.from(new Set(parsed.map(Number).filter(n => !isNaN(n) && n > 0)));
+                }
+            }
+            if (body.assigned_to && !staffIds.includes(Number(body.assigned_to))) {
+                staffIds.push(Number(body.assigned_to));
+            }
+            if (staffIds.length > 0) {
+                body.assigned_staff_ids = JSON.stringify(staffIds);
+                if (!body.assigned_to) body.assigned_to = staffIds[0];
+            } else if (body.assigned_to) {
+                body.assigned_staff_ids = JSON.stringify([Number(body.assigned_to)]);
+            }
+        }
+
         // Convert JSON objects/arrays to strings for JSON columns
         if (table === 'customer_memberships' && body.status === 'Active' && body.customer_id) {
             await pool.query(
@@ -7594,8 +7733,21 @@ app.post('/api/crud/:table', authMiddleware, validateTable, writeGuard, permissi
         const fetchedId = body.id || result.insertId;
         const [inserted] = await pool.query(`SELECT * FROM \`${table}\` WHERE id = ?`, [fetchedId]);
 
-        // Server-side audit log
-        auditLog('Create', table, `Created record ${fetchedId}`, req.user?.email);
+        // Server-side audit log with staff attribution
+        const staffInfo = await getStaffInfo(req);
+        auditLog(
+            'RECORD_CREATED',
+            table,
+            `${staffInfo.name} (ID: #${staffInfo.id || 'N/A'}) created ${table.slice(0, -1)}: ${body.name || body.customer_name || body.title || fetchedId}`,
+            staffInfo.email || staffInfo.name,
+            {
+                staffId: staffInfo.id,
+                staffName: staffInfo.name,
+                entityType: table === 'leads' ? 'lead' : table === 'bookings' ? 'booking' : null,
+                entityId: fetchedId,
+                details: `Created new ${table.slice(0, -1)}: ${body.name || body.customer_name || body.title || ''}`
+            }
+        );
 
         // ── Atomic Lead Linkage & Status Update for Converted Bookings ──
         if (table === 'bookings' && body.lead_id) {
@@ -7796,14 +7948,49 @@ app.put('/api/crud/:table/:id', authMiddleware, validateTable, writeGuard, permi
         let oldBooking = null;
         let oldProposal = null;
         if (table === 'leads') {
-            const [[row]] = await pool.query('SELECT status, assigned_to FROM leads WHERE id = ?', [id]);
+            const [[row]] = await pool.query('SELECT * FROM leads WHERE id = ?', [id]);
             oldLead = row;
         } else if (table === 'bookings') {
-            const [[row]] = await pool.query('SELECT type, assigned_to, status, payment_status FROM bookings WHERE id = ?', [id]);
+            const [[row]] = await pool.query('SELECT * FROM bookings WHERE id = ?', [id]);
             oldBooking = row;
         } else if (table === 'proposals') {
             const [[row]] = await pool.query('SELECT status FROM proposals WHERE id = ?', [id]);
             oldProposal = row;
+        }
+
+        // Multi-staff normalization on update
+        if (table === 'leads' || table === 'bookings') {
+            if (body.assigned_staff_ids !== undefined && body.assigned_staff_ids !== null) {
+                let parsed = body.assigned_staff_ids;
+                if (typeof parsed === 'string') {
+                    try { parsed = JSON.parse(parsed); } catch (_) { parsed = []; }
+                }
+                if (Array.isArray(parsed)) {
+                    const cleanIds = Array.from(new Set(parsed.map(Number).filter(n => !isNaN(n) && n > 0)));
+                    body.assigned_staff_ids = JSON.stringify(cleanIds);
+                    if (body.assigned_to === undefined) {
+                        body.assigned_to = cleanIds.length > 0 ? cleanIds[0] : null;
+                    }
+                }
+            } else if (body.assigned_to !== undefined) {
+                if (body.assigned_to) {
+                    const primaryId = Number(body.assigned_to);
+                    let existingIds = [];
+                    const rawOld = table === 'leads' ? oldLead?.assigned_staff_ids : oldBooking?.assigned_staff_ids;
+                    if (rawOld) {
+                        try {
+                            const p = typeof rawOld === 'string' ? JSON.parse(rawOld) : rawOld;
+                            if (Array.isArray(p)) existingIds = p.map(Number);
+                        } catch (_) {}
+                    }
+                    if (!existingIds.includes(primaryId)) {
+                        existingIds = [primaryId, ...existingIds];
+                    }
+                    body.assigned_staff_ids = JSON.stringify(existingIds);
+                } else {
+                    body.assigned_staff_ids = JSON.stringify([]);
+                }
+            }
         }
 
         // Enforce that regular staff cannot assign their own records to others unless they have global scope
@@ -7973,8 +8160,121 @@ app.put('/api/crud/:table/:id', authMiddleware, validateTable, writeGuard, permi
             }
         }
 
-        // Server-side audit log
-        auditLog('Update', table, `Updated record ${id}: ${Object.keys(req.body).join(', ')}`, req.user?.email);
+        // ─── Granular Accountability & Diff Logging ───
+        const staffInfo = await getStaffInfo(req);
+        const oldRecord = table === 'leads' ? oldLead : table === 'bookings' ? oldBooking : null;
+
+        if (oldRecord) {
+            const diffs = {};
+            const humanChanges = [];
+            let logActionName = 'RECORD_UPDATED';
+            let logSeverity = 'Info';
+
+            const parseStaffList = (val) => {
+                if (!val) return [];
+                if (Array.isArray(val)) return val.map(Number);
+                try {
+                    const p = JSON.parse(val);
+                    return Array.isArray(p) ? p.map(Number) : [];
+                } catch (_) { return []; }
+            };
+
+            // 1. Staff Assignment Change Tracking
+            if (body.assigned_staff_ids !== undefined || body.assigned_to !== undefined) {
+                const oldIds = parseStaffList(oldRecord.assigned_staff_ids || (oldRecord.assigned_to ? [oldRecord.assigned_to] : []));
+                const newIds = parseStaffList(body.assigned_staff_ids || (body.assigned_to ? [body.assigned_to] : []));
+
+                const addedIds = newIds.filter(x => !oldIds.includes(x));
+                const removedIds = oldIds.filter(x => !newIds.includes(x));
+
+                if (addedIds.length > 0 || removedIds.length > 0) {
+                    diffs.assigned_staff = { old: oldIds, new: newIds };
+                    logActionName = 'STAFF_ASSIGNMENT_CHANGED';
+
+                    const allInvolvedIds = [...addedIds, ...removedIds];
+                    let staffNameMap = {};
+                    if (allInvolvedIds.length > 0) {
+                        try {
+                            const [sRows] = await pool.query('SELECT id, name FROM staff_members WHERE id IN (?)', [allInvolvedIds]);
+                            sRows.forEach(s => { staffNameMap[s.id] = `${s.name} (ID: #${s.id})`; });
+                        } catch (_) {}
+                    }
+
+                    if (addedIds.length > 0) {
+                        const addedNames = addedIds.map(x => staffNameMap[x] || `ID: #${x}`).join(', ');
+                        humanChanges.push(`Staff assigned: ${addedNames}`);
+                    }
+                    if (removedIds.length > 0) {
+                        const removedNames = removedIds.map(x => staffNameMap[x] || `ID: #${x}`).join(', ');
+                        humanChanges.push(`Staff unassigned: ${removedNames}`);
+                    }
+                }
+            }
+
+            // 2. Status Change Tracking
+            if (body.status !== undefined && String(body.status).toLowerCase() !== String(oldRecord.status || '').toLowerCase()) {
+                diffs.status = { old: oldRecord.status, new: body.status };
+                humanChanges.push(`Status changed from "${oldRecord.status || 'None'}" to "${body.status}"`);
+                if (logActionName === 'RECORD_UPDATED') logActionName = 'STATUS_CHANGED';
+                if (/cancelled|cold|lost|failed|refunded/i.test(body.status)) logSeverity = 'Warning';
+            }
+
+            // 3. Price / Total Amount Changes
+            const oldPrice = oldRecord.total_price !== undefined ? Number(oldRecord.total_price) : oldRecord.amount !== undefined ? Number(oldRecord.amount) : null;
+            const newPrice = body.total_price !== undefined ? Number(body.total_price) : body.amount !== undefined ? Number(body.amount) : null;
+            if (newPrice !== null && oldPrice !== null && !isNaN(newPrice) && !isNaN(oldPrice) && Math.abs(newPrice - oldPrice) > 0.01) {
+                diffs.price = { old: oldPrice, new: newPrice };
+                humanChanges.push(`Total price changed from ₹${oldPrice.toLocaleString('en-IN')} to ₹${newPrice.toLocaleString('en-IN')}`);
+                logActionName = 'PRICE_CHANGED';
+                logSeverity = 'Warning';
+            }
+
+            // 4. Dates
+            const oldStart = oldRecord.booking_date || oldRecord.start_date;
+            const newStart = body.booking_date || body.start_date;
+            if (newStart && oldStart && String(newStart).split('T')[0] !== String(oldStart).split('T')[0]) {
+                diffs.start_date = { old: String(oldStart).split('T')[0], new: String(newStart).split('T')[0] };
+                humanChanges.push(`Start date updated to ${String(newStart).split('T')[0]}`);
+            }
+
+            // 5. Travelers / Pax
+            if (body.travelers !== undefined && body.travelers !== oldRecord.travelers) {
+                diffs.travelers = { old: oldRecord.travelers, new: body.travelers };
+                humanChanges.push(`Travelers updated to "${body.travelers}"`);
+            }
+
+            // 6. Notes / Details
+            if (body.booking_notes !== undefined && body.booking_notes !== oldRecord.booking_notes) {
+                humanChanges.push('Booking notes updated');
+            }
+
+            const summaryText = humanChanges.length > 0 ? humanChanges.join('; ') : `Updated fields: ${Object.keys(body).join(', ')}`;
+            await auditLog(
+                logActionName,
+                table,
+                `${staffInfo.name} (ID: #${staffInfo.id || 'N/A'}): ${summaryText}`,
+                staffInfo.email || staffInfo.name,
+                {
+                    staffId: staffInfo.id,
+                    staffName: staffInfo.name,
+                    entityType: table === 'leads' ? 'lead' : 'booking',
+                    entityId: id,
+                    severity: logSeverity,
+                    changes: diffs
+                }
+            );
+
+            if (table === 'leads') {
+                try {
+                    await pool.query(
+                        "INSERT INTO lead_logs (type, content, timestamp, sender, lead_id) VALUES (?, ?, NOW(), ?, ?)",
+                        ['Audit', summaryText, `${staffInfo.name} (Staff #${staffInfo.id || 'N/A'})`, id]
+                    );
+                } catch (_) {}
+            }
+        } else {
+            auditLog('Update', table, `Updated record ${id}: ${Object.keys(req.body).join(', ')}`, req.user?.email);
+        }
 
         res.json({ status: 'success' });
     } catch (error) {
@@ -8037,8 +8337,21 @@ app.delete('/api/crud/:table/:id', authMiddleware, validateTable, permissionGuar
             return res.status(404).json({ error: 'Record not found' });
         }
 
-        // Server-side audit log
-        auditLog('Delete', table, `Deleted record ${id}`, req.user?.email);
+        // Server-side audit log with staff attribution
+        const staffInfo = await getStaffInfo(req);
+        auditLog(
+            'RECORD_DELETED',
+            table,
+            `${staffInfo.name} (ID: #${staffInfo.id || 'N/A'}) deleted ${table.slice(0, -1)} ${id}`,
+            staffInfo.email || staffInfo.name,
+            {
+                staffId: staffInfo.id,
+                staffName: staffInfo.name,
+                entityType: table === 'leads' ? 'lead' : table === 'bookings' ? 'booking' : null,
+                entityId: id,
+                severity: 'Critical'
+            }
+        );
 
         res.json({ status: 'success' });
     } catch (error) {
@@ -8352,7 +8665,7 @@ app.post('/api/transfer-requests', authMiddleware, async (req, res) => {
             );
 
             if (item_type === 'Lead') {
-                await pool.query('UPDATE leads SET assigned_to = ? WHERE id = ?', [to_staff_id, item_id]);
+                await pool.query('UPDATE leads SET assigned_to = ?, assigned_staff_ids = JSON_ARRAY(?) WHERE id = ?', [to_staff_id, to_staff_id, item_id]);
                 
                 // Cascade to pending checklist tasks
                 await pool.query(
@@ -8370,7 +8683,7 @@ app.post('/api/transfer-requests', authMiddleware, async (req, res) => {
                     [logContent, item_id]
                 ).catch(e => console.warn('[Lead Logs] Transfer log error:', e.message));
             } else if (item_type === 'Booking') {
-                await pool.query('UPDATE bookings SET assigned_to = ? WHERE id = ?', [to_staff_id, item_id]);
+                await pool.query('UPDATE bookings SET assigned_to = ?, assigned_staff_ids = JSON_ARRAY(?) WHERE id = ?', [to_staff_id, to_staff_id, item_id]);
                 
                 // Cascade to pending checklist tasks
                 await pool.query(
@@ -8477,7 +8790,7 @@ app.post('/api/transfer-requests/:id/approve', authMiddleware, async (req, res) 
         );
         
         if (request.item_type === 'Lead') {
-            await pool.query('UPDATE leads SET assigned_to = ? WHERE id = ?', [request.to_staff_id, request.item_id]);
+            await pool.query('UPDATE leads SET assigned_to = ?, assigned_staff_ids = JSON_ARRAY(?) WHERE id = ?', [request.to_staff_id, request.to_staff_id, request.item_id]);
             
             // Cascade to pending checklist tasks
             await pool.query(
@@ -8495,7 +8808,7 @@ app.post('/api/transfer-requests/:id/approve', authMiddleware, async (req, res) 
                 [logContent, request.item_id]
             ).catch(e => console.warn('[Lead Logs] Transfer approval log error:', e.message));
         } else if (request.item_type === 'Booking') {
-            await pool.query('UPDATE bookings SET assigned_to = ? WHERE id = ?', [request.to_staff_id, request.item_id]);
+            await pool.query('UPDATE bookings SET assigned_to = ?, assigned_staff_ids = JSON_ARRAY(?) WHERE id = ?', [request.to_staff_id, request.to_staff_id, request.item_id]);
             
             // Cascade to pending checklist tasks
             await pool.query(
@@ -8763,9 +9076,18 @@ app.delete('/api/bookings/:id', authMiddleware, async (req, res) => {
         if (!permissions.bookings?.manage) {
             return res.status(403).json({ error: 'Unauthorized: Bookings manage permission required.' });
         }
-        const [existing] = await pool.query('SELECT assigned_to FROM bookings WHERE id = ?', [id]);
-        if (existing.length > 0 && String(existing[0].assigned_to || '') !== String(req.user.staffId)) {
-            return res.status(403).json({ error: 'Unauthorized: You do not own this booking.' });
+        const [existing] = await pool.query('SELECT assigned_to, assigned_staff_ids FROM bookings WHERE id = ?', [id]);
+        if (existing.length > 0) {
+            let isOwner = String(existing[0].assigned_to || '') === String(req.user.staffId);
+            if (!isOwner && existing[0].assigned_staff_ids) {
+                try {
+                    const parsed = typeof existing[0].assigned_staff_ids === 'string' ? JSON.parse(existing[0].assigned_staff_ids) : existing[0].assigned_staff_ids;
+                    if (Array.isArray(parsed) && parsed.map(String).includes(String(req.user.staffId))) isOwner = true;
+                } catch (_) {}
+            }
+            if (!isOwner) {
+                return res.status(403).json({ error: 'Unauthorized: You do not own this booking.' });
+            }
         }
     }
 
@@ -9081,8 +9403,10 @@ app.get('/api/bookings-with-package', authMiddleware, async (req, res) => {
                 staffIds.push(String(req.user.staffId));
             }
             if (staffIds.length > 0) {
-                bookingsQuery += ` WHERE b.assigned_to IN (${staffIds.map(() => '?').join(',')})`;
-                params.push(...staffIds);
+                const placeholders = staffIds.map(() => '?').join(',');
+                const jsonChecks = staffIds.map(() => `JSON_CONTAINS(COALESCE(b.assigned_staff_ids, '[]'), ?)`).join(' OR ');
+                bookingsQuery += ` WHERE (b.assigned_to IN (${placeholders}) OR ${jsonChecks})`;
+                params.push(...staffIds, ...staffIds.map(String));
             }
         }
         bookingsQuery += ' ORDER BY b.created_at DESC';
@@ -9107,10 +9431,13 @@ app.get('/api/bookings-with-package', authMiddleware, async (req, res) => {
         let sbParams = [];
 
         if (isRestrictedBookings && staffIds.length > 0) {
-            txQuery = `SELECT t.* FROM booking_transactions t JOIN bookings b ON t.booking_id = b.id WHERE b.assigned_to IN (${staffIds.map(() => '?').join(',')}) ORDER BY t.date DESC, t.created_at DESC`;
-            sbQuery = `SELECT sb.* FROM supplier_bookings sb JOIN bookings b ON sb.booking_id = b.id WHERE b.assigned_to IN (${staffIds.map(() => '?').join(',')}) ORDER BY sb.created_at DESC`;
-            txParams = [...staffIds];
-            sbParams = [...staffIds];
+            const placeholders = staffIds.map(() => '?').join(',');
+            const jsonChecks = staffIds.map(() => `JSON_CONTAINS(COALESCE(b.assigned_staff_ids, '[]'), ?)`).join(' OR ');
+            const whereClause = `WHERE (b.assigned_to IN (${placeholders}) OR ${jsonChecks})`;
+            txQuery = `SELECT t.* FROM booking_transactions t JOIN bookings b ON t.booking_id = b.id ${whereClause} ORDER BY t.date DESC, t.created_at DESC`;
+            sbQuery = `SELECT sb.* FROM supplier_bookings sb JOIN bookings b ON sb.booking_id = b.id ${whereClause} ORDER BY sb.created_at DESC`;
+            txParams = [...staffIds, ...staffIds.map(String)];
+            sbParams = [...staffIds, ...staffIds.map(String)];
         }
 
         const [transactions] = await pool.query(txQuery, txParams);
@@ -9180,8 +9507,10 @@ app.get('/api/leads-with-logs', authMiddleware, async (req, res) => {
                 staffIds.push(String(req.user.staffId));
             }
             if (staffIds.length > 0) {
-                leadsQuery += ` WHERE l.assigned_to IN (${staffIds.map(() => '?').join(',')})`;
-                params.push(...staffIds);
+                const placeholders = staffIds.map(() => '?').join(',');
+                const jsonChecks = staffIds.map(() => `JSON_CONTAINS(COALESCE(l.assigned_staff_ids, '[]'), ?)`).join(' OR ');
+                leadsQuery += ` WHERE (l.assigned_to IN (${placeholders}) OR ${jsonChecks})`;
+                params.push(...staffIds, ...staffIds.map(String));
             }
         }
         leadsQuery += ' ORDER BY l.created_at DESC';

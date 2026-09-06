@@ -22,6 +22,8 @@ import { exportToExcel, ExportColumn } from '../../src/lib/exportUtils';
 import { formatPrice, calculateTripDuration, formatTripDuration } from '../../utils/packageUtils';
 import { Plus, X, Edit2, Trash2 } from 'lucide-react';
 import { parsePaxString, formatPaxString } from '../../utils/paxUtils';
+import { StaffMultiSelect } from '../../components/admin/StaffMultiSelect';
+import { EntityAuditTimeline } from '../../components/admin/EntityAuditTimeline';
 
 export const Bookings: React.FC = () => {
     const { packages, customers, leads, refreshData, coupons, applyCoupon, detachCoupon, tasks, updateTask, addTask, deleteTask } = useData();
@@ -97,7 +99,7 @@ export const Bookings: React.FC = () => {
     const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
     const [editNoteText, setEditNoteText] = useState('');
 
-    const [bookingModalTab, setBookingModalTab] = useState<'info' | 'checklist' | 'deliverables' | 'chat'>('info');
+    const [bookingModalTab, setBookingModalTab] = useState<'info' | 'checklist' | 'deliverables' | 'chat' | 'audit'>('info');
     const [deliverables, setDeliverables] = useState<BookingDailyDeliverable[]>([]);
     const [loadingDeliverables, setLoadingDeliverables] = useState(false);
     const [selectedDay, setSelectedDay] = useState<number>(1);
@@ -407,7 +409,9 @@ export const Bookings: React.FC = () => {
         paxInfant: 0,
         serviceType: 'Full package',
         residentialAddress: '',
-        officeAddress: ''
+        officeAddress: '',
+        assignedTo: undefined as number | undefined,
+        assignedStaffIds: [] as number[]
     });
 
     // Guest State
@@ -620,7 +624,9 @@ export const Bookings: React.FC = () => {
             paxInfant: 0,
             serviceType: 'Full package',
             residentialAddress: '',
-            officeAddress: ''
+            officeAddress: '',
+            assignedTo: currentUser?.id,
+            assignedStaffIds: currentUser?.id ? [currentUser.id] : []
         });
         setGuestCounts({ adults: 2, children: 0, infants: 0 });
         setIsModalOpen(true);
@@ -659,7 +665,9 @@ export const Bookings: React.FC = () => {
             paxInfant: inf,
             serviceType: booking.serviceType || 'Full package',
             residentialAddress: booking.residentialAddress || '',
-            officeAddress: booking.officeAddress || ''
+            officeAddress: booking.officeAddress || '',
+            assignedTo: booking.assignedTo,
+            assignedStaffIds: booking.assignedStaffIds || (booking.assignedTo ? [booking.assignedTo] : [])
         });
 
         setGuestCounts({ adults: a, children: c, infants: inf });
@@ -769,7 +777,9 @@ export const Bookings: React.FC = () => {
                 paxInfant: guestCounts.infants,
                 serviceType: formData.serviceType,
                 residentialAddress: formData.residentialAddress,
-                officeAddress: formData.officeAddress
+                officeAddress: formData.officeAddress,
+                assignedTo: formData.assignedTo || (formData.assignedStaffIds?.length ? formData.assignedStaffIds[0] : currentUser?.id),
+                assignedStaffIds: formData.assignedStaffIds || (formData.assignedTo ? [formData.assignedTo] : (currentUser?.id ? [currentUser.id] : []))
             };
 
             if (isEditMode && formData.id) {
@@ -777,7 +787,8 @@ export const Bookings: React.FC = () => {
             } else {
                 const newBooking: Booking = {
                     id: '', // Will be set by DB (UUID auto-generated)
-                    assignedTo: currentUser?.id,
+                    assignedTo: bookingData.assignedTo || currentUser?.id,
+                    assignedStaffIds: bookingData.assignedStaffIds || (currentUser?.id ? [currentUser.id] : []),
                     ...bookingData as any // safely cast for new object
                 };
                 await addBooking(newBooking);
@@ -872,7 +883,9 @@ export const Bookings: React.FC = () => {
 
         // Permission Filter
         const isRestricted = currentUser?.queryScope === 'Show Assigned Query Only' && currentUser?.userType !== 'Admin';
-        const matchesAssignment = !isRestricted || String(b.assignedTo) === String(currentUser?.id) || String(b.assignedTo) === String((currentUser as any)?.staffId);
+        const myId = String(currentUser?.id || (currentUser as any)?.staffId || '');
+        const isAssigned = String(b.assignedTo) === myId || (b.assignedStaffIds && b.assignedStaffIds.map(String).includes(myId));
+        const matchesAssignment = !isRestricted || isAssigned;
 
         return matchesTab && matchesSearch && matchesAssignment;
     });
@@ -1131,6 +1144,17 @@ export const Bookings: React.FC = () => {
                                     Partner Chat
                                 </button>
                             )}
+                            <button
+                                onClick={() => setBookingModalTab('audit')}
+                                className={`text-xs font-bold pb-1 transition-all flex items-center gap-1.5 ${
+                                    bookingModalTab === 'audit'
+                                        ? 'text-primary border-b-2 border-primary'
+                                        : 'text-slate-400 hover:text-slate-600'
+                                }`}
+                            >
+                                <span className="material-symbols-outlined text-[16px]">history</span>
+                                Staff Activity & Audit
+                            </button>
                         </div>
 
                         {/* ── Quick Stats Bar ── */}
@@ -1805,31 +1829,90 @@ export const Bookings: React.FC = () => {
                                         )}
                                     </div>
                                 </div>
+                            ) : bookingModalTab === 'audit' ? (
+                                <div className="space-y-4">
+                                    <div className="p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/40 rounded-xl text-xs text-amber-800 dark:text-amber-300 flex items-center gap-2">
+                                        <span className="material-symbols-outlined text-[18px]">verified_user</span>
+                                        <span>
+                                            Every change made by team members is recorded with their <strong>Staff ID</strong>, timestamp, and field-level differences.
+                                        </span>
+                                    </div>
+                                    <EntityAuditTimeline entityType="booking" entityId={viewingBooking.id} />
+                                </div>
                             ) : (
                                 <>
-                                    {/* Booking Ownership / Assignee */}
+                                    {/* Booking Ownership / Team */}
                                     <div className="mb-4">
-                                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">Booking Ownership</p>
-                                        <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700 flex flex-col gap-2">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">Booking Ownership & Team</p>
+                                        <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700 flex flex-col gap-3">
                                             <div className="flex items-center justify-between">
                                                 <div className="flex items-center gap-2">
-                                                    <span className="material-symbols-outlined text-primary text-[18px]">assignment_ind</span>
-                                                    <span className="text-xs font-bold text-slate-400">Assigned To:</span>
-                                                    <span className="text-sm font-bold text-slate-900 dark:text-white">
-                                                        {viewingBooking.assignedTo ? staff.find(s => s.id === viewingBooking.assignedTo)?.name || 'Unknown' : 'Unassigned'}
-                                                    </span>
+                                                    <span className="material-symbols-outlined text-primary text-[18px]">group</span>
+                                                    <span className="text-xs font-bold text-slate-400">Assigned Team:</span>
                                                 </div>
-                                                {hasPermission('bookings', 'manage') && viewingBooking.assignedTo && (
-                                                    <button
-                                                        onClick={() => setIsTransferModalOpen(true)}
-                                                        className="px-2 py-1 text-[10px] font-black uppercase tracking-wider bg-primary/10 text-primary rounded-lg border border-primary/20 hover:bg-primary/20 transition-all flex items-center gap-1"
-                                                        title="Request Ownership Transfer"
-                                                    >
-                                                        <span className="material-symbols-outlined text-[12px]">move_item</span>
-                                                        Transfer
-                                                    </button>
+                                                {hasPermission('bookings', 'manage') && (
+                                                    <div className="flex items-center gap-2">
+                                                        <button
+                                                            onClick={() => openEditModal(viewingBooking)}
+                                                            className="px-2.5 py-1 text-[10px] font-black uppercase tracking-wider bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg hover:bg-slate-300 transition-all flex items-center gap-1"
+                                                            title="Edit Staff Assignments"
+                                                        >
+                                                            <span className="material-symbols-outlined text-[12px]">edit</span>
+                                                            Manage Team
+                                                        </button>
+                                                        {viewingBooking.assignedTo && (
+                                                            <button
+                                                                onClick={() => setIsTransferModalOpen(true)}
+                                                                className="px-2.5 py-1 text-[10px] font-black uppercase tracking-wider bg-primary/10 text-primary rounded-lg border border-primary/20 hover:bg-primary/20 transition-all flex items-center gap-1"
+                                                                title="Request Ownership Transfer"
+                                                            >
+                                                                <span className="material-symbols-outlined text-[12px]">move_item</span>
+                                                                Transfer
+                                                            </button>
+                                                        )}
+                                                    </div>
                                                 )}
                                             </div>
+
+                                            {/* Team Members List */}
+                                            <div className="flex flex-wrap gap-2">
+                                                {(() => {
+                                                    const assignedStaffIds = viewingBooking.assignedStaffIds?.length
+                                                        ? viewingBooking.assignedStaffIds
+                                                        : (viewingBooking.assignedTo ? [viewingBooking.assignedTo] : []);
+                                                    if (!assignedStaffIds.length) {
+                                                        return <span className="text-xs text-slate-400 italic">No staff assigned</span>;
+                                                    }
+                                                    return assignedStaffIds.map(stId => {
+                                                        const s = staff.find(member => String(member.id) === String(stId));
+                                                        const isLead = String(stId) === String(viewingBooking.assignedTo);
+                                                        return (
+                                                            <div
+                                                                key={stId}
+                                                                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold ${
+                                                                    isLead
+                                                                        ? 'bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-700'
+                                                                        : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                                                                }`}
+                                                            >
+                                                                <span className="size-5 rounded-full bg-slate-200 dark:bg-slate-700 text-[10px] font-black flex items-center justify-center text-slate-600 dark:text-slate-300 uppercase">
+                                                                    {(s?.name || 'S').charAt(0)}
+                                                                </span>
+                                                                <span>{s?.name || `Staff #${stId}`}</span>
+                                                                <span className="text-[9px] px-1 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 font-mono">
+                                                                    #{stId}
+                                                                </span>
+                                                                {isLead && (
+                                                                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-200 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200 font-extrabold uppercase tracking-wider">
+                                                                        Lead
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    });
+                                                })()}
+                                            </div>
+
                                             {(() => {
                                                 const pending = transfers.find(tr => tr.item_type === 'Booking' && tr.item_id === viewingBooking.id && tr.status === 'Pending');
                                                 return pending ? (
@@ -2483,6 +2566,28 @@ export const Bookings: React.FC = () => {
                                 </div>
                             </div>
 
+                            {/* Team & Staff Assignment */}
+                            <div>
+                                <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-2">Staff & Team Assignment</h3>
+                                <StaffMultiSelect
+                                    staff={staff}
+                                    selectedStaffIds={formData.assignedStaffIds || (formData.assignedTo ? [formData.assignedTo] : [])}
+                                    primaryStaffId={formData.assignedTo}
+                                    onChange={(ids, primaryId) => {
+                                        setFormData(prev => ({
+                                            ...prev,
+                                            assignedStaffIds: ids,
+                                            assignedTo: primaryId
+                                        }));
+                                    }}
+                                    disabled={!hasPermission('bookings', 'manage')}
+                                    label="Assign Multiple Staff to this Booking"
+                                />
+                                <p className="text-[11px] text-slate-400 mt-1">
+                                    All assigned staff will have visibility into this booking and their actions will be tracked in the audit trail.
+                                </p>
+                            </div>
+
                             <div className="flex justify-between pt-4">
                                 {/* New Refund Button in Modal */}
                                 {currentUser?.userType === 'Admin' && formData.status === BookingStatus.CANCELLED && (formData.payment === 'Paid' || formData.payment === 'Deposit') ? (
@@ -2653,6 +2758,25 @@ export const Bookings: React.FC = () => {
                                                                     )}
                                                                 </p>
                                                                 <p className="text-xs text-slate-500">{booking.email}</p>
+                                                                {(() => {
+                                                                    const assignedStaffIds = booking.assignedStaffIds?.length 
+                                                                        ? booking.assignedStaffIds 
+                                                                        : (booking.assignedTo ? [booking.assignedTo] : []);
+                                                                    if (!assignedStaffIds.length) return null;
+                                                                    const firstStaff = staff.find(s => String(s.id) === String(assignedStaffIds[0]));
+                                                                    const extraCount = assignedStaffIds.length - 1;
+                                                                    return (
+                                                                        <div className="flex items-center gap-1 mt-1 text-[11px] font-semibold text-slate-500">
+                                                                            <span className="material-symbols-outlined text-[13px] text-primary">group</span>
+                                                                            <span>{firstStaff?.name || `Staff #${assignedStaffIds[0]}`}</span>
+                                                                            {extraCount > 0 && (
+                                                                                <span className="px-1.5 py-0.2 bg-primary/10 text-primary rounded-full text-[10px] font-bold">
+                                                                                    +{extraCount}
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                    );
+                                                                })()}
                                                             </div>
                                                         </div>
                                                     </td>
@@ -3212,6 +3336,25 @@ export const Bookings: React.FC = () => {
                                                     <div className="min-w-0 flex-1">
                                                         <p className="text-sm font-bold text-slate-900 dark:text-white truncate">{booking.customer}</p>
                                                         <p className="text-xs text-slate-500 truncate">{booking.title}</p>
+                                                        {(() => {
+                                                            const assignedStaffIds = booking.assignedStaffIds?.length 
+                                                                ? booking.assignedStaffIds 
+                                                                : (booking.assignedTo ? [booking.assignedTo] : []);
+                                                            if (!assignedStaffIds.length) return null;
+                                                            const firstStaff = staff.find(s => String(s.id) === String(assignedStaffIds[0]));
+                                                            const extraCount = assignedStaffIds.length - 1;
+                                                            return (
+                                                                <div className="flex items-center gap-1 mt-0.5 text-[11px] font-semibold text-slate-500">
+                                                                    <span className="material-symbols-outlined text-[13px] text-primary">group</span>
+                                                                    <span>{firstStaff?.name || `Staff #${assignedStaffIds[0]}`}</span>
+                                                                    {extraCount > 0 && (
+                                                                        <span className="px-1.5 py-0.2 bg-primary/10 text-primary rounded-full text-[10px] font-bold">
+                                                                            +{extraCount}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })()}
                                                     </div>
                                                 </div>
 
@@ -3297,7 +3440,26 @@ export const Bookings: React.FC = () => {
                                                         <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${booking.payment === 'Paid' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>{booking.payment}</span>
                                                     </div>
                                                     <h4 className="font-bold text-slate-900 dark:text-white text-sm mb-1">{booking.customer}</h4>
-                                                    <p className="text-xs text-slate-500 line-clamp-1 mb-3">{booking.title}</p>
+                                                    <p className="text-xs text-slate-500 line-clamp-1 mb-2">{booking.title}</p>
+                                                    {(() => {
+                                                        const assignedStaffIds = booking.assignedStaffIds?.length 
+                                                            ? booking.assignedStaffIds 
+                                                            : (booking.assignedTo ? [booking.assignedTo] : []);
+                                                        if (!assignedStaffIds.length) return null;
+                                                        const firstStaff = staff.find(s => String(s.id) === String(assignedStaffIds[0]));
+                                                        const extraCount = assignedStaffIds.length - 1;
+                                                        return (
+                                                            <div className="flex items-center gap-1 mb-2 text-[10px] font-semibold text-slate-500">
+                                                                <span className="material-symbols-outlined text-[12px] text-primary">group</span>
+                                                                <span className="truncate max-w-[120px]">{firstStaff?.name || `Staff #${assignedStaffIds[0]}`}</span>
+                                                                {extraCount > 0 && (
+                                                                    <span className="px-1.5 py-0.2 bg-primary/10 text-primary rounded-full text-[9px] font-bold">
+                                                                        +{extraCount}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })()}
                                                     <div className="flex items-center justify-between text-xs text-slate-500 pt-3 border-t border-slate-100 dark:border-slate-800">
                                                         <span className="flex items-center gap-1"><span className="material-symbols-outlined text-[14px]">calendar_today</span> {new Date(booking.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
                                                         <span className="kpi-number text-slate-900 dark:text-white">₹{(booking.amount / 1000).toFixed(1)}k</span>

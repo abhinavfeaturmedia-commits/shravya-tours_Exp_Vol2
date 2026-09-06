@@ -26,23 +26,33 @@ export const ActivityLogs: React.FC = () => {
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 12;
 
-    // 1. Resolve Creator Details (email -> staff name, initials, color)
-    const getStaffDetails = (email: string) => {
+    // 1. Resolve Creator Details (email / staff info -> staff name, initials, color, staffId)
+    const getStaffDetails = (email: string, log?: AuditLog) => {
+        if (log?.staffName) {
+            const found = staff.find(s => s.id === log.staffId || s.name.toLowerCase() === log.staffName?.toLowerCase());
+            return {
+                name: log.staffName,
+                initials: found?.initials || log.staffName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase(),
+                color: found?.color || 'indigo',
+                staffId: log.staffId || found?.id
+            };
+        }
         if (!email || email.toLowerCase() === 'system') {
-            return { name: 'System', initials: 'SYS', color: 'slate' };
+            return { name: 'System', initials: 'SYS', color: 'slate', staffId: undefined };
         }
         const found = staff.find(s => s.email.toLowerCase() === email.toLowerCase());
         if (found) {
             return {
                 name: found.name,
                 initials: found.initials || found.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase(),
-                color: found.color || 'indigo'
+                color: found.color || 'indigo',
+                staffId: found.id
             };
         }
         // Fallback for custom or missing staff profile
         const username = email.split('@')[0];
         const initials = username.substring(0, 2).toUpperCase();
-        return { name: username, initials, color: 'sky' };
+        return { name: username, initials, color: 'sky', staffId: undefined };
     };
 
     // Helper to extract ID for deep linking
@@ -597,7 +607,7 @@ export const ActivityLogs: React.FC = () => {
                 <div className="space-y-6">
                     {paginatedLogs.length > 0 ? (
                         paginatedLogs.map((log) => {
-                            const staffInfo = getStaffDetails(log.performedBy);
+                            const staffInfo = getStaffDetails(log.performedBy, log);
                             const resolved = resolveActivityDetails(log);
                             const navLink = getTargetLink(log);
                             
@@ -617,13 +627,31 @@ export const ActivityLogs: React.FC = () => {
                                         <div className="space-y-1">
                                             <p className="text-sm text-slate-900 dark:text-white font-black leading-normal flex items-center flex-wrap gap-x-2">
                                                 {resolved.title}
-                                                <span className="text-slate-400 dark:text-slate-500 text-xs font-semibold">
+                                                <span className="text-slate-500 dark:text-slate-400 text-xs font-semibold flex items-center gap-1.5">
                                                     by {staffInfo.name}
+                                                    {staffInfo.staffId && (
+                                                        <span className="px-1.5 py-0.2 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded font-mono text-[10px] font-bold">
+                                                            #{staffInfo.staffId}
+                                                        </span>
+                                                    )}
                                                 </span>
                                             </p>
                                             <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
                                                 {resolved.subtitle}
                                             </p>
+
+                                            {/* Structured field diff chips if available */}
+                                            {log.changes && typeof log.changes === 'object' && Object.keys(log.changes).length > 0 && (
+                                                <div className="flex flex-wrap gap-1.5 pt-1">
+                                                    {Object.entries(log.changes).map(([field, diff]: [string, any]) => (
+                                                        <span key={field} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-[11px] font-medium text-amber-900 dark:text-amber-200">
+                                                            <strong className="capitalize">{field.replace(/_/g, ' ')}:</strong>
+                                                            <span className="line-through text-slate-400">{String(diff.from ?? 'none')}</span>
+                                                            <span className="font-bold text-emerald-600 dark:text-emerald-400">→ {String(diff.to ?? 'none')}</span>
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            )}
                                             
                                             {/* Subtitle: Date & relative time */}
                                             <div className="flex items-center gap-3 text-xs text-slate-400 dark:text-slate-500 font-semibold pt-1">

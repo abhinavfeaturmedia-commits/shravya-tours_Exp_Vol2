@@ -68,8 +68,11 @@ const WizardContent: React.FC = () => {
         if (!tripDetails.startDate) return '─';
         const start = new Date(tripDetails.startDate);
         const end = new Date(start);
-        end.setDate(end.getDate() + tripDetails.days - 1);
+        end.setDate(end.getDate() + Math.max(1, tripDetails.days) - 1);
         const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase();
+        if (tripDetails.days === 1 || tripDetails.nights === 0) {
+            return `${fmt(start)} (1 DAY TOUR)`;
+        }
         return `${fmt(start)} – ${fmt(end)}`;
     };
 
@@ -97,16 +100,16 @@ const WizardContent: React.FC = () => {
     return (
         <div className="h-[calc(100vh-64px)] md:h-[calc(100vh-64px)] flex flex-col overflow-hidden bg-[#F5F0E8] font-sans select-none pb-20 md:pb-0">
             {/* ── TOP BAR ──────────────────────────────────────────────── */}
-            <header className="shrink-0 flex flex-wrap items-center justify-between gap-4 px-4 md:px-6 py-3 bg-white border-b border-stone-200 shadow-sm z-20">
+            <header className="shrink-0 flex items-center justify-between gap-3 px-4 md:px-6 h-16 bg-white border-b border-stone-200 shadow-xs z-20">
                 {/* Left: Logo + Project */}
-                <div className="flex items-center gap-3 min-w-0">
-                    <div className="size-8 rounded-lg bg-amber-500 flex items-center justify-center shrink-0 shadow">
-                        <Sparkles size={16} className="text-white" />
+                <div className="flex items-center gap-3 min-w-0 shrink-0">
+                    <div className="size-9 rounded-xl bg-amber-500 flex items-center justify-center shrink-0 shadow-xs text-white">
+                        <Sparkles size={17} />
                     </div>
                     <div className="min-w-0">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400 leading-none mb-0.5">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-stone-400 block leading-tight">
                             Active Project
-                        </p>
+                        </span>
                         {editingTitle ? (
                             <input
                                 ref={titleRef}
@@ -114,11 +117,11 @@ const WizardContent: React.FC = () => {
                                 onChange={e => updateTripDetails({ title: e.target.value })}
                                 onBlur={() => setEditingTitle(false)}
                                 onKeyDown={e => e.key === 'Enter' && setEditingTitle(false)}
-                                className="text-sm md:text-lg font-black text-stone-900 bg-transparent border-none outline-none w-48 md:w-64 border-b-2 border-amber-400"
+                                className="text-sm md:text-base font-black text-stone-900 bg-transparent border-none outline-none w-44 md:w-60 border-b-2 border-amber-400 py-0"
                             />
                         ) : (
                             <h1
-                                className="text-sm md:text-lg font-black text-stone-900 truncate max-w-[200px] md:max-w-xs cursor-pointer hover:text-amber-600 transition-colors"
+                                className="text-sm md:text-base font-black text-stone-900 truncate max-w-[180px] md:max-w-xs cursor-pointer hover:text-amber-600 transition-colors leading-tight"
                                 onClick={() => setEditingTitle(true)}
                                 title="Click to edit title"
                             >
@@ -129,7 +132,7 @@ const WizardContent: React.FC = () => {
                 </div>
 
                 {/* Center: Meta pills (Hidden on small mobile to save space) */}
-                <div className="hidden sm:flex items-center gap-2 ml-4 flex-wrap">
+                <div className="hidden lg:flex items-center gap-2 mx-2 min-w-0 shrink overflow-hidden">
                     {tripDetails.startDate && (
                         <span className="flex items-center gap-1.5 text-[11px] font-bold text-stone-500 bg-stone-100 px-3 py-1.5 rounded-lg border border-stone-200">
                             <CalendarDays size={12} className="text-amber-500" />
@@ -229,15 +232,11 @@ const WizardContent: React.FC = () => {
                         })}
                     </nav>
 
-                    {/* Bottom save button (Desktop only) */}
+                    {/* Bottom status (Desktop only) */}
                     {!sidebarCollapsed && (
-                        <div className="hidden md:block p-3 border-t border-stone-100">
-                            <button
-                                onClick={() => setActivePanel('review')}
-                                className="w-full py-2.5 bg-stone-900 hover:bg-stone-800 text-white text-xs font-black rounded-xl transition-all active:scale-95 flex items-center justify-center gap-2"
-                            >
-                                <Save size={14} /> Save Draft
-                            </button>
+                        <div className="hidden md:flex items-center justify-center gap-1.5 p-3 border-t border-stone-100 text-stone-400 text-[11px] font-bold">
+                            <span className="size-2 rounded-full bg-emerald-500 inline-block" />
+                            <span>Draft Auto-Saved</span>
                         </div>
                     )}
                 </aside>

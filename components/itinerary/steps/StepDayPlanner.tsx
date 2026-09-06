@@ -7,7 +7,8 @@ import {
     Plus, Hotel, Bike, Car, Plane, StickyNote, Trash2, Clock,
     ChevronUp, ChevronDown, Sparkles, MoreHorizontal, IndianRupee, MapPin, RefreshCw,
     Shield, UserCheck, AlertTriangle, Wand2, Compass, Heart, Users, Mountain,
-    Landmark, Utensils, Waves, Crown, X, Check, HelpCircle, Layers, Calendar, CheckCircle2
+    Landmark, Utensils, Waves, Crown, X, Check, HelpCircle, Layers, Calendar, CheckCircle2,
+    ArrowRight, ArrowLeft, LayoutGrid, ListOrdered, CheckCircle, Image
 } from 'lucide-react';
 import {
     generateItinerary,
@@ -20,7 +21,6 @@ import {
 } from '../../../src/lib/gemini';
 import { toast } from 'sonner';
 import { api } from '../../../src/lib/api';
-import { Image } from 'lucide-react';
 
 interface Props {
     onOpenPricing?: () => void;
@@ -103,7 +103,7 @@ export const buildDayLocationSchedule = (
         return Array.from({ length: daysCount }, (_, i) => ({
             day: i + 1,
             city: singleName,
-            nightsInCity: Math.max(1, daysCount - 1),
+            nightsInCity: Math.max(0, daysCount - 1),
             isTransitDay: false
         }));
     }
@@ -116,7 +116,23 @@ export const buildDayLocationSchedule = (
         const legCityName = getLocationName(leg.locationId);
         const prevLeg = legIdx > 0 ? destinations[legIdx - 1] : null;
         const prevCityName = prevLeg ? getLocationName(prevLeg.locationId) : null;
-        const nights = Math.max(1, leg.nights || 1);
+        const nights = Math.max(0, leg.nights ?? 0);
+
+        if (nights === 0) {
+            if (currentDay <= daysCount) {
+                const isTransit = legIdx > 0 && prevCityName !== null && prevCityName !== legCityName;
+                schedule.push({
+                    day: currentDay,
+                    city: legCityName,
+                    nightsInCity: 0,
+                    isTransitDay: isTransit,
+                    transitFrom: isTransit ? (prevCityName || undefined) : undefined,
+                    transitTo: isTransit ? legCityName : undefined
+                });
+                currentDay++;
+            }
+            continue;
+        }
 
         for (let nightIdx = 0; nightIdx < nights; nightIdx++) {
             if (currentDay > daysCount) break;
@@ -345,7 +361,7 @@ const AiCustomizerModal: React.FC<AiCustomizerModalProps> = ({
 
     return createPortal(
         <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center z-[99990] p-4 animate-in fade-in duration-200">
-            <div className="bg-white dark:bg-[#1A2633] rounded-3xl max-w-2xl w-full max-h-[90vh] shadow-2xl border border-stone-200 dark:border-slate-800 flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="bg-white dark:bg-[#1A2633] rounded-3xl max-w-xl w-full max-h-[80vh] shadow-2xl border border-stone-200 dark:border-slate-800 flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
                 {/* Header */}
                 <div className="px-6 py-5 bg-gradient-to-r from-violet-600 via-indigo-600 to-purple-600 text-white flex items-center justify-between shrink-0">
                     <div className="flex items-center gap-3">
@@ -705,6 +721,66 @@ export const StepDayPlanner: React.FC<Props> = ({ onOpenPricing, onOpenTripDetai
         );
     }, [tripDetails.days, tripDetails.destinations, tripDetails.destination, masterLocations]);
 
+    // ─── Step-by-Step Workflow & Progression State ────────────────────────────
+    const [viewMode, setViewMode] = useState<'grid' | 'board'>('grid');
+    const [activeDay, setActiveDay] = useState<number>(1);
+    const [completedDays, setCompletedDays] = useState<number[]>([]);
+    const [editingModalDay, setEditingModalDay] = useState<number | null>(null);
+    const [addingServiceType, setAddingServiceType] = useState<ServiceType | undefined>(undefined);
+
+    const openServiceSelector = (day: number, sType?: ServiceType) => {
+        setAddingServiceType(sType);
+        setAddingToDay(day);
+    };
+
+    useEffect(() => {
+        if (activeDay > tripDetails.days) {
+            setActiveDay(Math.max(1, tripDetails.days));
+        }
+        if (editingModalDay !== null && editingModalDay > tripDetails.days) {
+            setEditingModalDay(Math.max(1, tripDetails.days));
+        }
+    }, [tripDetails.days, activeDay, editingModalDay]);
+
+    const getDayLocation = (day: number) => {
+        const scheduledItem = dayLocationMap.find(d => d.day === day);
+        const scheduledCityName = scheduledItem?.city || destinationName;
+
+        let locationId = tripDetails.destination;
+        if (tripDetails.destinations && tripDetails.destinations.length > 0) {
+            let currentDay = 1;
+            for (const dest of tripDetails.destinations) {
+                if (day >= currentDay && day <= currentDay + dest.nights - 1) {
+                    locationId = dest.locationId;
+                    break;
+                }
+                currentDay += dest.nights;
+            }
+            if (day >= currentDay && tripDetails.destinations.length > 0) {
+                locationId = tripDetails.destinations[tripDetails.destinations.length - 1].locationId;
+            }
+        }
+        return { locationId, cityName: scheduledCityName, scheduledItem };
+    };
+
+    const plannedDaysCount = days.filter(d => getItemsForDay(d).length > 0 || completedDays.includes(d)).length;
+    const completionPercentage = Math.round((plannedDaysCount / Math.max(1, days.length)) * 100);
+
+    const handleCompleteAndNext = (dayNum: number) => {
+        if (!completedDays.includes(dayNum)) {
+            setCompletedDays(prev => [...prev, dayNum]);
+        }
+        if (dayNum < tripDetails.days) {
+            setActiveDay(dayNum + 1);
+            toast.success(`Day ${dayNum} completed! Now designing Day ${dayNum + 1}.`);
+        } else {
+            toast.success('All itinerary days completed!');
+            if (onOpenPricing) {
+                onOpenPricing();
+            }
+        }
+    };
+
     const handleAutoGenerate = async (opts: {
         tripStyle: string;
         pace: 'Relaxed' | 'Balanced' | 'Explorer';
@@ -884,17 +960,56 @@ export const StepDayPlanner: React.FC<Props> = ({ onOpenPricing, onOpenTripDetai
     };
 
     return (
-        <div className="h-full flex flex-col bg-[#F5F0E8]">
+        <div className="h-full flex flex-col bg-[#F5F0E8] relative">
             {/* Sub-header toolbar */}
-            <div className="shrink-0 flex items-center justify-between px-6 py-2.5 bg-white/70 border-b border-stone-200 backdrop-blur-sm">
-                <div className="flex items-center gap-2">
+            <div className="shrink-0 flex flex-wrap items-center justify-between px-6 py-2.5 bg-white/80 border-b border-stone-200 backdrop-blur-sm gap-3">
+                <div className="flex items-center gap-3">
                     <p className="text-xs font-bold text-stone-500 uppercase tracking-wider">
-                        {tripDetails.nights}N / {tripDetails.days}D &nbsp;·&nbsp;
+                        {tripDetails.nights === 0 ? '1 Day Excursion (0N/1D)' : `${tripDetails.nights}N / ${tripDetails.days}D`} &nbsp;·&nbsp;
                         {totalTravelers} Guests &nbsp;·&nbsp;
                         <span className="text-amber-700 font-extrabold">{destinationName}</span>
                     </p>
                 </div>
-                <div className="flex items-center gap-2">
+
+                <div className="flex items-center gap-2.5">
+                    {/* Primary Workflow CTA: Open Day-wise Popup */}
+                    <button
+                        type="button"
+                        onClick={() => setEditingModalDay(activeDay || 1)}
+                        className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-xs shadow-md shadow-amber-600/20 active:scale-95 transition-all"
+                    >
+                        <Sparkles size={13} />
+                        <span>{plannedDaysCount > 0 ? `Resume Day-by-Day (Day ${activeDay})` : 'Start Day-by-Day Setup'}</span>
+                    </button>
+
+                    {/* View Switcher: Day Cards Grid vs Full Horizontal Board */}
+                    <div className="flex items-center bg-stone-100 p-1 rounded-xl border border-stone-200/80 shadow-xs">
+                        <button
+                            type="button"
+                            onClick={() => setViewMode('grid')}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                                viewMode === 'grid'
+                                    ? 'bg-white text-stone-900 shadow-xs border border-stone-200/50 font-black'
+                                    : 'text-stone-500 hover:text-stone-900'
+                            }`}
+                        >
+                            <Layers size={13} className={viewMode === 'grid' ? 'text-amber-600' : ''} />
+                            <span>Day Cards Grid</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setViewMode('board')}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                                viewMode === 'board'
+                                    ? 'bg-white text-stone-900 shadow-xs border border-stone-200/50 font-black'
+                                    : 'text-stone-500 hover:text-stone-900'
+                            }`}
+                        >
+                            <LayoutGrid size={13} className={viewMode === 'board' ? 'text-amber-600' : ''} />
+                            <span>Full Board</span>
+                        </button>
+                    </div>
+
                     {/* AI Generate */}
                     <button
                         onClick={() => setShowAiCustomizer(true)}
@@ -907,7 +1022,7 @@ export const StepDayPlanner: React.FC<Props> = ({ onOpenPricing, onOpenTripDetai
                     {onOpenPricing && (
                         <button
                             onClick={onOpenPricing}
-                            className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl bg-stone-900 hover:bg-stone-700 text-white shadow transition-all active:scale-95"
+                            className="flex items-center gap-1.5 text-xs font-bold px-3.5 py-2 rounded-xl bg-stone-900 hover:bg-stone-700 text-white shadow transition-all active:scale-95"
                         >
                             <IndianRupee size={13} />
                             Set Pricing
@@ -916,65 +1031,324 @@ export const StepDayPlanner: React.FC<Props> = ({ onOpenPricing, onOpenTripDetai
                 </div>
             </div>
 
+            {/* Top Day Progression Stepper Bar */}
+            <div className="shrink-0 bg-white border-b border-stone-200/90 px-6 py-2.5 shadow-2xs">
+                <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-black uppercase tracking-wider text-stone-700">
+                            Day-by-Day Progression
+                        </span>
+                        <span className="text-[11px] font-bold text-stone-400">
+                            · {plannedDaysCount} of {days.length} Days Planned ({completionPercentage}%)
+                        </span>
+                    </div>
+                    <div className="w-32 sm:w-48 h-2 bg-stone-100 rounded-full overflow-hidden border border-stone-200">
+                        <div
+                            className="h-full bg-gradient-to-r from-amber-500 to-emerald-500 rounded-full transition-all duration-500"
+                            style={{ width: `${completionPercentage}%` }}
+                        />
+                    </div>
+                </div>
 
-            {/* Horizontal Kanban Board */}
-            <div className="flex-1 overflow-x-auto overflow-y-hidden">
-                <div className="flex h-full gap-4 p-6 w-max min-w-full">
-                    {days.map((day) => {
-                        // Compute location for this day
-                        const scheduledItem = dayLocationMap.find(d => d.day === day);
-                        const scheduledCityName = scheduledItem?.city || destinationName;
-
-                        let locationId = tripDetails.destination;
-                        if (tripDetails.destinations && tripDetails.destinations.length > 0) {
-                            let currentDay = 1;
-                            for (const dest of tripDetails.destinations) {
-                                if (day >= currentDay && day <= currentDay + dest.nights - 1) {
-                                    locationId = dest.locationId;
-                                    break;
-                                }
-                                currentDay += dest.nights;
-                            }
-                            if (day >= currentDay && tripDetails.destinations.length > 0) {
-                                locationId = tripDetails.destinations[tripDetails.destinations.length - 1].locationId;
-                            }
-                        }
+                {/* Scrollable Day Chips: Click opens Day-wise Popup */}
+                <div className="flex items-center gap-2 overflow-x-auto pb-1 pt-0.5 no-scrollbar">
+                    {days.map(d => {
+                        const loc = getDayLocation(d);
+                        const dItems = getItemsForDay(d);
+                        const isDone = dItems.length > 0 || completedDays.includes(d);
+                        const isActive = d === activeDay;
 
                         return (
-                            <DayColumn
-                                key={day}
-                                day={day}
-                                theme={DAY_THEMES[(day - 1) % DAY_THEMES.length]}
-                                locationId={locationId}
-                                cityName={scheduledCityName}
-                                items={getItemsForDay(day)}
-                                meta={getDayMeta(day) || {}}
-                                allDays={days}
-                                onAdd={() => setAddingToDay(day)}
-                                onRemove={removeItem}
-                                onUpdate={updateItem}
-                                onUpdateMeta={meta => updateDayMeta(day, meta)}
-                                onClearDay={() => getItemsForDay(day).forEach(i => removeItem(i.id))}
-                                onDuplicateTo={(targetDay) => duplicateDay(day, targetDay)}
-                            />
+                            <button
+                                key={d}
+                                type="button"
+                                onClick={() => {
+                                    setActiveDay(d);
+                                    setEditingModalDay(d);
+                                }}
+                                title={`Click to open Day ${d} in focused popup`}
+                                className={`shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all ${
+                                    isActive
+                                        ? 'bg-amber-50 border-amber-400 text-amber-900 shadow-xs ring-2 ring-amber-400/25'
+                                        : isDone
+                                        ? 'bg-emerald-50/70 border-emerald-200 text-emerald-800 hover:bg-emerald-100/60'
+                                        : 'bg-stone-50 border-stone-200 text-stone-500 hover:bg-stone-100 hover:text-stone-800'
+                                }`}
+                            >
+                                <span className={`size-5 rounded-full flex items-center justify-center text-[10px] font-black ${
+                                    isActive
+                                        ? 'bg-amber-600 text-white'
+                                        : isDone
+                                        ? 'bg-emerald-600 text-white'
+                                        : 'bg-stone-200 text-stone-600'
+                                }`}>
+                                    {isDone ? '✓' : d}
+                                </span>
+                                <div className="text-left leading-tight">
+                                    <p className="font-extrabold text-[11px]">
+                                        Day {d}
+                                    </p>
+                                    <p className="text-[9px] font-semibold opacity-75 truncate max-w-[80px]">
+                                        {loc.cityName}
+                                    </p>
+                                </div>
+                                {dItems.length > 0 && (
+                                    <span className="text-[9px] font-black px-1.5 py-0.2 rounded bg-white/80 border border-stone-200/50 text-stone-600">
+                                        {dItems.length}
+                                    </span>
+                                )}
+                            </button>
                         );
                     })}
 
-                    {/* Ghost "Add Day" column — clickable to go to Trip Details */}
-                    <div
-                        className="w-64 shrink-0 rounded-2xl border-2 border-dashed border-stone-300 flex flex-col items-center justify-center gap-2 text-stone-400 hover:border-amber-400 hover:text-amber-500 transition-colors cursor-pointer"
+                    {/* Shortcut to add more days */}
+                    <button
+                        type="button"
                         onClick={onOpenTripDetails}
-                        title="Click to add more days in Trip Details"
+                        title="Add more days in Trip Details"
+                        className="shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-xl border border-dashed border-stone-300 text-stone-400 hover:text-amber-600 hover:border-amber-300 text-[11px] font-bold transition-colors"
                     >
-                        <Plus size={20} className="opacity-50" />
-                        <p className="text-xs font-bold uppercase tracking-widest text-center px-4">Add more days<br/>in Trip Details</p>
-                    </div>
+                        <Plus size={12} />
+                        <span>Add Day</span>
+                    </button>
                 </div>
             </div>
 
+            {/* Main Content Area */}
+            {viewMode === 'grid' ? (
+                // 📋 Clean, Spacious Day Cards Grid
+                <div className="flex-1 overflow-y-auto p-6 bg-[#F5F0E8]">
+                    <div className="max-w-7xl mx-auto">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+                            {days.map(day => {
+                                const loc = getDayLocation(day);
+                                const items = getItemsForDay(day);
+                                const meta = getDayMeta(day) || {};
+                                const hasItems = items.length > 0;
+                                const dayTotal = items.reduce((sum, i) => sum + (Number(i.netCost) || 0), 0);
+                                const theme = meta.theme || DAY_THEMES[(day - 1) % DAY_THEMES.length];
+
+                                return (
+                                    <div
+                                        key={day}
+                                        className="bg-white rounded-2xl border border-stone-200/90 shadow-sm hover:shadow-md transition-all flex flex-col overflow-hidden group"
+                                    >
+                                        {/* Card Header Banner */}
+                                        <div className="p-4 border-b border-stone-100 bg-gradient-to-r from-stone-50 to-white flex items-start justify-between gap-2">
+                                            <div>
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-amber-100 text-amber-900">
+                                                        Day {day}
+                                                    </span>
+                                                    <span className="text-[11px] font-bold text-stone-500 flex items-center gap-1">
+                                                        <MapPin size={10} className="text-amber-600" />
+                                                        {loc.cityName}
+                                                    </span>
+                                                </div>
+                                                <h4 className="font-extrabold text-sm text-stone-900 line-clamp-1" title={theme}>
+                                                    {theme}
+                                                </h4>
+                                            </div>
+                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
+                                                hasItems
+                                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                                    : 'bg-stone-100 text-stone-500 border border-stone-200'
+                                            }`}>
+                                                {hasItems ? `✓ ${items.length} Items` : 'Pending'}
+                                            </span>
+                                        </div>
+
+                                        {/* Card Body - Service items preview */}
+                                        <div className="p-4 flex-1 space-y-2">
+                                            {hasItems ? (
+                                                <div className="space-y-1.5">
+                                                    {items.slice(0, 3).map(item => {
+                                                        const style = SERVICE_STYLE[item.type] ?? SERVICE_STYLE.other;
+                                                        const Icon = style.Icon;
+                                                        return (
+                                                            <div key={item.id} className="flex items-center justify-between text-xs py-1.5 px-2.5 rounded-lg bg-stone-50 border border-stone-100/80">
+                                                                <div className="flex items-center gap-2 truncate pr-2">
+                                                                    <Icon size={12} className={style.badgeText} />
+                                                                    <span className="truncate font-semibold text-stone-700 text-[11px]">{item.title}</span>
+                                                                </div>
+                                                                {Number(item.netCost) > 0 && (
+                                                                    <span className="text-[10px] font-bold text-stone-500 shrink-0">
+                                                                        ₹{Number(item.netCost).toLocaleString('en-IN')}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })}
+                                                    {items.length > 3 && (
+                                                        <p className="text-[10px] font-bold text-stone-400 pl-1">
+                                                            + {items.length - 3} more {items.length - 3 === 1 ? 'service' : 'services'}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            ) : (
+                                                <div className="h-28 rounded-xl border border-dashed border-stone-200 flex flex-col items-center justify-center p-3 text-center text-stone-400 bg-stone-50/50">
+                                                    <Plus size={18} className="opacity-40 mb-1" />
+                                                    <p className="text-[11px] font-medium">No services scheduled yet</p>
+                                                    <p className="text-[9px] text-stone-400 mt-0.5">Click below to open Day {day} editor</p>
+                                                </div>
+                                            )}
+
+                                            {/* Cost footer */}
+                                            {dayTotal > 0 && (
+                                                <div className="pt-2 flex items-center justify-between text-xs border-t border-stone-100">
+                                                    <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">Day Net Total</span>
+                                                    <span className="font-black text-stone-900 flex items-center gap-0.5">
+                                                        <IndianRupee size={11} />
+                                                        {dayTotal.toLocaleString('en-IN')}
+                                                    </span>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* Card Action Button: Opens Day-wise Popup Screen */}
+                                        <div className="p-3 pt-0">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setActiveDay(day);
+                                                    setEditingModalDay(day);
+                                                }}
+                                                className={`w-full py-2.5 px-4 rounded-xl text-xs font-black flex items-center justify-center gap-2 transition-all active:scale-95 shadow-xs ${
+                                                    hasItems
+                                                        ? 'bg-stone-900 hover:bg-stone-800 text-white'
+                                                        : 'bg-amber-600 hover:bg-amber-700 text-white shadow-amber-600/20'
+                                                }`}
+                                            >
+                                                <ListOrdered size={14} />
+                                                <span>{hasItems ? `Edit Day ${day} Itinerary` : `+ Plan Day ${day} Itinerary`}</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+
+                            {/* Ghost Add Day Card */}
+                            <div
+                                onClick={onOpenTripDetails}
+                                className="rounded-2xl border-2 border-dashed border-stone-300 hover:border-amber-400 bg-stone-50/50 hover:bg-amber-50/30 flex flex-col items-center justify-center p-6 text-center cursor-pointer transition-colors group min-h-[220px]"
+                            >
+                                <div className="size-12 rounded-full bg-stone-100 group-hover:bg-amber-100 text-stone-400 group-hover:text-amber-600 flex items-center justify-center mb-3 transition-colors">
+                                    <Plus size={20} />
+                                </div>
+                                <h5 className="text-xs font-black uppercase tracking-wider text-stone-600 group-hover:text-amber-700">Add More Days</h5>
+                                <p className="text-[11px] text-stone-400 mt-1 max-w-[160px]">Configure trip length & nights in Trip Details</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            ) : (
+                // 📊 Horizontal Kanban Board View
+                <div className="flex-1 overflow-x-auto overflow-y-hidden">
+                    <div className="flex h-full gap-4 p-6 w-max min-w-full">
+                        {days.map((day) => {
+                            const { locationId, cityName } = getDayLocation(day);
+                            return (
+                                <DayColumn
+                                    key={day}
+                                    day={day}
+                                    theme={DAY_THEMES[(day - 1) % DAY_THEMES.length]}
+                                    locationId={locationId}
+                                    cityName={cityName}
+                                    items={getItemsForDay(day)}
+                                    meta={getDayMeta(day) || {}}
+                                    allDays={days}
+                                    onAdd={() => openServiceSelector(day)}
+                                    onRemove={removeItem}
+                                    onUpdate={updateItem}
+                                    onUpdateMeta={meta => updateDayMeta(day, meta)}
+                                    onClearDay={() => getItemsForDay(day).forEach(i => removeItem(i.id))}
+                                    onDuplicateTo={(targetDay) => duplicateDay(day, targetDay)}
+                                    onFocusDay={() => {
+                                        setActiveDay(day);
+                                        setEditingModalDay(day);
+                                    }}
+                                />
+                            );
+                        })}
+
+                        {/* Ghost "Add Day" column */}
+                        <div
+                            className="w-64 shrink-0 rounded-2xl border-2 border-dashed border-stone-300 flex flex-col items-center justify-center gap-2 text-stone-400 hover:border-amber-400 hover:text-amber-500 transition-colors cursor-pointer"
+                            onClick={onOpenTripDetails}
+                            title="Click to add more days in Trip Details"
+                        >
+                            <Plus size={20} className="opacity-50" />
+                            <p className="text-xs font-bold uppercase tracking-widest text-center px-4">Add more days<br/>in Trip Details</p>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Focused Day-wise Popup Screen (Modal) ───────────────────────── */}
+            {editingModalDay !== null && (() => {
+                const modalLoc = getDayLocation(editingModalDay);
+                const prevModalLoc = editingModalDay > 1 ? getDayLocation(editingModalDay - 1) : undefined;
+                return (
+                    <DayEditorModal
+                        key={editingModalDay}
+                        day={editingModalDay}
+                        totalDays={tripDetails.days}
+                        theme={DAY_THEMES[(editingModalDay - 1) % DAY_THEMES.length]}
+                        locationId={modalLoc.locationId}
+                        cityName={modalLoc.cityName}
+                        scheduledItem={modalLoc.scheduledItem}
+                        prevScheduledCity={prevModalLoc?.cityName}
+                        items={getItemsForDay(editingModalDay)}
+                        meta={getDayMeta(editingModalDay) || {}}
+                        allDays={days}
+                        onClose={() => setEditingModalDay(null)}
+                        onOpenService={(sType) => openServiceSelector(editingModalDay, sType)}
+                        onRemove={removeItem}
+                        onUpdate={updateItem}
+                        onUpdateMeta={meta => updateDayMeta(editingModalDay, meta)}
+                        onClearDay={() => getItemsForDay(editingModalDay).forEach(i => removeItem(i.id))}
+                        onDuplicateTo={(targetDay) => duplicateDay(editingModalDay, targetDay)}
+                        onPrevDay={() => {
+                            const prev = Math.max(1, editingModalDay - 1);
+                            setActiveDay(prev);
+                            setEditingModalDay(prev);
+                        }}
+                        onNextDay={() => {
+                            if (!completedDays.includes(editingModalDay)) {
+                                setCompletedDays(prev => [...prev, editingModalDay]);
+                            }
+                            if (editingModalDay < tripDetails.days) {
+                                const next = editingModalDay + 1;
+                                setActiveDay(next);
+                                setEditingModalDay(next);
+                                toast.success(`Day ${editingModalDay} saved! Now editing Day ${next}.`);
+                            } else {
+                                setEditingModalDay(null);
+                                toast.success('All days completed!');
+                                if (onOpenPricing) onOpenPricing();
+                            }
+                        }}
+                        onFinish={() => {
+                            if (!completedDays.includes(editingModalDay)) {
+                                setCompletedDays(prev => [...prev, editingModalDay]);
+                            }
+                            setEditingModalDay(null);
+                            if (onOpenPricing) onOpenPricing();
+                        }}
+                    />
+                );
+            })()}
+
             {/* Service Selector Modal */}
             {addingToDay !== null && (
-                <ServiceSelector day={addingToDay} onClose={() => setAddingToDay(null)} />
+                <ServiceSelector
+                    day={addingToDay}
+                    initialTab={addingServiceType}
+                    onClose={() => {
+                        setAddingToDay(null);
+                        setAddingServiceType(undefined);
+                    }}
+                />
             )}
 
             {/* AI Trip Customizer Modal */}
@@ -1002,6 +1376,529 @@ export const StepDayPlanner: React.FC<Props> = ({ onOpenPricing, onOpenTripDetai
     );
 };
 
+// ─── Day-wise Popup Screen (DayEditorModal) ──────────────────────────────────
+const DayEditorModal: React.FC<{
+    day: number;
+    totalDays: number;
+    theme: string;
+    locationId: string;
+    cityName: string;
+    scheduledItem?: DayLocationMapItem;
+    prevScheduledCity?: string;
+    items: ItineraryItem[];
+    meta: any;
+    allDays: number[];
+    onClose: () => void;
+    onOpenService: (sType: ServiceType) => void;
+    onRemove: (id: string) => void;
+    onUpdate: (id: string, u: any) => void;
+    onUpdateMeta: (m: any) => void;
+    onClearDay: () => void;
+    onDuplicateTo: (targetDay: number) => void;
+    onPrevDay: () => void;
+    onNextDay: () => void;
+    onFinish: () => void;
+}> = ({
+    day,
+    totalDays,
+    theme,
+    locationId,
+    cityName,
+    scheduledItem,
+    prevScheduledCity,
+    items,
+    meta,
+    allDays,
+    onClose,
+    onOpenService,
+    onRemove,
+    onUpdate,
+    onUpdateMeta,
+    onClearDay,
+    onDuplicateTo,
+    onPrevDay,
+    onNextDay,
+    onFinish
+}) => {
+    const { addItem, tripDetails } = useItinerary();
+    const { masterLocations } = useData();
+    const [showMenu, setShowMenu] = useState(false);
+    const [showNotesDrawer, setShowNotesDrawer] = useState(Boolean(meta.notes));
+    const [showRegenModal, setShowRegenModal] = useState(false);
+    const [isRegeneratingDay, setIsRegeneratingDay] = useState(false);
+    const [isPolishingDay, setIsPolishingDay] = useState(false);
+
+    // UX Analytics
+    const hasHotel = items.some(i => i.type === 'hotel');
+    const dayTotal = items.reduce((sum, item) => sum + (Number(item.netCost) || 0), 0);
+    const hasItems = items.length > 0;
+
+    const isTransit = Boolean(scheduledItem?.isTransitDay || (prevScheduledCity && prevScheduledCity !== cityName && day > 1));
+    const hasTransitService = items.some(i => i.type === 'transport' || i.type === 'flight');
+
+    const handleRegenerateDay = async (instruction: string) => {
+        setIsRegeneratingDay(true);
+        const toastId = toast.loading(`Re-planning Day ${day} in ${cityName || 'Destination'} with AI...`);
+        try {
+            const locName = masterLocations?.find(l => String(l.id) === String(locationId))?.name || cityName || 'Destination';
+            const res = await regenerateSingleDay({
+                dayNumber: day,
+                destination: locName,
+                city: cityName || locName,
+                currentItems: items,
+                promptInstruction: instruction
+            });
+
+            if (res) {
+                if (res.title || res.notes) {
+                    onUpdateMeta({
+                        ...meta,
+                        theme: res.title || meta.theme,
+                        notes: res.notes || meta.notes
+                    });
+                }
+                if (res.items && Array.isArray(res.items)) {
+                    onClearDay();
+                    res.items.forEach((act: any) => {
+                        const sType: ServiceType = ['hotel', 'activity', 'transport', 'flight', 'guide', 'note', 'visa'].includes(act.type)
+                            ? act.type
+                            : 'activity';
+                        addItem({
+                            id: `AI-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+                            type: sType,
+                            day: day,
+                            title: act.title || act.description?.split(':')[0] || 'Service Item',
+                            description: act.description || '',
+                            netCost: Number(act.cost) || 0,
+                            baseMarkupPercent: 15,
+                            extraMarkupFlat: 0,
+                            quantity: 1,
+                            time: act.time || '10:00 AM',
+                            duration: act.duration || '2 Hours'
+                        });
+                    });
+                    toast.success(`Day ${day} re-planned successfully!`, { id: toastId });
+                    setShowRegenModal(false);
+                }
+            }
+        } catch (e: any) {
+            toast.error(e.message || 'Failed to regenerate day', { id: toastId });
+        } finally {
+            setIsRegeneratingDay(false);
+        }
+    };
+
+    const handlePolishDayDescriptions = async () => {
+        if (items.length === 0) {
+            toast.error('No items to polish on this day');
+            return;
+        }
+        setIsPolishingDay(true);
+        setShowMenu(false);
+        const toastId = toast.loading(`Polishing Day ${day} descriptions with AI...`);
+        try {
+            const locName = masterLocations?.find(l => l.id === locationId)?.name || cityName || 'Destination';
+            for (const item of items) {
+                try {
+                    const polished = await polishItineraryCopy(item.title, item.description || '', item.type, locName);
+                    if (polished && polished.title && polished.description) {
+                        onUpdate(item.id, {
+                            title: polished.title,
+                            description: polished.description
+                        });
+                    }
+                } catch {}
+            }
+            toast.success(`Day ${day} descriptions elevated to luxury brochure copy!`, { id: toastId });
+        } catch (e: any) {
+            toast.error('Failed to polish all items', { id: toastId });
+        } finally {
+            setIsPolishingDay(false);
+        }
+    };
+
+    const handleAddHiddenGem = async () => {
+        setShowMenu(false);
+        const toastId = toast.loading(`Discovering a local secret gem for Day ${day}...`);
+        try {
+            const locName = masterLocations?.find(l => l.id === locationId)?.name || cityName || 'Destination';
+            const res = await regenerateSingleDay({
+                dayNumber: day,
+                destination: locName,
+                currentItems: items,
+                promptInstruction: 'Suggest 1 authentic, unique local secret spot or experiential hidden gem not found in standard tourist guides.'
+            });
+
+            if (res && res.items && res.items.length > 0) {
+                const gem = res.items[0];
+                addItem({
+                    id: `AI-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+                    type: (gem.type as any) || 'activity',
+                    day: day,
+                    title: `✨ ${gem.title || 'Local Hidden Gem'}`,
+                    description: gem.description || '',
+                    netCost: Number(gem.cost) || 0,
+                    baseMarkupPercent: 15,
+                    extraMarkupFlat: 0,
+                    quantity: 1,
+                    time: gem.time || '04:00 PM',
+                    duration: gem.duration || '1.5 Hours'
+                });
+                toast.success('Hidden gem added to Day ' + day + '!', { id: toastId });
+            }
+        } catch (e: any) {
+            toast.error('Could not fetch hidden gem', { id: toastId });
+        }
+    };
+
+    return createPortal(
+        <div className="fixed inset-0 z-[9990] bg-stone-950/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200">
+            <div className="bg-[#FAF7F2] rounded-2xl shadow-2xl border border-stone-200/90 w-full max-w-3xl max-h-[82vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+                {/* 1. Modal Top Bar */}
+                <div className="p-4 sm:p-5 border-b border-stone-200 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
+                    <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black tracking-widest bg-amber-100 text-amber-900 uppercase">
+                                Day {day} of {totalDays}
+                            </span>
+                            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-stone-100 text-stone-700 flex items-center gap-1 border border-stone-200">
+                                <MapPin size={11} className="text-amber-600" />
+                                {cityName}
+                                {scheduledItem?.nightsInCity ? ` · ${scheduledItem.nightsInCity} Nights Stay` : (tripDetails.nights === 0 ? ' · Day Excursion' : '')}
+                            </span>
+                            {hasItems && (
+                                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 flex items-center gap-1 border border-emerald-200">
+                                    <CheckCircle2 size={11} /> {items.length} {items.length === 1 ? 'Service' : 'Services'}
+                                </span>
+                            )}
+                            {dayTotal > 0 && (
+                                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-stone-900 text-white flex items-center gap-0.5">
+                                    <IndianRupee size={10} />
+                                    {dayTotal.toLocaleString('en-IN')} Net
+                                </span>
+                            )}
+                        </div>
+
+                        {/* Editable Day Title */}
+                        <input
+                            type="text"
+                            value={meta.theme ?? theme}
+                            onChange={e => onUpdateMeta({ ...meta, theme: e.target.value })}
+                            placeholder={theme}
+                            className="text-lg sm:text-xl font-black text-stone-900 bg-transparent border-b border-transparent hover:border-stone-300 focus:border-amber-500 outline-none w-full py-0.5 transition-all placeholder:text-stone-300"
+                            title="Click to rename Day"
+                        />
+                    </div>
+
+                    {/* Quick AI & Close Controls */}
+                    <div className="flex items-center gap-2 shrink-0 self-start sm:self-center">
+                        <button
+                            type="button"
+                            onClick={() => setShowRegenModal(true)}
+                            className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200 transition-all active:scale-95"
+                            title="Re-plan Day with AI"
+                        >
+                            <Wand2 size={13} />
+                            <span className="hidden sm:inline">AI Re-Plan</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handlePolishDayDescriptions}
+                            disabled={isPolishingDay || items.length === 0}
+                            className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200 disabled:opacity-40 transition-all active:scale-95"
+                            title="Polish Descriptions with AI"
+                        >
+                            <Sparkles size={13} />
+                            <span className="hidden sm:inline">Polish</span>
+                        </button>
+
+                        {/* Extra Menu */}
+                        <div className="relative">
+                            <button
+                                type="button"
+                                onClick={() => setShowMenu(v => !v)}
+                                className="size-8 rounded-xl hover:bg-stone-100 border border-stone-200 flex items-center justify-center text-stone-500 transition-colors"
+                            >
+                                <MoreHorizontal size={15} />
+                            </button>
+                            {showMenu && (
+                                <div className="absolute right-0 top-10 bg-white shadow-xl rounded-xl border border-stone-200 py-1.5 z-30 w-52 text-xs font-bold text-stone-600">
+                                    <button
+                                        type="button"
+                                        onClick={handleAddHiddenGem}
+                                        className="w-full px-4 py-2 text-left hover:bg-violet-50 text-violet-700 flex items-center gap-2"
+                                    >
+                                        <Compass size={13} /> Add Hidden Gem
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => { setShowNotesDrawer(v => !v); setShowMenu(false); }}
+                                        className="w-full px-4 py-2 text-left hover:bg-stone-50 flex items-center gap-2"
+                                    >
+                                        <StickyNote size={13} /> {showNotesDrawer ? 'Hide Day Notes' : 'Edit Day Notes'}
+                                    </button>
+                                    {allDays.filter(d => d !== day).length > 0 && (
+                                        <div className="border-t border-stone-100 mt-1 pt-1">
+                                            <p className="px-4 py-1 text-[9px] uppercase tracking-widest text-stone-400">Duplicate to Day…</p>
+                                            {allDays.filter(d => d !== day).map(targetDay => (
+                                                <button
+                                                    key={targetDay}
+                                                    type="button"
+                                                    onClick={() => { onDuplicateTo(targetDay); setShowMenu(false); }}
+                                                    className="w-full px-4 py-1.5 text-left hover:bg-indigo-50 text-indigo-600 flex items-center gap-2 text-xs"
+                                                >
+                                                    <RefreshCw size={11} /> Day {targetDay}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                    {items.length > 0 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                if (window.confirm(`Clear all ${items.length} items from Day ${day}?`)) onClearDay();
+                                                setShowMenu(false);
+                                            }}
+                                            className="w-full px-4 py-2 text-left hover:bg-rose-50 text-rose-600 flex items-center gap-2 border-t border-stone-100 mt-1"
+                                        >
+                                            <Trash2 size={13} /> Clear Day
+                                        </button>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Close Modal Button */}
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="size-8 rounded-full bg-stone-100 hover:bg-stone-200 text-stone-600 flex items-center justify-center transition-colors ml-1"
+                            title="Close Popup (Esc)"
+                        >
+                            <X size={17} />
+                        </button>
+                    </div>
+                </div>
+
+                {/* 2. Hero Quick-Add Category Toolbar (1-Click Direct Actions) */}
+                <div className="p-3.5 bg-amber-500/10 border-b border-amber-500/20 shrink-0">
+                    <p className="text-[10px] font-black uppercase tracking-wider text-amber-900 mb-2 flex items-center gap-1">
+                        <Plus size={12} strokeWidth={3} /> Quick-Add Services to Day {day}
+                    </p>
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                        <button
+                            type="button"
+                            onClick={() => onOpenService('hotel')}
+                            className="flex items-center justify-center gap-1.5 py-2 px-3 bg-white hover:bg-rose-50 border border-stone-200 hover:border-rose-300 text-stone-700 hover:text-rose-600 rounded-xl text-xs font-black shadow-2xs transition-all active:scale-95"
+                        >
+                            <Hotel size={13} className="text-rose-500" />
+                            <span>+ Hotel Stay</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => onOpenService('transport')}
+                            className="flex items-center justify-center gap-1.5 py-2 px-3 bg-white hover:bg-emerald-50 border border-stone-200 hover:border-emerald-300 text-stone-700 hover:text-emerald-600 rounded-xl text-xs font-black shadow-2xs transition-all active:scale-95"
+                        >
+                            <Car size={13} className="text-emerald-500" />
+                            <span>+ Cab / Transfer</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => onOpenService('activity')}
+                            className="flex items-center justify-center gap-1.5 py-2 px-3 bg-white hover:bg-orange-50 border border-stone-200 hover:border-orange-300 text-stone-700 hover:text-orange-600 rounded-xl text-xs font-black shadow-2xs transition-all active:scale-95"
+                        >
+                            <Bike size={13} className="text-orange-500" />
+                            <span>+ Sightseeing</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => onOpenService('flight')}
+                            className="flex items-center justify-center gap-1.5 py-2 px-3 bg-white hover:bg-blue-50 border border-stone-200 hover:border-blue-300 text-stone-700 hover:text-blue-600 rounded-xl text-xs font-black shadow-2xs transition-all active:scale-95"
+                        >
+                            <Plane size={13} className="text-blue-500" />
+                            <span>+ Flight</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => onOpenService('note')}
+                            className="flex items-center justify-center gap-1.5 py-2 px-3 bg-white hover:bg-yellow-50 border border-stone-200 hover:border-yellow-300 text-stone-700 hover:text-yellow-700 rounded-xl text-xs font-black shadow-2xs transition-all active:scale-95 col-span-2 sm:col-span-1"
+                        >
+                            <StickyNote size={13} className="text-yellow-500" />
+                            <span>+ Note / Tip</span>
+                        </button>
+                    </div>
+                </div>
+
+                {/* 3. Scrollable Timeline & Content */}
+                <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+                    {/* Continuity guidance banner */}
+                    {day === 1 && (
+                        <div className="p-3 rounded-xl bg-amber-50/90 border border-amber-200/80 flex items-center gap-2.5 text-xs text-amber-900">
+                            <Plane size={15} className="text-amber-700 shrink-0" />
+                            <p className="font-medium">
+                                <strong className="font-bold">Arrival Day:</strong> Remember to add airport/station pickup, check-in, and relaxed evening sightseeing.
+                            </p>
+                        </div>
+                    )}
+                    {isTransit && (
+                        <div className={`p-3 rounded-xl border flex items-center justify-between gap-2.5 text-xs ${
+                            hasTransitService ? 'bg-blue-50 border-blue-200 text-blue-900' : 'bg-amber-50 border-amber-300 text-amber-900'
+                        }`}>
+                            <div className="flex items-center gap-2">
+                                <Car size={15} className={hasTransitService ? 'text-blue-600' : 'text-amber-700'} />
+                                <span className="font-semibold">
+                                    Intercity Transit: {prevScheduledCity || 'Previous City'} → {cityName}
+                                </span>
+                            </div>
+                            {!hasTransitService && (
+                                <button
+                                    type="button"
+                                    onClick={() => onOpenService('transport')}
+                                    className="px-2 py-0.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px]"
+                                >
+                                    + Add Intercity Cab
+                                </button>
+                            )}
+                        </div>
+                    )}
+                    {!hasHotel && day < totalDays && (
+                        <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 flex items-center justify-between gap-2.5 text-xs text-rose-900">
+                            <div className="flex items-center gap-2">
+                                <Hotel size={15} className="text-rose-600 shrink-0" />
+                                <span className="font-semibold">No hotel assigned for overnight stay in {cityName}.</span>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => onOpenService('hotel')}
+                                className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-[11px]"
+                            >
+                                + Add Hotel
+                            </button>
+                        </div>
+                    )}
+
+                    {/* Timeline Schedule */}
+                    <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                            <h4 className="text-xs font-black uppercase tracking-wider text-stone-700 flex items-center gap-2">
+                                <Calendar size={14} className="text-amber-600" />
+                                Day {day} Schedule ({items.length} {items.length === 1 ? 'Service' : 'Services'})
+                            </h4>
+                            <button
+                                type="button"
+                                onClick={() => setShowNotesDrawer(v => !v)}
+                                className="text-[11px] font-bold text-stone-500 hover:text-stone-800 flex items-center gap-1 transition-colors"
+                            >
+                                <StickyNote size={12} />
+                                <span>{showNotesDrawer ? 'Hide Notes' : 'Add Logistics Notes'}</span>
+                            </button>
+                        </div>
+
+                        {/* Collapsible Day Notes */}
+                        {showNotesDrawer && (
+                            <div className="p-3 rounded-xl bg-stone-100/70 border border-stone-200 animate-in fade-in duration-150">
+                                <label className="text-[10px] font-bold uppercase tracking-wider text-stone-500 block mb-1">
+                                    Day Logistics & Driver Guidance (Optional)
+                                </label>
+                                <textarea
+                                    value={meta.notes || ''}
+                                    onChange={e => onUpdateMeta({ ...meta, notes: e.target.value })}
+                                    placeholder="Add baggage notes, driver contact tips, dress codes, or meeting points…"
+                                    rows={2}
+                                    className="w-full text-xs text-stone-700 bg-white border border-stone-200 rounded-lg p-2 outline-none focus:ring-1 focus:ring-amber-400 placeholder:text-stone-300 resize-none"
+                                />
+                            </div>
+                        )}
+
+                        {/* If Empty */}
+                        {!hasItems ? (
+                            <div className="bg-white rounded-2xl border-2 border-dashed border-stone-300 p-8 text-center space-y-3 shadow-2xs">
+                                <div className="size-12 rounded-xl bg-amber-50 text-amber-600 mx-auto flex items-center justify-center border border-amber-200">
+                                    <Plus size={20} />
+                                </div>
+                                <div>
+                                    <h5 className="font-bold text-stone-800 text-sm">Day {day} is ready to be built</h5>
+                                    <p className="text-xs text-stone-400 max-w-sm mx-auto mt-1">
+                                        Click any button above (+ Hotel, + Cab, + Sightseeing) to start crafting this day in {cityName}.
+                                    </p>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="space-y-3">
+                                {items
+                                    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+                                    .map((item, idx) => (
+                                        <ActivityCard
+                                            key={item.id}
+                                            item={item}
+                                            index={idx}
+                                            isFirst={idx === 0}
+                                            isLast={idx === items.length - 1}
+                                            onRemove={() => onRemove(item.id)}
+                                            onUpdate={onUpdate}
+                                        />
+                                    ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* 4. Modal Bottom Step Progression Bar */}
+                <div className="p-4 border-t border-stone-200 bg-white flex items-center justify-between gap-3 shrink-0">
+                    <button
+                        type="button"
+                        onClick={onPrevDay}
+                        disabled={day <= 1}
+                        className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-stone-200 text-stone-700 hover:bg-stone-50 disabled:opacity-30 disabled:pointer-events-none text-xs font-bold transition-all"
+                    >
+                        <ArrowLeft size={14} />
+                        <span>Previous Day</span>
+                    </button>
+
+                    <span className="text-xs font-bold text-stone-400">
+                        Day {day} of {totalDays}
+                    </span>
+
+                    <div className="flex items-center gap-2">
+                        {day < totalDays ? (
+                            <button
+                                type="button"
+                                onClick={onNextDay}
+                                className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-xs shadow-md shadow-amber-600/25 active:scale-95 transition-all"
+                            >
+                                <span>Save & Continue to Day {day + 1}</span>
+                                <ArrowRight size={14} />
+                            </button>
+                        ) : (
+                            <button
+                                type="button"
+                                onClick={onFinish}
+                                className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs shadow-md shadow-emerald-600/25 active:scale-95 transition-all"
+                            >
+                                <CheckCircle2 size={15} />
+                                <span>Complete All Days & Set Pricing (₹)</span>
+                                <ArrowRight size={14} />
+                            </button>
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            {/* Single Day Regenerate Modal */}
+            <AiDayRegenerateModal
+                isOpen={showRegenModal}
+                onClose={() => setShowRegenModal(false)}
+                dayNumber={day}
+                destinationName={masterLocations?.find(l => l.id === locationId)?.name || cityName || 'Destination'}
+                cityName={cityName}
+                onRegenerate={handleRegenerateDay}
+                isProcessing={isRegeneratingDay}
+            />
+        </div>,
+        document.body
+    );
+};
+
 // ─── Day Column ───────────────────────────────────────────────────────────────
 const DayColumn: React.FC<{
     day: number;
@@ -1017,7 +1914,8 @@ const DayColumn: React.FC<{
     onUpdateMeta: (m: any) => void;
     onClearDay: () => void;
     onDuplicateTo: (targetDay: number) => void;
-}> = ({ day, theme, locationId, cityName, items, meta, allDays, onAdd, onRemove, onUpdate, onUpdateMeta, onClearDay, onDuplicateTo }) => {
+    onFocusDay?: () => void;
+}> = ({ day, theme, locationId, cityName, items, meta, allDays, onAdd, onRemove, onUpdate, onUpdateMeta, onClearDay, onDuplicateTo, onFocusDay }) => {
     const { reorderItems, addItem } = useItinerary();
     const { masterLocations } = useData();
     const [showMenu, setShowMenu] = useState(false);
@@ -1181,6 +2079,16 @@ const DayColumn: React.FC<{
                                 <MapPin size={8} />
                                 {masterLocations?.find(l => l.id === locationId)?.name || 'Multi-City'}
                             </span>
+                            {onFocusDay && (
+                                <button
+                                    type="button"
+                                    onClick={onFocusDay}
+                                    title="Open in Step-by-Step focus view"
+                                    className="ml-auto text-[9px] font-black text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200/90 px-1.5 py-0.5 rounded flex items-center gap-1 transition-colors"
+                                >
+                                    <ListOrdered size={9} /> Focus Day
+                                </button>
+                            )}
                         </div>
                         {/* Fix 2.3: editable theme stored in dayMeta.theme */}
                         <input

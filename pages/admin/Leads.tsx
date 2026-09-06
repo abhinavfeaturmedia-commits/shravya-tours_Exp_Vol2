@@ -17,6 +17,8 @@ import {
     ChevronDown, ChevronUp
 } from 'lucide-react';
 import { TravelerSelector } from '../../components/ui/TravelerSelector';
+import { StaffMultiSelect } from '../../components/admin/StaffMultiSelect';
+import { EntityAuditTimeline } from '../../components/admin/EntityAuditTimeline';
 import { formatPrice, formatPriceCompact } from '../../utils/packageUtils';
 import { exportToExcel, ExportColumn } from '../../src/lib/exportUtils';
 import { DataImportModal, ColumnMapping } from '../../src/components/admin/DataImportModal';
@@ -540,9 +542,13 @@ export const Leads: React.FC = () => {
             // Fallback: if assignedTo is still unset, assign to current staff
             // This is the last safety net before the API call
             const resolvedAssignedTo = leadForm.assignedTo ||
+                (leadForm.assignedStaffIds && leadForm.assignedStaffIds.length > 0 ? leadForm.assignedStaffIds[0] : undefined) ||
                 currentUser?.id ||
                 staff.find((s: any) => s.email === currentUser?.email)?.id ||
                 undefined;
+            const resolvedStaffIds = leadForm.assignedStaffIds && leadForm.assignedStaffIds.length > 0
+                ? leadForm.assignedStaffIds
+                : (resolvedAssignedTo ? [resolvedAssignedTo] : []);
 
             const newLead: Lead = {
                 id: '', // Will be set by DB (UUID auto-generated + lead_number)
@@ -561,14 +567,22 @@ export const Leads: React.FC = () => {
                 source: leadForm.source || 'Manual Entry',
                 potentialValue: Number(leadForm.potentialValue) || 0,
                 ...leadForm,
-                // Override with resolved assignedTo (form spread above may overwrite with undefined)
+                // Override with resolved assignees
                 assignedTo: resolvedAssignedTo,
+                assignedStaffIds: resolvedStaffIds,
             };
             addLead(newLead);
             toast.success('Lead added successfully');
         } else {
+            const resolvedStaffIds = leadForm.assignedStaffIds !== undefined
+                ? leadForm.assignedStaffIds
+                : (leadForm.assignedTo ? [leadForm.assignedTo] : []);
+            const resolvedPrimary = leadForm.assignedTo || (resolvedStaffIds.length > 0 ? resolvedStaffIds[0] : undefined);
+
             updateLead(leadForm.id!, {
                 ...leadForm,
+                assignedTo: resolvedPrimary,
+                assignedStaffIds: resolvedStaffIds,
                 potentialValue: Number(leadForm.potentialValue) || 0
             });
             toast.success('Lead updated successfully');
@@ -804,6 +818,7 @@ export const Leads: React.FC = () => {
             paxChild: 0,
             paxInfant: 0,
             assignedTo: myStaffId,
+            assignedStaffIds: myStaffId ? [myStaffId] : [],
         });
         setIsModalOpen(true);
     };
@@ -849,6 +864,7 @@ export const Leads: React.FC = () => {
         setModalMode('edit');
         setLeadForm({ 
             ...selectedLead, 
+            assignedStaffIds: selectedLead.assignedStaffIds || (selectedLead.assignedTo ? [selectedLead.assignedTo] : []),
             budget: selectedLead.budget || '',
             potentialValue: selectedLead.potentialValue || 0,
             startDate: formatLocalIso(selectedLead.startDate),
@@ -1486,11 +1502,23 @@ export const Leads: React.FC = () => {
 
                                             <div className="col-span-2 font-bold text-slate-900 dark:text-white truncate">
                                                 {formatPrice(lead.potentialValue || 0)}
-                                                {lead.assignedTo && (
-                                                    <p className="text-[10px] text-slate-400 font-normal truncate">
-                                                        By: {staff.find(s => s.id === lead.assignedTo)?.name || 'Staff'}
-                                                    </p>
-                                                )}
+                                                {(() => {
+                                                    const ids = lead.assignedStaffIds && lead.assignedStaffIds.length > 0
+                                                        ? lead.assignedStaffIds
+                                                        : (lead.assignedTo ? [lead.assignedTo] : []);
+                                                    if (ids.length === 0) return null;
+                                                    const primaryStaff = staff.find(s => Number(s.id) === Number(ids[0]));
+                                                    return (
+                                                        <div className="flex items-center gap-1 text-[10px] text-slate-400 font-normal truncate mt-0.5">
+                                                            <span className="truncate">By: {primaryStaff?.name || `Staff #${ids[0]}`}</span>
+                                                            {ids.length > 1 && (
+                                                                <span className="bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300 px-1 py-0.2 rounded text-[9px] font-bold shrink-0" title={`Assigned to ${ids.length} staff members`}>
+                                                                    +{ids.length - 1}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })()}
                                             </div>
 
                                             <div className="col-span-2 flex flex-col items-end gap-1">
@@ -2348,26 +2376,76 @@ export const Leads: React.FC = () => {
                                     <p className="text-sm font-bold text-slate-900 dark:text-white">{selectedLead.source}</p>
                                 </div>
                                 <div>
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Assigned To</p>
-                                    <div className="flex items-center gap-2">
-                                        <p className="text-sm font-bold text-slate-900 dark:text-white truncate">
-                                            {selectedLead.assignedTo ? staff.find(s => s.id === selectedLead.assignedTo)?.name || 'Unknown' : 'Unassigned'}
-                                        </p>
-                                        {hasPermission('leads', 'manage') && selectedLead.assignedTo && (
-                                            <button
-                                                onClick={() => setIsTransferModalOpen(true)}
-                                                className="px-2 py-0.5 text-[9px] font-black uppercase tracking-wider bg-primary/10 text-primary rounded border border-primary/20 hover:bg-primary/20 transition-all flex items-center gap-0.5"
-                                                title="Transfer Ownership"
-                                            >
-                                                <span className="material-symbols-outlined text-[10px]">move_item</span>
-                                                Transfer
-                                            </button>
-                                        )}
+                                    <div className="flex items-center justify-between mb-1">
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase">Assigned Team</p>
+                                        <div className="flex items-center gap-1.5">
+                                            {hasPermission('leads', 'manage') && selectedLead.assignedTo && (
+                                                <button
+                                                    onClick={() => setIsTransferModalOpen(true)}
+                                                    className="px-2 py-0.5 text-[9px] font-black uppercase tracking-wider bg-primary/10 text-primary rounded border border-primary/20 hover:bg-primary/20 transition-all flex items-center gap-0.5"
+                                                    title="Transfer Primary Ownership"
+                                                >
+                                                    <span className="material-symbols-outlined text-[10px]">move_item</span>
+                                                    Transfer
+                                                </button>
+                                            )}
+                                            {hasPermission('leads', 'manage') && (
+                                                <button
+                                                    type="button"
+                                                    onClick={openEditModal}
+                                                    className="px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 rounded border border-blue-200 dark:border-blue-800 hover:bg-blue-100 transition-all"
+                                                >
+                                                    Manage
+                                                </button>
+                                            )}
+                                        </div>
                                     </div>
+                                    {(() => {
+                                        const assignedIds = selectedLead.assignedStaffIds && selectedLead.assignedStaffIds.length > 0
+                                            ? selectedLead.assignedStaffIds
+                                            : (selectedLead.assignedTo ? [selectedLead.assignedTo] : []);
+
+                                        if (assignedIds.length === 0) {
+                                            return <p className="text-sm font-bold text-slate-400 italic">Unassigned</p>;
+                                        }
+
+                                        return (
+                                            <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                                                {assignedIds.map((sid) => {
+                                                    const sMember = staff.find(s => Number(s.id) === Number(sid));
+                                                    const isPrimary = Number(sid) === Number(selectedLead.assignedTo || assignedIds[0]);
+                                                    return (
+                                                        <div
+                                                            key={sid}
+                                                            className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-semibold border ${
+                                                                isPrimary
+                                                                    ? 'bg-blue-50 text-blue-900 border-blue-200 dark:bg-blue-950/60 dark:text-blue-200 dark:border-blue-800'
+                                                                    : 'bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
+                                                            }`}
+                                                        >
+                                                            <span
+                                                                className="w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold text-white shadow-xs"
+                                                                style={{ backgroundColor: sMember?.color || '#3b82f6' }}
+                                                            >
+                                                                {sMember?.initials || sMember?.name?.charAt(0) || sid}
+                                                            </span>
+                                                            <span className="truncate max-w-[110px]">{sMember?.name || `Staff #${sid}`}</span>
+                                                            <span className="text-[10px] font-mono opacity-60">#{sid}</span>
+                                                            {isPrimary && (
+                                                                <span className="text-[9px] font-bold uppercase tracking-wider bg-blue-600 text-white px-1 py-0.2 rounded">
+                                                                    Lead
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        );
+                                    })()}
                                     {(() => {
                                         const pending = transfers.find(tr => tr.item_type === 'Lead' && tr.item_id === selectedLead.id && tr.status === 'Pending');
                                         return pending ? (
-                                            <div className="mt-1 p-1.5 rounded bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 text-[10px] text-amber-700 dark:text-amber-400 font-bold flex items-center gap-1">
+                                            <div className="mt-1.5 p-1.5 rounded bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 text-[10px] text-amber-700 dark:text-amber-400 font-bold flex items-center gap-1">
                                                 <span className="material-symbols-outlined text-[12px] animate-spin">sync</span>
                                                 Pending Admin approval for transfer to {pending.to_staff_name}
                                             </div>
@@ -2586,6 +2664,14 @@ export const Leads: React.FC = () => {
                                 )}
                             </div>
                         </div>
+
+                        {/* Audit Trail & Staff Accountability Timeline */}
+                        <div className="mt-8 pt-6 border-t border-slate-100 dark:border-slate-800">
+                            <EntityAuditTimeline
+                                entityType="lead"
+                                entityId={selectedLead.id}
+                            />
+                        </div>
                         </>
                     )}
                     </div>
@@ -2678,28 +2764,38 @@ export const Leads: React.FC = () => {
                                     <input placeholder="e.g. 50,000 – 80,000" value={leadForm.budget || ''} onChange={e => setLeadForm({ ...leadForm, budget: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary" />
                                 </div>
                             </div>
-                            <div className="grid grid-cols-3 gap-3">
-                                <div className="col-span-1">
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
                                     <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Trip Type</label>
                                     <select value={leadForm.type || 'Tour'} onChange={e => setLeadForm({ ...leadForm, type: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary">
                                         {['Tour', 'Hotel', 'Car', 'Bus', 'Train', 'Flight', 'Custom Package'].map(t => <option key={t} value={t}>{t}</option>)}
                                     </select>
                                 </div>
-                                <div className="col-span-1">
+                                <div>
                                     <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Status</label>
                                     <select value={leadForm.status} onChange={e => setLeadForm({ ...leadForm, status: e.target.value as any })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary">
                                         {['New', 'Warm', 'Hot', 'Cold', 'Offer Sent', 'Converted'].map(s => <option key={s} value={s}>{s}</option>)}
                                     </select>
                                 </div>
-                                <div className="col-span-1">
-                                    <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Assigned To</label>
-                                    <select value={leadForm.assignedTo || ''} onChange={e => setLeadForm({ ...leadForm, assignedTo: e.target.value ? Number(e.target.value) : undefined })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary">
-                                        <option value="">Unassigned</option>
-                                        {staff.map(s => (
-                                            <option key={s.id} value={s.id}>{s.name}</option>
-                                        ))}
-                                    </select>
-                                </div>
+                            </div>
+                            <div>
+                                <StaffMultiSelect
+                                    staffMembers={staff}
+                                    selectedStaffIds={leadForm.assignedStaffIds || (leadForm.assignedTo ? [leadForm.assignedTo] : [])}
+                                    primaryStaffId={leadForm.assignedTo}
+                                    onChange={(ids) => setLeadForm({
+                                        ...leadForm,
+                                        assignedStaffIds: ids,
+                                        assignedTo: ids.length > 0 ? ids[0] : undefined
+                                    })}
+                                    onPrimaryChange={(primaryId) => setLeadForm({
+                                        ...leadForm,
+                                        assignedTo: primaryId
+                                    })}
+                                    label="Assigned Team / Multi-Staff"
+                                    placeholder="Select one or more staff members..."
+                                    helperText="Assign one or multiple staff members. The first or starred member is the Primary Lead Owner."
+                                />
                             </div>
                             <div>
                                 <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Special Preferences / Notes</label>

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useItinerary } from '../ItineraryContext';
 import { useData } from '../../../context/DataContext';
-import { MapPin, Calendar, Users, Globe, Plus, X, ArrowRight, Check, Image, Upload, FileText, Tag, Clock, Sparkles, ChevronDown, Search, Loader2 } from 'lucide-react';
+import { MapPin, Calendar, Users, Globe, Plus, X, ArrowRight, Check, Image, Upload, Sparkles, ChevronDown, Search, Loader2, Compass, CheckCircle2, Sun, Moon } from 'lucide-react';
 import { MasterLocation, MasterLocationType } from '../../../types';
 import { ImageUpload } from '../../ui/ImageUpload';
 import { api } from '../../../src/lib/api';
@@ -94,306 +94,536 @@ export const StepTripDetails: React.FC<Props> = ({ onDone }) => {
         onDone?.();
     };
 
+    const hasTitle = Boolean(tripDetails.title && tripDetails.title.trim().length > 0);
+    const hasDestinations = Boolean(
+        (tripDetails.destinations && tripDetails.destinations.length > 0 && tripDetails.destinations.some(d => d.locationId)) ||
+        tripDetails.destination
+    );
+    const hasDates = Boolean(tripDetails.startDate);
+
+    const destinationNames = (tripDetails.destinations && tripDetails.destinations.length > 0)
+        ? tripDetails.destinations
+            .map(d => masterLocations?.find(l => String(l.id) === String(d.locationId))?.name || d.locationId)
+            .filter(Boolean)
+        : [masterLocations?.find(l => String(l.id) === String(tripDetails.destination))?.name || tripDetails.destination].filter(Boolean);
+
+    const routeString = destinationNames.length > 0 ? destinationNames.join(' → ') : 'No destinations selected';
+
+    const getFormattedDateRange = () => {
+        if (!tripDetails.startDate) return null;
+        try {
+            const start = new Date(tripDetails.startDate);
+            const end = new Date(start);
+            end.setDate(end.getDate() + Math.max(1, (tripDetails.days || 1)) - 1);
+            const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            if (tripDetails.days === 1 || tripDetails.nights === 0) {
+                return `${fmt(start)} (1-Day Tour)`;
+            }
+            return `${fmt(start)} – ${fmt(end)}`;
+        } catch {
+            return tripDetails.startDate;
+        }
+    };
+
+    const getTierBadge = () => {
+        const days = tripDetails.days || 1;
+        if (days >= 7) return { label: 'EXPEDITION TIER', cls: 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-300' };
+        if (days >= 4) return { label: 'SIGNATURE TIER', cls: 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-300' };
+        return { label: 'BUDGET TIER', cls: 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300' };
+    };
+
+    const tierBadge = getTierBadge();
+
     return (
-        <div className="min-h-full p-6 md:p-10 flex flex-col">
-            {/* Page title */}
-            <div className="mb-8">
-                <p className="text-xs font-black text-amber-600 uppercase tracking-widest mb-1">Step 1 of 4</p>
-                <h2 className="text-2xl font-black text-stone-900 leading-tight">Trip Basics</h2>
-                <p className="text-sm text-stone-500 mt-1">Define the core details of this journey.</p>
+        <div className="min-h-full p-4 sm:p-6 md:p-8 flex flex-col max-w-7xl mx-auto">
+            {/* Page Header */}
+            <div className="mb-6">
+                <div className="flex items-center gap-2 mb-1">
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black tracking-widest bg-amber-100 text-amber-900 uppercase">
+                        Step 1 of 4 · Trip Basics
+                    </span>
+                    <span className="text-xs font-semibold text-stone-400">
+                        Itinerary Configuration
+                    </span>
+                </div>
+                <h2 className="text-xl sm:text-2xl font-black text-stone-900 leading-tight">
+                    Define Itinerary Foundation & Route
+                </h2>
+                <p className="text-xs sm:text-sm text-stone-500 mt-1">
+                    Configure destination route stays, travel party, visuals, and package terms before scheduling daily services.
+                </p>
             </div>
 
-            <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-8 items-start max-w-5xl w-full mx-auto">
+            {/* Main Balanced 12-Column Grid */}
+            <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start w-full">
 
-                {/* ── Form ─────────────────────────────────────────── */}
-                <div className="bg-white rounded-2xl shadow-sm border border-stone-200 p-6 space-y-6">
+                {/* ── LEFT COLUMN: Structured Configuration Sections (7-8 cols) ──── */}
+                <div className="lg:col-span-7 xl:col-span-8 space-y-5">
 
-                    {/* Title */}
-                    <Field label="Itinerary Title" icon={<Globe size={13} />}>
-                        <input
-                            type="text"
-                            placeholder="e.g. Amalfi Coast Expedition"
-                            value={tripDetails.title}
-                            onChange={e => updateTripDetails({ title: e.target.value })}
-                            className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-3 font-bold text-sm text-stone-900 focus:ring-2 focus:ring-amber-400 focus:border-transparent outline-none transition-all placeholder:font-normal placeholder:text-stone-400"
-                        />
-                    </Field>
-
-                    {/* Destinations ────────────────────────────────────────────── */}
-                    <div className="bg-stone-50 border border-stone-200 rounded-xl p-4">
-                        <div className="flex items-center justify-between mb-3">
-                            <label className="flex items-center gap-2 text-[10px] font-black text-stone-500 uppercase tracking-widest">
-                                <MapPin size={13} /> Destination Legs
-                            </label>
-                            <button
-                                type="button"
-                                onClick={() => setShowQuickAddModal(true)}
-                                className="text-xs font-bold text-amber-600 hover:text-amber-700 flex items-center gap-1 hover:underline"
-                            >
-                                <Plus size={13} strokeWidth={2.5} /> New Location
-                            </button>
+                    {/* CARD 1: Trip Identity & Route */}
+                    <div className="bg-white rounded-2xl p-5 sm:p-6 border border-stone-200 shadow-xs space-y-5">
+                        <div className="flex items-center justify-between border-b border-stone-100 pb-3.5">
+                            <div className="flex items-center gap-2.5">
+                                <div className="size-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center border border-amber-200/60">
+                                    <Compass size={17} />
+                                </div>
+                                <div>
+                                    <h3 className="text-sm font-black text-stone-900">Trip Identity & Route</h3>
+                                    <p className="text-[11px] text-stone-400">Name your tour package and define destination stays.</p>
+                                </div>
+                            </div>
                         </div>
-                        <div className="space-y-3">
-                            {(tripDetails.destinations || []).map((dest, idx) => (
-                                <div key={idx} className="flex items-center gap-2">
-                                    <div className="flex-1">
-                                        <LocationCombobox
-                                            value={dest.locationId}
-                                            locations={masterLocations || []}
-                                            placeholder="Select or type destination..."
-                                            onQuickAdd={handleQuickAddLocation}
-                                            onChange={locId => {
-                                                const newDests = [...(tripDetails.destinations || [])];
-                                                newDests[idx].locationId = locId;
-                                                // Sync legacy destination for fallback if it's the first leg
-                                                const updates: any = { destinations: newDests };
-                                                if (idx === 0) updates.destination = locId;
+
+                        {/* Title Input */}
+                        <div className="space-y-1.5">
+                            <label className="text-[10px] font-black uppercase tracking-wider text-stone-500 flex items-center gap-1.5">
+                                <Globe size={12} className="text-amber-500" /> Itinerary Title *
+                            </label>
+                            <input
+                                type="text"
+                                placeholder="e.g. Sikkim Himalayan Discovery - Gangtok & Pelling"
+                                value={tripDetails.title}
+                                onChange={e => updateTripDetails({ title: e.target.value })}
+                                className="w-full bg-stone-50/70 border border-stone-200 rounded-xl px-3.5 py-2.5 font-bold text-sm text-stone-900 focus:bg-white focus:ring-2 focus:ring-amber-400 focus:border-transparent outline-none transition-all placeholder:font-normal placeholder:text-stone-400"
+                            />
+                        </div>
+
+                        {/* Tour Type Selector: 1-Day Excursion vs Multi-Day Tour */}
+                        <div className="space-y-1.5 pt-1">
+                            <label className="text-[10px] font-black uppercase tracking-wider text-stone-500">
+                                Tour Duration Type
+                            </label>
+                            <div className="flex items-center gap-2 p-1 bg-stone-100/90 rounded-xl border border-stone-200/80">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const currentDests = tripDetails.destinations && tripDetails.destinations.length > 0
+                                            ? tripDetails.destinations
+                                            : [{ locationId: tripDetails.destination || '', nights: 0, order: 0 }];
+                                        const updatedDests = currentDests.map((d, i) => ({
+                                            ...d,
+                                            nights: 0
+                                        }));
+                                        updateTripDetails({
+                                            destinations: updatedDests,
+                                            nights: 0,
+                                            days: 1
+                                        });
+                                    }}
+                                    className={`flex-1 py-2 px-3 rounded-lg text-xs font-black transition-all flex items-center justify-center gap-1.5 ${
+                                        tripDetails.nights === 0
+                                            ? 'bg-amber-500 text-white shadow-xs'
+                                            : 'text-stone-600 hover:text-stone-900 hover:bg-white/60'
+                                    }`}
+                                >
+                                    <Sun size={13} className={tripDetails.nights === 0 ? 'text-amber-100' : 'text-amber-500'} />
+                                    <span>☀️ 1-Day Excursion (0 Nights)</span>
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const currentDests = tripDetails.destinations && tripDetails.destinations.length > 0
+                                            ? tripDetails.destinations
+                                            : [{ locationId: tripDetails.destination || '', nights: 1, order: 0 }];
+                                        const updatedDests = currentDests.map((d, i) => ({
+                                            ...d,
+                                            nights: i === 0 && d.nights === 0 ? 1 : Math.max(1, d.nights || 1)
+                                        }));
+                                        const totalNights = updatedDests.reduce((acc, d) => acc + (d.nights || 0), 0) || 1;
+                                        updateTripDetails({
+                                            destinations: updatedDests,
+                                            nights: totalNights,
+                                            days: totalNights + 1
+                                        });
+                                    }}
+                                    className={`flex-1 py-2 px-3 rounded-lg text-xs font-black transition-all flex items-center justify-center gap-1.5 ${
+                                        tripDetails.nights > 0
+                                            ? 'bg-stone-900 text-white shadow-xs'
+                                            : 'text-stone-600 hover:text-stone-900 hover:bg-white/60'
+                                    }`}
+                                >
+                                    <Moon size={13} className={tripDetails.nights > 0 ? 'text-amber-400' : 'text-stone-400'} />
+                                    <span>🌙 Multi-Day Tour</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Destination Legs Builder */}
+                        <div className="space-y-3 pt-1">
+                            <div className="flex items-center justify-between">
+                                <label className="text-[10px] font-black uppercase tracking-wider text-stone-500 flex items-center gap-1.5">
+                                    <MapPin size={12} className="text-rose-500" /> Destination Legs & Stays *
+                                </label>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowQuickAddModal(true)}
+                                    className="text-xs font-bold text-amber-600 hover:text-amber-700 flex items-center gap-1 hover:underline"
+                                >
+                                    <Plus size={13} strokeWidth={2.5} /> New Location to Masters
+                                </button>
+                            </div>
+
+                            {/* Legs List */}
+                            <div className="space-y-2.5">
+                                {(tripDetails.destinations || []).map((dest, idx) => (
+                                    <div key={idx} className="flex items-center gap-2 p-2 rounded-xl bg-stone-50/80 border border-stone-200/80 group hover:border-amber-300 transition-all">
+                                        <span className="size-6 rounded-full bg-white border border-stone-200 flex items-center justify-center font-black text-[10px] text-stone-500 shrink-0">
+                                            {idx + 1}
+                                        </span>
+                                        <div className="flex-1 min-w-0">
+                                            <LocationCombobox
+                                                value={dest.locationId}
+                                                locations={masterLocations || []}
+                                                placeholder="Select destination city/region..."
+                                                onQuickAdd={handleQuickAddLocation}
+                                                onChange={locId => {
+                                                    const newDests = [...(tripDetails.destinations || [])];
+                                                    newDests[idx].locationId = locId;
+                                                    const updates: any = { destinations: newDests };
+                                                    if (idx === 0) updates.destination = locId;
+                                                    updateTripDetails(updates);
+                                                }}
+                                            />
+                                        </div>
+                                        {/* Nights Stepper */}
+                                        <div className="flex items-center bg-white border border-stone-200 rounded-lg overflow-hidden h-9 shrink-0 shadow-2xs">
+                                            <button
+                                                type="button"
+                                                disabled={dest.nights <= 0}
+                                                onClick={() => {
+                                                    const newDests = [...(tripDetails.destinations || [])];
+                                                    newDests[idx].nights = Math.max(0, (newDests[idx].nights || 0) - 1);
+                                                    const totalNights = newDests.reduce((acc, d) => acc + (d.nights || 0), 0);
+                                                    updateTripDetails({
+                                                        destinations: newDests,
+                                                        nights: totalNights,
+                                                        days: totalNights === 0 ? 1 : totalNights + 1
+                                                    });
+                                                }}
+                                                className="px-2.5 hover:bg-stone-100 disabled:opacity-30 disabled:cursor-not-allowed text-stone-600 font-bold text-sm transition-colors"
+                                                title="Decrease nights"
+                                            >
+                                                -
+                                            </button>
+                                            <span className={`w-16 text-center font-black text-xs py-1 transition-colors ${
+                                                dest.nights === 0 ? 'text-amber-600 bg-amber-50/70 font-black' : 'text-stone-900 bg-stone-50/50'
+                                            }`}>
+                                                {dest.nights === 0 ? '0N (Day)' : `${dest.nights} N`}
+                                            </span>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const newDests = [...(tripDetails.destinations || [])];
+                                                    newDests[idx].nights = (newDests[idx].nights || 0) + 1;
+                                                    const totalNights = newDests.reduce((acc, d) => acc + (d.nights || 0), 0);
+                                                    updateTripDetails({
+                                                        destinations: newDests,
+                                                        nights: totalNights,
+                                                        days: totalNights === 0 ? 1 : totalNights + 1
+                                                    });
+                                                }}
+                                                className="px-2.5 hover:bg-stone-100 text-stone-600 font-bold text-sm transition-colors"
+                                                title="Increase nights"
+                                            >
+                                                +
+                                            </button>
+                                        </div>
+
+                                        {/* Delete Leg */}
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const newDests = (tripDetails.destinations || []).filter((_, i) => i !== idx);
+                                                const totalNights = newDests.reduce((acc, d) => acc + (d.nights || 0), 0);
+                                                const updates: any = {
+                                                    destinations: newDests,
+                                                    nights: totalNights,
+                                                    days: totalNights === 0 ? 1 : totalNights + 1
+                                                };
+                                                if (idx === 0 && newDests.length > 0) updates.destination = newDests[0].locationId;
                                                 updateTripDetails(updates);
                                             }}
-                                        />
+                                            className="size-8 rounded-lg text-stone-400 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center transition-colors shrink-0"
+                                            title="Remove destination leg"
+                                        >
+                                            <X size={14} />
+                                        </button>
                                     </div>
-                                    <div className="w-24 shrink-0 flex items-center bg-white border border-stone-200 rounded-lg overflow-hidden h-9">
-                                        <button onClick={() => {
-                                                const newDests = [...(tripDetails.destinations || [])];
-                                                newDests[idx].nights = Math.max(1, newDests[idx].nights - 1);
-                                                const totalNights = newDests.reduce((acc, d) => acc + d.nights, 0);
-                                                updateTripDetails({ destinations: newDests, nights: totalNights, days: totalNights + 1 });
-                                            }} className="px-2 hover:bg-stone-100 text-stone-500">-</button>
-                                        <div className="flex-1 text-center font-bold text-sm">{dest.nights}N</div>
-                                        <button onClick={() => {
-                                                const newDests = [...(tripDetails.destinations || [])];
-                                                newDests[idx].nights++;
-                                                const totalNights = newDests.reduce((acc, d) => acc + d.nights, 0);
-                                                updateTripDetails({ destinations: newDests, nights: totalNights, days: totalNights + 1 });
-                                            }} className="px-2 hover:bg-stone-100 text-stone-500">+</button>
-                                    </div>
-                                    <button 
-                                        onClick={() => {
-                                            const newDests = (tripDetails.destinations || []).filter((_, i) => i !== idx);
-                                            const totalNights = newDests.reduce((acc, d) => acc + d.nights, 0);
-                                            const updates: any = { destinations: newDests, nights: totalNights, days: totalNights + 1 };
-                                            if (idx === 0 && newDests.length > 0) updates.destination = newDests[0].locationId;
-                                            updateTripDetails(updates);
-                                        }}
-                                        className="p-1.5 text-rose-400 hover:bg-rose-50 rounded"
-                                    ><X size={16} /></button>
+                                ))}
+
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const newDests = [...(tripDetails.destinations || []), { locationId: '', nights: tripDetails.nights === 0 ? 0 : 1, order: (tripDetails.destinations || []).length }];
+                                        const totalNights = newDests.reduce((acc, d) => acc + (d.nights || 0), 0);
+                                        updateTripDetails({ destinations: newDests, nights: totalNights, days: totalNights === 0 ? 1 : totalNights + 1 });
+                                    }}
+                                    className="w-full py-2.5 border border-dashed border-stone-300 hover:border-amber-400 hover:bg-amber-50/40 rounded-xl text-stone-600 hover:text-amber-700 font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
+                                >
+                                    <Plus size={13} /> Add Destination Leg
+                                </button>
+                            </div>
+
+                            {/* Clean Calculated Duration Summary */}
+                            <div className="flex flex-wrap items-center justify-between gap-2.5 p-3 bg-amber-50/70 border border-amber-200/80 rounded-xl">
+                                <div className="flex items-center gap-2">
+                                    {tripDetails.nights === 0 ? (
+                                        <>
+                                            <span className="px-2.5 py-1 rounded-lg bg-amber-500 text-white font-black text-xs shadow-2xs flex items-center gap-1.5">
+                                                <Sun size={13} className="text-amber-100" /> 1-Day Excursion
+                                            </span>
+                                            <span className="px-2.5 py-1 rounded-lg bg-white border border-amber-200 text-amber-950 font-black text-xs shadow-2xs flex items-center gap-1">
+                                                🌙 0 Nights (Same-Day)
+                                            </span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <span className="px-2.5 py-1 rounded-lg bg-white border border-amber-200 text-amber-950 font-black text-xs shadow-2xs">
+                                                🌙 {tripDetails.nights} Nights Stay
+                                            </span>
+                                            <span className="px-2.5 py-1 rounded-lg bg-white border border-amber-200 text-amber-950 font-black text-xs shadow-2xs">
+                                                ☀️ {tripDetails.days} Days Total
+                                            </span>
+                                        </>
+                                    )}
                                 </div>
-                            ))}
-                            <button
-                                onClick={() => {
-                                    const newDests = [...(tripDetails.destinations || []), { locationId: '', nights: 1, order: (tripDetails.destinations || []).length }];
-                                    const totalNights = newDests.reduce((acc, d) => acc + d.nights, 0);
-                                    updateTripDetails({ destinations: newDests, nights: totalNights, days: totalNights + 1 });
-                                }}
-                                className="text-xs font-bold text-amber-600 hover:text-amber-700 flex items-center gap-1"
-                            >
-                                <Plus size={14} /> Add Leg
-                            </button>
+                                <span className="text-[11px] text-amber-800 font-medium">
+                                    {tripDetails.nights === 0 ? 'Same-day tour (No hotel overnight)' : 'Auto-calculated from destination legs'}
+                                </span>
+                            </div>
                         </div>
                     </div>
 
-                        <Field label="Start Date" icon={<Calendar size={13} />}>
-                            <input
-                                type="date"
-                                value={tripDetails.startDate || ''}
-                                onChange={e => updateTripDetails({ startDate: e.target.value })}
-                                className="w-full bg-stone-50 border border-stone-200 text-stone-900 rounded-xl px-4 py-3 font-bold text-sm focus:ring-2 focus:ring-amber-400 outline-none transition-all"
-                            />
-                        </Field>
+                    {/* CARD 2: Schedule & Travel Party */}
+                    <div className="bg-white rounded-2xl p-5 sm:p-6 border border-stone-200 shadow-xs space-y-4">
+                        <div className="flex items-center justify-between border-b border-stone-100 pb-3.5">
+                            <div className="flex items-center gap-2.5">
+                                <div className="size-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center border border-indigo-200/60">
+                                    <Calendar size={17} />
+                                </div>
+                                <div>
+                                    <h3 className="text-sm font-black text-stone-900">Schedule & Travel Party</h3>
+                                    <p className="text-[11px] text-stone-400">Departure date and party size of adults and children.</p>
+                                </div>
+                            </div>
+                        </div>
 
-                    {/* Days / Nights / Guests */}
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="flex-1 opacity-50 relative pointer-events-none grayscale">
-                            <Counter
-                                label="Nights (Auto)" icon="🌙"
-                                value={tripDetails.nights}
-                                onChange={()=>{}}
-                                min={0}
-                            />
-                            <div className="absolute inset-0 z-10" />
-                        </div>
-                        <div className="flex-1 opacity-50 relative pointer-events-none grayscale">
-                            <Counter
-                                label="Days (Auto)" icon="☀️"
-                                value={tripDetails.days}
-                                onChange={()=>{}}
-                                min={1}
-                            />
-                            <div className="absolute inset-0 z-10" />
-                        </div>
-                        <div className="col-span-2">
-                            <GuestSelector
-                                adults={tripDetails.adults || 2}
-                                childrenCount={tripDetails.children || 0}
-                                onChange={(a, c) => updateTripDetails({ adults: a, children: c })}
-                            />
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-black uppercase tracking-wider text-stone-500 flex items-center gap-1.5">
+                                    <Calendar size={12} className="text-indigo-500" /> Start Date *
+                                </label>
+                                <input
+                                    type="date"
+                                    value={tripDetails.startDate || ''}
+                                    onChange={e => updateTripDetails({ startDate: e.target.value })}
+                                    className="w-full bg-stone-50/70 border border-stone-200 text-stone-900 rounded-xl px-3.5 py-2.5 font-bold text-sm focus:bg-white focus:ring-2 focus:ring-amber-400 outline-none transition-all shadow-2xs"
+                                />
+                                {tripDetails.startDate && (
+                                    <p className="text-[11px] text-stone-400 font-medium pl-1">
+                                        {tripDetails.nights === 0 || tripDetails.days === 1
+                                            ? `Single-day tour on ${new Date(tripDetails.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                                            : `Concludes on ${new Date(new Date(tripDetails.startDate).setDate(new Date(tripDetails.startDate).getDate() + Math.max(1, (tripDetails.days || 1)) - 1)).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`}
+                                    </p>
+                                )}
+                            </div>
+
+                            <div>
+                                <GuestSelector
+                                    adults={tripDetails.adults || 2}
+                                    childrenCount={tripDetails.children || 0}
+                                    onChange={(a, c) => updateTripDetails({ adults: a, children: c })}
+                                />
+                            </div>
                         </div>
                     </div>
 
-                    {/* Cover Image */}
-                    <Field label="Cover Image" icon={<span className="text-[12px]">🖼</span>}>
-                        <ImageUpload
-                            label="Cover Image"
-                            value={tripDetails.coverImage}
-                            onChange={val => updateTripDetails({ coverImage: val })}
-                        />
-                    </Field>
+                    {/* CARD 3: Visual Presentation & Media */}
+                    <div className="bg-white rounded-2xl p-5 sm:p-6 border border-stone-200 shadow-xs space-y-4">
+                        <div className="flex items-center justify-between border-b border-stone-100 pb-3.5">
+                            <div className="flex items-center gap-2.5">
+                                <div className="size-8 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center border border-rose-200/60">
+                                    <Image size={17} />
+                                </div>
+                                <div>
+                                    <h3 className="text-sm font-black text-stone-900">Visual Presentation & Media</h3>
+                                    <p className="text-[11px] text-stone-400">Select an eye-catching cover photo and multi-image tour gallery.</p>
+                                </div>
+                            </div>
+                        </div>
 
-                    {/* Gallery Images */}
-                    <Field label="Photo Gallery" icon={<Image size={13} />}>
-                        <GalleryUploader
-                            images={tripDetails.gallery || []}
-                            onChange={gallery => updateTripDetails({ gallery })}
-                        />
-                    </Field>
+                        <div className="space-y-4">
+                            <Field label="Cover Photo" icon={<span className="text-[12px]">🖼</span>}>
+                                <ImageUpload
+                                    label="Cover Image"
+                                    value={tripDetails.coverImage}
+                                    onChange={val => updateTripDetails({ coverImage: val })}
+                                />
+                            </Field>
 
-                    {/* Inclusions / Exclusions */}
-                    <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                            <span className="text-[10px] font-black text-stone-500 uppercase tracking-widest">
-                                Package Inclusions & Exclusions
-                            </span>
+                            <Field label="Photo Gallery Strip" icon={<Image size={13} />}>
+                                <GalleryUploader
+                                    images={tripDetails.gallery || []}
+                                    onChange={gallery => updateTripDetails({ gallery })}
+                                />
+                            </Field>
+                        </div>
+                    </div>
+
+                    {/* CARD 4: Inclusions & Terms */}
+                    <div className="bg-white rounded-2xl p-5 sm:p-6 border border-stone-200 shadow-xs space-y-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-stone-100 pb-3.5">
+                            <div className="flex items-center gap-2.5">
+                                <div className="size-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-200/60">
+                                    <CheckCircle2 size={17} />
+                                </div>
+                                <div>
+                                    <h3 className="text-sm font-black text-stone-900">Package Inclusions & Exclusions</h3>
+                                    <p className="text-[11px] text-stone-400">Specify package deliverables for quotation accuracy.</p>
+                                </div>
+                            </div>
                             <button
                                 type="button"
                                 onClick={handleGenerateIncExc}
                                 disabled={isGeneratingIncExc}
-                                className="flex items-center gap-1.5 px-3 py-1 bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200 rounded-lg text-[11px] font-bold transition-all disabled:opacity-50"
+                                className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs disabled:opacity-50 active:scale-95 self-start sm:self-auto"
                             >
-                                <Sparkles size={11} className={isGeneratingIncExc ? 'animate-spin' : ''} />
-                                {isGeneratingIncExc ? 'Generating Terms…' : 'AI Suggest Terms'}
+                                <Sparkles size={12} className={isGeneratingIncExc ? 'animate-spin' : ''} />
+                                {isGeneratingIncExc ? 'Generating Terms…' : 'AI Auto-Suggest Terms'}
                             </button>
                         </div>
+
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <ListEditor
-                                title="Included"
+                                title="What's Included"
                                 items={tripDetails.included || []}
                                 onChange={items => updateTripDetails({ included: items })}
-                                placeholder="Add inclusion…"
+                                placeholder="e.g. Daily Breakfast, Private Innova, Airport Pickup..."
                                 color="emerald"
                             />
                             <ListEditor
-                                title="Not Included"
+                                title="What's Excluded"
                                 items={tripDetails.notIncluded || []}
                                 onChange={items => updateTripDetails({ notIncluded: items })}
-                                placeholder="Add exclusion…"
+                                placeholder="e.g. Airfare, Personal Expenses, Monument Entry Fees..."
                                 color="rose"
                             />
                         </div>
                     </div>
 
-
-                    {/* Client & Itinerary Meta */}
-                    <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-4 space-y-4">
-                        <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest">Itinerary Settings</p>
-
-                        {/* Client Name */}
-                        <Field label="Client Name" icon={<Users size={13} />}>
-                            <input
-                                type="text"
-                                placeholder="e.g. Sharma Family, Mr. Ramesh"
-                                value={tripDetails.clientName || ''}
-                                onChange={e => updateTripDetails({ clientName: e.target.value })}
-                                className="w-full bg-white border border-blue-100 rounded-xl px-4 py-2.5 font-bold text-sm text-stone-900 focus:ring-2 focus:ring-blue-300 focus:border-transparent outline-none transition-all placeholder:font-normal placeholder:text-stone-400"
-                            />
-                        </Field>
-
-                        {/* Status + Validity row */}
-                        <div className="grid grid-cols-2 gap-3">
-                            <div className="space-y-1.5">
-                                <label className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest text-stone-400">
-                                    <Tag size={11} /> Status
-                                </label>
-                                <select
-                                    value={tripDetails.itineraryStatus || 'Draft'}
-                                    onChange={e => updateTripDetails({ itineraryStatus: e.target.value })}
-                                    className="w-full bg-white border border-blue-100 rounded-xl px-3 py-2.5 font-bold text-sm text-stone-900 focus:ring-2 focus:ring-blue-300 outline-none transition-all"
-                                >
-                                    <option value="Draft">📝 Draft</option>
-                                    <option value="Sent">📤 Sent</option>
-                                    <option value="Confirmed">✅ Confirmed</option>
-                                    <option value="Cancelled">❌ Cancelled</option>
-                                </select>
-                            </div>
-                            <div className="space-y-1.5">
-                                <label className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest text-stone-400">
-                                    <Clock size={11} /> Valid For (Days)
-                                </label>
-                                <input
-                                    type="number"
-                                    min="0"
-                                    placeholder="7"
-                                    value={tripDetails.validityDays ?? 7}
-                                    onChange={e => updateTripDetails({ validityDays: parseInt(e.target.value) || 0 })}
-                                    className="w-full bg-white border border-blue-100 rounded-xl px-3 py-2.5 font-bold text-sm text-stone-900 focus:ring-2 focus:ring-blue-300 outline-none transition-all"
-                                />
-                            </div>
-                        </div>
-
-                        {/* Terms & Conditions */}
-                        <Field label="Terms & Conditions" icon={<FileText size={13} />}>
-                            <textarea
-                                rows={4}
-                                placeholder="e.g. 30% advance required. No refund within 7 days. Prices valid for Indian nationals only..."
-                                value={tripDetails.termsAndConditions || ''}
-                                onChange={e => updateTripDetails({ termsAndConditions: e.target.value })}
-                                className="w-full bg-white border border-blue-100 rounded-xl px-4 py-3 font-medium text-sm text-stone-900 focus:ring-2 focus:ring-blue-300 focus:border-transparent outline-none transition-all placeholder:font-normal placeholder:text-stone-400 resize-none leading-relaxed"
-                            />
-                        </Field>
+                    {/* Mobile CTA */}
+                    <div className="lg:hidden pt-2">
+                        <button
+                            onClick={handleNext}
+                            className="w-full py-3.5 bg-stone-900 hover:bg-stone-800 active:scale-95 text-white font-black text-sm rounded-xl shadow-md transition-all flex items-center justify-center gap-2"
+                        >
+                            <span>Continue to Day Planner</span>
+                            <ArrowRight size={16} />
+                        </button>
                     </div>
-
-                    {/* CTA */}
-                    <button
-                        onClick={handleNext}
-                        className="w-full py-3 bg-stone-900 hover:bg-stone-700 text-white font-black rounded-xl shadow transition-all active:scale-95 flex items-center justify-center gap-2 text-sm"
-                    >
-                        Go to Day Planner <ArrowRight size={16} />
-                    </button>
                 </div>
 
-                {/* ── Preview ───────────────────────────────────────── */}
-                <div className="hidden lg:block">
-                    <div className="aspect-[4/5] rounded-3xl overflow-hidden shadow-2xl relative bg-stone-900 group">
-                        <img
-                            src={tripDetails.coverImage || 'https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?q=80&w=2070&auto=format&fit=crop'}
-                            alt="Cover preview"
-                            className="w-full h-full object-cover opacity-80 group-hover:scale-105 transition-transform duration-700 ease-out"
-                        />
-                        <div className="absolute inset-0 bg-gradient-to-t from-stone-900/90 via-stone-900/30 to-transparent p-10 flex flex-col justify-end">
-                            <span className="inline-block px-3 py-1 bg-white/20 backdrop-blur-md rounded-lg text-xs font-bold text-white mb-3 border border-white/10 w-fit">
-                                Preview
-                            </span>
-                            <h1 className="text-3xl font-black text-white leading-tight mb-2">
-                                {tripDetails.title || 'Your Amazing Trip'}
-                            </h1>
-                            <p className="text-white/80 font-medium flex items-center gap-2 text-sm">
-                                <MapPin size={14} />
-                                {tripDetails.destinations && tripDetails.destinations.length > 0
-                                    ? tripDetails.destinations.map(d => masterLocations?.find(l => l.id === d.locationId)?.name || d.locationId || 'Select Destination').join(' → ')
-                                    : (masterLocations?.find(l => l.id === tripDetails.destination)?.name || tripDetails.destination || 'Select Destination')}
-                            </p>
-                            {tripDetails.startDate && (
-                                <p className="text-white/60 text-xs mt-1 font-medium">
-                                    {tripDetails.nights}N / {tripDetails.days}D · {(tripDetails.adults || 0) + (tripDetails.children || 0)} Guests
+                {/* ── RIGHT COLUMN: Sticky Live Tour Summary Card (4-5 cols) ──────── */}
+                <div className="hidden lg:block lg:col-span-5 xl:col-span-4 sticky top-6 space-y-4">
+                    <div className="bg-white rounded-3xl border border-stone-200 shadow-xs overflow-hidden flex flex-col">
+                        {/* Compact 16:9 Cover Banner */}
+                        <div className="h-44 w-full relative overflow-hidden bg-stone-900 group">
+                            <img
+                                src={tripDetails.coverImage || 'https://images.unsplash.com/photo-1626621341517-bbf3d9990a23?q=80&w=1000&auto=format&fit=crop'}
+                                alt="Tour cover preview"
+                                className="w-full h-full object-cover opacity-85 group-hover:scale-105 transition-transform duration-500 ease-out"
+                            />
+                            <div className="absolute inset-0 bg-gradient-to-t from-stone-950/90 via-stone-950/30 to-transparent p-4 flex flex-col justify-between">
+                                <div className="flex items-center justify-between">
+                                    <span className="px-2.5 py-1 bg-white/20 backdrop-blur-md rounded-full text-[10px] font-black uppercase tracking-wider text-white border border-white/20 flex items-center gap-1.5">
+                                        <Sparkles size={11} className="text-amber-300" /> Live Preview
+                                    </span>
+                                    <span className="px-2.5 py-1 bg-stone-900/80 backdrop-blur-md rounded-full text-[10px] font-black text-amber-400 border border-stone-700">
+                                        {tripDetails.nights === 0 ? '1 Day Excursion' : `${tripDetails.nights}N / ${tripDetails.days}D`}
+                                    </span>
+                                </div>
+                                <div>
+                                    <h3 className="text-base font-black text-white leading-snug line-clamp-2 drop-shadow-sm">
+                                        {tripDetails.title || 'Untitled Itinerary'}
+                                    </h3>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Card Details Body */}
+                        <div className="p-5 space-y-4 flex-1">
+                            {/* Route */}
+                            <div className="space-y-1">
+                                <p className="text-[10px] font-black uppercase tracking-wider text-stone-400">Planned Route</p>
+                                <div className="flex items-center gap-1.5 text-xs font-bold text-stone-800 flex-wrap">
+                                    <MapPin size={13} className="text-rose-500 shrink-0" />
+                                    <span className="truncate">{routeString}</span>
+                                </div>
+                            </div>
+
+                            {/* Metrics Grid */}
+                            <div className="grid grid-cols-2 gap-2 pt-1 border-t border-stone-100">
+                                <div className="bg-stone-50 rounded-xl p-2.5 border border-stone-100">
+                                    <span className="text-[9px] font-black uppercase text-stone-400 block">Dates</span>
+                                    <span className="text-xs font-bold text-stone-800 truncate block">
+                                        {tripDetails.startDate ? getFormattedDateRange() : 'Date not set'}
+                                    </span>
+                                </div>
+                                <div className="bg-stone-50 rounded-xl p-2.5 border border-stone-100">
+                                    <span className="text-[9px] font-black uppercase text-stone-400 block">Travelers</span>
+                                    <span className="text-xs font-bold text-stone-800 block">
+                                        {(tripDetails.adults || 0) + (tripDetails.children || 0)} Guests
+                                    </span>
+                                </div>
+                            </div>
+
+                            {/* Checklist */}
+                            <div className="space-y-2 pt-2 border-t border-stone-100">
+                                <p className="text-[10px] font-black uppercase tracking-wider text-stone-400">Trip Setup Checklist</p>
+                                <div className="space-y-1.5 text-xs font-semibold">
+                                    <div className="flex items-center gap-2">
+                                        {hasTitle ? (
+                                            <Check size={14} className="text-emerald-600 stroke-[3]" />
+                                        ) : (
+                                            <span className="size-3.5 rounded-full border border-stone-300 inline-block" />
+                                        )}
+                                        <span className={hasTitle ? 'text-stone-700 font-bold' : 'text-stone-400'}>Itinerary Title Defined</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        {hasDestinations ? (
+                                            <Check size={14} className="text-emerald-600 stroke-[3]" />
+                                        ) : (
+                                            <span className="size-3.5 rounded-full border border-stone-300 inline-block" />
+                                        )}
+                                        <span className={hasDestinations ? 'text-stone-700 font-bold' : 'text-stone-400'}>Destinations Selected</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        {hasDates ? (
+                                            <Check size={14} className="text-emerald-600 stroke-[3]" />
+                                        ) : (
+                                            <span className="size-3.5 rounded-full border border-stone-300 inline-block" />
+                                        )}
+                                        <span className={hasDates ? 'text-stone-700 font-bold' : 'text-stone-400'}>Start Date Picked</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Launch Action */}
+                            <div className="pt-2">
+                                <button
+                                    onClick={handleNext}
+                                    className="w-full py-3.5 bg-stone-900 hover:bg-stone-800 active:scale-95 text-white font-black text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2"
+                                >
+                                    <span>Continue to Day Planner</span>
+                                    <ArrowRight size={15} />
+                                </button>
+                                <p className="text-[10px] text-stone-400 text-center mt-2 font-medium">
+                                    Step 2: Add hotels, cabs & activities day-by-day
                                 </p>
-                            )}
+                            </div>
                         </div>
                     </div>
-
-                    {/* Gallery Strip Preview */}
-                    {(tripDetails.gallery || []).length > 0 && (
-                        <div className="mt-3 grid grid-cols-4 gap-2">
-                            {(tripDetails.gallery || []).slice(0, 4).map((img, i) => (
-                                <div key={i} className="aspect-square rounded-xl overflow-hidden border border-stone-200 relative">
-                                    <img src={img} alt={`Gallery ${i + 1}`} className="w-full h-full object-cover" />
-                                    {i === 3 && (tripDetails.gallery || []).length > 4 && (
-                                        <div className="absolute inset-0 bg-stone-900/60 flex items-center justify-center">
-                                            <span className="text-white font-black text-sm">+{(tripDetails.gallery || []).length - 4}</span>
-                                        </div>
-                                    )}
-                                </div>
-                            ))}
-                        </div>
-                    )}
                 </div>
             </div>
 
@@ -410,11 +640,17 @@ export const StepTripDetails: React.FC<Props> = ({ onDone }) => {
                         newDests[emptyIdx].locationId = newId;
                         updateTripDetails({ destinations: newDests, destination: emptyIdx === 0 ? newId : tripDetails.destination });
                     } else if (legs.length === 0) {
-                        updateTripDetails({ destinations: [{ locationId: newId, nights: 1, order: 0 }], destination: newId, nights: 1, days: 2 });
+                        const dNights = tripDetails.nights === 0 ? 0 : 1;
+                        updateTripDetails({
+                            destinations: [{ locationId: newId, nights: dNights, order: 0 }],
+                            destination: newId,
+                            nights: dNights,
+                            days: dNights === 0 ? 1 : dNights + 1
+                        });
                     } else {
-                        const newDests = [...legs, { locationId: newId, nights: 1, order: legs.length }];
-                        const totalNights = newDests.reduce((acc, d) => acc + d.nights, 0);
-                        updateTripDetails({ destinations: newDests, nights: totalNights, days: totalNights + 1 });
+                        const newDests = [...legs, { locationId: newId, nights: tripDetails.nights === 0 ? 0 : 1, order: legs.length }];
+                        const totalNights = newDests.reduce((acc, d) => acc + (d.nights || 0), 0);
+                        updateTripDetails({ destinations: newDests, nights: totalNights, days: totalNights === 0 ? 1 : totalNights + 1 });
                     }
                 }}
             />

@@ -11,6 +11,48 @@
 
 export async function runStartupMigrations(pool) {
     try {
+        // ─── Multi-Staff Assignment for Leads & Bookings ───
+        try {
+            await pool.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS assigned_staff_ids JSON DEFAULT NULL`);
+        } catch (e) {
+            try { await pool.query(`ALTER TABLE leads ADD COLUMN assigned_staff_ids JSON DEFAULT NULL`); } catch (_) {}
+        }
+        try {
+            await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS assigned_staff_ids JSON DEFAULT NULL`);
+        } catch (e) {
+            try { await pool.query(`ALTER TABLE bookings ADD COLUMN assigned_staff_ids JSON DEFAULT NULL`); } catch (_) {}
+        }
+        // One-time backfill: if assigned_to is set and assigned_staff_ids is empty/null, initialize as JSON_ARRAY(assigned_to)
+        try {
+            await pool.query(`UPDATE leads SET assigned_staff_ids = JSON_ARRAY(assigned_to) WHERE assigned_to IS NOT NULL AND (assigned_staff_ids IS NULL OR assigned_staff_ids = '[]')`);
+            await pool.query(`UPDATE bookings SET assigned_staff_ids = JSON_ARRAY(assigned_to) WHERE assigned_to IS NOT NULL AND (assigned_staff_ids IS NULL OR assigned_staff_ids = '[]')`);
+            console.log('[Migration] Multi-staff assignment columns verified and backfilled for leads and bookings');
+        } catch (err) {
+            console.warn('[Migration] Multi-staff backfill notice:', err.message);
+        }
+
+        // ─── Enhanced Audit Log Columns (Entity & Staff Accountability) ───
+        try {
+            await pool.query(`ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS staff_id INT DEFAULT NULL`);
+            await pool.query(`ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS staff_name VARCHAR(255) DEFAULT NULL`);
+            await pool.query(`ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS entity_type VARCHAR(50) DEFAULT NULL`);
+            await pool.query(`ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS entity_id VARCHAR(100) DEFAULT NULL`);
+            await pool.query(`ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS changes JSON DEFAULT NULL`);
+        } catch (e) {
+            try { await pool.query(`ALTER TABLE audit_logs ADD COLUMN staff_id INT DEFAULT NULL`); } catch (_) {}
+            try { await pool.query(`ALTER TABLE audit_logs ADD COLUMN staff_name VARCHAR(255) DEFAULT NULL`); } catch (_) {}
+            try { await pool.query(`ALTER TABLE audit_logs ADD COLUMN entity_type VARCHAR(50) DEFAULT NULL`); } catch (_) {}
+            try { await pool.query(`ALTER TABLE audit_logs ADD COLUMN entity_id VARCHAR(100) DEFAULT NULL`); } catch (_) {}
+            try { await pool.query(`ALTER TABLE audit_logs ADD COLUMN changes JSON DEFAULT NULL`); } catch (_) {}
+        }
+        try {
+            await pool.query(`ALTER TABLE audit_logs ADD INDEX IF NOT EXISTS idx_audit_entity (entity_type, entity_id)`);
+        } catch (_) {}
+        try {
+            await pool.query(`ALTER TABLE audit_logs ADD INDEX IF NOT EXISTS idx_audit_staff (staff_id)`);
+        } catch (_) {}
+        console.log('[Migration] audit_logs table columns verified/added: staff_id, staff_name, entity_type, entity_id, changes');
+
         // ─── Tasks: source tracking columns ───
         await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS source VARCHAR(20) NOT NULL DEFAULT 'playbook'`);
         await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS completed_by VARCHAR(100) DEFAULT NULL`);
