@@ -351,8 +351,25 @@ export async function runStartupMigrations(pool) {
             if (!logColNames.includes('auto_clocked_in')) await pool.query("ALTER TABLE attendance_logs ADD COLUMN auto_clocked_in TINYINT(1) NOT NULL DEFAULT 0 AFTER login_count").catch(() => {});
             if (!logColNames.includes('auto_clocked_out')) await pool.query("ALTER TABLE attendance_logs ADD COLUMN auto_clocked_out TINYINT(1) NOT NULL DEFAULT 0 AFTER auto_clocked_in").catch(() => {});
             if (!logColNames.includes('last_activity_time')) await pool.query("ALTER TABLE attendance_logs ADD COLUMN last_activity_time DATETIME DEFAULT NULL AFTER auto_clocked_out").catch(() => {});
+            if (!logColNames.includes('requested_check_in')) await pool.query("ALTER TABLE attendance_logs ADD COLUMN requested_check_in DATETIME DEFAULT NULL AFTER last_activity_time").catch(() => {});
+            if (!logColNames.includes('requested_check_out')) await pool.query("ALTER TABLE attendance_logs ADD COLUMN requested_check_out DATETIME DEFAULT NULL AFTER requested_check_in").catch(() => {});
+            if (!logColNames.includes('regularization_status')) await pool.query("ALTER TABLE attendance_logs ADD COLUMN regularization_status VARCHAR(50) DEFAULT 'None' AFTER requested_check_out").catch(() => {});
+            if (!logColNames.includes('regularization_reason')) await pool.query("ALTER TABLE attendance_logs ADD COLUMN regularization_reason TEXT DEFAULT NULL AFTER regularization_status").catch(() => {});
+            if (!logColNames.includes('regularization_approved_by')) await pool.query("ALTER TABLE attendance_logs ADD COLUMN regularization_approved_by INT DEFAULT NULL AFTER regularization_reason").catch(() => {});
+            if (!logColNames.includes('regularization_approved_at')) await pool.query("ALTER TABLE attendance_logs ADD COLUMN regularization_approved_at DATETIME DEFAULT NULL AFTER regularization_approved_by").catch(() => {});
         } catch (e) {
             console.warn('[Migration Log Columns Error]', e.message);
+        }
+
+        // Safely add missing columns to staff_leaves
+        try {
+            const [leaveCols] = await pool.query("SHOW COLUMNS FROM staff_leaves");
+            const leaveColNames = leaveCols.map(c => c.Field);
+            if (!leaveColNames.includes('rejection_reason')) await pool.query("ALTER TABLE staff_leaves ADD COLUMN rejection_reason TEXT DEFAULT NULL").catch(() => {});
+            if (!leaveColNames.includes('approved_by')) await pool.query("ALTER TABLE staff_leaves ADD COLUMN approved_by INT DEFAULT NULL").catch(() => {});
+            if (!leaveColNames.includes('approval_date')) await pool.query("ALTER TABLE staff_leaves ADD COLUMN approval_date DATETIME DEFAULT NULL").catch(() => {});
+        } catch (e) {
+            console.warn('[Migration Leave Columns Error]', e.message);
         }
 
         // Safely add missing columns to attendance_settings
@@ -361,7 +378,7 @@ export async function runStartupMigrations(pool) {
             const settingColNames = settingCols.map(c => c.Field);
             if (!settingColNames.includes('auto_clockin_on_login')) await pool.query("ALTER TABLE attendance_settings ADD COLUMN auto_clockin_on_login TINYINT(1) NOT NULL DEFAULT 1").catch(() => {});
             if (!settingColNames.includes('idle_threshold_seconds')) await pool.query("ALTER TABLE attendance_settings ADD COLUMN idle_threshold_seconds INT NOT NULL DEFAULT 180").catch(() => {});
-            if (!settingColNames.includes('auto_clockout_idle_minutes')) await pool.query("ALTER TABLE attendance_settings ADD COLUMN auto_clockout_idle_minutes INT NOT NULL DEFAULT 60").catch(() => {});
+            if (!settingColNames.includes('auto_clockout_idle_minutes')) await pool.query("ALTER TABLE attendance_settings ADD COLUMN auto_clockout_idle_minutes INT NOT NULL DEFAULT 5").catch(() => {});
         } catch (e) {
             console.warn('[Migration Settings Columns Error]', e.message);
         }

@@ -96,31 +96,34 @@ export const AttendanceTopWidget: React.FC = () => {
         return `${m}m`;
     };
 
-    // Calculate dynamic worked time
+    // Calculate dynamic worked time: sum of all completed sessions today + live active session duration - breaks
     const workedDurationStr = useMemo(() => {
-        if (!currentAttendance?.checkInTime) return '0m';
-        let mins = currentAttendance.workedMinutes || 0;
-        if (!currentAttendance.checkOutTime) {
-            try {
-                const checkIn = new Date(currentAttendance.checkInTime);
-                if (!isNaN(checkIn.getTime())) {
-                    const elapsed = Math.max(0, Math.floor((currentTime.getTime() - checkIn.getTime()) / 60000));
-                    mins = Math.max(0, elapsed - (currentAttendance.totalBreakMinutes || 0));
+        if (!currentAttendance?.checkInTime && (!currentAttendance?.sessions || currentAttendance.sessions.length === 0)) return '0m';
+        
+        const sessions = currentAttendance?.sessions || [];
+        let totalMins = 0;
 
-                    // If currently on an active break, pause counter by deducting active break time
-                    if (currentAttendance.status === 'On Break' && currentAttendance.breakStartTime) {
-                        const breakStart = new Date(currentAttendance.breakStartTime);
-                        if (!isNaN(breakStart.getTime())) {
-                            const breakElapsed = Math.max(0, Math.floor((currentTime.getTime() - breakStart.getTime()) / 60000));
-                            mins = Math.max(0, mins - breakElapsed);
-                        }
-                    }
+        if (sessions.length > 0) {
+            for (const s of sessions) {
+                const sStart = new Date(s.sessionStart);
+                if (s.sessionEnd) {
+                    const sEnd = new Date(s.sessionEnd);
+                    totalMins += Math.max(0, Math.floor((sEnd.getTime() - sStart.getTime()) / 60000));
+                } else {
+                    totalMins += Math.max(0, Math.floor((currentTime.getTime() - sStart.getTime()) / 60000));
                 }
-            } catch {
-                mins = currentAttendance.workedMinutes || 0;
+            }
+        } else if (currentAttendance?.checkInTime) {
+            if (!currentAttendance.checkOutTime) {
+                const checkIn = new Date(currentAttendance.checkInTime);
+                totalMins = Math.max(0, Math.floor((currentTime.getTime() - checkIn.getTime()) / 60000));
+            } else {
+                totalMins = currentAttendance.workedMinutes || 0;
             }
         }
-        return formatMinsStr(mins);
+
+        const netWorkedMins = Math.max(0, totalMins - (currentAttendance?.totalBreakMinutes || 0));
+        return formatMinsStr(netWorkedMins);
     }, [currentAttendance, currentTime]);
 
     // Active time string
@@ -378,7 +381,7 @@ export const AttendanceTopWidget: React.FC = () => {
                                 <div className="flex items-center gap-1">
                                     <span className="text-[10px] text-slate-400 font-bold uppercase">In:</span>
                                     <span className="font-extrabold text-emerald-600 dark:text-emerald-400">
-                                        {formatTimeStr(currentAttendance?.checkInTime)}
+                                        {formatTimeStr(sessionsList.find(s => !s.sessionEnd)?.sessionStart || currentAttendance?.checkInTime)}
                                     </span>
                                 </div>
                                 <div className="flex items-center gap-1">

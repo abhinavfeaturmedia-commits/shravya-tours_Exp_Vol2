@@ -221,6 +221,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Consolidated Initialization
     const initializeAuth = useCallback(async () => {
         try {
+            // 0. Check for 5-minute inactivity / closed website timeout
+            const lastActiveTs = Number(localStorage.getItem('shrawello_last_active_ts') || 0);
+            if (lastActiveTs > 0 && Date.now() - lastActiveTs >= 5 * 60 * 1000) {
+                console.log('[Auth] User away for > 5 mins, auto-clearing session');
+                localStorage.removeItem(JWT_KEY);
+                localStorage.removeItem('shrawello_last_active_ts');
+                setCurrentUser(null);
+                setLoading(false);
+                return;
+            }
+
             // 1. Check for JWT Token
             const token = localStorage.getItem(JWT_KEY);
             if (token) {
@@ -231,12 +242,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     // Check if token is expired
                     if (payload.exp && payload.exp * 1000 < Date.now()) {
                         localStorage.removeItem(JWT_KEY);
+                        localStorage.removeItem('shrawello_last_active_ts');
                         setCurrentUser(null);
                         setLoading(false);
                         return;
                     }
 
                     if (payload.email) {
+                        localStorage.setItem('shrawello_last_active_ts', String(Date.now()));
                         // Heartbeat: update last_active for this user on every app load
                         // (fire-and-forget — don't block auth init)
                         api.heartbeat().then(hb => {
@@ -277,6 +290,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 } catch (e) {
                     console.error('JWT decode failed:', e);
                     localStorage.removeItem(JWT_KEY);
+                    localStorage.removeItem('shrawello_last_active_ts');
                     setCurrentUser(null);
                 }
             } else {
@@ -329,8 +343,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
             const data = await response.json();
 
-            // Store the JWT token
+            // Store the JWT token & fresh active timestamp
             localStorage.setItem(JWT_KEY, data.token);
+            localStorage.setItem('shrawello_last_active_ts', String(Date.now()));
 
             // If admin bypass user (id 999), use mock admin directly — no DB needed
             if (data.user?.id === 999) {
@@ -394,7 +409,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             console.error("Login exception:", e);
             throw new Error(e.message || "Network error or server unreachable");
         }
-    }, [loadUserProfile, logAuthAction]);
+    }, [loadUserProfile, logAuthAction, mergePermissions]);
 
     // Automatically initialize activityTracker globally whenever an active user is loaded
     useEffect(() => {
@@ -402,6 +417,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             activityTracker.init(currentUser.id, 180);
         }
     }, [currentUser?.id]);
+
+    // Listen for 5-minute inactivity / closed-tab session timeout
+    useEffect(() => {
+        const handleSessionTimeout = async () => {
+            if (!currentUser) return;
+            const userEmail = currentUser.email || 'Unknown User';
+            try {
+                await activityTracker.endSession('inactivity_timeout', true);
+            } catch (_) {}
+            localStorage.removeItem(STORAGE_KEY_MOCK);
+            localStorage.removeItem(JWT_KEY);
+            localStorage.removeItem('shrawello_last_active_ts');
+            setCurrentUser(null);
+            logAuthAction('Inactivity Timeout', 'Authentication', `User ${userEmail} automatically clocked out & logged off after 5 min inactivity`, userEmail).catch(console.error);
+        };
+
+        window.addEventListener('shrawello:session-timeout', handleSessionTimeout);
+        return () => window.removeEventListener('shrawello:session-timeout', handleSessionTimeout);
+    }, [currentUser, logAuthAction]);
 
     const logout = useCallback(async () => {
         const userEmail = currentUser?.email || 'Unknown User';
@@ -413,6 +447,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         localStorage.removeItem(STORAGE_KEY_MOCK);
         localStorage.removeItem(JWT_KEY);
+        localStorage.removeItem('shrawello_last_active_ts');
         setCurrentUser(null);
         logAuthAction('Logout', 'Authentication', `User ${userEmail} logged out`, userEmail).catch(console.error);
     }, [currentUser, logAuthAction]);

@@ -282,15 +282,17 @@ const WizardContent: React.FC = () => {
     );
 };
 
-// ─── Named export wrapper (handles edit-mode loading) ─────────────────────────
+// ─── Named export wrapper (handles edit-mode loading & lead context prefill) ──
 export const ItineraryWizard: React.FC = () => {
     const [searchParams] = useSearchParams();
-    const { packages, masterLocations } = useData();
-    const { loadPackage } = useItinerary();
+    const { packages, masterLocations, leads } = useData();
+    const { loadPackage, updateTripDetails } = useItinerary();
     const [isLoaded, setIsLoaded] = useState(false);
 
     useEffect(() => {
         const editId = searchParams.get('edit');
+        const leadId = searchParams.get('leadId');
+
         if (editId && !isLoaded) {
             // Fetch the full package record (with builder_data) — the global list omits it for performance
             api.getPackageById(editId)
@@ -304,8 +306,23 @@ export const ItineraryWizard: React.FC = () => {
                     if (pkgToEdit) loadPackage(pkgToEdit, masterLocations || []);
                 })
                 .finally(() => setIsLoaded(true));
+        } else if (leadId && !isLoaded && leads.length > 0) {
+            const lead = leads.find(l => l.id === leadId);
+            if (lead) {
+                updateTripDetails({
+                    title: `Trip to ${lead.destination || 'Custom Tour'}`,
+                    destination: lead.destination || '',
+                    clientName: lead.name,
+                    clientId: lead.id,
+                    startDate: lead.startDate || new Date().toISOString().split('T')[0],
+                    adults: lead.paxAdult !== undefined ? lead.paxAdult : 2,
+                    children: lead.paxChild !== undefined ? lead.paxChild : 0,
+                    itineraryStatus: 'Draft'
+                });
+                setIsLoaded(true);
+            }
         }
-    }, [searchParams, packages, loadPackage, isLoaded]);
+    }, [searchParams, packages, masterLocations, leads, loadPackage, updateTripDetails, isLoaded]);
 
     return <WizardContent />;
 };

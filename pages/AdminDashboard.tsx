@@ -11,7 +11,7 @@ export const AdminDashboard: React.FC = () => {
     const navigate = useNavigate();
     const {
         bookings: globalBookings, packages, leads: globalLeads, masterLocations, masterHotels, masterActivities,
-        tasks, followUps, customers, getActiveMembershipForCustomer
+        tasks, followUps, customers, getActiveMembershipForCustomer, expenses = []
     } = useData();
     const { currentUser, staff } = useAuth();
     const [greeting, setGreeting] = useState('');
@@ -20,7 +20,12 @@ export const AdminDashboard: React.FC = () => {
     const [deletionRequests, setDeletionRequests] = useState<any[]>([]);
     const [isProcessingDel, setIsProcessingDel] = useState<string | null>(null);
     const [isAlertsExpanded, setIsAlertsExpanded] = useState(false);
+    const [unlinkedTransactions, setUnlinkedTransactions] = useState<any[]>(() => api.getUnlinkedTransactions());
     const today = new Date().toISOString().split('T')[0];
+
+    useEffect(() => {
+        setUnlinkedTransactions(api.getUnlinkedTransactions());
+    }, []);
 
     useEffect(() => {
         if (currentUser?.userType === 'Admin') {
@@ -87,12 +92,20 @@ export const AdminDashboard: React.FC = () => {
         return Math.max(0, paid - refunded);
     };
 
-    // Revenue = sum of verified payments received
-    const totalRevenue = useMemo(() =>
-        bookings
+    // Unlinked verified bank deposits (not tied to specific booking rows)
+    const unlinkedVerifiedSum = useMemo(() => {
+        return (unlinkedTransactions || [])
+            .filter(t => t.type === 'Payment' && t.status === 'Verified')
+            .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+    }, [unlinkedTransactions]);
+
+    // Revenue = sum of verified payments received on bookings + unlinked verified bank deposits
+    const totalRevenue = useMemo(() => {
+        const bookingRevenue = bookings
             .filter(b => b.status !== 'Cancelled')
-            .reduce((acc, b) => acc + getNetPaid(b), 0),
-    [bookings]);
+            .reduce((acc, b) => acc + getNetPaid(b), 0);
+        return bookingRevenue + unlinkedVerifiedSum;
+    }, [bookings, unlinkedVerifiedSum]);
 
     // Total booking value (invoice total, for reference)
     const totalBookingValue = bookings
@@ -397,8 +410,16 @@ export const AdminDashboard: React.FC = () => {
             }
         });
 
+        // Add unpaid/pending office OPEX to payables
+        (expenses || []).forEach(exp => {
+            if (exp.status === 'Cancelled' || exp.status === 'Rejected') return;
+            if (exp.status === 'Pending' || exp.status === 'Unpaid') {
+                payables += Number(exp.amount) || 0;
+            }
+        });
+
         return { receivables, payables };
-    }, [bookings]);
+    }, [bookings, expenses]);
 
     const netWorkingCapital = financialHealth.receivables - financialHealth.payables;
 
@@ -439,6 +460,8 @@ export const AdminDashboard: React.FC = () => {
             revenue: 0,
             bookingValue: 0,
             vendorCosts: 0,
+            opex: 0,
+            grossProfit: 0,
             netProfit: 0,
             bookings: 0,
             monthIndex: months.indexOf(m)
@@ -447,6 +470,7 @@ export const AdminDashboard: React.FC = () => {
         let totalYearCollected = 0;
         let totalYearInvoiced = 0;
         let totalYearVendorCosts = 0;
+        let totalYearOpex = 0;
         let prevYearCollected = 0;
 
         bookings.forEach(b => {
@@ -467,7 +491,6 @@ export const AdminDashboard: React.FC = () => {
                 monthlyData[month].revenue += paid;
                 monthlyData[month].bookingValue += (b.amount || 0);
                 monthlyData[month].vendorCosts += vCost;
-                monthlyData[month].netProfit += Math.max(0, (b.amount || 0) - vCost);
                 monthlyData[month].bookings += 1;
 
                 totalYearCollected += paid;
@@ -477,6 +500,48 @@ export const AdminDashboard: React.FC = () => {
                 prevYearCollected += paid;
             }
         });
+
+        // Add verified unlinked bank transactions
+        (unlinkedTransactions || []).forEach(tx => {
+            if (tx.type !== 'Payment' || tx.status !== 'Verified') return;
+            const txDate = tx.date || tx.payment_date || tx.created_at;
+            if (!txDate) return;
+            const d = new Date(txDate);
+            const txYear = d.getFullYear();
+            const month = d.getMonth();
+            const amt = Number(tx.amount) || 0;
+
+            if (txYear === targetYear) {
+                monthlyData[month].revenue += amt;
+                totalYearCollected += amt;
+            } else if (txYear === prevYear) {
+                prevYearCollected += amt;
+            }
+        });
+
+        // Add operating expenses (OPEX)
+        (expenses || []).forEach(exp => {
+            if (exp.status === 'Cancelled' || exp.status === 'Rejected') return;
+            if (!exp.date) return;
+            const d = new Date(exp.date);
+            const expYear = d.getFullYear();
+            const month = d.getMonth();
+            const amt = Number(exp.amount) || 0;
+
+            if (expYear === targetYear) {
+                monthlyData[month].opex += amt;
+                totalYearOpex += amt;
+            }
+        });
+
+        // Calculate Gross Trip Margin & True Net Profit for each month
+        monthlyData.forEach(m => {
+            m.grossProfit = Math.max(0, m.bookingValue - m.vendorCosts);
+            m.netProfit = m.grossProfit - m.opex;
+        });
+
+        const totalYearGrossProfit = Math.max(0, totalYearInvoiced - totalYearVendorCosts);
+        const totalYearNetProfit = totalYearGrossProfit - totalYearOpex;
 
         const yoyGrowth = prevYearCollected > 0
             ? Math.round(((totalYearCollected - prevYearCollected) / prevYearCollected) * 100)
@@ -496,22 +561,27 @@ export const AdminDashboard: React.FC = () => {
             totalYearCollected,
             totalYearInvoiced,
             totalYearVendorCosts,
+            totalYearOpex,
+            totalYearGrossProfit,
+            totalYearNetProfit,
             yoyGrowth,
             collectionEfficiency,
             peakMonth,
             targetYear
         };
-    }, [bookings, selectedYear]);
+    }, [bookings, expenses, unlinkedTransactions, selectedYear]);
 
     const revenueData = revenueAnalytics.monthlyData;
 
     const handleExportRevenueCSV = () => {
-        const headers = ['Month', 'Cash Collected (INR)', 'Gross Invoiced (INR)', 'Vendor Dues (INR)', 'Est Net Profit (INR)', 'Bookings Count'];
+        const headers = ['Month', 'Cash Collected (INR)', 'Gross Invoiced (INR)', 'Vendor Costs (INR)', 'Office OPEX (INR)', 'Gross Margin (INR)', 'True Net Profit (INR)', 'Bookings Count'];
         const rows = revenueData.map(d => [
             d.name,
             d.revenue,
             d.bookingValue,
             d.vendorCosts,
+            d.opex,
+            d.grossProfit,
             d.netProfit,
             d.bookings
         ]);
@@ -540,7 +610,7 @@ export const AdminDashboard: React.FC = () => {
             const d = payload[0].payload;
             const eff = d.bookingValue > 0 ? Math.min(100, Math.round((d.revenue / d.bookingValue) * 100)) : 100;
             return (
-                <div className="bg-slate-900/95 dark:bg-slate-900/95 backdrop-blur-xl p-4 rounded-2xl border border-slate-700/80 shadow-2xl text-white z-50 min-w-[240px] animate-in fade-in zoom-in-95">
+                <div className="bg-slate-900/95 dark:bg-slate-900/95 backdrop-blur-xl p-4 rounded-2xl border border-slate-700/80 shadow-2xl text-white z-50 min-w-[250px] animate-in fade-in zoom-in-95">
                     <div className="flex items-center justify-between border-b border-slate-700/60 pb-2 mb-3">
                         <p className="font-bold text-sm tracking-wide text-indigo-300">{label} {revenueAnalytics.targetYear}</p>
                         <span className="text-[10px] font-extrabold bg-indigo-500/30 text-indigo-200 px-2 py-0.5 rounded-full border border-indigo-500/30">
@@ -565,15 +635,35 @@ export const AdminDashboard: React.FC = () => {
                             <span className="font-bold text-amber-300">{formatPrice(d.bookingValue)}</span>
                         </div>
 
-                        {d.netProfit > 0 && (
+                        {d.vendorCosts > 0 && (
                             <div className="flex items-center justify-between gap-4">
                                 <span className="flex items-center gap-1.5 text-slate-300">
-                                    <span className="size-2.5 rounded-full bg-emerald-400 ring-2 ring-emerald-400/30"></span>
-                                    <span>Est. Net Margin</span>
+                                    <span className="size-2.5 rounded-full bg-slate-400 ring-2 ring-slate-400/30"></span>
+                                    <span>Vendor Dues</span>
                                 </span>
-                                <span className="font-bold text-emerald-400">{formatPrice(d.netProfit)}</span>
+                                <span className="font-medium text-slate-300">{formatPrice(d.vendorCosts)}</span>
                             </div>
                         )}
+
+                        {d.opex > 0 && (
+                            <div className="flex items-center justify-between gap-4">
+                                <span className="flex items-center gap-1.5 text-slate-300">
+                                    <span className="size-2.5 rounded-full bg-rose-400 ring-2 ring-rose-400/30"></span>
+                                    <span>Office OPEX</span>
+                                </span>
+                                <span className="font-bold text-rose-400">-{formatPrice(d.opex)}</span>
+                            </div>
+                        )}
+
+                        <div className="flex items-center justify-between gap-4 pt-1 border-t border-slate-800/60">
+                            <span className="flex items-center gap-1.5 text-slate-300">
+                                <span className="size-2.5 rounded-full bg-emerald-400 ring-2 ring-emerald-400/30"></span>
+                                <span>True Net Profit</span>
+                            </span>
+                            <span className={`font-black ${d.netProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                {formatPrice(d.netProfit)}
+                            </span>
+                        </div>
 
                         <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-[10px] text-slate-400">
                             <span>Collection Rate</span>
@@ -1033,7 +1123,7 @@ export const AdminDashboard: React.FC = () => {
                         </div>
 
                         {/* Executive Metric Highlights Strip */}
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 bg-slate-50/70 dark:bg-slate-800/40 p-3.5 rounded-2xl border border-slate-100 dark:border-slate-800/60">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 bg-slate-50/70 dark:bg-slate-800/40 p-3.5 rounded-2xl border border-slate-100 dark:border-slate-800/60">
                             <div>
                                 <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Collected Cash</p>
                                 <p className="text-base font-black text-indigo-600 dark:text-indigo-400 mt-0.5">
@@ -1047,17 +1137,25 @@ export const AdminDashboard: React.FC = () => {
                                 </p>
                             </div>
                             <div>
-                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Collection Efficiency</p>
-                                <p className="text-base font-black text-emerald-500 mt-0.5">
-                                    {revenueAnalytics.collectionEfficiency}%
+                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Office OPEX</p>
+                                <p className="text-base font-black text-rose-500 mt-0.5">
+                                    {formatPriceCompact(revenueAnalytics.totalYearOpex)}
                                 </p>
                             </div>
                             <div>
-                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Peak Month</p>
-                                <p className="text-xs font-bold text-slate-800 dark:text-slate-200 mt-1 flex items-center gap-1">
-                                    <span className="bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 px-1.5 py-0.5 rounded font-black text-[10px]">{revenueAnalytics.peakMonth.name}</span>
-                                    <span>{formatPriceCompact(revenueAnalytics.peakMonth.revenue)}</span>
+                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider">True Net Profit</p>
+                                <p className={`text-base font-black mt-0.5 ${revenueAnalytics.totalYearNetProfit >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                                    {formatPriceCompact(revenueAnalytics.totalYearNetProfit)}
                                 </p>
+                            </div>
+                            <div>
+                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Efficiency & Peak</p>
+                                <div className="flex items-center gap-1.5 mt-1">
+                                    <span className="text-xs font-black text-emerald-500">{revenueAnalytics.collectionEfficiency}%</span>
+                                    <span className="bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 px-1.5 py-0.5 rounded font-black text-[10px]">
+                                        {revenueAnalytics.peakMonth.name} ({formatPriceCompact(revenueAnalytics.peakMonth.revenue)})
+                                    </span>
+                                </div>
                             </div>
                         </div>
 
@@ -1125,15 +1223,26 @@ export const AdminDashboard: React.FC = () => {
                                     )}
 
                                     {chartMetricMode === 'profit' && (
-                                        <Area 
-                                            type="monotone" 
-                                            dataKey="netProfit" 
-                                            stroke="#10b981" 
-                                            strokeWidth={3}
-                                            fillOpacity={1} 
-                                            fill="url(#colorProfit)" 
-                                            activeDot={{ r: 7, strokeWidth: 2, stroke: '#ffffff', fill: '#10b981' }}
-                                        />
+                                        <>
+                                            <Line 
+                                                type="monotone" 
+                                                dataKey="grossProfit" 
+                                                stroke="#3b82f6" 
+                                                strokeWidth={2}
+                                                strokeDasharray="4 4"
+                                                dot={{ r: 3, fill: '#3b82f6' }}
+                                                activeDot={{ r: 6, strokeWidth: 2, stroke: '#ffffff', fill: '#3b82f6' }}
+                                            />
+                                            <Area 
+                                                type="monotone" 
+                                                dataKey="netProfit" 
+                                                stroke="#10b981" 
+                                                strokeWidth={3}
+                                                fillOpacity={1} 
+                                                fill="url(#colorProfit)" 
+                                                activeDot={{ r: 7, strokeWidth: 2, stroke: '#ffffff', fill: '#10b981' }}
+                                            />
+                                        </>
                                     )}
                                 </ComposedChart>
                             </ResponsiveContainer>

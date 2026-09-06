@@ -10,7 +10,7 @@ export const InboxApprovalsHub: React.FC = () => {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
   const { allItems, counts, toggleStar, handleApprove, handleReject, handleSendBack, refetchAll } = useInboxHub();
-  const { updateBooking, addTask, masterTransports, vendors } = useData();
+  const { updateBooking, addTask, masterTransports, vendors, addSupplierBooking } = useData();
 
   // Navigation State
   const [currentFolder, setCurrentFolder] = useState<InboxFolder>('inbox');
@@ -187,29 +187,25 @@ export const InboxApprovalsHub: React.FC = () => {
       if (activeItem.category === 'operations' && activeItem.type.includes('Driver Allocation')) {
         if (driverNameInput || driverPhoneInput || vehicleNumberInput) {
           const cost = Number(vendorCostInput) || 0;
-          updateBooking(activeItem.originalId, {
-            supplierBookings: [
-              ...(activeItem.metadata.supplierBookings || []),
-              {
-                id: `SB-${Date.now()}`,
-                bookingId: activeItem.originalId,
-                vendorId: selectedVendorId || 'DIRECT-CAB',
-                serviceType: 'Transport',
-                driverName: driverNameInput,
-                driverPhone: driverPhoneInput,
-                vehicleNumber: vehicleNumberInput,
-                cost: cost,
-                paidAmount: 0,
-                paymentStatus: 'Pending',
-                bookingStatus: 'Confirmed'
-              }
-            ]
-          });
-          toast.success(`Driver ${driverNameInput || 'allocated'} assigned to booking!`);
+          await addSupplierBooking(activeItem.originalId, {
+            id: `SB-${Date.now()}`,
+            bookingId: activeItem.originalId,
+            vendorId: selectedVendorId || 'DIRECT-CAB',
+            serviceType: 'Transport',
+            driverName: driverNameInput,
+            driverPhone: driverPhoneInput,
+            vehicleNumber: vehicleNumberInput,
+            cost: cost,
+            paidAmount: 0,
+            paymentStatus: 'Pending',
+            bookingStatus: 'Confirmed',
+            notes: decisionNote || 'Driver assigned via Inbox & Approvals Hub'
+          } as any);
         }
       }
 
-      await handleApprove(activeItem, decisionNote);
+      const noteToPass = decisionNote || (driverNameInput ? `Driver ${driverNameInput}${vehicleNumberInput ? ` (${vehicleNumberInput})` : ''} assigned` : undefined);
+      await handleApprove(activeItem, noteToPass);
       setDecisionNote('');
       setDriverNameInput('');
       setDriverPhoneInput('');
@@ -261,15 +257,30 @@ export const InboxApprovalsHub: React.FC = () => {
     if (!confirm(`Are you sure you want to approve ${selectedIds.length} selected request(s)?`)) return;
 
     setIsProcessing(true);
+    let successCount = 0;
+    let failCount = 0;
+    const errors: string[] = [];
+
     try {
       for (const id of selectedIds) {
         const item = allItems.find(x => x.id === id);
         if (item) {
-          await handleApprove(item, 'Batch approved via Inbox Hub');
+          try {
+            await handleApprove(item, 'Batch approved via Inbox Hub');
+            successCount++;
+          } catch (err: any) {
+            failCount++;
+            errors.push(err.message || `Item ${id}`);
+          }
         }
       }
       setSelectedIds([]);
-      toast.success(`${selectedIds.length} requests approved successfully!`);
+      if (failCount === 0) {
+        toast.success(`All ${successCount} requests authorized successfully!`);
+      } else {
+        toast.warning(`${successCount} requests authorized, ${failCount} failed.`);
+      }
+      refetchAll();
     } finally {
       setIsProcessing(false);
     }

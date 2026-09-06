@@ -944,7 +944,7 @@ export const StaffManagement: React.FC = () => {
 
                                         <div className="flex items-center gap-1">
                                             <Link
-                                                to="/admin/attendance"
+                                                to={`/admin/attendance?staffId=${selectedMember.id}`}
                                                 className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-lg transition-colors flex items-center justify-center"
                                                 title="View Attendance & Roster"
                                             >

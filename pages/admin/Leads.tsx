@@ -698,8 +698,23 @@ export const Leads: React.FC = () => {
                 notes: inheritedCustomerNotes,
                 preferences: parsedLeadPrefs
             };
-            addCustomer?.(newCustomer);
-            targetCustomerId = newCustomerId;
+            try {
+                const createdCustomer = await addCustomer(newCustomer);
+                if (createdCustomer?.id) {
+                    targetCustomerId = createdCustomer.id;
+                } else {
+                    targetCustomerId = newCustomerId;
+                }
+            } catch (custErr: any) {
+                console.warn('[Lead Conversion] Customer add note:', custErr.message);
+                const cleanEmail = selectedLead.email?.trim().toLowerCase();
+                const matched = customers.find(c => c.email && c.email.trim().toLowerCase() === cleanEmail);
+                if (matched) {
+                    targetCustomerId = matched.id;
+                } else {
+                    targetCustomerId = newCustomerId;
+                }
+            }
         }
 
         const parsedPax = parsePaxString(selectedLead.travelers);
@@ -2451,6 +2466,7 @@ export const Leads: React.FC = () => {
                                     )}
                                     {/* ─────────────────────────── */}
                                     <button onClick={handleCreateQuotation} className="w-full py-3 mt-3 rounded-xl bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200 font-bold text-sm hover:bg-slate-200 dark:hover:bg-slate-700 flex items-center justify-center gap-2 transition-all border border-slate-200 dark:border-slate-700"><FileText size={16} /> Create Quotation</button>
+                                    <button onClick={() => navigate(`/admin/itinerary-builder?leadId=${selectedLead.id}`)} className="w-full py-3 mt-2 rounded-xl bg-amber-500/10 text-amber-700 dark:text-amber-400 font-bold text-sm hover:bg-amber-500/20 flex items-center justify-center gap-2 transition-all border border-amber-500/30"><MapPin size={16} /> Build Custom Itinerary</button>
                                 </>
                             )}</div>
 

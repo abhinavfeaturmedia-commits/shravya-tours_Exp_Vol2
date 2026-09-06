@@ -202,7 +202,7 @@ export function createPermissionGuard(pool) {
         }
 
         try {
-            const { permissions, isAdmin } = await getStaffPermissionsAndScope(pool, req.user?.email);
+            const { permissions, isAdmin, queryScope } = await getStaffPermissionsAndScope(pool, req.user?.email);
             if (isAdmin) {
                 return next();
             }
@@ -217,13 +217,16 @@ export function createPermissionGuard(pool) {
             if (action === 'manage') {
                 const myDataTables = ['leads', 'bookings', 'follow_ups', 'tasks'];
                 if (myDataTables.includes(table)) {
-                    if ((method === 'PUT' || method === 'DELETE') && req.params.id) {
-                        const [existing] = await pool.query(`SELECT assigned_to FROM \`${table}\` WHERE id = ?`, [req.params.id]);
-                        if (existing.length > 0) {
-                            const owner = String(existing[0].assigned_to || '');
-                            const staffId = String(req.user.staffId || '');
-                            if (owner && owner !== staffId) {
-                                return res.status(403).json({ error: `Unauthorized: You cannot modify records outside your ownership scope.` });
+                    // Only restrict if staff has restricted query scope (not 'Show All Queries' or 'Global')
+                    if (queryScope !== 'Show All Queries' && queryScope !== 'Global') {
+                        if ((method === 'PUT' || method === 'DELETE') && req.params.id) {
+                            const [existing] = await pool.query(`SELECT assigned_to FROM \`${table}\` WHERE id = ?`, [req.params.id]);
+                            if (existing.length > 0) {
+                                const owner = String(existing[0].assigned_to || '');
+                                const staffId = String(req.user.staffId || '');
+                                if (owner && owner !== staffId) {
+                                    return res.status(403).json({ error: `Unauthorized: You cannot modify records outside your ownership scope.` });
+                                }
                             }
                         }
                     }

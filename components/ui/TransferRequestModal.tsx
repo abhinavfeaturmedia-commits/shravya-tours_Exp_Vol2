@@ -37,7 +37,7 @@ export const TransferRequestModal: React.FC<TransferRequestModalProps> = ({
 
     // Filter out current owner & inactive staff
     const eligibleStaff = staffList.filter(s => 
-        s.status === 'Active' && 
+        (s.status === 'Active' || !s.status) && 
         String(s.id) !== String(currentAssigneeId)
     );
 

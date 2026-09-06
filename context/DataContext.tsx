@@ -9,7 +9,7 @@ import {
   FollowUp, MasterRoomType, MasterMealPlan, MasterLeadSource, MasterTermsTemplate, SupplierBooking, BookingTransaction, Proposal,
   CMSBanner, CMSTestimonial, CMSGalleryImage, CMSPost, TrendingDestination, OfferBanner,
   Task, DailyTarget, UserActivity, TimeSession, AssignmentRule,
-  MembershipPlan, CustomerMembership, Coupon
+  MembershipPlan, CustomerMembership, Coupon, Expense
 } from '../types';
 import { DeletionRequestModal } from '../components/ui/DeletionRequestModal';
 import { useAuth } from './AuthContext';
@@ -256,6 +256,7 @@ interface DataContextType {
   vendors: Vendor[];
   accounts: Account[];
   campaigns: Campaign[];
+  expenses: Expense[];
 
   // Master Data State
   masterLocations: MasterLocation[];
@@ -454,6 +455,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
   const [masterLocations, setMasterLocations] = useState<MasterLocation[]>(() => loadFromStorageNonEmpty(`${STORAGE_KEY}_m_locations`, INITIAL_MASTER_LOCATIONS));
 
   useEffect(() => {
@@ -562,8 +564,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           api.getCustomers().catch(() => []),
           api.getFollowUps().catch(() => []),
           api.getInventory().catch(() => ({})),
-          api.getVendors().catch(() => [])
-        ]) : Promise.resolve([[], [], [], [], {}, []])
+          api.getVendors().catch(() => []),
+          api.getExpenses().catch(() => [])
+        ]) : Promise.resolve([[], [], [], [], {}, [], []])
       ]);
 
       const bulkRes: Record<string, any[]> = (bulkDataRaw || {}) as Record<string, any[]>;
@@ -591,13 +594,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // 2. Populate Authenticated State
       if (hasToken) {
-        const [b, l, c, fups, inv, vends] = specializedAuthData;
+        const [b, l, c, fups, inv, vends, exps] = specializedAuthData;
         setBookings(b);
         setLeads(l);
         setCustomers(c);
         setFollowUps(fups);
         if (inv && Object.keys(inv).length > 0) setInventory(inv);
         if (Array.isArray(vends)) setVendors(vends);
+        if (Array.isArray(exps)) setExpenses(exps);
         if (bulkRes.accounts) setAccounts((bulkRes.accounts as any[]).map(api.mapAccount));
         if (bulkRes.campaigns) setCampaigns(bulkRes.campaigns);
         if (bulkRes.tasks) setTasks(bulkRes.tasks.map(api.mapTask));
@@ -2248,7 +2252,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [bookings]);
 
   const value = useMemo(() => ({
-    packages, bookings, leads, inventory, vendors, accounts, campaigns, auditLogs, logAction, customers,
+    packages, bookings, leads, inventory, vendors, accounts, campaigns, auditLogs, logAction, customers, expenses,
     masterLocations, masterHotels, masterActivities, masterTransports, masterPlans,
     masterRoomTypes, masterMealPlans, masterLeadSources, masterTermsTemplates,
     followUps, addFollowUp, updateFollowUp, deleteFollowUp, getFollowUpsByLeadId,
@@ -2383,6 +2387,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     coupons, addCoupon, updateCoupon, deleteCoupon, applyCoupon, detachCoupon,
     // Trending Destinations deps
     trendingDestinations,
+    expenses,
     refreshData
   ]);
 

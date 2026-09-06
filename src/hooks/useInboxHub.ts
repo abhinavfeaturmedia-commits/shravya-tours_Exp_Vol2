@@ -159,6 +159,13 @@ export const useInboxHub = () => {
     refetchInterval: 30000,
   });
 
+  // Fetch pending attendance regularizations
+  const { data: regularizations = [], refetch: refetchRegularizations } = useQuery<any[]>({
+    queryKey: ['staff-regularizations'],
+    queryFn: () => api.getPendingRegularizations().catch(() => []),
+    refetchInterval: 30000,
+  });
+
   // Fetch KYC submissions
   const { data: kycRecords = [], refetch: refetchKyc } = useQuery<any[]>({
     queryKey: ['admin-kyc-records'],
@@ -265,7 +272,7 @@ export const useInboxHub = () => {
         createdAt: tr.created_at || new Date().toISOString(),
         timeAgo: formatRelativeTime(tr.created_at),
         starred: isStarred,
-        deepLinkUrl: '/admin/leads',
+        deepLinkUrl: tr.item_type === 'Booking' ? '/admin/bookings' : '/admin/leads',
         metadata: {
           ...tr
         },
@@ -319,7 +326,7 @@ export const useInboxHub = () => {
         createdAt: createdAt,
         timeAgo: formatRelativeTime(createdAt),
         starred: isStarred,
-        deepLinkUrl: '/admin/hr',
+        deepLinkUrl: '/admin/attendance',
         metadata: {
           ...raw,
           staffName,
@@ -335,6 +342,51 @@ export const useInboxHub = () => {
           canApprove: isPending,
           canReject: isPending,
           canSendBack: isPending
+        }
+      });
+    });
+
+    // 3b. ⏰ HR: Attendance Regularization Requests
+    regularizations.forEach(reg => {
+      const isPending = reg.regularization_status === 'Requested';
+      if (!isPending) return;
+
+      const isStarred = starredIds.includes(`reg_${reg.id}`);
+      const staffName = reg.staff_name || `Staff #${reg.staff_id}`;
+      const reqIn = reg.requested_check_in ? new Date(reg.requested_check_in).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }) : '09:30 AM';
+      const reqOut = reg.requested_check_out ? new Date(reg.requested_check_out).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }) : '06:30 PM';
+
+      items.push({
+        id: `reg_${reg.id}`,
+        originalId: reg.id,
+        category: 'hr',
+        categoryLabel: 'Staff & Attendance',
+        type: 'Attendance Regularization',
+        title: `Regularization: ${staffName}`,
+        subtitle: `Date: ${reg.date} • In: ${reqIn} / Out: ${reqOut} • Note: "${reg.regularization_reason || 'Missed punch'}"`,
+        requesterName: staffName,
+        requesterEmail: reg.staff_email,
+        requesterInitials: reg.initials || 'ST',
+        avatarColor: reg.color || 'bg-amber-600',
+        activityIcon: 'edit_calendar',
+        iconBgColor: 'bg-amber-500 text-white',
+        referenceCode: `REG-${String(reg.id).substring(0, 8)}`,
+        priority: 'High',
+        status: 'Pending',
+        createdAt: reg.created_at || new Date().toISOString(),
+        timeAgo: formatRelativeTime(reg.created_at),
+        starred: isStarred,
+        deepLinkUrl: `/admin/attendance?staffId=${reg.staff_id}`,
+        metadata: {
+          ...reg,
+          staffName,
+          reqIn,
+          reqOut
+        },
+        actions: {
+          canApprove: true,
+          canReject: true,
+          canSendBack: true
         }
       });
     });
@@ -536,7 +588,7 @@ export const useInboxHub = () => {
           createdAt: p.created_at || new Date().toISOString(),
           timeAgo: formatRelativeTime(p.created_at),
           starred: isStarred,
-          deepLinkUrl: '/admin/b2b-partners',
+          deepLinkUrl: '/admin/partners',
           metadata: {
             ...p
           },
@@ -573,7 +625,7 @@ export const useInboxHub = () => {
           createdAt: kyc.kyc_submitted_at || new Date().toISOString(),
           timeAgo: formatRelativeTime(kyc.kyc_submitted_at),
           starred: isStarred,
-          deepLinkUrl: '/admin/b2b-partners',
+          deepLinkUrl: '/admin/partners',
           metadata: {
             ...kyc
           },
@@ -610,6 +662,24 @@ export const useInboxHub = () => {
         // Clean title (strip redundant "Task:" prefix if already present)
         const cleanTitle = t.title.replace(/^Task:\s*/i, '');
 
+        // Dynamic cross-linking & target entity resolution
+        let deepLinkUrl = '/admin/productivity';
+        let linkedEntityDisplay = assignedToName || 'Staff Task';
+
+        if (t.relatedBookingId) {
+          deepLinkUrl = '/admin/bookings';
+          const bk = bookings.find(b => b.id === t.relatedBookingId);
+          if (bk) {
+            linkedEntityDisplay = `${bk.customer} (${bk.invoiceNo || (bk.bookingNumber ? `BK-${String(bk.bookingNumber).padStart(4, '0')}` : bk.id.substring(0, 8))})`;
+          }
+        } else if (t.relatedLeadId) {
+          deepLinkUrl = '/admin/leads';
+          const ld = leads.find(l => l.id === t.relatedLeadId);
+          if (ld) {
+            linkedEntityDisplay = `${ld.name} (${ld.leadNumber ? `LD-${String(ld.leadNumber).padStart(4, '0')}` : ld.id.substring(0, 8)})`;
+          }
+        }
+
         items.push({
           id: `task_${t.id}`,
           originalId: t.id,
@@ -630,12 +700,12 @@ export const useInboxHub = () => {
           dueAt: t.dueDate,
           timeAgo: formatRelativeTime(t.createdAt),
           starred: isStarred,
-          deepLinkUrl: '/admin/productivity',
+          deepLinkUrl: deepLinkUrl,
           metadata: {
             ...t,
             cleanTitle,
             assignedByName,
-            assignedToName
+            assignedToName: linkedEntityDisplay
           },
           actions: {
             canApprove: true,
@@ -658,7 +728,7 @@ export const useInboxHub = () => {
       if (pDiff !== 0) return pDiff;
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
-  }, [transactions, transfers, leaves, bookings, followUps, leads, partners, kycRecords, tasks, starredIds]);
+  }, [transactions, transfers, leaves, regularizations, bookings, followUps, leads, partners, kycRecords, tasks, starredIds]);
 
   // Folder Counts
   const counts = useMemo(() => {
@@ -697,39 +767,96 @@ export const useInboxHub = () => {
         await api.updateStaffLeaveStatus(item.originalId, { status: 'Approved' });
         await refetchLeaves();
         toast.success(`Leave request approved!`);
+      } else if (item.category === 'hr' && item.type.includes('Regularization')) {
+        await api.updateRegularizationStatus(item.originalId, { status: 'Approved' });
+        await refetchRegularizations();
+        toast.success(`Attendance regularization approved!`);
       } else if (item.category === 'partner_kyc' && item.type.includes('KYC')) {
-        const res = await fetch(`${API_BASE}/api/admin/kyc/${item.originalId}/verify`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+        const res = await fetch(`${API_BASE}/api/admin/partners/${item.originalId}/kyc`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ action: 'verify' })
         });
-        if (!res.ok) throw new Error('Failed to verify KYC');
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || 'Failed to verify KYC');
+        }
         await refetchKyc();
         toast.success(`Partner KYC verified!`);
       } else if (item.category === 'partner_kyc' && item.type.includes('Partner')) {
         const res = await fetch(`${API_BASE}/api/admin/partners/${item.originalId}/approve`, {
-          method: 'POST',
+          method: 'PATCH',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
         });
-        if (!res.ok) throw new Error('Failed to activate partner');
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || 'Failed to activate partner');
+        }
         await refetchPartners();
         toast.success(`Partner account activated!`);
       } else if (item.category === 'crm' && item.type.includes('Follow-up')) {
         updateFollowUp(item.originalId, { status: 'Done', completedAt: new Date().toISOString() });
         toast.success(`Follow-up marked as completed!`);
       } else if (item.category === 'tasks' || (item.category === 'hr' && item.type.includes('Task'))) {
-        updateTask(item.originalId, { status: 'Completed', completedAt: new Date().toISOString(), completionNote: decisionNote });
+        await updateTask(item.originalId, {
+          status: 'Completed',
+          completedAt: new Date().toISOString(),
+          completedBy: currentUser?.name || 'Admin',
+          completionNote: decisionNote
+        });
         toast.success(`Task marked as completed!`);
       } else if (item.category === 'operations') {
+        if (item.type.includes('Driver Allocation')) {
+          const booking = bookings.find(b => b.id === item.originalId);
+          if (booking) {
+            const existingNotes = booking.notes || [];
+            const updatedNotes = [...existingNotes, {
+              id: `NOTE-OPS-${Date.now()}`,
+              text: decisionNote ? `Driver & Tour Confirmed: ${decisionNote}` : `Driver Confirmed & Authorized via Inbox Hub`,
+              date: new Date().toISOString(),
+              author: currentUser?.name || 'Admin'
+            }];
+            await updateBooking(booking.id, { notes: updatedNotes });
+
+            // Automatically complete matching pending checklist tasks on this booking
+            const matchingTasks = tasks.filter(t => 
+              t.relatedBookingId === booking.id && 
+              t.status === 'Pending' && 
+              (t.title.toLowerCase().includes('driver') || t.title.toLowerCase().includes('cab') || t.title.toLowerCase().includes('pick-up'))
+            );
+            for (const mt of matchingTasks) {
+              await updateTask(mt.id, {
+                status: 'Completed',
+                completedAt: new Date().toISOString(),
+                completedBy: currentUser?.name || 'Admin',
+                completionNote: decisionNote || 'Driver allocated via Inbox Hub'
+              });
+            }
+          }
+        } else if (item.type.includes('Voucher Confirmation') || item.type.includes('Supplier')) {
+          const sbId = item.originalId;
+          if (sbId) {
+            await api.updateSupplierBooking(sbId, {
+              bookingStatus: 'Confirmed',
+              notes: decisionNote || 'Voucher confirmed via Inbox & Approvals Hub'
+            });
+            window.dispatchEvent(new CustomEvent('supplier-bookings-changed', {
+              detail: { supplierBookingId: sbId }
+            }));
+          }
+        }
         toast.success(`Operations task updated!`);
       }
 
       queryClient.invalidateQueries({ queryKey: ['finance-transactions'] });
       queryClient.invalidateQueries({ queryKey: ['transfer-requests'] });
       queryClient.invalidateQueries({ queryKey: ['staff-leaves'] });
+      queryClient.invalidateQueries({ queryKey: ['staff-regularizations'] });
       queryClient.invalidateQueries({ queryKey: ['admin-kyc-records'] });
       queryClient.invalidateQueries({ queryKey: ['admin-partners-list'] });
     } catch (err: any) {
       toast.error(err.message || 'Action failed');
+      throw err;
     }
   };
 
@@ -753,21 +880,31 @@ export const useInboxHub = () => {
         await api.updateStaffLeaveStatus(item.originalId, { status: 'Rejected', rejectionReason });
         await refetchLeaves();
         toast.success(`Leave request rejected`);
+      } else if (item.category === 'hr' && item.type.includes('Regularization')) {
+        await api.updateRegularizationStatus(item.originalId, { status: 'Rejected', rejectionReason });
+        await refetchRegularizations();
+        toast.success(`Attendance regularization rejected`);
       } else if (item.category === 'partner_kyc' && item.type.includes('KYC')) {
-        const res = await fetch(`${API_BASE}/api/admin/kyc/${item.originalId}/reject`, {
-          method: 'PUT',
+        const res = await fetch(`${API_BASE}/api/admin/partners/${item.originalId}/kyc`, {
+          method: 'PATCH',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ reason: rejectionReason })
+          body: JSON.stringify({ action: 'reject', reason: rejectionReason })
         });
-        if (!res.ok) throw new Error('Failed to reject KYC');
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || 'Failed to reject KYC');
+        }
         await refetchKyc();
         toast.success(`KYC submission rejected`);
       } else if (item.category === 'partner_kyc' && item.type.includes('Partner')) {
         const res = await fetch(`${API_BASE}/api/admin/partners/${item.originalId}/block`, {
-          method: 'POST',
+          method: 'PATCH',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
         });
-        if (!res.ok) throw new Error('Failed to block partner');
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || 'Failed to block partner');
+        }
         await refetchPartners();
         toast.success(`Partner registration rejected`);
       } else if (item.category === 'tasks') {
@@ -778,10 +915,12 @@ export const useInboxHub = () => {
       queryClient.invalidateQueries({ queryKey: ['finance-transactions'] });
       queryClient.invalidateQueries({ queryKey: ['transfer-requests'] });
       queryClient.invalidateQueries({ queryKey: ['staff-leaves'] });
+      queryClient.invalidateQueries({ queryKey: ['staff-regularizations'] });
       queryClient.invalidateQueries({ queryKey: ['admin-kyc-records'] });
       queryClient.invalidateQueries({ queryKey: ['admin-partners-list'] });
     } catch (err: any) {
       toast.error(err.message || 'Failed to reject request');
+      throw err;
     }
   };
 
@@ -800,10 +939,14 @@ export const useInboxHub = () => {
       } else if (item.category === 'hr' && item.type.includes('Leave')) {
         await api.updateStaffLeaveStatus(item.originalId, { status: 'Rejected', rejectionReason: `Sent back for revision: ${feedbackNote}` });
         await refetchLeaves();
+      } else if (item.category === 'hr' && item.type.includes('Regularization')) {
+        await api.updateRegularizationStatus(item.originalId, { status: 'Rejected', rejectionReason: `Sent back for revision: ${feedbackNote}` });
+        await refetchRegularizations();
       }
       toast.success(`Feedback sent back to requester: "${feedbackNote.substring(0, 40)}..."`);
     } catch (err: any) {
       toast.error(err.message || 'Failed to send back feedback');
+      throw err;
     }
   };
 
@@ -818,6 +961,7 @@ export const useInboxHub = () => {
       queryClient.invalidateQueries({ queryKey: ['finance-transactions'] });
       queryClient.invalidateQueries({ queryKey: ['transfer-requests'] });
       queryClient.invalidateQueries({ queryKey: ['staff-leaves'] });
+      queryClient.invalidateQueries({ queryKey: ['staff-regularizations'] });
       queryClient.invalidateQueries({ queryKey: ['admin-kyc-records'] });
       queryClient.invalidateQueries({ queryKey: ['admin-partners-list'] });
     }

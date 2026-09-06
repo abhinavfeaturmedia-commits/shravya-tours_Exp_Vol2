@@ -608,8 +608,12 @@ export const api = {
 
     // --- BOOKINGS ---
     getBookings: async (limit: number = 100): Promise<Booking[]> => {
-        const { data } = await fetchApi(`/api/bookings-with-package`);
-        return (data || []).map((row: any) => {
+        const res: any = await fetchApi(`/api/bookings-with-package`);
+        if (res && res.unlinked_transactions) {
+            (globalThis as any).__SHRAWELLO_UNLINKED_TXS__ = res.unlinked_transactions;
+        }
+        const data = res?.data || [];
+        return data.map((row: any) => {
             const txs = (row.booking_transactions || []).map((t: any) => ({
                 id: t.id,
                 date: t.date,
@@ -732,6 +736,10 @@ export const api = {
                 createdAt: row.created_at ? new Date(row.created_at).toISOString() : undefined,
             };
         });
+    },
+
+    getUnlinkedTransactions: (): any[] => {
+        return (globalThis as any).__SHRAWELLO_UNLINKED_TXS__ || [];
     },
 
     createSupplierBooking: async (sb: any) => {
@@ -1947,18 +1955,24 @@ export const api = {
 
     // --- Finance / Expenses ---
     getExpenses: async (): Promise<Expense[]> => {
-        const { data } = await crud.getAll('expenses', { order: 'date', asc: false });
-        return (data || []).map((e: any) => ({
-            id: e.id,
-            title: e.title,
-            amount: e.amount,
-            category: e.category,
-            date: e.date,
-            paymentMethod: e.paymentMethod || e.payment_method, // Fallback for either naming covention in DB if changed
-            status: e.status,
-            notes: e.notes,
-            receiptUrl: e.receiptUrl || e.receipt_url
-        }));
+        try {
+            const res = await crud.getAll('expenses', { order: 'date', asc: false });
+            const list = Array.isArray(res) ? res : (res?.data || []);
+            return list.map((e: any) => ({
+                id: String(e.id),
+                title: e.title || '',
+                amount: typeof e.amount === 'number' ? e.amount : parseFloat(e.amount) || 0,
+                category: e.category || 'Other',
+                date: e.date ? (typeof e.date === 'string' ? e.date.split('T')[0] : new Date(e.date).toISOString().split('T')[0]) : '',
+                paymentMethod: e.paymentMethod || e.payment_method || 'Bank Transfer',
+                status: e.status || 'Verified',
+                notes: e.notes || '',
+                receiptUrl: e.receiptUrl || e.receipt_url || undefined
+            }));
+        } catch (err) {
+            console.warn('[API] Failed to get expenses:', err);
+            return [];
+        }
     },
     createExpense: async (expense: Partial<Expense>) => {
         await crud.create('expenses', {
@@ -3592,6 +3606,12 @@ export const api = {
     },
     submitRegularization: async (data: { date: string; requestedCheckIn?: string; requestedCheckOut?: string; reason: string }) => {
         return fetchApi('/api/attendance/regularize', { method: 'POST', body: JSON.stringify(data) });
+    },
+    getPendingRegularizations: async (): Promise<any[]> => {
+        return fetchApi('/api/attendance/regularizations/pending');
+    },
+    updateRegularizationStatus: async (logId: string, data: { status: 'Approved' | 'Rejected'; rejectionReason?: string }) => {
+        return fetchApi(`/api/attendance/regularize/${encodeURIComponent(logId)}/status`, { method: 'PUT', body: JSON.stringify(data) });
     },
     getAttendanceReports: async (filters: { startDate?: string; endDate?: string; department?: string; staffId?: number }): Promise<AttendanceReportResponse> => {
         const qs = new URLSearchParams();

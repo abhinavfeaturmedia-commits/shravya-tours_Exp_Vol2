@@ -26,7 +26,7 @@ import { initEmailService, sendTestEmail, sendCustomEmail, sendAgentIntroduction
 // Available modules (uncomment to adopt):
 import { createAuthRoutes } from './routes/auth.js';
 import { createTrainingRoutes } from './routes/training.js';
-import { createAttendanceRoutes } from './routes/attendance.js';
+import { createAttendanceRoutes, autoCloseOrphanSessions } from './routes/attendance.js';
 import { runStartupMigrations } from './migrations/startup.js';
 
 dotenv.config();
@@ -90,6 +90,11 @@ createAuthRoutes(app, pool);
 createTrainingRoutes(app, pool);
 createAttendanceRoutes(app, pool);
 runStartupMigrations(pool);
+
+// Background cron: Auto-close orphan/inactive sessions (5-minute timeout) every 60 seconds
+setInterval(() => {
+    autoCloseOrphanSessions(pool).catch(e => console.debug('[Attendance Cron Error]:', e.message));
+}, 60 * 1000);
 
 // ─── DB Migration: Add new task columns if not present ───
 async function runMigration() {
@@ -1495,9 +1500,9 @@ async function ensureTransferRequestsTable() {
                 id VARCHAR(36) PRIMARY KEY,
                 item_type ENUM('Lead', 'Booking') NOT NULL,
                 item_id VARCHAR(36) NOT NULL,
-                from_staff_id INT NOT NULL,
+                from_staff_id INT DEFAULT NULL,
                 to_staff_id INT NOT NULL,
-                requested_by INT NOT NULL,
+                requested_by INT DEFAULT NULL,
                 reason TEXT DEFAULT NULL,
                 status ENUM('Pending', 'Approved', 'Rejected') NOT NULL DEFAULT 'Pending',
                 actioned_by INT DEFAULT NULL,
@@ -1513,6 +1518,8 @@ async function ensureTransferRequestsTable() {
                 INDEX idx_tr_status (status)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `);
+        await pool.query('ALTER TABLE transfer_requests MODIFY COLUMN from_staff_id INT DEFAULT NULL').catch(() => {});
+        await pool.query('ALTER TABLE transfer_requests MODIFY COLUMN requested_by INT DEFAULT NULL').catch(() => {});
         console.log('[TransferRequests Migration] Table ensured.');
     } catch (err) {
         console.error('[TransferRequests Migration] Failed:', err.message);
@@ -2866,7 +2873,7 @@ async function permissionGuard(req, res, next) {
     }
 
     try {
-        const { permissions, isAdmin } = await getStaffPermissionsAndScope(req.user?.email);
+        const { permissions, isAdmin, queryScope } = await getStaffPermissionsAndScope(req.user?.email);
         if (isAdmin) {
             return next();
         }
@@ -2881,14 +2888,16 @@ async function permissionGuard(req, res, next) {
         if (action === 'manage') {
             const myDataTables = ['leads', 'bookings', 'follow_ups', 'tasks'];
             if (myDataTables.includes(table)) {
-                // For update/delete, check that the user owns the existing record
-                if ((method === 'PUT' || method === 'DELETE') && req.params.id) {
-                    const [existing] = await pool.query(`SELECT assigned_to FROM \`${table}\` WHERE id = ?`, [req.params.id]);
-                    if (existing.length > 0) {
-                        const owner = String(existing[0].assigned_to || '');
-                        const staffId = String(req.user.staffId || '');
-                        if (owner && owner !== staffId) {
-                            return res.status(403).json({ error: `Unauthorized: You cannot modify records outside your ownership scope.` });
+                // Only restrict if staff has restricted query scope (not 'Show All Queries' or 'Global')
+                if (queryScope !== 'Show All Queries' && queryScope !== 'Global') {
+                    if ((method === 'PUT' || method === 'DELETE') && req.params.id) {
+                        const [existing] = await pool.query(`SELECT assigned_to FROM \`${table}\` WHERE id = ?`, [req.params.id]);
+                        if (existing.length > 0) {
+                            const owner = String(existing[0].assigned_to || '');
+                            const staffId = String(req.user.staffId || '');
+                            if (owner && owner !== staffId) {
+                                return res.status(403).json({ error: `Unauthorized: You cannot modify records outside your ownership scope.` });
+                            }
                         }
                     }
                 }
@@ -3345,8 +3354,8 @@ app.get('/api/customer/me', customerAuthMiddleware, async (req, res) => {
 app.get('/api/customer/bookings', customerAuthMiddleware, async (req, res) => {
     try {
         const [rows] = await pool.query(`
-            SELECT id, package_name, destination, travel_date, total_price,
-                   payment_status, status, pax_count, pax_adult, pax_child, created_at
+            SELECT id, title AS package_name, title AS destination, booking_date AS travel_date,
+                   end_date, total_price, payment_status, status, pax_count, pax_adult, pax_child, created_at
             FROM bookings
             WHERE LOWER(customer_email) = ?
             ORDER BY created_at DESC
@@ -3369,10 +3378,15 @@ app.get('/api/customer/bookings/:id', customerAuthMiddleware, async (req, res) =
         if (bookingRows.length === 0) return res.status(404).json({ error: 'Booking not found.' });
         const booking = bookingRows[0];
 
-        const [suppliers] = await pool.query(
-            'SELECT service_type, supplier_name, start_date, end_date, notes, driver_name, driver_phone, vehicle_number FROM supplier_bookings WHERE booking_id = ?',
-            [booking.id]
-        );
+        // Join vendors to get supplier name and map driver and status fields
+        const [suppliers] = await pool.query(`
+            SELECT sb.id, sb.service_type, COALESCE(v.name, 'Supplier') AS supplier_name,
+                   sb.payment_due_date AS start_date, NULL AS end_date, sb.notes,
+                   sb.driver_name, sb.driver_phone, sb.vehicle_number, sb.booking_status
+            FROM supplier_bookings sb
+            LEFT JOIN vendors v ON sb.vendor_id = v.id
+            WHERE sb.booking_id = ?
+        `, [booking.id]);
 
         return res.json({
             booking,
@@ -7591,9 +7605,9 @@ app.post('/api/crud/:table', authMiddleware, validateTable, writeGuard, permissi
                     [fetchedId, body.lead_id]
                 );
                 await pool.query(
-                    "INSERT INTO lead_logs (id, lead_id, type, content, timestamp) VALUES (?, ?, 'System', ?, NOW())",
-                    [`lg-conv-${Date.now()}`, body.lead_id, `Lead converted to Booking ${fetchedId}.`]
-                ).catch(() => {});
+                    "INSERT INTO lead_logs (lead_id, type, content, timestamp, sender) VALUES (?, 'System', ?, NOW(), 'System')",
+                    [body.lead_id, `Lead converted to Booking ${fetchedId}.`]
+                ).catch((e) => console.warn('[Lead Logs] Auto-log warning:', e.message));
                 console.log(`[Lead Conversion] Atomically linked lead ${body.lead_id} -> booking ${fetchedId}`);
             } catch (leadSyncErr) {
                 console.warn(`[Lead Conversion] Failed to sync lead ${body.lead_id}:`, leadSyncErr.message);
@@ -7601,7 +7615,7 @@ app.post('/api/crud/:table', authMiddleware, validateTable, writeGuard, permissi
         }
         // ────────────────────────────────────────────────────────────────
 
-        // Transactional Email Triggers on Creation
+        // Transactional Email & Commission Triggers on Creation
         if (table === 'leads' && body.assigned_to) {
             sendAgentIntroductionEmail(fetchedId);
         }
@@ -7610,6 +7624,7 @@ app.post('/api/crud/:table', authMiddleware, validateTable, writeGuard, permissi
         }
         if (table === 'bookings' && (/^confirmed$/i.test(body.status) || /^completed$/i.test(body.status) || /^paid$/i.test(body.payment_status))) {
             sendInvoiceEmail(fetchedId);
+            autoCalculatePartnerCommission(fetchedId);
         }
 
         // Auto-create user record for partners if created via CRUD
@@ -7813,13 +7828,50 @@ app.put('/api/crud/:table/:id', authMiddleware, validateTable, writeGuard, permi
             }
         }
 
-        const setClauses = Object.keys(body).map(col => `\`${col}\` = ?`).join(', ');
-        const values = Object.values(body).map(v =>
-            typeof v === 'object' && v !== null ? JSON.stringify(v) : v
-        );
-        values.push(id);
+        if (Object.keys(body).length > 0) {
+            const setClauses = Object.keys(body).map(col => `\`${col}\` = ?`).join(', ');
+            const values = Object.values(body).map(v =>
+                typeof v === 'object' && v !== null ? JSON.stringify(v) : v
+            );
+            values.push(id);
 
-        await pool.query(`UPDATE \`${table}\` SET ${setClauses} WHERE id = ?`, values);
+            await pool.query(`UPDATE \`${table}\` SET ${setClauses} WHERE id = ?`, values);
+        }
+
+        // Task Completion Audit Trigger: Log to Booking notes or Lead logs
+        if (table === 'tasks' && body.status === 'Completed') {
+            try {
+                const [[taskRow]] = await pool.query('SELECT title, related_booking_id, related_lead_id, completion_note FROM tasks WHERE id = ?', [id]);
+                if (taskRow) {
+                    const noteText = `Task Completed: "${taskRow.title}"${taskRow.completion_note ? ` — Note: ${taskRow.completion_note}` : ''}`;
+                    if (taskRow.related_booking_id) {
+                        const [[bk]] = await pool.query('SELECT booking_notes FROM bookings WHERE id = ?', [taskRow.related_booking_id]);
+                        if (bk) {
+                            let notesArr = [];
+                            try {
+                                notesArr = typeof bk.booking_notes === 'string' ? JSON.parse(bk.booking_notes) : (bk.booking_notes || []);
+                                if (!Array.isArray(notesArr)) notesArr = [];
+                            } catch (_) { notesArr = []; }
+                            notesArr.push({
+                                id: `NOTE-TSK-${Date.now()}`,
+                                text: noteText,
+                                date: new Date().toISOString(),
+                                author: req.user?.email || 'System'
+                            });
+                            await pool.query('UPDATE bookings SET booking_notes = ? WHERE id = ?', [JSON.stringify(notesArr), taskRow.related_booking_id]);
+                        }
+                    }
+                    if (taskRow.related_lead_id) {
+                        await pool.query(
+                            "INSERT INTO lead_logs (type, content, timestamp, sender, lead_id) VALUES ('System', ?, NOW(), 'System', ?)",
+                            [noteText, taskRow.related_lead_id]
+                        ).catch(e => console.warn('[Lead Logs] Task completion log error:', e.message));
+                    }
+                }
+            } catch (taskAuditErr) {
+                console.warn('[Task Audit] Failed to log task completion to parent record:', taskAuditErr.message);
+            }
+        }
 
         // Trigger Lead Playbook if status or assignment changes
         if (table === 'leads') {
@@ -7883,6 +7935,25 @@ app.put('/api/crud/:table/:id', authMiddleware, validateTable, writeGuard, permi
         // Auto-Commission Trigger
         if (table === 'bookings' && (/^confirmed$/i.test(body.status) || /^completed$/i.test(body.status) || /^paid$/i.test(body.payment_status))) {
             autoCalculatePartnerCommission(id);
+        }
+
+        // Booking Cancellation Cascade Trigger: Void partner commissions and cancel supplier bookings
+        if (table === 'bookings' && /^cancelled$/i.test(body.status)) {
+            try {
+                // 1. Mark partner commissions for this booking as Cancelled (if not already paid)
+                await pool.query(
+                    "UPDATE partner_commissions SET status = 'Cancelled' WHERE booking_id = ? AND status IN ('Pending', 'Approved')",
+                    [id]
+                );
+                // 2. Mark linked supplier bookings as Cancelled
+                await pool.query(
+                    "UPDATE supplier_bookings SET booking_status = 'Cancelled' WHERE booking_id = ? AND booking_status != 'Cancelled'",
+                    [id]
+                );
+                console.log(`[Booking Cancellation Cascade] Voided commissions & cancelled supplier bookings for booking ${id}`);
+            } catch (cancelCascadeErr) {
+                console.warn('[Booking Cancellation Cascade] Error:', cancelCascadeErr.message);
+            }
         }
 
         // Proposal Update Trigger (send email when status changes to 'Sent')
@@ -8149,18 +8220,18 @@ app.get('/api/transfer-requests', authMiddleware, async (req, res) => {
         
         let params = [];
         if (!isUserAdmin) {
-            const staffId = req.user?.staffId;
-            if (!staffId) {
+            let staffId = req.user?.staffId;
+            if (!staffId && req.user?.email) {
                 const [staffRows] = await pool.query('SELECT id FROM staff_members WHERE email = ?', [req.user?.email]);
                 if (staffRows.length > 0) {
-                    query += ` WHERE tr.from_staff_id = ? OR tr.to_staff_id = ? OR tr.requested_by = ?`;
-                    params.push(staffRows[0].id, staffRows[0].id, staffRows[0].id);
-                } else {
-                    return res.json({ data: [] });
+                    staffId = staffRows[0].id;
                 }
-            } else {
+            }
+            if (staffId) {
                 query += ` WHERE tr.from_staff_id = ? OR tr.to_staff_id = ? OR tr.requested_by = ?`;
                 params.push(staffId, staffId, staffId);
+            } else {
+                return res.json({ data: [] });
             }
         }
         
@@ -8180,10 +8251,10 @@ app.get('/api/transfer-requests', authMiddleware, async (req, res) => {
                     row.item_value = 0;
                 }
             } else if (row.item_type === 'Booking') {
-                const [[booking]] = await pool.query('SELECT customer, booking_number, amount FROM bookings WHERE id = ?', [row.item_id]);
+                const [[booking]] = await pool.query('SELECT customer_name, booking_number, total_price FROM bookings WHERE id = ?', [row.item_id]);
                 if (booking) {
-                    row.item_name = `BK-${String(booking.booking_number).padStart(4, '0')} | ${booking.customer}`;
-                    row.item_value = booking.amount;
+                    row.item_name = `BK-${String(booking.booking_number).padStart(4, '0')} | ${booking.customer_name}`;
+                    row.item_value = booking.total_price;
                 } else {
                     row.item_name = 'Deleted Booking';
                     row.item_value = 0;
@@ -8208,13 +8279,21 @@ app.post('/api/transfer-requests', authMiddleware, async (req, res) => {
     
     let transactionStarted = false;
     try {
-        // Find requester staff ID
-        let requested_by = req.user?.staffId;
-        if (!requested_by) {
+        const { isAdmin } = await getStaffPermissionsAndScope(req.user?.email);
+        const userIsAdmin = req.user?.role?.toLowerCase() === 'admin' || isAdmin;
+
+        // Find requester staff ID with admin fallback
+        let requested_by = req.user?.staffId || null;
+        if (!requested_by && req.user?.email) {
             const [staffRows] = await pool.query('SELECT id FROM staff_members WHERE email = ?', [req.user?.email]);
-            if (staffRows.length > 0) requested_by = staffRows[0].id;
+            if (staffRows.length > 0) {
+                requested_by = staffRows[0].id;
+            } else if (userIsAdmin) {
+                const [adminStaff] = await pool.query('SELECT id FROM staff_members WHERE user_type = "Admin" LIMIT 1');
+                if (adminStaff.length > 0) requested_by = adminStaff[0].id;
+            }
         }
-        if (!requested_by) {
+        if (!requested_by && !userIsAdmin) {
             return res.status(403).json({ error: 'Staff profile not found' });
         }
         
@@ -8224,20 +8303,22 @@ app.post('/api/transfer-requests', authMiddleware, async (req, res) => {
         if (item_type === 'Lead') {
             const [leads] = await pool.query('SELECT assigned_to, name, lead_number FROM leads WHERE id = ?', [item_id]);
             if (leads.length === 0) return res.status(404).json({ error: 'Lead not found' });
-            from_staff_id = leads[0].assigned_to;
+            from_staff_id = leads[0].assigned_to ? Number(leads[0].assigned_to) : null;
             itemName = `Lead LD-${String(leads[0].lead_number).padStart(4, '0')} (${leads[0].name})`;
         } else {
-            const [bookings] = await pool.query('SELECT assigned_to, customer, booking_number FROM bookings WHERE id = ?', [item_id]);
+            const [bookings] = await pool.query('SELECT assigned_to, customer_name, booking_number, booking_notes FROM bookings WHERE id = ?', [item_id]);
             if (bookings.length === 0) return res.status(404).json({ error: 'Booking not found' });
-            from_staff_id = bookings[0].assigned_to;
-            itemName = `Booking BK-${String(bookings[0].booking_number).padStart(4, '0')} (${bookings[0].customer})`;
+            from_staff_id = bookings[0].assigned_to ? Number(bookings[0].assigned_to) : null;
+            itemName = `Booking BK-${String(bookings[0].booking_number).padStart(4, '0')} (${bookings[0].customer_name})`;
+        }
+
+        // Validate that from_staff_id exists in staff_members table, else set null
+        if (from_staff_id) {
+            const [validStaff] = await pool.query('SELECT id FROM staff_members WHERE id = ?', [from_staff_id]);
+            if (validStaff.length === 0) from_staff_id = null;
         }
         
-        if (!from_staff_id) {
-            return res.status(400).json({ error: 'Cannot transfer an unassigned item.' });
-        }
-        
-        if (String(from_staff_id) === String(to_staff_id)) {
+        if (from_staff_id && String(from_staff_id) === String(to_staff_id)) {
             return res.status(400).json({ error: 'Item is already assigned to this staff member.' });
         }
         
@@ -8250,14 +8331,15 @@ app.post('/api/transfer-requests', authMiddleware, async (req, res) => {
             return res.status(400).json({ error: 'A transfer request is already pending for this item.' });
         }
         
-        const { isAdmin } = await getStaffPermissionsAndScope(req.user?.email);
-        const userIsAdmin = req.user?.role?.toLowerCase() === 'admin' || isAdmin;
         const id = crypto.randomUUID();
 
         if (userIsAdmin) {
-            const [[fromStaff]] = await pool.query('SELECT name FROM staff_members WHERE id = ?', [from_staff_id]);
+            let fromName = 'Unassigned';
+            if (from_staff_id) {
+                const [[fromStaff]] = await pool.query('SELECT name FROM staff_members WHERE id = ?', [from_staff_id]);
+                if (fromStaff) fromName = fromStaff.name;
+            }
             const [[toStaff]] = await pool.query('SELECT name FROM staff_members WHERE id = ?', [to_staff_id]);
-            const fromName = fromStaff ? fromStaff.name : 'Unknown';
             const toName = toStaff ? toStaff.name : 'Unknown';
 
             await pool.query('START TRANSACTION');
@@ -8282,12 +8364,11 @@ app.post('/api/transfer-requests', authMiddleware, async (req, res) => {
                 await cascadeLeadAssigneeToBookings(item_id, to_staff_id);
 
                 // Add system log entry to lead logs
-                const logId = `lg-tr-${Date.now()}`;
                 const logContent = `Ownership transferred from ${fromName} to ${toName} (Transferred Directly by Admin).`;
                 await pool.query(
-                    "INSERT INTO lead_logs (id, type, content, timestamp, sender, lead_id) VALUES (?, 'System', ?, NOW(), 'System', ?)",
-                    [logId, logContent, item_id]
-                );
+                    "INSERT INTO lead_logs (type, content, timestamp, sender, lead_id) VALUES ('System', ?, NOW(), 'System', ?)",
+                    [logContent, item_id]
+                ).catch(e => console.warn('[Lead Logs] Transfer log error:', e.message));
             } else if (item_type === 'Booking') {
                 await pool.query('UPDATE bookings SET assigned_to = ? WHERE id = ?', [to_staff_id, item_id]);
                 
@@ -8296,6 +8377,27 @@ app.post('/api/transfer-requests', authMiddleware, async (req, res) => {
                     "UPDATE tasks SET assigned_to = ? WHERE related_booking_id = ? AND category = 'checklist' AND status = 'Pending'",
                     [to_staff_id, item_id]
                 );
+
+                // Add entry to booking_notes
+                try {
+                    const [[currentBk]] = await pool.query('SELECT booking_notes FROM bookings WHERE id = ?', [item_id]);
+                    let notesArr = [];
+                    if (currentBk?.booking_notes) {
+                        try {
+                            notesArr = typeof currentBk.booking_notes === 'string' ? JSON.parse(currentBk.booking_notes) : currentBk.booking_notes;
+                            if (!Array.isArray(notesArr)) notesArr = [];
+                        } catch (_) { notesArr = []; }
+                    }
+                    notesArr.push({
+                        id: `NOTE-TR-${Date.now()}`,
+                        text: `Ownership transferred from ${fromName} to ${toName} (Transferred Directly by Admin).`,
+                        date: new Date().toISOString(),
+                        author: 'System'
+                    });
+                    await pool.query('UPDATE bookings SET booking_notes = ? WHERE id = ?', [JSON.stringify(notesArr), item_id]);
+                } catch (notesErr) {
+                    console.warn('Failed to append booking note on transfer:', notesErr.message);
+                }
             }
 
             await pool.query('COMMIT');
@@ -8324,16 +8426,18 @@ app.post('/api/transfer-requests', authMiddleware, async (req, res) => {
             }
         }
         console.error('Create transfer request error:', error);
-        res.status(500).json({ error: 'Failed to submit transfer request' });
+        res.status(500).json({ error: error.message || 'Failed to submit transfer request' });
     }
 });
 
 // Approve a transfer request (Admin only)
 app.post('/api/transfer-requests/:id/approve', authMiddleware, async (req, res) => {
     const { id } = req.params;
+    let transactionStarted = false;
     try {
         const { isAdmin } = await getStaffPermissionsAndScope(req.user?.email);
-        if (req.user?.role !== 'admin' && req.user?.role !== 'Admin' && !isAdmin) {
+        const userIsAdmin = req.user?.role === 'admin' || req.user?.role === 'Admin' || isAdmin;
+        if (!userIsAdmin) {
             return res.status(403).json({ error: 'Unauthorized' });
         }
         
@@ -8345,18 +8449,27 @@ app.post('/api/transfer-requests/:id/approve', authMiddleware, async (req, res) 
             return res.status(400).json({ error: `Request already processed: ${request.status}` });
         }
         
-        let actioned_by = req.user?.staffId;
-        if (!actioned_by) {
+        let actioned_by = req.user?.staffId || null;
+        if (!actioned_by && req.user?.email) {
             const [staffRows] = await pool.query('SELECT id FROM staff_members WHERE email = ?', [req.user?.email]);
-            if (staffRows.length > 0) actioned_by = staffRows[0].id;
+            if (staffRows.length > 0) {
+                actioned_by = staffRows[0].id;
+            } else if (userIsAdmin) {
+                const [adminStaff] = await pool.query('SELECT id FROM staff_members WHERE user_type = "Admin" LIMIT 1');
+                if (adminStaff.length > 0) actioned_by = adminStaff[0].id;
+            }
         }
         
-        const [[fromStaff]] = await pool.query('SELECT name FROM staff_members WHERE id = ?', [request.from_staff_id]);
+        let fromName = 'Unassigned';
+        if (request.from_staff_id) {
+            const [[fromStaff]] = await pool.query('SELECT name FROM staff_members WHERE id = ?', [request.from_staff_id]);
+            if (fromStaff) fromName = fromStaff.name;
+        }
         const [[toStaff]] = await pool.query('SELECT name FROM staff_members WHERE id = ?', [request.to_staff_id]);
-        const fromName = fromStaff ? fromStaff.name : 'Unknown';
         const toName = toStaff ? toStaff.name : 'Unknown';
         
         await pool.query('START TRANSACTION');
+        transactionStarted = true;
         
         await pool.query(
             'UPDATE transfer_requests SET status = "Approved", actioned_by = ?, actioned_at = NOW() WHERE id = ?',
@@ -8376,12 +8489,11 @@ app.post('/api/transfer-requests/:id/approve', authMiddleware, async (req, res) 
             await cascadeLeadAssigneeToBookings(request.item_id, request.to_staff_id);
             
             // Add system log entry to lead logs
-            const logId = `lg-tr-${Date.now()}`;
             const logContent = `Ownership transferred from ${fromName} to ${toName} (Approved by Admin).`;
             await pool.query(
-                "INSERT INTO lead_logs (id, type, content, timestamp, sender, lead_id) VALUES (?, 'System', ?, NOW(), 'System', ?)",
-                [logId, logContent, request.item_id]
-            );
+                "INSERT INTO lead_logs (type, content, timestamp, sender, lead_id) VALUES ('System', ?, NOW(), 'System', ?)",
+                [logContent, request.item_id]
+            ).catch(e => console.warn('[Lead Logs] Transfer approval log error:', e.message));
         } else if (request.item_type === 'Booking') {
             await pool.query('UPDATE bookings SET assigned_to = ? WHERE id = ?', [request.to_staff_id, request.item_id]);
             
@@ -8390,17 +8502,45 @@ app.post('/api/transfer-requests/:id/approve', authMiddleware, async (req, res) 
                 "UPDATE tasks SET assigned_to = ? WHERE related_booking_id = ? AND category = 'checklist' AND status = 'Pending'",
                 [request.to_staff_id, request.item_id]
             );
+
+            // Add entry to booking_notes
+            try {
+                const [[currentBk]] = await pool.query('SELECT booking_notes FROM bookings WHERE id = ?', [request.item_id]);
+                let notesArr = [];
+                if (currentBk?.booking_notes) {
+                    try {
+                        notesArr = typeof currentBk.booking_notes === 'string' ? JSON.parse(currentBk.booking_notes) : currentBk.booking_notes;
+                        if (!Array.isArray(notesArr)) notesArr = [];
+                    } catch (_) { notesArr = []; }
+                }
+                notesArr.push({
+                    id: `NOTE-TR-${Date.now()}`,
+                    text: `Ownership transferred from ${fromName} to ${toName} (Approved by Admin).`,
+                    date: new Date().toISOString(),
+                    author: 'System'
+                });
+                await pool.query('UPDATE bookings SET booking_notes = ? WHERE id = ?', [JSON.stringify(notesArr), request.item_id]);
+            } catch (notesErr) {
+                console.warn('Failed to append booking note on transfer:', notesErr.message);
+            }
         }
         
         await pool.query('COMMIT');
+        transactionStarted = false;
         
         auditLog('Approve Transfer', request.item_type, `Approved transfer of ${request.item_type} ${request.item_id} from ${fromName} to ${toName}`, req.user?.email);
         
         res.json({ status: 'success' });
     } catch (error) {
-        await pool.query('ROLLBACK');
+        if (transactionStarted) {
+            try {
+                await pool.query('ROLLBACK');
+            } catch (rollbackError) {
+                console.error('Rollback error:', rollbackError);
+            }
+        }
         console.error('Approve transfer error:', error);
-        res.status(500).json({ error: 'Failed to approve transfer request' });
+        res.status(500).json({ error: error.message || 'Failed to approve transfer request' });
     }
 });
 
@@ -8410,7 +8550,8 @@ app.post('/api/transfer-requests/:id/reject', authMiddleware, async (req, res) =
     const { rejection_reason } = req.body;
     try {
         const { isAdmin } = await getStaffPermissionsAndScope(req.user?.email);
-        if (req.user?.role !== 'admin' && req.user?.role !== 'Admin' && !isAdmin) {
+        const userIsAdmin = req.user?.role === 'admin' || req.user?.role === 'Admin' || isAdmin;
+        if (!userIsAdmin) {
             return res.status(403).json({ error: 'Unauthorized' });
         }
         
@@ -8422,10 +8563,15 @@ app.post('/api/transfer-requests/:id/reject', authMiddleware, async (req, res) =
             return res.status(400).json({ error: `Request already processed: ${request.status}` });
         }
         
-        let actioned_by = req.user?.staffId;
-        if (!actioned_by) {
+        let actioned_by = req.user?.staffId || null;
+        if (!actioned_by && req.user?.email) {
             const [staffRows] = await pool.query('SELECT id FROM staff_members WHERE email = ?', [req.user?.email]);
-            if (staffRows.length > 0) actioned_by = staffRows[0].id;
+            if (staffRows.length > 0) {
+                actioned_by = staffRows[0].id;
+            } else if (userIsAdmin) {
+                const [adminStaff] = await pool.query('SELECT id FROM staff_members WHERE user_type = "Admin" LIMIT 1');
+                if (adminStaff.length > 0) actioned_by = adminStaff[0].id;
+            }
         }
         
         await pool.query(
@@ -8438,7 +8584,7 @@ app.post('/api/transfer-requests/:id/reject', authMiddleware, async (req, res) =
         res.json({ status: 'success' });
     } catch (error) {
         console.error('Reject transfer error:', error);
-        res.status(500).json({ error: 'Failed to reject transfer request' });
+        res.status(500).json({ error: error.message || 'Failed to reject transfer request' });
     }
 });
 
@@ -8989,7 +9135,10 @@ app.get('/api/bookings-with-package', authMiddleware, async (req, res) => {
             supplier_bookings: sbByBooking[b.id] || []
         }));
 
-        res.json({ data: result });
+        const bIdsSet = new Set(bookingIds);
+        const unlinkedTransactions = transactions.filter(t => !bIdsSet.has(t.booking_id));
+
+        res.json({ data: result, unlinked_transactions: unlinkedTransactions });
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: 'Failed to fetch bookings' });
@@ -9506,11 +9655,11 @@ app.post('/api/finance/update-transaction-status', authMiddleware, async (req, r
                         const amount = Number(expense.amount) || 0;
                         const newBalance = targetAccount.current_balance - amount;
 
-                        // Insert account transaction
+                        // Insert account transaction (omit auto-increment id, place accTxId into reference)
                         await pool.query(`
-                            INSERT INTO account_transactions (id, account_id, date, type, amount, description, reference, status)
-                            VALUES (?, ?, CURDATE(), 'Debit', ?, ?, ?, 'Confirmed')
-                        `, [accTxId, targetAccount.id, amount, `Expense Approved: ${expense.title}`, id]);
+                            INSERT INTO account_transactions (account_id, date, type, amount, description, reference, status)
+                            VALUES (?, CURDATE(), 'Debit', ?, ?, ?, 'Confirmed')
+                        `, [targetAccount.id, amount, `Expense Approved: ${expense.title}`, accTxId]);
 
                         // Update account balance
                         await pool.query('UPDATE accounts SET current_balance = ? WHERE id = ?', [newBalance, targetAccount.id]);
@@ -9570,11 +9719,11 @@ app.post('/api/finance/update-transaction-status', authMiddleware, async (req, r
                     const accTxId = `TX-${Date.now()}-${id}`;
                     const newBalance = targetAccount.current_balance - payoutAmount;
 
-                    // Insert account transaction
+                    // Insert account transaction (omit auto-increment id, place accTxId into reference)
                     await pool.query(`
-                        INSERT INTO account_transactions (id, account_id, date, type, amount, description, reference, status)
-                        VALUES (?, ?, CURDATE(), 'Debit', ?, ?, ?, 'Confirmed')
-                    `, [accTxId, targetAccount.id, payoutAmount, `Vendor Payout Approved: ${targetVendor.name}`, id]);
+                        INSERT INTO account_transactions (account_id, date, type, amount, description, reference, status)
+                        VALUES (?, CURDATE(), 'Debit', ?, ?, ?, 'Confirmed')
+                    `, [targetAccount.id, payoutAmount, `Vendor Payout Approved: ${targetVendor.name}`, accTxId]);
 
                     // Update account balance
                     await pool.query('UPDATE accounts SET current_balance = ? WHERE id = ?', [newBalance, targetAccount.id]);
@@ -9617,11 +9766,11 @@ app.post('/api/finance/update-transaction-status', authMiddleware, async (req, r
                     const accTxId = `TX-${Date.now()}-${id}`;
                     const newBalance = targetAccount.current_balance - payoutAmount;
 
-                    // Insert account transaction
+                    // Insert account transaction (omit auto-increment id, place accTxId into reference)
                     await pool.query(`
-                        INSERT INTO account_transactions (id, account_id, date, type, amount, description, reference, status)
-                        VALUES (?, ?, CURDATE(), 'Debit', ?, ?, ?, 'Confirmed')
-                    `, [accTxId, targetAccount.id, payoutAmount, `Partner Commission Payout: ${p[0]?.name || partnerId}`, id]);
+                        INSERT INTO account_transactions (account_id, date, type, amount, description, reference, status)
+                        VALUES (?, CURDATE(), 'Debit', ?, ?, ?, 'Confirmed')
+                    `, [targetAccount.id, payoutAmount, `Partner Commission Payout: ${p[0]?.name || partnerId}`, accTxId]);
 
                     // Update account balance
                     await pool.query('UPDATE accounts SET current_balance = ? WHERE id = ?', [newBalance, targetAccount.id]);
@@ -10603,10 +10752,11 @@ app.post('/api/auth/reset-password', async (req, res) => {
         if (portal === 'admin' || portal === 'partner') {
             await pool.query('UPDATE users SET password_hash = ? WHERE email = ?', [hash, email]);
         } else if (portal === 'customer') {
-            // Customers use their own password column
+            // Customers authenticate against customer_users table
+            await pool.query('UPDATE customer_users SET password_hash = ? WHERE email = ?', [hash, email]);
+            // Also sync customers table if columns exist
             await pool.query('UPDATE customers SET password_hash = ? WHERE email = ?', [hash, email]).catch(async () => {
-                // Fallback: customers table might use 'password' column
-                await pool.query('UPDATE customers SET password = ? WHERE email = ?', [hash, email]);
+                await pool.query('UPDATE customers SET password = ? WHERE email = ?', [hash, email]).catch(() => {});
             });
         }
         // Invalidate all OTPs for this email+portal
@@ -10895,8 +11045,8 @@ app.get('/api/admin/partners/:id/details', authMiddleware, async (req, res) => {
     }
 });
 
-// Admin: Approve partner
-app.patch('/api/admin/partners/:id/approve', authMiddleware, requirePartnerAdmin, async (req, res) => {
+// Admin: Approve partner (Supports PATCH, POST, PUT)
+const handlePartnerApprove = async (req, res) => {
     try {
         await pool.query("UPDATE partners SET status = 'Active' WHERE id = ?", [req.params.id]);
         const [p] = await pool.query("SELECT name, email FROM partners WHERE id = ?", [req.params.id]);
@@ -10908,10 +11058,13 @@ app.patch('/api/admin/partners/:id/approve', authMiddleware, requirePartnerAdmin
     } catch (err) {
         res.status(500).json({ error: 'Failed to approve partner' });
     }
-});
+};
+app.patch('/api/admin/partners/:id/approve', authMiddleware, requirePartnerAdmin, handlePartnerApprove);
+app.post('/api/admin/partners/:id/approve', authMiddleware, requirePartnerAdmin, handlePartnerApprove);
+app.put('/api/admin/partners/:id/approve', authMiddleware, requirePartnerAdmin, handlePartnerApprove);
 
-// Admin: KYC Verify or Reject
-app.patch('/api/admin/partners/:id/kyc', authMiddleware, requirePartnerAdmin, async (req, res) => {
+// Admin: KYC Verify or Reject (Supports PATCH, POST, PUT)
+const handlePartnerKycAction = async (req, res) => {
     try {
         const { action, reason } = req.body || {};
         if (!action || !['verify','reject','revoke'].includes(action)) return res.status(400).json({ error: 'action must be verify, reject, or revoke' });
@@ -10956,6 +11109,19 @@ app.patch('/api/admin/partners/:id/kyc', authMiddleware, requirePartnerAdmin, as
         console.error('Admin KYC action error:', err);
         res.status(500).json({ error: 'KYC action failed' });
     }
+};
+app.patch('/api/admin/partners/:id/kyc', authMiddleware, requirePartnerAdmin, handlePartnerKycAction);
+app.post('/api/admin/partners/:id/kyc', authMiddleware, requirePartnerAdmin, handlePartnerKycAction);
+app.put('/api/admin/partners/:id/kyc', authMiddleware, requirePartnerAdmin, handlePartnerKycAction);
+
+// KYC Route Aliases for backwards-compatibility (/api/admin/kyc/:id/verify & reject)
+app.all(['/api/admin/kyc/:id/verify', '/api/admin/kyc/:id/approve'], authMiddleware, requirePartnerAdmin, (req, res) => {
+    req.body = { ...req.body, action: 'verify' };
+    return handlePartnerKycAction(req, res);
+});
+app.all('/api/admin/kyc/:id/reject', authMiddleware, requirePartnerAdmin, (req, res) => {
+    req.body = { ...req.body, action: 'reject', reason: req.body?.reason };
+    return handlePartnerKycAction(req, res);
 });
 
 // Admin: Get all KYC submissions — F5: restricted to admin/partner-admin only
@@ -10989,8 +11155,8 @@ app.get('/api/admin/kyc', authMiddleware, requirePartnerAdmin, async (req, res) 
     }
 });
 
-// Admin: Block partner
-app.patch('/api/admin/partners/:id/block', authMiddleware, requirePartnerAdmin, async (req, res) => {
+// Admin: Block partner (Supports PATCH, POST, PUT)
+const handlePartnerBlock = async (req, res) => {
     try {
         await pool.query("UPDATE partners SET status = 'Blocked' WHERE id = ?", [req.params.id]);
         await auditLog('PartnerBlock', 'Partners', `Partner ID ${req.params.id} blocked.`, req.user.email);
@@ -10998,7 +11164,10 @@ app.patch('/api/admin/partners/:id/block', authMiddleware, requirePartnerAdmin, 
     } catch (err) {
         res.status(500).json({ error: 'Failed to block partner' });
     }
-});
+};
+app.patch('/api/admin/partners/:id/block', authMiddleware, requirePartnerAdmin, handlePartnerBlock);
+app.post('/api/admin/partners/:id/block', authMiddleware, requirePartnerAdmin, handlePartnerBlock);
+app.put('/api/admin/partners/:id/block', authMiddleware, requirePartnerAdmin, handlePartnerBlock);
 
 // Admin: Update partner commission config
 app.put('/api/admin/partners/:id', authMiddleware, requirePartnerAdmin, async (req, res) => {

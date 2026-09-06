@@ -45,11 +45,11 @@ async function resolveStaff(pool, req) {
         const [staff] = await pool.query('SELECT * FROM staff_members WHERE id = ?', [req.user.id]);
         if (staff.length > 0) return staff[0];
     }
-    const [fallback] = await pool.query("SELECT * FROM staff_members WHERE status = 'Active' ORDER BY id ASC LIMIT 1");
-    return fallback.length > 0 ? fallback[0] : null;
+    // Do NOT fallback to first staff in database - return null to avoid false attendance attribution
+    return null;
 }
 
-// Routine to cleanly close orphan unclosed sessions from previous days or long inactivity
+// Routine to cleanly close orphan unclosed sessions from previous days or long inactivity (5 minutes threshold)
 export async function autoCloseOrphanSessions(pool) {
     try {
         const today = getTodayISTDate();
@@ -57,44 +57,102 @@ export async function autoCloseOrphanSessions(pool) {
         // 1. Close open sessions from previous days
         await pool.query(`
             UPDATE attendance_sessions SET
-                session_end = last_ping_time,
+                session_end = COALESCE(last_ping_time, session_start),
                 logout_type = 'day_rollover',
                 updated_at = ?
             WHERE session_end IS NULL AND DATE(session_start) < ?
         `, [now, today]);
 
-        // 2. Check for long-inactive sessions (> auto_clockout_idle_minutes) for today
+        // 2. Check for long-inactive sessions (> auto_clockout_idle_minutes, default 5 mins) for today
         const [settingsRows] = await pool.query('SELECT * FROM attendance_settings WHERE id = ?', ['default']).catch(() => [[]]);
-        const autoClockoutMins = settingsRows[0]?.auto_clockout_idle_minutes || 60;
+        const settings = settingsRows.length > 0 ? settingsRows[0] : {};
+        const autoClockoutMins = Number(settings?.auto_clockout_idle_minutes) || 5;
+        const halfDayMins = Number(settings?.half_day_hours || 4.5) * 60;
         
         const cutoffTime = new Date(now.getTime() - autoClockoutMins * 60 * 1000);
 
         // Find sessions with no heartbeat for > autoClockoutMins minutes
         const [timedOutSessions] = await pool.query(`
-            SELECT id, staff_id, attendance_id, last_ping_time FROM attendance_sessions
+            SELECT id, staff_id, attendance_id, session_start, last_ping_time FROM attendance_sessions
             WHERE session_end IS NULL 
               AND DATE(session_start) = ?
               AND last_ping_time < ?
         `, [today, cutoffTime]);
 
         for (const s of timedOutSessions) {
+            const sessionEnd = s.last_ping_time || s.session_start;
             await pool.query(`
                 UPDATE attendance_sessions SET
-                    session_end = last_ping_time,
+                    session_end = ?,
                     logout_type = 'inactivity_timeout',
                     updated_at = ?
                 WHERE id = ?
-            `, [now, s.id]);
+            `, [sessionEnd, now, s.id]);
 
-            // Mark attendance log as auto clocked out
+            // Automatically close any dangling open break for this attendance
+            const [openBreaks] = await pool.query(`
+                SELECT id, start_time FROM attendance_breaks
+                WHERE attendance_id = ? AND end_time IS NULL
+            `, [s.attendance_id]);
+
+            let additionalBreakMins = 0;
+            for (const brk of openBreaks) {
+                const bStart = new Date(brk.start_time);
+                const bEnd = new Date(sessionEnd);
+                const bDuration = Math.max(1, Math.floor((bEnd.getTime() - bStart.getTime()) / 60000));
+                additionalBreakMins += bDuration;
+                await pool.query(`
+                    UPDATE attendance_breaks SET
+                        end_time = ?,
+                        duration_minutes = ?
+                    WHERE id = ?
+                `, [sessionEnd, bDuration, brk.id]);
+            }
+
+            // Calculate total worked minutes from all sessions today up to sessionEnd
+            const [allStaffSessions] = await pool.query(`
+                SELECT session_start, session_end FROM attendance_sessions
+                WHERE staff_id = ? AND DATE(session_start) = ?
+            `, [s.staff_id, today]);
+
+            let totalWorkedMinsToday = 0;
+            for (const sess of allStaffSessions) {
+                const start = new Date(sess.session_start);
+                const end = sess.session_end ? new Date(sess.session_end) : new Date(sessionEnd);
+                const durMs = Math.max(0, end.getTime() - start.getTime());
+                totalWorkedMinsToday += Math.floor(durMs / 60000);
+            }
+
+            // Fetch current attendance log
+            const [curLogs] = await pool.query('SELECT total_break_minutes, is_late, status FROM attendance_logs WHERE id = ?', [s.attendance_id]);
+            const totalBreakMins = (curLogs[0]?.total_break_minutes || 0) + additionalBreakMins;
+            const netWorkedMins = Math.max(0, totalWorkedMinsToday - totalBreakMins);
+
+            let status = 'Clocked Out';
+            if (curLogs[0]?.status !== 'On Leave') {
+                if (netWorkedMins < halfDayMins && netWorkedMins > 0) {
+                    status = 'Half Day';
+                } else if (netWorkedMins === 0) {
+                    status = 'Absent';
+                }
+            } else {
+                status = 'On Leave';
+            }
+
+            // Mark attendance log as auto clocked out and set accurate worked minutes
             await pool.query(`
                 UPDATE attendance_logs SET
-                    check_out_time = COALESCE(check_out_time, ?),
-                    status = 'Clocked Out',
+                    check_out_time = ?,
+                    break_start_time = NULL,
+                    total_break_minutes = ?,
+                    status = ?,
                     auto_clocked_out = 1,
+                    worked_minutes = ?,
                     updated_at = ?
-                WHERE id = ? AND check_out_time IS NULL
-            `, [s.last_ping_time, now, s.attendance_id]);
+                WHERE id = ?
+            `, [sessionEnd, totalBreakMins, status, netWorkedMins, now, s.attendance_id]);
+
+            await pool.query("UPDATE staff_members SET last_active = ? WHERE id = ?", [sessionEnd, s.staff_id]).catch(() => {});
         }
     } catch (e) {
         console.warn('[AutoCloseOrphanSessions Warn]:', e.message);
@@ -118,7 +176,8 @@ export async function recordStaffLoginAndAutoClockIn(pool, staffMember, req, log
             shift_start: '09:30',
             shift_end: '18:30',
             grace_period_mins: 15,
-            auto_clockin_on_login: 1
+            auto_clockin_on_login: 1,
+            auto_clockout_idle_minutes: 5
         };
 
         if (settings.auto_clockin_on_login === 0 || settings.auto_clockin_on_login === false) {
@@ -169,7 +228,7 @@ export async function recordStaffLoginAndAutoClockIn(pool, staffMember, req, log
                     last_activity_time = ?,
                     updated_at = ?
                 WHERE id = ?
-            `, [now, now, isReopening ? 1 : 0, isReopening ? 1 : 0, status, now, now, logId]);
+            `, [now, now, isReopening ? 1 : 0, isReopening ? 1 : 0, (log.is_late || isLate) ? 'Late' : 'Present', now, now, logId]);
         }
 
         // 4. Manage attendance session with smart resumption
@@ -183,16 +242,22 @@ export async function recordStaffLoginAndAutoClockIn(pool, staffMember, req, log
             session = openSessions[0];
             await pool.query('UPDATE attendance_sessions SET last_ping_time = ?, updated_at = ? WHERE id = ?', [now, now, session.id]);
         } else {
-            // Check if the most recent session ended LESS than 3 minutes ago (e.g. tab reload, page switch)
+            // Check if previous session ended due to inactivity/logout or was ended > 2 minutes ago
             const [recentSessions] = await pool.query(
                 'SELECT * FROM attendance_sessions WHERE staff_id = ? AND DATE(session_start) = ? ORDER BY id DESC LIMIT 1',
                 [staffId, today]
             );
 
             const lastSession = recentSessions[0];
-            const isRecentEnd = lastSession && lastSession.session_end && (now.getTime() - new Date(lastSession.session_end).getTime() < 3 * 60 * 1000);
+            // Only resume if it was a quick tab-switch/reload (under 2 minutes AND was NOT an explicit logout or inactivity timeout)
+            const isQuickTabReload = lastSession && 
+                lastSession.session_end && 
+                lastSession.logout_type !== 'inactivity_timeout' && 
+                lastSession.logout_type !== 'manual_punch_out' && 
+                lastSession.logout_type !== 'manual_logout' &&
+                (now.getTime() - new Date(lastSession.session_end).getTime() < 2 * 60 * 1000);
 
-            if (isRecentEnd) {
+            if (isQuickTabReload) {
                 // Resume existing session seamlessly
                 await pool.query(
                     'UPDATE attendance_sessions SET session_end = NULL, logout_type = NULL, last_ping_time = ?, updated_at = ? WHERE id = ?',
@@ -254,7 +319,7 @@ export function createAttendanceRoutes(app, pool) {
                 work_days: 'Mon,Tue,Wed,Thu,Fri,Sat',
                 auto_clockin_on_login: 1,
                 idle_threshold_seconds: 180,
-                auto_clockout_idle_minutes: 60
+                auto_clockout_idle_minutes: 5
             };
 
             // 2. Resolve requesting staff member and auto clock-in if enabled
@@ -371,24 +436,21 @@ export function createAttendanceRoutes(app, pool) {
                     checkInTime = log.check_in_time;
                     checkOutTime = log.check_out_time;
                     breakStartTime = log.break_start_time;
-                    workedMinutes = log.worked_minutes || 0;
-                    activeMinutes = log.active_minutes || 0;
-                    idleMinutes = log.idle_minutes || 0;
-                    systemMinutes = log.system_minutes || log.system_active_minutes || 0;
                     totalBreakMinutes = log.total_break_minutes || 0;
                     loginCount = log.login_count || staffSessions.length || (checkInTime ? 1 : 0);
                     autoClockedIn = !!log.auto_clocked_in;
                     autoClockedOut = !!log.auto_clocked_out;
 
-                    // Punctuality verification based on check_in_time vs shift_start + grace_period
+                    // Punctuality verification based on first_login_time / check_in_time vs shift_start + grace_period
                     isLate = !!log.is_late;
-                    if (checkInTime && settings?.shift_start) {
+                    const evalPunchTime = firstLoginTime || checkInTime;
+                    if (evalPunchTime && settings?.shift_start) {
                         try {
                             const [sHour, sMin] = (settings.shift_start || '09:30').split(':').map(Number);
                             const grace = Number(settings.grace_period_mins || 15);
                             const cutoffMins = sHour * 60 + sMin + grace; // e.g. 9:30 + 15 = 9:45 AM (585 mins)
                             
-                            const punchDate = new Date(checkInTime);
+                            const punchDate = new Date(evalPunchTime);
                             const punchMins = punchDate.getHours() * 60 + punchDate.getMinutes();
                             
                             if (punchMins <= cutoffMins) {
@@ -403,14 +465,31 @@ export function createAttendanceRoutes(app, pool) {
                         }
                     }
 
-                    // If currently clocked in and not clocked out, calculate live elapsed worked minutes
-                    if (checkInTime && !checkOutTime) {
-                        const checkInDate = new Date(checkInTime);
-                        const now = new Date();
-                        const elapsedMs = Math.max(0, now.getTime() - checkInDate.getTime());
-                        const elapsedMins = Math.floor(elapsedMs / 60000);
-                        workedMinutes = Math.max(0, elapsedMins - totalBreakMinutes);
+                    // Precise calculation of worked minutes: sum of completed session durations + live active session duration - breaks
+                    let calculatedWorkedMins = 0;
+                    let totalActiveMins = 0;
+                    let totalIdleMins = 0;
+                    let totalSystemMins = 0;
+
+                    for (const s of staffSessions) {
+                        totalActiveMins += (s.activeMinutes || 0);
+                        totalIdleMins += (s.idleMinutes || 0);
+                        totalSystemMins += (s.systemMinutes || 0);
+
+                        const sStart = new Date(s.sessionStart);
+                        if (s.sessionEnd) {
+                            const sEnd = new Date(s.sessionEnd);
+                            calculatedWorkedMins += Math.max(0, Math.floor((sEnd.getTime() - sStart.getTime()) / 60000));
+                        } else {
+                            const now = new Date();
+                            calculatedWorkedMins += Math.max(0, Math.floor((now.getTime() - sStart.getTime()) / 60000));
+                        }
                     }
+
+                    workedMinutes = Math.max(0, calculatedWorkedMins - totalBreakMinutes);
+                    activeMinutes = totalActiveMins || log.active_minutes || 0;
+                    idleMinutes = totalIdleMins || log.idle_minutes || 0;
+                    systemMinutes = totalSystemMins || log.system_minutes || log.system_active_minutes || 0;
 
                     if (status === 'Present' || status === 'On Break' || status === 'On Field') {
                         presentCount++;
@@ -732,7 +811,7 @@ export function createAttendanceRoutes(app, pool) {
             if (status === 'On Break') {
                 status = current.is_late ? 'Late' : 'Present';
             }
-            if (netWorkedMins < halfDayMins && status !== 'Late') {
+            if (netWorkedMins < halfDayMins && status !== 'On Leave') {
                 status = 'Half Day';
             }
 
@@ -989,11 +1068,44 @@ export function createAttendanceRoutes(app, pool) {
     });
 
     // ─── 8. PUT /api/attendance/adjust/:id ───
-    // Admin adjustment of punch records
+    // Admin adjustment of punch records with dynamic math recalculation
     app.put('/api/attendance/adjust/:id', authMiddleware, async (req, res) => {
         try {
             const logId = req.params.id;
             const { status, checkInTime, checkOutTime, workedMinutes, totalBreakMinutes, isLate, notes } = req.body;
+
+            const [settingsRows] = await pool.query('SELECT * FROM attendance_settings WHERE id = ?', ['default']);
+            const settings = settingsRows.length > 0 ? settingsRows[0] : { shift_start: '09:30', grace_period_mins: 15, half_day_hours: 4.5, full_day_hours: 8.0 };
+
+            let calculatedWorkedMins = workedMinutes;
+            let calculatedOvertimeMins = 0;
+            let calculatedIsLate = isLate !== undefined ? (isLate ? 1 : 0) : undefined;
+            let lateMins = 0;
+
+            if (checkInTime && checkOutTime) {
+                const cIn = new Date(checkInTime);
+                const cOut = new Date(checkOutTime);
+                const grossMins = Math.max(0, Math.floor((cOut.getTime() - cIn.getTime()) / 60000));
+                calculatedWorkedMins = Math.max(0, grossMins - (totalBreakMinutes || 0));
+                const fullDayMins = Number(settings.full_day_hours || 8.0) * 60;
+                if (calculatedWorkedMins > fullDayMins) {
+                    calculatedOvertimeMins = calculatedWorkedMins - fullDayMins;
+                }
+            }
+
+            if (checkInTime && calculatedIsLate === undefined) {
+                const cIn = new Date(checkInTime);
+                const [sH, sM] = (settings.shift_start || '09:30').split(':').map(Number);
+                const grace = Number(settings.grace_period_mins || 15);
+                const cutoff = sH * 60 + sM + grace;
+                const punchMins = cIn.getHours() * 60 + cIn.getMinutes();
+                if (punchMins > cutoff) {
+                    calculatedIsLate = 1;
+                    lateMins = punchMins - (sH * 60 + sM);
+                } else {
+                    calculatedIsLate = 0;
+                }
+            }
 
             await pool.query(`
                 UPDATE attendance_logs SET
@@ -1001,8 +1113,10 @@ export function createAttendanceRoutes(app, pool) {
                     check_in_time = ?,
                     check_out_time = ?,
                     worked_minutes = COALESCE(?, worked_minutes),
+                    overtime_minutes = COALESCE(?, overtime_minutes),
                     total_break_minutes = COALESCE(?, total_break_minutes),
                     is_late = COALESCE(?, is_late),
+                    late_minutes = COALESCE(?, late_minutes),
                     notes = COALESCE(?, notes),
                     regularization_status = 'Approved',
                     updated_at = NOW()
@@ -1011,9 +1125,11 @@ export function createAttendanceRoutes(app, pool) {
                 status,
                 checkInTime ? new Date(checkInTime) : null,
                 checkOutTime ? new Date(checkOutTime) : null,
-                workedMinutes,
+                calculatedWorkedMins,
+                calculatedOvertimeMins,
                 totalBreakMinutes,
-                isLate !== undefined ? (isLate ? 1 : 0) : null,
+                calculatedIsLate,
+                lateMins,
                 notes,
                 logId
             ]);
@@ -1026,7 +1142,7 @@ export function createAttendanceRoutes(app, pool) {
     });
 
     // ─── 9. GET /api/attendance/my-history ───
-    // Monthly history for authenticated staff
+    // Monthly history for authenticated staff or selected staff
     app.get('/api/attendance/my-history', authMiddleware, async (req, res) => {
         try {
             const currentStaff = await resolveStaff(pool, req);
@@ -1078,7 +1194,8 @@ export function createAttendanceRoutes(app, pool) {
         }
     });
 
-    // ─── 10. POST /api/attendance/regularize ───
+    // ─── 10. Regularization Endpoints ───
+    // Submit regularization request (staged for approval, does NOT modify active punches prematurely)
     app.post('/api/attendance/regularize', authMiddleware, async (req, res) => {
         try {
             const currentStaff = await resolveStaff(pool, req);
@@ -1092,18 +1209,132 @@ export function createAttendanceRoutes(app, pool) {
 
             await pool.query(`
                 INSERT INTO attendance_logs (
-                    id, staff_id, date, status, check_in_time, check_out_time,
+                    id, staff_id, date, status, requested_check_in, requested_check_out,
                     regularization_status, regularization_reason, created_at, updated_at
-                ) VALUES (?, ?, ?, 'Pending Regularization', ?, ?, 'Requested', ?, NOW(), NOW())
+                ) VALUES (?, ?, ?, 'Present', ?, ?, 'Requested', ?, NOW(), NOW())
                 ON DUPLICATE KEY UPDATE
+                    requested_check_in = VALUES(requested_check_in),
+                    requested_check_out = VALUES(requested_check_out),
                     regularization_status = 'Requested',
                     regularization_reason = VALUES(regularization_reason),
                     updated_at = NOW()
             `, [logId, currentStaff.id, date, requestedCheckIn || null, requestedCheckOut || null, reason]);
 
-            res.json({ success: true, message: 'Regularization request submitted' });
+            res.json({ success: true, message: 'Regularization request submitted for manager approval' });
         } catch (err) {
             console.error('[Regularization Error]:', err);
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Fetch pending regularization requests
+    app.get('/api/attendance/regularizations/pending', authMiddleware, async (req, res) => {
+        try {
+            const [rows] = await pool.query(`
+                SELECT l.id, l.staff_id, l.date, l.status, l.check_in_time, l.check_out_time,
+                       l.requested_check_in, l.requested_check_out, l.regularization_status, l.regularization_reason,
+                       l.created_at, l.updated_at,
+                       s.name as staff_name, s.email as staff_email, s.department, s.role, s.initials, s.color
+                FROM attendance_logs l
+                JOIN staff_members s ON l.staff_id = s.id
+                WHERE l.regularization_status = 'Requested'
+                ORDER BY l.date DESC
+            `);
+            res.json(rows);
+        } catch (err) {
+            console.error('[Get Pending Regularizations Error]:', err);
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Approve or Reject regularization request
+    app.put('/api/attendance/regularize/:id/status', authMiddleware, async (req, res) => {
+        try {
+            const logId = req.params.id;
+            const { status, rejectionReason } = req.body;
+            const currentStaff = await resolveStaff(pool, req);
+
+            if (!['Approved', 'Rejected'].includes(status)) {
+                return res.status(400).json({ error: 'Status must be Approved or Rejected' });
+            }
+
+            const [logRows] = await pool.query('SELECT * FROM attendance_logs WHERE id = ?', [logId]);
+            if (logRows.length === 0) {
+                return res.status(404).json({ error: 'Attendance record not found' });
+            }
+            const log = logRows[0];
+
+            if (status === 'Approved') {
+                const checkIn = log.requested_check_in || log.check_in_time || new Date(`${log.date}T09:30:00`);
+                const checkOut = log.requested_check_out || log.check_out_time || new Date(`${log.date}T18:30:00`);
+
+                const [settingsRows] = await pool.query('SELECT * FROM attendance_settings WHERE id = ?', ['default']);
+                const settings = settingsRows.length > 0 ? settingsRows[0] : { shift_start: '09:30', grace_period_mins: 15, half_day_hours: 4.5, full_day_hours: 8.0 };
+
+                let workedMins = log.worked_minutes || 0;
+                let overtimeMins = 0;
+                let isLate = 0;
+                let lateMins = 0;
+
+                if (checkIn && checkOut) {
+                    const cIn = new Date(checkIn);
+                    const cOut = new Date(checkOut);
+                    const gross = Math.max(0, Math.floor((cOut.getTime() - cIn.getTime()) / 60000));
+                    workedMins = Math.max(0, gross - (log.total_break_minutes || 0));
+                    const fullDay = Number(settings.full_day_hours || 8.0) * 60;
+                    if (workedMins > fullDay) overtimeMins = workedMins - fullDay;
+                }
+
+                if (checkIn) {
+                    const cIn = new Date(checkIn);
+                    const [sH, sM] = (settings.shift_start || '09:30').split(':').map(Number);
+                    const grace = Number(settings.grace_period_mins || 15);
+                    const cutoff = sH * 60 + sM + grace;
+                    const punchMins = cIn.getHours() * 60 + cIn.getMinutes();
+                    if (punchMins > cutoff) {
+                        isLate = 1;
+                        lateMins = punchMins - (sH * 60 + sM);
+                    }
+                }
+
+                let finalStatus = 'Present';
+                const halfDayThreshold = Number(settings.half_day_hours || 4.5) * 60;
+                if (workedMins < halfDayThreshold && workedMins > 0) {
+                    finalStatus = 'Half Day';
+                } else if (isLate) {
+                    finalStatus = 'Late';
+                }
+
+                await pool.query(`
+                    UPDATE attendance_logs SET
+                        check_in_time = ?,
+                        check_out_time = ?,
+                        worked_minutes = ?,
+                        overtime_minutes = ?,
+                        is_late = ?,
+                        late_minutes = ?,
+                        status = ?,
+                        regularization_status = 'Approved',
+                        regularization_approved_by = ?,
+                        regularization_approved_at = NOW(),
+                        updated_at = NOW()
+                    WHERE id = ?
+                `, [checkIn, checkOut, workedMins, overtimeMins, isLate, lateMins, finalStatus, currentStaff?.id || null, logId]);
+            } else {
+                await pool.query(`
+                    UPDATE attendance_logs SET
+                        regularization_status = 'Rejected',
+                        regularization_reason = CONCAT(COALESCE(regularization_reason, ''), ' | Rejected: ', ?),
+                        regularization_approved_by = ?,
+                        regularization_approved_at = NOW(),
+                        updated_at = NOW()
+                    WHERE id = ?
+                `, [rejectionReason || 'Rejected by manager', currentStaff?.id || null, logId]);
+            }
+
+            res.json({ success: true, message: `Regularization request ${status.toLowerCase()} successfully` });
+        } catch (err) {
+            console.error('[Update Regularization Status Error]:', err);
             res.status(500).json({ error: err.message });
         }
     });
@@ -1237,19 +1468,20 @@ export function createAttendanceRoutes(app, pool) {
                 UPDATE staff_leaves SET
                     status = ?,
                     approved_by = ?,
-                    approved_at = NOW(),
+                    approval_date = NOW(),
                     rejection_reason = ?,
                     updated_at = NOW()
                 WHERE id = ?
             `, [status, currentStaff?.id || null, rejectionReason || null, leaveId]);
 
-            // If approved, update attendance_logs for those dates as 'On Leave'
-            if (status === 'Approved') {
-                const [leaveRow] = await pool.query('SELECT * FROM staff_leaves WHERE id = ?', [leaveId]);
-                if (leaveRow.length > 0) {
-                    const { staff_id, start_date, end_date } = leaveRow[0];
-                    const start = new Date(start_date);
-                    const end = new Date(end_date);
+            const [leaveRow] = await pool.query('SELECT * FROM staff_leaves WHERE id = ?', [leaveId]);
+
+            if (leaveRow.length > 0) {
+                const { staff_id, start_date, end_date } = leaveRow[0];
+                const start = new Date(start_date);
+                const end = new Date(end_date);
+
+                if (status === 'Approved') {
                     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
                         const dateStr = d.toISOString().split('T')[0];
                         const logId = `ATL-${staff_id}-${dateStr}`;
@@ -1258,6 +1490,15 @@ export function createAttendanceRoutes(app, pool) {
                             VALUES (?, ?, ?, 'On Leave', 'Approved Leave', NOW(), NOW())
                             ON DUPLICATE KEY UPDATE status = 'On Leave', notes = 'Approved Leave', updated_at = NOW()
                         `, [logId, staff_id, dateStr]);
+                    }
+                } else if (status === 'Rejected' || status === 'Cancelled') {
+                    // Rollback dummy 'On Leave' records if no real check-in punch was made
+                    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+                        const dateStr = d.toISOString().split('T')[0];
+                        await pool.query(`
+                            DELETE FROM attendance_logs 
+                            WHERE staff_id = ? AND date = ? AND status = 'On Leave' AND check_in_time IS NULL
+                        `, [staff_id, dateStr]);
                     }
                 }
             }

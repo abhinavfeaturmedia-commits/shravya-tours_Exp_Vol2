@@ -8,7 +8,6 @@ import { DataProvider } from './context/DataContext';
 import { AuthProvider } from './context/AuthContext';
 import { PartnerAuthProvider } from './context/PartnerAuthContext';
 import { CustomerAuthProvider } from './context/CustomerAuthContext';
-import { MasterDataProvider } from './context/MasterDataContext';
 import { SettingsProvider } from './context/SettingsContext';
 import { ToastProvider } from './components/ui/Toast';
 
@@ -109,8 +108,7 @@ const App: React.FC = () => {
     <AuthProvider>
       <PartnerAuthProvider>
         <CustomerAuthProvider>
-        <MasterDataProvider>
-        <SettingsProvider>
+          <SettingsProvider>
         <DataProvider>
           <ToastProvider />
           <HashRouter>
@@ -237,7 +235,6 @@ const App: React.FC = () => {
           </HashRouter>
         </DataProvider>
         </SettingsProvider>
-        </MasterDataProvider>
         </CustomerAuthProvider>
       </PartnerAuthProvider>
     </AuthProvider>

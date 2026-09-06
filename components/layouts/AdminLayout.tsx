@@ -107,6 +107,7 @@ const TOP_NAV_CATEGORIES: NavCategory[] = [
       { name: 'Staff Members', path: '/admin/staff', icon: 'badge', module: 'staff', desc: 'Employee accounts, roles & access permissions', tag: '#Roles' },
       { name: 'Staff Attendance', path: '/admin/attendance', icon: 'fingerprint', module: 'staff', desc: 'Live presence, shifts, leaves & roster', tag: '#Attendance' },
       { name: 'Team Performance', path: '/admin/team-performance', icon: 'monitoring', module: 'staff', desc: 'Sales targets, agent KPIs & productivity', tag: '#KPIs' },
+      { name: 'Staff Productivity', path: '/admin/productivity', icon: 'speed', module: 'staff', desc: 'Active workload, task tracking & velocity metrics', tag: '#Workload' },
       { name: 'Tour Packages', path: '/admin/packages', icon: 'inventory_2', module: 'inventory', desc: 'Tour package catalog & holiday offerings', tag: '#Tours' },
       { name: 'Testimonials', path: '/admin/testimonials', icon: 'rate_review', module: 'testimonials', desc: 'Client reviews & website testimonials', tag: '#Reviews' },
       { name: 'Trending Spots', path: '/admin/trending', icon: 'trending_up', module: 'cms', desc: 'Homepage featured destinations & spots', tag: '#Spots' },

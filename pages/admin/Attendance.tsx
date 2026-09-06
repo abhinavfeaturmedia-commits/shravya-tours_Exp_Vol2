@@ -44,10 +44,15 @@ export const Attendance: React.FC = () => {
         const now = new Date();
         return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     });
+    const [selectedStaffId, setSelectedStaffId] = useState<number | undefined>(undefined);
     const [myHistory, setMyHistory] = useState<any>(null);
     const [loadingMyHistory, setLoadingMyHistory] = useState(false);
     const [showRegularizeModal, setShowRegularizeModal] = useState(false);
     const [regForm, setRegForm] = useState({ date: '', checkIn: '09:30', checkOut: '18:30', reason: '' });
+
+    // Pending Regularizations State (For Managers / Admins)
+    const [pendingRegularizations, setPendingRegularizations] = useState<any[]>([]);
+    const [loadingRegs, setLoadingRegs] = useState(false);
 
     // Reports Tab State
     const [reportDateRange, setReportDateRange] = useState({
@@ -108,32 +113,81 @@ export const Attendance: React.FC = () => {
         }
     };
 
+    // Fetch Pending Regularizations for Managers
+    const fetchPendingRegs = async () => {
+        if (currentUser?.userType === 'Admin' || hasPermission('settings', 'manage')) {
+            setLoadingRegs(true);
+            try {
+                const regs = await api.getPendingRegularizations();
+                setPendingRegularizations(regs || []);
+            } catch (err) {
+                console.error('Failed to load pending regularizations:', err);
+            } finally {
+                setLoadingRegs(false);
+            }
+        }
+    };
+
     useEffect(() => {
         fetchTodayRoster();
-        const poll = setInterval(() => fetchTodayRoster(false), 60000);
+        fetchPendingRegs();
+        const poll = setInterval(() => {
+            fetchTodayRoster(false);
+            fetchPendingRegs();
+        }, 60000);
         return () => clearInterval(poll);
     }, [isAuthenticated]);
+
+    // Handle URL search parameter ?staffId=...
+    useEffect(() => {
+        try {
+            const hash = window.location.hash || '';
+            const qIdx = hash.indexOf('?');
+            let staffIdParam: string | null = null;
+            if (qIdx !== -1) {
+                const params = new URLSearchParams(hash.substring(qIdx));
+                staffIdParam = params.get('staffId');
+            } else {
+                const urlParams = new URLSearchParams(window.location.search);
+                staffIdParam = urlParams.get('staffId');
+            }
+
+            if (staffIdParam) {
+                const sId = Number(staffIdParam);
+                if (sId) {
+                    setSelectedStaffId(sId);
+                    if (todayData?.roster) {
+                        const target = todayData.roster.find(r => r.staffId === sId);
+                        if (target) {
+                            setSearchQuery(target.name);
+                        }
+                    }
+                }
+            }
+        } catch (e) {}
+    }, [todayData]);
 
     // Listen to global attendance update events from topbar widget or other tabs
     useEffect(() => {
         const handleSync = () => {
             fetchTodayRoster(false);
+            fetchPendingRegs();
         };
         window.addEventListener('shrawello:attendance-updated', handleSync);
         return () => window.removeEventListener('shrawello:attendance-updated', handleSync);
     }, []);
 
-    // Fetch My Attendance when tab active
+    // Fetch My Attendance when tab active or selected staff changes
     useEffect(() => {
         if (activeTab === 'my-attendance' && currentUser) {
             fetchMyHistory();
         }
-    }, [activeTab, myMonth, currentUser]);
+    }, [activeTab, myMonth, selectedStaffId, currentUser]);
 
     const fetchMyHistory = async () => {
         setLoadingMyHistory(true);
         try {
-            const res = await api.getMyAttendanceHistory(myMonth);
+            const res = await api.getMyAttendanceHistory(myMonth, selectedStaffId);
             setMyHistory(res);
         } catch (err: any) {
             console.error('Failed to fetch my attendance:', err);
@@ -398,8 +452,37 @@ export const Attendance: React.FC = () => {
             toast.success('Regularization request submitted to manager!');
             setShowRegularizeModal(false);
             fetchMyHistory();
+            fetchPendingRegs();
         } catch (err: any) {
             toast.error(err.message || 'Failed to submit regularization');
+        }
+    };
+
+    const handleApproveReg = async (logId: string) => {
+        try {
+            await api.updateRegularizationStatus(logId, { status: 'Approved' });
+            toast.success('Attendance regularization approved!');
+            fetchPendingRegs();
+            fetchTodayRoster();
+            fetchMyHistory();
+            window.dispatchEvent(new CustomEvent('shrawello:attendance-updated'));
+        } catch (err: any) {
+            toast.error(err.message || 'Failed to approve regularization');
+        }
+    };
+
+    const handleRejectReg = async (logId: string) => {
+        const reason = window.prompt('Please enter a rejection reason:', 'Discrepancy in punch times');
+        if (reason === null) return;
+        try {
+            await api.updateRegularizationStatus(logId, { status: 'Rejected', rejectionReason: reason });
+            toast.success('Regularization request rejected');
+            fetchPendingRegs();
+            fetchTodayRoster();
+            fetchMyHistory();
+            window.dispatchEvent(new CustomEvent('shrawello:attendance-updated'));
+        } catch (err: any) {
+            toast.error(err.message || 'Failed to reject regularization');
         }
     };
 
@@ -980,14 +1063,26 @@ export const Attendance: React.FC = () => {
                     <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
                         <div>
                             <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
-                                My Attendance Log & Regularization
+                                {selectedStaffId ? `Attendance Log: ${todayData?.roster?.find(r => r.staffId === selectedStaffId)?.name || 'Staff'}` : 'My Attendance Log & Regularization'}
                             </h3>
                             <p className="text-xs text-slate-400 mt-0.5">
-                                View personal monthly punch times, break totals, and request regularization for missed punches.
+                                View monthly punch times, break totals, and manage regularizations for missed punches.
                             </p>
                         </div>
 
-                        <div className="flex items-center gap-3">
+                        <div className="flex flex-wrap items-center gap-3">
+                            {currentUser?.userType === 'Admin' && todayData?.roster && (
+                                <select
+                                    value={selectedStaffId || ''}
+                                    onChange={e => setSelectedStaffId(e.target.value ? Number(e.target.value) : undefined)}
+                                    className="px-3.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-bold text-slate-700 dark:text-slate-200 cursor-pointer"
+                                >
+                                    <option value="">My Own Attendance ({currentUser.name})</option>
+                                    {todayData.roster.map(r => (
+                                        <option key={r.staffId} value={r.staffId}>{r.name} ({r.department})</option>
+                                    ))}
+                                </select>
+                            )}
                             <input
                                 type="month"
                                 value={myMonth}
@@ -1004,6 +1099,59 @@ export const Attendance: React.FC = () => {
                         </div>
                     </div>
 
+                    {/* Pending Regularizations Review Box (Admins/Managers) */}
+                    {(currentUser?.userType === 'Admin' || hasPermission('settings', 'manage')) && pendingRegularizations.length > 0 && (
+                        <div className="bg-amber-500/10 border border-amber-500/30 rounded-3xl p-5 space-y-3">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <span className="material-symbols-outlined text-amber-500 text-[20px]">edit_calendar</span>
+                                    <h4 className="font-extrabold text-sm text-slate-900 dark:text-white">
+                                        Pending Attendance Regularizations ({pendingRegularizations.length})
+                                    </h4>
+                                </div>
+                                <span className="text-[11px] font-bold text-amber-600 dark:text-amber-400">
+                                    Awaiting Manager Authorization
+                                </span>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                {pendingRegularizations.map(reg => (
+                                    <div key={reg.id} className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between gap-3">
+                                        <div>
+                                            <div className="flex items-center justify-between">
+                                                <span className="font-bold text-xs text-slate-900 dark:text-white">{reg.staff_name}</span>
+                                                <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200">
+                                                    {reg.date}
+                                                </span>
+                                            </div>
+                                            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                                                Requested: <strong className="text-slate-800 dark:text-slate-200">{formatClockTime(reg.requested_check_in)}</strong> → <strong className="text-slate-800 dark:text-slate-200">{formatClockTime(reg.requested_check_out)}</strong>
+                                            </p>
+                                            <p className="text-[11px] text-slate-600 dark:text-slate-300 italic mt-1 bg-slate-50 dark:bg-slate-800/60 p-2 rounded-xl border border-slate-100 dark:border-slate-800">
+                                                "{reg.regularization_reason || 'Discrepancy correction requested'}"
+                                            </p>
+                                        </div>
+
+                                        <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                                            <button
+                                                onClick={() => handleRejectReg(reg.id)}
+                                                className="px-3 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border border-rose-200 dark:border-rose-800/40 rounded-xl text-xs font-bold transition-all"
+                                            >
+                                                Reject
+                                            </button>
+                                            <button
+                                                onClick={() => handleApproveReg(reg.id)}
+                                                className="px-4 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md transition-all"
+                                            >
+                                                Approve Punch
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
                     {/* Summary Cards */}
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                         <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200 dark:border-slate-800">
@@ -1015,12 +1163,12 @@ export const Attendance: React.FC = () => {
                             <p className="text-2xl font-black text-amber-600 mt-1">{myHistory?.summary?.lateDays ?? 0}</p>
                         </div>
                         <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200 dark:border-slate-800">
-                            <p className="text-xs font-bold text-slate-400 uppercase">Average Worked</p>
-                            <p className="text-2xl font-black text-indigo-600 mt-1">{myHistory?.summary?.avgWorkedHours ? `${myHistory.summary.avgWorkedHours}h` : '0h'}</p>
+                            <p className="text-xs font-bold text-slate-400 uppercase">Total Worked</p>
+                            <p className="text-2xl font-black text-indigo-600 mt-1">{myHistory?.summary?.totalWorkedHours ? `${myHistory.summary.totalWorkedHours}h` : '0h'}</p>
                         </div>
                         <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200 dark:border-slate-800">
-                            <p className="text-xs font-bold text-slate-400 uppercase">Leaves Taken</p>
-                            <p className="text-2xl font-black text-sky-600 mt-1">{myHistory?.summary?.leavesCount ?? 0}</p>
+                            <p className="text-xs font-bold text-slate-400 uppercase">Overtime Hours</p>
+                            <p className="text-2xl font-black text-sky-600 mt-1">{myHistory?.summary?.totalOvertimeHours ? `${myHistory.summary.totalOvertimeHours}h` : '0h'}</p>
                         </div>
                     </div>
 
@@ -1036,17 +1184,18 @@ export const Attendance: React.FC = () => {
                                         <th className="py-3.5 px-4">Clock Out</th>
                                         <th className="py-3.5 px-4">Worked</th>
                                         <th className="py-3.5 px-4">Break Total</th>
+                                        <th className="py-3.5 px-4">Regularization</th>
                                         <th className="py-3.5 px-4">Notes</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
                                     {loadingMyHistory ? (
                                         <tr>
-                                            <td colSpan={7} className="py-12 text-center text-slate-400 font-semibold">Loading history...</td>
+                                            <td colSpan={8} className="py-12 text-center text-slate-400 font-semibold">Loading history...</td>
                                         </tr>
                                     ) : (!myHistory?.logs || myHistory.logs.length === 0) ? (
                                         <tr>
-                                            <td colSpan={7} className="py-12 text-center text-slate-400 font-bold">No attendance records found for this month</td>
+                                            <td colSpan={8} className="py-12 text-center text-slate-400 font-bold">No attendance records found for this month</td>
                                         </tr>
                                     ) : (
                                         myHistory.logs.map((log: any) => (
@@ -1057,6 +1206,23 @@ export const Attendance: React.FC = () => {
                                                 <td className="py-3 px-4 font-semibold">{formatClockTime(log.check_out_time)}</td>
                                                 <td className="py-3 px-4 font-bold text-slate-800 dark:text-slate-200">{formatMinsToDuration(log.worked_minutes)}</td>
                                                 <td className="py-3 px-4 text-slate-500">{formatMinsToDuration(log.total_break_minutes)}</td>
+                                                <td className="py-3 px-4">
+                                                    {log.regularization_status === 'Requested' ? (
+                                                        <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200" title={log.regularization_reason}>
+                                                            Pending Review
+                                                        </span>
+                                                    ) : log.regularization_status === 'Approved' ? (
+                                                        <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200">
+                                                            Regularized
+                                                        </span>
+                                                    ) : log.regularization_status === 'Rejected' ? (
+                                                        <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border border-rose-200" title={log.regularization_reason}>
+                                                            Rejected
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-slate-400">-</span>
+                                                    )}
+                                                </td>
                                                 <td className="py-3 px-4 text-slate-400 text-[11px]">{log.notes || '-'}</td>
                                             </tr>
                                         ))
