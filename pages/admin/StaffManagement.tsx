@@ -11,7 +11,8 @@ import {
     ROLE_PRESETS,
     DataScopeLevel,
     buildDefaultPermissions,
-    buildAdminPermissions
+    buildAdminPermissions,
+    normalizePermissions
 } from '../../src/config/permissionsConfig';
 
 // Format last_active ISO timestamp into human-readable relative time
@@ -58,6 +59,7 @@ export const StaffManagement: React.FC = () => {
     const [isResettingPassword, setIsResettingPassword] = useState(false);
 
     // Permissions & Sub-Features State
+    const [modalTab, setModalTab] = useState<'profile' | 'permissions'>('profile');
     const [permCategoryTab, setPermCategoryTab] = useState<'all' | 'overview' | 'crm' | 'operations' | 'finance' | 'system'>('all');
     const [permSearch, setPermSearch] = useState('');
     const [expandedModules, setExpandedModules] = useState<Set<string>>(new Set());
@@ -78,13 +80,13 @@ export const StaffManagement: React.FC = () => {
         name: '',
         email: '',
         phone: '',
-        role: 'Editor',
+        role: 'Tour Consultant',
         userType: 'Staff',
-        department: 'Operations',
+        department: 'Sales',
         status: 'Active',
         queryScope: 'Show Assigned Query Only',
         whatsappScope: 'Assigned Queries Messages',
-        permissions: buildDefaultPermissions()
+        permissions: normalizePermissions(null, 'Staff')
     });
 
     const selectedMember = staff.find(s => String(s.id) === String(selectedStaffId));
@@ -129,17 +131,18 @@ export const StaffManagement: React.FC = () => {
         setExpandedModules(new Set());
         setPermSearch('');
         setPermCategoryTab('all');
+        setModalTab('profile');
         setFormData({
             name: '',
             email: '',
             phone: '',
-            role: 'Editor',
+            role: 'Tour Consultant',
             userType: 'Staff',
-            department: 'Operations',
+            department: 'Sales',
             status: 'Active',
             queryScope: 'Show Assigned Query Only',
             whatsappScope: 'Assigned Queries Messages',
-            permissions: buildDefaultPermissions()
+            permissions: normalizePermissions(null, 'Staff')
         });
         setPassword('');
         setConfirmPassword('');
@@ -155,6 +158,7 @@ export const StaffManagement: React.FC = () => {
         setExpandedModules(new Set());
         setPermSearch('');
         setPermCategoryTab('all');
+        setModalTab('profile');
         setFormData({
             name: member.name,
             email: member.email,
@@ -165,13 +169,38 @@ export const StaffManagement: React.FC = () => {
             status: member.status,
             queryScope: member.queryScope || 'Show Assigned Query Only',
             whatsappScope: member.whatsappScope || 'Assigned Queries Messages',
-            permissions: member.permissions ? JSON.parse(JSON.stringify(member.permissions)) : buildDefaultPermissions()
+            permissions: normalizePermissions(member.permissions, member.userType || 'Staff')
         });
         // Reset password section state when opening edit modal
         setShowResetPassword(false);
         setResetPassword('');
         setResetConfirmPassword('');
         setIsModalOpen(true);
+    };
+
+    // 3-Way Access Switcher: None (Revoked), View (Read-Only), Manage (Full Edit & View)
+    const handleSetAccessLevel = (moduleKey: string, level: 'none' | 'view' | 'manage') => {
+        setFormData(prev => {
+            const current = prev.permissions[moduleKey] || {
+                view: false,
+                manage: false,
+                scope: 'assigned',
+                features: {}
+            };
+            const view = level === 'view' || level === 'manage';
+            const manage = level === 'manage';
+            return {
+                ...prev,
+                permissions: {
+                    ...prev.permissions,
+                    [moduleKey]: {
+                        ...current,
+                        view,
+                        manage
+                    }
+                }
+            };
+        });
     };
 
     const handlePermissionChange = (moduleKey: string, type: 'view' | 'manage', checked: boolean) => {
@@ -229,15 +258,40 @@ export const StaffManagement: React.FC = () => {
         setSelectedPresetId(presetId);
         const preset = ROLE_PRESETS.find(p => p.id === presetId);
         if (!preset) return;
-        const newPerms = preset.apply(formData.permissions);
+        const applied = preset.apply(formData.permissions);
+        const normalized = normalizePermissions(applied, preset.userType);
         setFormData(prev => ({
             ...prev,
             userType: preset.userType,
             queryScope: preset.queryScope,
             whatsappScope: preset.whatsappScope,
-            permissions: newPerms,
+            permissions: normalized,
         }));
         toast.success(`Applied ${preset.name} preset!`);
+    };
+
+    const handleBulkCategoryAction = (action: 'grant_view' | 'grant_manage' | 'revoke') => {
+        setFormData(prev => {
+            const updated = { ...prev.permissions };
+            filteredModules.forEach(mod => {
+                const current = updated[mod.key] || {
+                    view: false,
+                    manage: false,
+                    scope: mod.defaultScope || 'assigned',
+                    features: {}
+                };
+                if (action === 'grant_view') {
+                    updated[mod.key] = { ...current, view: true, manage: false };
+                } else if (action === 'grant_manage') {
+                    updated[mod.key] = { ...current, view: true, manage: true };
+                } else if (action === 'revoke') {
+                    updated[mod.key] = { ...current, view: false, manage: false };
+                }
+            });
+            return { ...prev, permissions: updated };
+        });
+        const label = action === 'grant_view' ? 'View access granted' : action === 'grant_manage' ? 'Manage access granted' : 'Access revoked';
+        toast.success(`${label} for ${filteredModules.length} modules`);
     };
 
     const toggleAllPermissions = (type: 'view' | 'manage', checked: boolean) => {
@@ -254,6 +308,20 @@ export const StaffManagement: React.FC = () => {
             });
             return { ...prev, permissions: newPermissions };
         });
+    };
+
+    const handleSyncAccounts = async () => {
+        try {
+            const res = await api.syncStaffAuth();
+            if (res.created && res.created.length > 0) {
+                const list = res.created.map((c: any) => `${c.name}: ${c.tempPassword}`).join('\n');
+                alert(`Sync complete! New accounts created:\n\n${list}\n\nPlease share these passwords securely.`);
+            } else {
+                toast.success(res.message || 'All accounts already synced');
+            }
+        } catch (err: any) {
+            toast.error(err.message || 'Sync failed');
+        }
     };
 
     const filteredModules = useMemo(() => {
@@ -276,20 +344,36 @@ export const StaffManagement: React.FC = () => {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
-        // Check for duplicate email (exclude self if editing)
+        // Validate required fields explicitly
+        if (!formData.name.trim()) {
+            toast.error('Please enter the employee full name');
+            setModalTab('profile');
+            return;
+        }
+
         const trimmedEmail = formData.email.trim();
+        if (!trimmedEmail) {
+            toast.error('Please enter a valid primary email address');
+            setModalTab('profile');
+            return;
+        }
+
+        // Check for duplicate email (exclude self if editing)
         if (staff.some(s => s.email.toLowerCase() === trimmedEmail.toLowerCase() && s.id !== editingId)) {
             toast.error('A staff member with this email already exists.');
+            setModalTab('profile');
             return;
         }
 
         if (!isEditing && password) {
             if (password.length < 6) {
                 toast.error('Password must be at least 6 characters');
+                setModalTab('profile');
                 return;
             }
             if (password !== confirmPassword) {
                 toast.error('Passwords do not match');
+                setModalTab('profile');
                 return;
             }
         }
@@ -340,10 +424,12 @@ export const StaffManagement: React.FC = () => {
         const ADMIN_ROLES = new Set(['Owner', 'Co-Owner', 'Super Admin', 'Administrator']);
         const derivedUserType = ADMIN_ROLES.has(formData.role) ? 'Admin' : formData.userType;
 
-        // Logic: If Admin, FORCE all permissions to true
+        // Logic: If Admin, FORCE all permissions to true; if Staff, normalize formData.permissions
         let finalPermissions = formData.permissions;
         if (derivedUserType === 'Admin') {
             finalPermissions = buildAdminPermissions();
+        } else {
+            finalPermissions = normalizePermissions(formData.permissions, 'Staff');
         }
 
         const staffData = {
@@ -523,524 +609,780 @@ export const StaffManagement: React.FC = () => {
 
     return (
         <div className="flex flex-col h-full admin-page-bg relative">
-
             {/* ADD/EDIT STAFF MODAL */}
             {isModalOpen && (
-                <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
-                    <div className="bg-white dark:bg-[#1A2633] w-full max-w-4xl rounded-2xl shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in-95">
-                        <div className="flex justify-between items-center p-6 border-b border-slate-100 dark:border-slate-800">
-                            <h2 className="text-xl font-bold text-slate-900 dark:text-white">{isEditing ? 'Edit Staff Member' : 'Add New Member'}</h2>
-                            <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><span className="material-symbols-outlined">close</span></button>
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-4 md:p-6 bg-black/60 backdrop-blur-sm animate-in fade-in">
+                    <div className="bg-white dark:bg-[#1A2633] w-full max-w-4xl rounded-2xl shadow-2xl flex flex-col max-h-[92vh] border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 overflow-hidden">
+                        
+                        {/* Modal Header */}
+                        <div className="flex flex-col border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-[#1A2633] shrink-0">
+                            <div className="flex justify-between items-center px-6 pt-5 pb-3">
+                                <div className="flex items-center gap-3 min-w-0">
+                                    <div className={`size-11 rounded-xl flex items-center justify-center font-black text-base shadow-sm shrink-0 ${getAvatarStyle(formData.role || 'Tour Consultant')}`}>
+                                        {formData.name ? formData.name.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2) : (isEditing ? 'ED' : 'NW')}
+                                    </div>
+                                    <div className="min-w-0">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <h2 className="text-lg font-black text-slate-900 dark:text-white leading-tight truncate">
+                                                {isEditing ? (formData.name ? `Edit: ${formData.name}` : 'Edit Staff Member') : 'Add New Staff Member'}
+                                            </h2>
+                                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider ${
+                                                formData.userType === 'Admin'
+                                                    ? 'bg-amber-100 text-amber-800 border border-amber-200/80 dark:bg-amber-950/40 dark:border-amber-800 dark:text-amber-300'
+                                                    : 'bg-slate-100 text-slate-700 border border-slate-200 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300'
+                                            }`}>
+                                                {formData.userType}
+                                            </span>
+                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                                                formData.status === 'Active'
+                                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:border-emerald-800 dark:text-emerald-300'
+                                                    : 'bg-rose-50 text-rose-700 border border-rose-200 dark:bg-rose-950/40 dark:border-rose-800 dark:text-rose-300'
+                                            }`}>
+                                                {formData.status}
+                                            </span>
+                                        </div>
+                                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+                                            {formData.department} • {formData.role || 'Role'} • {formData.email || 'email not set'}
+                                        </p>
+                                    </div>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setIsModalOpen(false)}
+                                    className="size-8 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors cursor-pointer shrink-0"
+                                >
+                                    <span className="material-symbols-outlined text-[20px]">close</span>
+                                </button>
+                            </div>
+
+                            {/* Two Ergonomic Tabs */}
+                            <div className="flex items-center gap-2 px-6 pt-1 pb-3">
+                                <button
+                                    type="button"
+                                    onClick={() => setModalTab('profile')}
+                                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all duration-150 flex items-center gap-2 cursor-pointer ${
+                                        modalTab === 'profile'
+                                            ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm shadow-slate-900/10'
+                                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/70'
+                                    }`}
+                                >
+                                    <span className="material-symbols-outlined text-[16px]">badge</span>
+                                    <span>1. Member Profile & Role</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setModalTab('permissions')}
+                                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all duration-150 flex items-center gap-2 cursor-pointer ${
+                                        modalTab === 'permissions'
+                                            ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm shadow-slate-900/10'
+                                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/70'
+                                    }`}
+                                >
+                                    <span className="material-symbols-outlined text-[16px]">verified_user</span>
+                                    <span>2. Access & Permissions</span>
+                                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                                        modalTab === 'permissions'
+                                            ? 'bg-white/20 dark:bg-black/20 text-white dark:text-slate-900'
+                                            : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                                    }`}>
+                                        {formData.userType === 'Admin' ? '39/39' : `${Object.values(formData.permissions || {}).filter((p: any) => p?.view).length}/39`}
+                                    </span>
+                                </button>
+                            </div>
                         </div>
 
-                        <div className="overflow-y-auto p-6">
+                        {/* Modal Body */}
+                        <div className="flex-1 overflow-y-auto min-h-0 p-6">
                             <form id="staffForm" onSubmit={handleSubmit} className="flex flex-col gap-6">
-                                {/* Basic Info */}
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="text-xs font-bold uppercase text-slate-500 mb-1.5 block">Full Name</label>
-                                        <input required value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} type="text" className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" placeholder="John Doe" />
-                                    </div>
-                                    <div>
-                                        <label className="text-xs font-bold uppercase text-slate-500 mb-1.5 block">Department</label>
-                                        <select value={formData.department} onChange={e => setFormData({ ...formData, department: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
-                                            <option>Executive</option>
-                                            <option>Sales</option>
-                                            <option>Operations</option>
-                                            <option>Marketing</option>
-                                            <option>Finance</option>
-                                            <option>Customer Support</option>
-                                            <option>Visa & Documentation</option>
-                                            <option>Technology</option>
-                                            <option>Human Resources</option>
-                                            <option>Content & Design</option>
-                                        </select>
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="text-xs font-bold uppercase text-slate-500 mb-1.5 block">Primary Email</label>
-                                        <input required value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} type="email" className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" placeholder="john@shravya.com" />
-                                    </div>
-                                    <div>
-                                        <label className="text-xs font-bold uppercase text-slate-500 mb-1.5 block">Mobile (WhatsApp)</label>
-                                        <input value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} type="tel" className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" placeholder="+91 98765 43210" />
-                                    </div>
-                                </div>
-
-                                {!isEditing && (
-                                    <div className="grid grid-cols-2 gap-4">
+                                {modalTab === 'profile' && (
+                                    <div className="space-y-6 animate-in fade-in duration-150">
+                                        {/* Basic Details Section */}
                                         <div>
-                                            <label className="text-xs font-bold uppercase text-slate-500 mb-1.5 block">Password</label>
-                                            <div className="relative">
-                                                <input required value={password} onChange={e => setPassword(e.target.value)} type={showPassword ? "text" : "password"} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg pl-3 pr-10 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" placeholder="******" />
-                                                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 focus:outline-none flex items-center justify-center transition-colors">
-                                                    <span className="material-symbols-outlined text-[18px]">
-                                                        {showPassword ? 'visibility_off' : 'visibility'}
-                                                    </span>
-                                                </button>
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <label className="text-xs font-bold uppercase text-slate-500 mb-1.5 block">Confirm Password</label>
-                                            <div className="relative">
-                                                <input required value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} type={showConfirmPassword ? "text" : "password"} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg pl-3 pr-10 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" placeholder="******" />
-                                                <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 focus:outline-none flex items-center justify-center transition-colors">
-                                                    <span className="material-symbols-outlined text-[18px]">
-                                                        {showConfirmPassword ? 'visibility_off' : 'visibility'}
-                                                    </span>
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="text-xs font-bold uppercase text-slate-500 mb-1.5 block">Role Title</label>
-                                        <input
-                                            list="roles"
-                                            value={formData.role}
-                                            onChange={e => setFormData({ ...formData, role: e.target.value })}
-                                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none"
-                                            placeholder="e.g. Senior Tour Manager"
-                                        />
-                                        <datalist id="roles">
-                                            {/* ─── Ownership / Admin Tier ─── */}
-                                            <option value="Owner" />
-                                            <option value="Co-Owner" />
-                                            <option value="Super Admin" />
-                                            <option value="Administrator" />
-                                            {/* ─── Leadership Tier ─── */}
-                                            <option value="Branch Head" />
-                                            <option value="Operations Head" />
-                                            <option value="Sales Head" />
-                                            <option value="Finance Head" />
-                                            {/* ─── Manager Tier ─── */}
-                                            <option value="Manager" />
-                                            <option value="Sales Manager" />
-                                            <option value="Operations Manager" />
-                                            <option value="Marketing Manager" />
-                                            <option value="Account Manager" />
-                                            <option value="Product Manager" />
-                                            {/* ─── Specialist Tier ─── */}
-                                            <option value="Senior Tour Consultant" />
-                                            <option value="Tour Consultant" />
-                                            <option value="Tour Coordinator" />
-                                            <option value="Visa Executive" />
-                                            <option value="Visa Consultant" />
-                                            <option value="Senior Agent" />
-                                            {/* ─── Agent / Executive Tier ─── */}
-                                            <option value="Agent" />
-                                            <option value="Travel Agent" />
-                                            <option value="Sales Executive" />
-                                            <option value="Booking Executive" />
-                                            <option value="Field Agent" />
-                                            {/* ─── Support / Back-office Tier ─── */}
-                                            <option value="Editor" />
-                                            <option value="Content Writer" />
-                                            <option value="Support" />
-                                            <option value="Customer Support" />
-                                            <option value="Finance Executive" />
-                                            <option value="Accountant" />
-                                            <option value="Intern" />
-                                        </datalist>
-                                    </div>
-                                    <div>
-                                        <label className="text-xs font-bold uppercase text-slate-500 mb-1.5 block">User Type</label>
-                                        <select value={formData.userType} onChange={e => setFormData({ ...formData, userType: e.target.value as any })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
-                                            <option value="Staff">Staff</option>
-                                            <option value="Admin">Admin</option>
-                                        </select>
-                                    </div>
-                                </div>
-
-                                <hr className="border-slate-100 dark:border-slate-800" />
-
-                                <div>
-                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
-                                        <div>
-                                            <h3 className="text-base font-black text-slate-900 dark:text-white">Permissions, Features & Scopes</h3>
-                                            <p className="text-xs text-slate-500">Control page access, data visibility scopes, and specific action capabilities.</p>
-                                        </div>
-                                    </div>
-
-                                    {/* Quick Role Presets Bar */}
-                                    <div className="bg-gradient-to-r from-indigo-50/90 via-purple-50/70 to-blue-50/90 dark:from-indigo-950/40 dark:via-purple-950/30 dark:to-blue-950/40 border border-indigo-100 dark:border-indigo-800/60 rounded-xl p-4 mb-5 shadow-xs">
-                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                                            <div className="flex items-center gap-2.5">
-                                                <div className="size-8 rounded-lg bg-indigo-500 text-white flex items-center justify-center shrink-0 shadow-sm">
-                                                    <span className="material-symbols-outlined text-[18px]">auto_fix_high</span>
+                                            <h3 className="text-xs font-black uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-1.5">
+                                                <span className="material-symbols-outlined text-[15px]">person</span>
+                                                Personal & Contact Details
+                                            </h3>
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                                <div>
+                                                    <label className="text-xs font-bold uppercase text-slate-500 mb-1.5 block">Full Name *</label>
+                                                    <input
+                                                        value={formData.name}
+                                                        onChange={e => setFormData({ ...formData, name: e.target.value })}
+                                                        type="text"
+                                                        className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none"
+                                                        placeholder="e.g. Ajinkya Patil"
+                                                    />
                                                 </div>
                                                 <div>
-                                                    <h4 className="text-xs font-black uppercase tracking-wider text-indigo-950 dark:text-indigo-200">
-                                                        One-Click Role Presets
-                                                    </h4>
-                                                    <p className="text-[11px] text-indigo-700/80 dark:text-indigo-300/80">
-                                                        Instantly populate recommended page access, sub-feature actions, and data scopes.
-                                                    </p>
+                                                    <label className="text-xs font-bold uppercase text-slate-500 mb-1.5 block">Department *</label>
+                                                    <select
+                                                        value={formData.department}
+                                                        onChange={e => setFormData({ ...formData, department: e.target.value })}
+                                                        className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none cursor-pointer"
+                                                    >
+                                                        <option>Executive</option>
+                                                        <option>Sales</option>
+                                                        <option>Operations</option>
+                                                        <option>Marketing</option>
+                                                        <option>Finance</option>
+                                                        <option>Customer Support</option>
+                                                        <option>Visa & Documentation</option>
+                                                        <option>Technology</option>
+                                                        <option>Human Resources</option>
+                                                        <option>Content & Design</option>
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label className="text-xs font-bold uppercase text-slate-500 mb-1.5 block">Primary Email *</label>
+                                                    <input
+                                                        value={formData.email}
+                                                        onChange={e => setFormData({ ...formData, email: e.target.value })}
+                                                        type="email"
+                                                        className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none"
+                                                        placeholder="e.g. ajinkya@shrawellotours.com"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="text-xs font-bold uppercase text-slate-500 mb-1.5 block">Mobile (WhatsApp)</label>
+                                                    <input
+                                                        value={formData.phone}
+                                                        onChange={e => setFormData({ ...formData, phone: e.target.value })}
+                                                        type="tel"
+                                                        className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none"
+                                                        placeholder="+91 98765 43210"
+                                                    />
                                                 </div>
                                             </div>
-                                            <div className="flex items-center gap-2">
-                                                <select
-                                                    value={selectedPresetId}
-                                                    onChange={e => handleApplyPreset(e.target.value)}
-                                                    className="bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-700 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm cursor-pointer"
+                                        </div>
+
+                                        <hr className="border-slate-100 dark:border-slate-800" />
+
+                                        {/* Role & Account Level Section */}
+                                        <div>
+                                            <h3 className="text-xs font-black uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-1.5">
+                                                <span className="material-symbols-outlined text-[15px]">work</span>
+                                                Role Assignment & Authority
+                                            </h3>
+                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                                <div className="sm:col-span-2">
+                                                    <label className="text-xs font-bold uppercase text-slate-500 mb-1.5 block">Designation / Role Title</label>
+                                                    <input
+                                                        list="roles"
+                                                        value={formData.role}
+                                                        onChange={e => setFormData({ ...formData, role: e.target.value })}
+                                                        className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none"
+                                                        placeholder="e.g. Senior Tour Consultant"
+                                                    />
+                                                    <datalist id="roles">
+                                                        <option value="Owner" />
+                                                        <option value="Co-Owner" />
+                                                        <option value="Super Admin" />
+                                                        <option value="Administrator" />
+                                                        <option value="Branch Head" />
+                                                        <option value="Operations Head" />
+                                                        <option value="Sales Head" />
+                                                        <option value="Finance Head" />
+                                                        <option value="Manager" />
+                                                        <option value="Sales Manager" />
+                                                        <option value="Operations Manager" />
+                                                        <option value="Marketing Manager" />
+                                                        <option value="Account Manager" />
+                                                        <option value="Product Manager" />
+                                                        <option value="Senior Tour Consultant" />
+                                                        <option value="Tour Consultant" />
+                                                        <option value="Tour Coordinator" />
+                                                        <option value="Visa Executive" />
+                                                        <option value="Visa Consultant" />
+                                                        <option value="Senior Agent" />
+                                                        <option value="Agent" />
+                                                        <option value="Travel Agent" />
+                                                        <option value="Sales Executive" />
+                                                        <option value="Booking Executive" />
+                                                        <option value="Field Agent" />
+                                                        <option value="Editor" />
+                                                        <option value="Content Writer" />
+                                                        <option value="Support" />
+                                                        <option value="Customer Support" />
+                                                        <option value="Finance Executive" />
+                                                        <option value="Accountant" />
+                                                        <option value="Intern" />
+                                                    </datalist>
+                                                </div>
+
+                                                <div>
+                                                    <label className="text-xs font-bold uppercase text-slate-500 mb-1.5 block">User Type</label>
+                                                    <select
+                                                        value={formData.userType}
+                                                        onChange={e => setFormData({ ...formData, userType: e.target.value as any })}
+                                                        className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none cursor-pointer"
+                                                    >
+                                                        <option value="Staff">Staff (Configurable Access)</option>
+                                                        <option value="Admin">Admin (Master Unrestricted)</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+
+                                            {/* Account Status Switch */}
+                                            <div className="mt-4 p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/40 flex items-center justify-between">
+                                                <div>
+                                                    <p className="text-xs font-bold text-slate-900 dark:text-white">Account Status</p>
+                                                    <p className="text-[11px] text-slate-500">Active accounts can authenticate and log into the SHRAWELLO travel portal.</p>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setFormData({ ...formData, status: formData.status === 'Active' ? 'Inactive' : 'Active' })}
+                                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer ${
+                                                        formData.status === 'Active'
+                                                            ? 'bg-emerald-500 text-white shadow-sm'
+                                                            : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                                                    }`}
                                                 >
-                                                    <option value="">Choose a Role Preset...</option>
-                                                    {ROLE_PRESETS.map(preset => (
-                                                        <option key={preset.id} value={preset.id}>
-                                                            {preset.name}
-                                                        </option>
-                                                    ))}
-                                                </select>
+                                                    <span className="material-symbols-outlined text-[14px]">{formData.status === 'Active' ? 'check_circle' : 'cancel'}</span>
+                                                    <span>{formData.status === 'Active' ? 'Active' : 'Inactive'}</span>
+                                                </button>
                                             </div>
                                         </div>
-                                    </div>
 
-                                    {/* Global Scopes */}
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-                                        <div className="bg-slate-50 dark:bg-slate-900/60 p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-800">
-                                            <label className="text-xs font-bold uppercase text-slate-500 mb-1.5 flex items-center justify-between">
-                                                <span>Default Query / CRM Scope</span>
-                                                <span className="material-symbols-outlined text-[16px] text-slate-400">filter_alt</span>
-                                            </label>
-                                            <select
-                                                value={formData.queryScope}
-                                                onChange={e => setFormData({ ...formData, queryScope: e.target.value as any })}
-                                                className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-primary outline-none"
-                                            >
-                                                <option value="Show Assigned Query Only">Show Assigned Query Only (Own records only)</option>
-                                                <option value="Show Department Queries">Show Department Queries (All {formData.department || 'Department'} records)</option>
-                                                <option value="Show All Queries">Show All Queries (Full organization visibility)</option>
-                                            </select>
-                                            <p className="text-[10px] text-slate-400 mt-1">Controls which leads, bookings, and tasks this user can view.</p>
-                                        </div>
-                                        <div className="bg-slate-50 dark:bg-slate-900/60 p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-800">
-                                            <label className="text-xs font-bold uppercase text-slate-500 mb-1.5 flex items-center justify-between">
-                                                <span>WhatsApp & Communication Scope</span>
-                                                <span className="material-symbols-outlined text-[16px] text-slate-400">chat</span>
-                                            </label>
-                                            <select
-                                                value={formData.whatsappScope}
-                                                onChange={e => setFormData({ ...formData, whatsappScope: e.target.value as any })}
-                                                className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-primary outline-none"
-                                            >
-                                                <option value="Assigned Queries Messages">Assigned Queries Messages (Only chat with own clients)</option>
-                                                <option value="Department Messages">Department Messages (All {formData.department || 'Department'} team chats)</option>
-                                                <option value="All Messages">All Messages (Global channel access)</option>
-                                            </select>
-                                            <p className="text-[10px] text-slate-400 mt-1">Controls which client chat streams are visible in inbox.</p>
-                                        </div>
-                                    </div>
-
-                                    {/* Category Filter Pills & Search */}
-                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-                                        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
-                                            <button
-                                                type="button"
-                                                onClick={() => setPermCategoryTab('all')}
-                                                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors whitespace-nowrap ${permCategoryTab === 'all' ? 'bg-primary text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'}`}
-                                            >
-                                                All Modules ({ALL_MODULE_DEFINITIONS.length})
-                                            </button>
-                                            {PERMISSION_CATEGORIES.map(cat => (
-                                                <button
-                                                    key={cat.key}
-                                                    type="button"
-                                                    onClick={() => setPermCategoryTab(cat.key)}
-                                                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors whitespace-nowrap flex items-center gap-1 ${permCategoryTab === cat.key ? 'bg-primary text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'}`}
-                                                >
-                                                    <span className="material-symbols-outlined text-[14px]">{cat.icon}</span>
-                                                    {cat.name.split(' ')[0]}
-                                                </button>
-                                            ))}
-                                        </div>
-
-                                        <div className="relative min-w-[220px]">
-                                            <span className="material-symbols-outlined absolute left-2.5 top-2 text-slate-400 text-[16px]">search</span>
-                                            <input
-                                                type="text"
-                                                value={permSearch}
-                                                onChange={e => setPermSearch(e.target.value)}
-                                                placeholder="Search module or action..."
-                                                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg pl-8 pr-7 py-1.5 text-xs focus:ring-2 focus:ring-primary outline-none"
-                                            />
-                                            {permSearch && (
-                                                <button type="button" onClick={() => setPermSearch('')} className="absolute right-2 top-1.5 text-slate-400 hover:text-slate-600">
-                                                    <span className="material-symbols-outlined text-[14px]">close</span>
-                                                </button>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    {/* Quick Bulk Toggle Bar */}
-                                    <div className="flex items-center justify-between px-3 py-2 bg-slate-100 dark:bg-slate-800/60 rounded-lg text-xs font-bold text-slate-500 mb-3">
-                                        <span>Showing {filteredModules.length} of {ALL_MODULE_DEFINITIONS.length} Modules</span>
-                                        <div className="flex items-center gap-4">
-                                            <label className="flex items-center gap-1.5 cursor-pointer">
-                                                <input
-                                                    type="checkbox"
-                                                    className="size-3.5 rounded border-gray-300 text-primary focus:ring-primary"
-                                                    checked={ALL_MODULE_DEFINITIONS.every(m => formData.permissions[m.key]?.view)}
-                                                    onChange={e => toggleAllPermissions('view', e.target.checked)}
-                                                />
-                                                <span className="text-[11px] uppercase tracking-wide">Toggle All View</span>
-                                            </label>
-                                            <label className="flex items-center gap-1.5 cursor-pointer">
-                                                <input
-                                                    type="checkbox"
-                                                    className="size-3.5 rounded border-gray-300 text-primary focus:ring-primary"
-                                                    checked={ALL_MODULE_DEFINITIONS.every(m => formData.permissions[m.key]?.manage)}
-                                                    onChange={e => toggleAllPermissions('manage', e.target.checked)}
-                                                />
-                                                <span className="text-[11px] uppercase tracking-wide">Toggle All Manage</span>
-                                            </label>
-                                        </div>
-                                    </div>
-
-                                    {/* Module List with Accordion Sub-Features */}
-                                    <div className="space-y-3">
-                                        {filteredModules.map(mod => {
-                                            const modPerm = formData.permissions[mod.key] || { view: false, manage: false, scope: mod.defaultScope || 'assigned', features: {} };
-                                            const isExpanded = expandedModules.has(mod.key) || (permSearch.trim() !== '' && mod.subFeatures.some(f => f.name.toLowerCase().includes(permSearch.toLowerCase()) || f.description.toLowerCase().includes(permSearch.toLowerCase())));
-                                            const activeSubCount = Object.values(modPerm.features || {}).filter(Boolean).length;
-
-                                            return (
-                                                <div
-                                                    key={mod.key}
-                                                    className={`border rounded-xl transition-all duration-200 ${modPerm.view ? 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900/40 shadow-xs' : 'border-slate-200/60 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-900/10 opacity-70'}`}
-                                                >
-                                                    {/* Module Row Header */}
-                                                    <div className="p-3 flex flex-col md:flex-row md:items-center justify-between gap-3">
-                                                        <div className="flex items-start gap-3 flex-1 min-w-0">
-                                                            <div className={`size-8 rounded-lg flex items-center justify-center shrink-0 ${modPerm.view ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-400'}`}>
-                                                                <span className="material-symbols-outlined text-[18px]">{mod.icon}</span>
-                                                            </div>
-                                                            <div className="min-w-0">
-                                                                <div className="flex items-center gap-2 flex-wrap">
-                                                                    <span className="text-xs font-bold text-slate-900 dark:text-white leading-snug">{mod.name}</span>
-                                                                    <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">{mod.path}</span>
-                                                                </div>
-                                                                <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1 mt-0.5">{mod.description}</p>
-                                                            </div>
-                                                        </div>
-
-                                                        {/* Controls */}
-                                                        <div className="flex items-center gap-2.5 shrink-0 flex-wrap justify-end">
-                                                            {/* Scope selector if supported */}
-                                                            {mod.hasScope && modPerm.view && (
-                                                                <select
-                                                                    value={modPerm.scope || 'assigned'}
-                                                                    onChange={e => handleModuleScopeChange(mod.key, e.target.value as any)}
-                                                                    className="text-[11px] font-bold bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-primary"
-                                                                    title="Module-specific data scope"
-                                                                >
-                                                                    <option value="assigned">Assigned Only</option>
-                                                                    <option value="department">Department</option>
-                                                                    <option value="all">All Organization</option>
-                                                                </select>
-                                                            )}
-
-                                                            {/* View Checkbox */}
-                                                            <label className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold cursor-pointer transition-colors ${modPerm.view ? 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300' : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500'}`}>
-                                                                <input
-                                                                    type="checkbox"
-                                                                    checked={!!modPerm.view}
-                                                                    onChange={e => handlePermissionChange(mod.key, 'view', e.target.checked)}
-                                                                    className="size-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                                                                />
-                                                                <span>View</span>
-                                                            </label>
-
-                                                            {/* Manage Checkbox */}
-                                                            <label className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold cursor-pointer transition-colors ${modPerm.manage ? 'bg-purple-50 dark:bg-purple-950/40 border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-300' : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500'}`}>
-                                                                <input
-                                                                    type="checkbox"
-                                                                    checked={!!modPerm.manage}
-                                                                    onChange={e => handlePermissionChange(mod.key, 'manage', e.target.checked)}
-                                                                    className="size-3.5 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
-                                                                />
-                                                                <span>Manage</span>
-                                                            </label>
-
-                                                            {/* Sub-Features Accordion Button */}
-                                                            {mod.subFeatures.length > 0 && modPerm.view && (
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => toggleExpandModule(mod.key)}
-                                                                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-colors ${isExpanded ? 'bg-slate-200 dark:bg-slate-700 text-slate-900 dark:text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'}`}
-                                                                >
-                                                                    <span className="text-[11px]">{activeSubCount}/{mod.subFeatures.length} Actions</span>
-                                                                    <span className="material-symbols-outlined text-[16px]">{isExpanded ? 'expand_less' : 'expand_more'}</span>
-                                                                </button>
-                                                            )}
+                                        {/* Password Section */}
+                                        {!isEditing ? (
+                                            <div>
+                                                <h3 className="text-xs font-black uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-1.5">
+                                                    <span className="material-symbols-outlined text-[15px]">key</span>
+                                                    Initial Password
+                                                </h3>
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                                    <div>
+                                                        <label className="text-xs font-bold uppercase text-slate-500 mb-1.5 block">Password *</label>
+                                                        <div className="relative">
+                                                            <input
+                                                                value={password}
+                                                                onChange={e => setPassword(e.target.value)}
+                                                                type={showPassword ? "text" : "password"}
+                                                                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl pl-3.5 pr-10 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none"
+                                                                placeholder="At least 6 characters"
+                                                            />
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setShowPassword(!showPassword)}
+                                                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 flex items-center justify-center cursor-pointer"
+                                                            >
+                                                                <span className="material-symbols-outlined text-[18px]">
+                                                                    {showPassword ? 'visibility_off' : 'visibility'}
+                                                                </span>
+                                                            </button>
                                                         </div>
                                                     </div>
-
-                                                    {/* Sub-Features Expanded Drawer */}
-                                                    {mod.subFeatures.length > 0 && modPerm.view && isExpanded && (
-                                                        <div className="border-t border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/60 p-3.5 rounded-b-xl animate-in slide-in-from-top-1 duration-150">
-                                                            <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2.5 flex items-center gap-1">
-                                                                <span className="material-symbols-outlined text-[13px]">tune</span>
-                                                                Sub-Features & Action Level Controls for {mod.name}
-                                                            </p>
-                                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                                                                {mod.subFeatures.map(feat => {
-                                                                    const isEnabled = modPerm.features?.[feat.key] ?? (modPerm.manage || feat.defaultStaff);
-                                                                    return (
-                                                                        <div
-                                                                            key={feat.key}
-                                                                            className={`flex items-start justify-between gap-3 p-2.5 rounded-lg border transition-colors ${isEnabled ? 'bg-white dark:bg-slate-800/90 border-slate-200 dark:border-slate-700 shadow-2xs' : 'bg-slate-100/50 dark:bg-slate-900/30 border-slate-200/50 dark:border-slate-800/50 opacity-60'}`}
-                                                                        >
-                                                                            <div className="min-w-0 pr-1">
-                                                                                <div className="flex items-center gap-1.5 flex-wrap">
-                                                                                    <span className="text-xs font-bold text-slate-800 dark:text-slate-200">{feat.name}</span>
-                                                                                    {feat.risk === 'critical' && (
-                                                                                        <span className="text-[9px] font-black px-1.5 py-0.2 rounded bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300 flex items-center gap-0.5">
-                                                                                            <span className="material-symbols-outlined text-[10px]">lock</span> Sensitive
-                                                                                        </span>
-                                                                                    )}
-                                                                                    {feat.risk === 'high' && (
-                                                                                        <span className="text-[9px] font-black px-1.5 py-0.2 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
-                                                                                            ⚠️ High Risk
-                                                                                        </span>
-                                                                                    )}
-                                                                                </div>
-                                                                                <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight mt-0.5">{feat.description}</p>
-                                                                            </div>
-                                                                            <label className="relative inline-flex items-center cursor-pointer shrink-0 pt-0.5">
-                                                                                <input
-                                                                                    type="checkbox"
-                                                                                    checked={!!isEnabled}
-                                                                                    onChange={e => handleSubFeatureChange(mod.key, feat.key, e.target.checked)}
-                                                                                    className="sr-only peer"
-                                                                                />
-                                                                                <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[4px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-primary"></div>
-                                                                            </label>
-                                                                        </div>
-                                                                    );
-                                                                })}
+                                                    <div>
+                                                        <label className="text-xs font-bold uppercase text-slate-500 mb-1.5 block">Confirm Password *</label>
+                                                        <div className="relative">
+                                                            <input
+                                                                value={confirmPassword}
+                                                                onChange={e => setConfirmPassword(e.target.value)}
+                                                                type={showConfirmPassword ? "text" : "password"}
+                                                                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl pl-3.5 pr-10 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none"
+                                                                placeholder="Repeat password"
+                                                            />
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                                                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 flex items-center justify-center cursor-pointer"
+                                                            >
+                                                                <span className="material-symbols-outlined text-[18px]">
+                                                                    {showConfirmPassword ? 'visibility_off' : 'visibility'}
+                                                                </span>
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            /* Reset Password Drawer in Edit Mode */
+                                            editingId && (
+                                                <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setShowResetPassword(p => !p)}
+                                                        className="w-full flex items-center justify-between px-4 py-3 text-sm font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                                                    >
+                                                        <span className="flex items-center gap-2">
+                                                            <span className="material-symbols-outlined text-[18px] text-amber-500">lock_reset</span>
+                                                            Reset Login Password
+                                                        </span>
+                                                        <span className="material-symbols-outlined text-[18px] text-slate-400">{showResetPassword ? 'expand_less' : 'expand_more'}</span>
+                                                    </button>
+                                                    {showResetPassword && (
+                                                        <div className="px-4 pb-4 pt-2 space-y-3 border-t border-slate-100 dark:border-slate-700 bg-amber-50/30 dark:bg-amber-900/10">
+                                                            <p className="text-xs text-amber-700 dark:text-amber-400 font-medium">Instantly resets the login password for this staff member.</p>
+                                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                                <div>
+                                                                    <label className="text-[10px] font-bold uppercase text-slate-500 mb-1 block">New Password</label>
+                                                                    <input
+                                                                        type="password"
+                                                                        value={resetPassword}
+                                                                        onChange={e => setResetPassword(e.target.value)}
+                                                                        placeholder="Min 6 characters"
+                                                                        className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-xs focus:ring-2 focus:ring-amber-500 outline-none"
+                                                                    />
+                                                                </div>
+                                                                <div>
+                                                                    <label className="text-[10px] font-bold uppercase text-slate-500 mb-1 block">Confirm New Password</label>
+                                                                    <input
+                                                                        type="password"
+                                                                        value={resetConfirmPassword}
+                                                                        onChange={e => setResetConfirmPassword(e.target.value)}
+                                                                        placeholder="Confirm password"
+                                                                        className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-xs focus:ring-2 focus:ring-amber-500 outline-none"
+                                                                    />
+                                                                </div>
                                                             </div>
+                                                            <button
+                                                                type="button"
+                                                                disabled={isResettingPassword}
+                                                                onClick={async () => {
+                                                                    if (!resetPassword || resetPassword.length < 6) {
+                                                                        toast.error('Password must be at least 6 characters');
+                                                                        return;
+                                                                    }
+                                                                    if (resetPassword !== resetConfirmPassword) {
+                                                                        toast.error('Passwords do not match');
+                                                                        return;
+                                                                    }
+                                                                    setIsResettingPassword(true);
+                                                                    try {
+                                                                        await api.resetStaffPassword(editingId, resetPassword);
+                                                                        toast.success('Password updated successfully');
+                                                                        setShowResetPassword(false);
+                                                                        setResetPassword('');
+                                                                        setResetConfirmPassword('');
+                                                                    } catch (err: any) {
+                                                                        toast.error(err.message || 'Failed to reset password');
+                                                                    } finally {
+                                                                        setIsResettingPassword(false);
+                                                                    }
+                                                                }}
+                                                                className="w-full py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-lg transition-colors disabled:opacity-60 cursor-pointer"
+                                                            >
+                                                                {isResettingPassword ? 'Updating Password...' : 'Update Password Now'}
+                                                            </button>
                                                         </div>
                                                     )}
                                                 </div>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
+                                            )
+                                        )}
 
-                                {/* Fix #1: Reset Password in Edit Mode */}
-                                {isEditing && editingId && (
-                                    <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
-                                        <button
-                                            type="button"
-                                            onClick={() => setShowResetPassword(p => !p)}
-                                            className="w-full flex items-center justify-between px-4 py-3 text-sm font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-                                        >
-                                            <span className="flex items-center gap-2">
-                                                <span className="material-symbols-outlined text-[18px] text-amber-500">lock_reset</span>
-                                                Reset Login Password
-                                            </span>
-                                            <span className="material-symbols-outlined text-[18px] text-slate-400">{showResetPassword ? 'expand_less' : 'expand_more'}</span>
-                                        </button>
-                                        {showResetPassword && (
-                                            <div className="px-4 pb-4 pt-2 space-y-3 border-t border-slate-100 dark:border-slate-700 bg-amber-50/30 dark:bg-amber-900/10">
-                                                <p className="text-xs text-amber-700 dark:text-amber-400 font-medium">This will immediately update the login password for this staff member.</p>
-                                                <div className="grid grid-cols-2 gap-3">
-                                                    <div>
-                                                        <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">New Password</label>
-                                                        <input
-                                                            type="password"
-                                                            value={resetPassword}
-                                                            onChange={e => setResetPassword(e.target.value)}
-                                                            className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none"
-                                                            placeholder="Min 6 chars"
-                                                        />
+                                        {/* Next Tab CTA */}
+                                        <div className="pt-2 flex justify-end">
+                                            <button
+                                                type="button"
+                                                onClick={() => setModalTab('permissions')}
+                                                className="px-5 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/50 dark:hover:bg-indigo-900/50 dark:text-indigo-300 font-bold rounded-xl text-xs flex items-center gap-2 cursor-pointer transition-colors"
+                                            >
+                                                <span>Configure Access & Permissions (39 Modules)</span>
+                                                <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {modalTab === 'permissions' && (
+                                    <div className="space-y-5 animate-in fade-in duration-150">
+                                        {/* Admin Authority Banner */}
+                                        {formData.userType === 'Admin' ? (
+                                            <div className="p-5 bg-gradient-to-br from-purple-50 via-indigo-50 to-purple-50 dark:from-purple-950/40 dark:via-indigo-950/30 dark:to-purple-950/40 border border-purple-200/80 dark:border-purple-800/70 rounded-2xl space-y-2">
+                                                <div className="flex items-center gap-2.5 text-purple-900 dark:text-purple-200 font-black text-sm">
+                                                    <span className="material-symbols-outlined text-purple-600 dark:text-purple-400 text-[20px]">verified_user</span>
+                                                    <span>Full System Administrator</span>
+                                                </div>
+                                                <p className="text-xs text-purple-700 dark:text-purple-300 leading-relaxed max-w-2xl">
+                                                    This account is designated as an <strong>Administrator</strong>. Administrators possess unrestricted master authority across all 39 platform modules, unrestricted action capabilities, and global organization scopes.
+                                                </p>
+                                                <p className="text-[11px] text-purple-600/80 dark:text-purple-400/80 pt-1">
+                                                    To customize granular sub-feature access or restrict module visibility, switch <strong>User Type</strong> to <strong>Staff</strong> in the Profile tab.
+                                                </p>
+                                            </div>
+                                        ) : (
+                                            <>
+                                                {/* Role Presets & Global Scopes */}
+                                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                                                    {/* Preset Selector */}
+                                                    <div className="lg:col-span-1 bg-gradient-to-r from-indigo-50/90 to-purple-50/90 dark:from-indigo-950/40 dark:to-purple-950/40 border border-indigo-100 dark:border-indigo-800/60 rounded-xl p-3.5 flex flex-col justify-between">
+                                                        <div>
+                                                            <div className="flex items-center gap-1.5 text-indigo-950 dark:text-indigo-200 font-black text-xs">
+                                                                <span className="material-symbols-outlined text-[16px] text-indigo-500">auto_fix_high</span>
+                                                                <span>One-Click Role Preset</span>
+                                                            </div>
+                                                            <p className="text-[11px] text-indigo-700/80 dark:text-indigo-300/80 mt-1">
+                                                                Auto-populate recommended access, actions, and scopes:
+                                                            </p>
+                                                        </div>
+                                                        <select
+                                                            value={selectedPresetId}
+                                                            onChange={e => handleApplyPreset(e.target.value)}
+                                                            className="mt-2.5 w-full bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-700 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-lg px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm cursor-pointer"
+                                                        >
+                                                            <option value="">Choose a Role Preset...</option>
+                                                            {ROLE_PRESETS.map(preset => (
+                                                                <option key={preset.id} value={preset.id}>
+                                                                    {preset.name}
+                                                                </option>
+                                                            ))}
+                                                        </select>
                                                     </div>
-                                                    <div>
-                                                        <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">Confirm</label>
-                                                        <input
-                                                            type="password"
-                                                            value={resetConfirmPassword}
-                                                            onChange={e => setResetConfirmPassword(e.target.value)}
-                                                            className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none"
-                                                            placeholder="Repeat password"
-                                                        />
+
+                                                    {/* Global CRM Scope */}
+                                                    <div className="bg-slate-50 dark:bg-slate-900/60 p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-800 flex flex-col justify-between">
+                                                        <div>
+                                                            <label className="text-xs font-bold uppercase text-slate-500 flex items-center justify-between">
+                                                                <span>Default CRM / Query Scope</span>
+                                                                <span className="material-symbols-outlined text-[16px] text-slate-400">filter_alt</span>
+                                                            </label>
+                                                            <p className="text-[10px] text-slate-400 mt-0.5">Controls which leads & bookings this user sees.</p>
+                                                        </div>
+                                                        <select
+                                                            value={formData.queryScope}
+                                                            onChange={e => setFormData({ ...formData, queryScope: e.target.value as any })}
+                                                            className="mt-2 w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-bold focus:ring-2 focus:ring-primary outline-none cursor-pointer"
+                                                        >
+                                                            <option value="Show Assigned Query Only">Show Assigned Only (Own records)</option>
+                                                            <option value="Show Department Queries">Show Department Queries ({formData.department})</option>
+                                                            <option value="Show All Queries">Show All Queries (Global Agency)</option>
+                                                        </select>
+                                                    </div>
+
+                                                    {/* WhatsApp Scope */}
+                                                    <div className="bg-slate-50 dark:bg-slate-900/60 p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-800 flex flex-col justify-between">
+                                                        <div>
+                                                            <label className="text-xs font-bold uppercase text-slate-500 flex items-center justify-between">
+                                                                <span>WhatsApp Communication Scope</span>
+                                                                <span className="material-symbols-outlined text-[16px] text-slate-400">chat</span>
+                                                            </label>
+                                                            <p className="text-[10px] text-slate-400 mt-0.5">Controls which client chat streams are visible.</p>
+                                                        </div>
+                                                        <select
+                                                            value={formData.whatsappScope}
+                                                            onChange={e => setFormData({ ...formData, whatsappScope: e.target.value as any })}
+                                                            className="mt-2 w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-bold focus:ring-2 focus:ring-primary outline-none cursor-pointer"
+                                                        >
+                                                            <option value="Assigned Queries Messages">Assigned Queries Messages (Own clients)</option>
+                                                            <option value="Department Messages">Department Messages ({formData.department})</option>
+                                                            <option value="All Messages">All Messages (Global Agency)</option>
+                                                        </select>
                                                     </div>
                                                 </div>
-                                                <button
-                                                    type="button"
-                                                    disabled={isResettingPassword}
-                                                    onClick={async () => {
-                                                        if (resetPassword.length < 6) { toast.error('Password must be at least 6 characters'); return; }
-                                                        if (resetPassword !== resetConfirmPassword) { toast.error('Passwords do not match'); return; }
-                                                        setIsResettingPassword(true);
-                                                        try {
-                                                            await api.resetStaffPassword(editingId, resetPassword);
-                                                            toast.success('Password updated successfully');
-                                                            setShowResetPassword(false);
-                                                            setResetPassword('');
-                                                            setResetConfirmPassword('');
-                                                        } catch (err: any) {
-                                                            toast.error(err.message || 'Failed to reset password');
-                                                        } finally {
-                                                            setIsResettingPassword(false);
-                                                        }
-                                                    }}
-                                                    className="w-full py-2 bg-amber-500 hover:bg-amber-600 text-white text-sm font-bold rounded-lg transition-colors disabled:opacity-60"
-                                                >
-                                                    {isResettingPassword ? 'Updating...' : 'Update Password'}
-                                                </button>
-                                            </div>
+
+                                                {/* Category Rail & Search Toolbar */}
+                                                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-slate-50 dark:bg-slate-900/50 p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800">
+                                                    {/* Category Tabs */}
+                                                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0 scrollbar-none">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setPermCategoryTab('all')}
+                                                            className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
+                                                                permCategoryTab === 'all'
+                                                                    ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
+                                                                    : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100'
+                                                            }`}
+                                                        >
+                                                            All ({ALL_MODULE_DEFINITIONS.length})
+                                                        </button>
+                                                        {PERMISSION_CATEGORIES.map(cat => {
+                                                            const count = ALL_MODULE_DEFINITIONS.filter(m => m.category === cat.key).length;
+                                                            return (
+                                                                <button
+                                                                    key={cat.key}
+                                                                    type="button"
+                                                                    onClick={() => setPermCategoryTab(cat.key)}
+                                                                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors whitespace-nowrap flex items-center gap-1.5 cursor-pointer ${
+                                                                        permCategoryTab === cat.key
+                                                                            ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
+                                                                            : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100'
+                                                                    }`}
+                                                                >
+                                                                    <span className="material-symbols-outlined text-[14px]">{cat.icon}</span>
+                                                                    <span>{cat.name.split(' ')[0]}</span>
+                                                                    <span className="text-[10px] opacity-70">({count})</span>
+                                                                </button>
+                                                            );
+                                                        })}
+                                                    </div>
+
+                                                    {/* Search Input */}
+                                                    <div className="relative min-w-[200px]">
+                                                        <span className="material-symbols-outlined absolute left-2.5 top-2 text-slate-400 text-[16px]">search</span>
+                                                        <input
+                                                            type="text"
+                                                            value={permSearch}
+                                                            onChange={e => setPermSearch(e.target.value)}
+                                                            placeholder="Search module or action..."
+                                                            className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg pl-8 pr-7 py-1.5 text-xs font-medium focus:ring-2 focus:ring-primary outline-none"
+                                                        />
+                                                        {permSearch && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setPermSearch('')}
+                                                                className="absolute right-2 top-1.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+                                                            >
+                                                                <span className="material-symbols-outlined text-[14px]">close</span>
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                {/* Bulk Category Actions Bar */}
+                                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-3 py-2 bg-slate-100 dark:bg-slate-800/60 rounded-xl text-xs text-slate-500 font-bold">
+                                                    <span>Showing {filteredModules.length} Modules in this tab</span>
+                                                    <div className="flex items-center gap-2">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleBulkCategoryAction('grant_view')}
+                                                            className="px-2.5 py-1 rounded-md bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 border border-slate-200 dark:border-slate-700 hover:bg-indigo-50 text-[11px] font-bold cursor-pointer transition-colors"
+                                                        >
+                                                            + Grant View in Tab
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleBulkCategoryAction('grant_manage')}
+                                                            className="px-2.5 py-1 rounded-md bg-white dark:bg-slate-800 text-purple-600 dark:text-purple-400 border border-slate-200 dark:border-slate-700 hover:bg-purple-50 text-[11px] font-bold cursor-pointer transition-colors"
+                                                        >
+                                                            + Grant Manage in Tab
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleBulkCategoryAction('revoke')}
+                                                            className="px-2.5 py-1 rounded-md bg-white dark:bg-slate-800 text-rose-600 dark:text-rose-400 border border-slate-200 dark:border-slate-700 hover:bg-rose-50 text-[11px] font-bold cursor-pointer transition-colors"
+                                                        >
+                                                            Revoke All in Tab
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                {/* Module Cards List */}
+                                                <div className="space-y-3 pr-0.5">
+                                                    {filteredModules.map(mod => {
+                                                        const modPerm = formData.permissions[mod.key] || {
+                                                            view: false,
+                                                            manage: false,
+                                                            scope: mod.defaultScope || 'assigned',
+                                                            features: {}
+                                                        };
+                                                        const isExpanded = expandedModules.has(mod.key) || (permSearch.trim() !== '' && mod.subFeatures.some(f => f.name.toLowerCase().includes(permSearch.toLowerCase()) || f.description.toLowerCase().includes(permSearch.toLowerCase())));
+                                                        const activeSubCount = Object.values(modPerm.features || {}).filter(Boolean).length;
+                                                        const accessLevel: 'none' | 'view' | 'manage' = modPerm.manage ? 'manage' : modPerm.view ? 'view' : 'none';
+
+                                                        return (
+                                                            <div
+                                                                key={mod.key}
+                                                                className={`rounded-xl border transition-all duration-150 overflow-hidden ${
+                                                                    modPerm.view
+                                                                        ? 'border-indigo-200/80 dark:border-indigo-900/60 bg-white dark:bg-slate-900/70 shadow-xs'
+                                                                        : 'border-slate-200/70 dark:border-slate-800/70 bg-slate-50/60 dark:bg-slate-900/20 opacity-75'
+                                                                }`}
+                                                            >
+                                                                {/* Module Header Row */}
+                                                                <div className="p-3.5 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                                                                    <div className="flex items-start gap-3 flex-1 min-w-0">
+                                                                        <div className={`size-9 rounded-xl flex items-center justify-center shrink-0 ${
+                                                                            modPerm.manage
+                                                                                ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 shadow-sm'
+                                                                                : modPerm.view
+                                                                                ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 shadow-sm'
+                                                                                : 'bg-slate-100 dark:bg-slate-800 text-slate-400'
+                                                                        }`}>
+                                                                            <span className="material-symbols-outlined text-[20px]">{mod.icon}</span>
+                                                                        </div>
+                                                                        <div className="min-w-0">
+                                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                                                <span className="text-xs font-black text-slate-900 dark:text-white leading-snug">{mod.name}</span>
+                                                                                <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">{mod.path}</span>
+                                                                            </div>
+                                                                            <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1 mt-0.5">{mod.description}</p>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    {/* 3-State Access Pill Switcher & Scope */}
+                                                                    <div className="flex items-center gap-2.5 shrink-0 flex-wrap justify-end">
+                                                                        {/* Module-specific scope selector */}
+                                                                        {mod.hasScope && modPerm.view && (
+                                                                            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-200/80 dark:border-slate-700">
+                                                                                <span className="material-symbols-outlined text-[13px] text-slate-400 ml-1.5">travel_explore</span>
+                                                                                <select
+                                                                                    value={modPerm.scope || 'assigned'}
+                                                                                    onChange={e => handleModuleScopeChange(mod.key, e.target.value as any)}
+                                                                                    className="text-[11px] font-bold bg-transparent text-slate-700 dark:text-slate-200 px-1 py-1 outline-none cursor-pointer"
+                                                                                    title="Data scope for this module"
+                                                                                >
+                                                                                    <option value="assigned">Assigned Records Only</option>
+                                                                                    <option value="department">Department Records</option>
+                                                                                    <option value="all">All Organization</option>
+                                                                                </select>
+                                                                            </div>
+                                                                        )}
+
+                                                                        {/* 3-Way Segmented Access Level Control */}
+                                                                        <div className="flex items-center p-0.5 bg-slate-100 dark:bg-slate-800/90 rounded-xl border border-slate-200/80 dark:border-slate-700">
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => handleSetAccessLevel(mod.key, 'none')}
+                                                                                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                                                                                    accessLevel === 'none'
+                                                                                        ? 'bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300 shadow-xs'
+                                                                                        : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
+                                                                                }`}
+                                                                                title="Revoke access to this module"
+                                                                            >
+                                                                                None
+                                                                            </button>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => handleSetAccessLevel(mod.key, 'view')}
+                                                                                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                                                                                    accessLevel === 'view'
+                                                                                        ? 'bg-indigo-600 text-white shadow-xs'
+                                                                                        : 'text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400'
+                                                                                }`}
+                                                                                title="Grant read-only view access"
+                                                                            >
+                                                                                <span className="material-symbols-outlined text-[13px]">visibility</span>
+                                                                                View
+                                                                            </button>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => handleSetAccessLevel(mod.key, 'manage')}
+                                                                                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                                                                                    accessLevel === 'manage'
+                                                                                        ? 'bg-purple-600 text-white shadow-xs'
+                                                                                        : 'text-slate-500 hover:text-purple-600 dark:hover:text-purple-400'
+                                                                                }`}
+                                                                                title="Grant full manage & edit access"
+                                                                            >
+                                                                                <span className="material-symbols-outlined text-[13px]">edit_square</span>
+                                                                                Manage
+                                                                            </button>
+                                                                        </div>
+
+                                                                        {/* Sub-Features Accordion Button */}
+                                                                        {mod.subFeatures.length > 0 && modPerm.view && (
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => toggleExpandModule(mod.key)}
+                                                                                className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-bold transition-colors cursor-pointer border ${
+                                                                                    isExpanded
+                                                                                        ? 'bg-slate-200 dark:bg-slate-700 text-slate-900 dark:text-white border-slate-300 dark:border-slate-600'
+                                                                                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200'
+                                                                                }`}
+                                                                            >
+                                                                                <span>{activeSubCount}/{mod.subFeatures.length} Actions</span>
+                                                                                <span className="material-symbols-outlined text-[15px]">{isExpanded ? 'expand_less' : 'expand_more'}</span>
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+
+                                                                {/* Sub-Features Drawer */}
+                                                                {mod.subFeatures.length > 0 && modPerm.view && isExpanded && (
+                                                                    <div className="border-t border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/60 p-3.5 animate-in slide-in-from-top-1 duration-150">
+                                                                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2.5 flex items-center gap-1">
+                                                                            <span className="material-symbols-outlined text-[13px]">tune</span>
+                                                                            Action Level Safeguards for {mod.name}
+                                                                        </p>
+                                                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                                                            {mod.subFeatures.map(feat => {
+                                                                                const isEnabled = modPerm.features?.[feat.key] ?? false;
+                                                                                return (
+                                                                                    <div
+                                                                                        key={feat.key}
+                                                                                        className={`flex items-start justify-between gap-3 p-2.5 rounded-xl border transition-colors ${
+                                                                                            isEnabled
+                                                                                                ? 'bg-white dark:bg-slate-800 border-indigo-200 dark:border-indigo-900/50 shadow-2xs'
+                                                                                                : 'bg-slate-100/60 dark:bg-slate-900/30 border-slate-200/50 dark:border-slate-800/50 opacity-65'
+                                                                                        }`}
+                                                                                    >
+                                                                                        <div className="min-w-0 pr-1">
+                                                                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                                                                                <span className="text-xs font-bold text-slate-800 dark:text-slate-200">{feat.name}</span>
+                                                                                                {feat.risk === 'critical' && (
+                                                                                                    <span className="text-[9px] font-black px-1.5 py-0.2 rounded bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300 flex items-center gap-0.5">
+                                                                                                        <span className="material-symbols-outlined text-[10px]">lock</span> Sensitive
+                                                                                                    </span>
+                                                                                                )}
+                                                                                                {feat.risk === 'high' && (
+                                                                                                    <span className="text-[9px] font-black px-1.5 py-0.2 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
+                                                                                                        ⚠️ High Risk
+                                                                                                    </span>
+                                                                                                )}
+                                                                                            </div>
+                                                                                            <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight mt-0.5">{feat.description}</p>
+                                                                                        </div>
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            onClick={() => handleSubFeatureChange(mod.key, feat.key, !isEnabled)}
+                                                                                            className={`size-6 rounded-lg flex items-center justify-center shrink-0 cursor-pointer transition-colors ${
+                                                                                                isEnabled
+                                                                                                    ? 'bg-indigo-600 text-white shadow-xs'
+                                                                                                    : 'bg-slate-200 dark:bg-slate-700 text-slate-400 hover:bg-slate-300'
+                                                                                            }`}
+                                                                                            title={isEnabled ? 'Enabled (Click to disable)' : 'Disabled (Click to enable)'}
+                                                                                        >
+                                                                                            <span className="material-symbols-outlined text-[15px]">
+                                                                                                {isEnabled ? 'check' : 'close'}
+                                                                                            </span>
+                                                                                        </button>
+                                                                                    </div>
+                                                                                );
+                                                                            })}
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </>
                                         )}
                                     </div>
                                 )}
-
-                                <div className="flex items-center gap-2 mt-2">
-                                    <input
-                                        type="checkbox"
-                                        id="isActive"
-                                        checked={formData.status === 'Active'}
-                                        onChange={e => setFormData({ ...formData, status: e.target.checked ? 'Active' : 'Inactive' })}
-                                        className="size-4 rounded border-gray-300 text-primary focus:ring-primary"
-                                    />
-                                    <label htmlFor="isActive" className="text-sm font-medium text-slate-700 dark:text-slate-300">Active Account</label>
-                                </div>
-
                             </form>
                         </div>
 
-                        <div className="p-6 border-t border-slate-100 dark:border-slate-800 flex justify-between">
-                            {/* Fix #17: Warn about active session changes */}
-                            <p className="text-[10px] text-slate-400 italic self-center max-w-[200px]">Permission changes apply on the staff member's next login.</p>
-                            <div className="flex gap-3">
+                        {/* Modal Footer */}
+                        <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 bg-white dark:bg-[#1A2633] shrink-0">
+                            <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                                <span className="material-symbols-outlined text-[16px] text-indigo-500">verified</span>
+                                <span>
+                                    {formData.userType === 'Admin'
+                                        ? 'All 39 modules enabled with master administrator authority'
+                                        : `${Object.values(formData.permissions || {}).filter((p: any) => p?.view).length} of ${ALL_MODULE_DEFINITIONS.length} modules accessible`
+                                    }
+                                </span>
+                            </div>
+
+                            <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
                                 {currentUser?.userType === 'Admin' && !isEditing && (
                                     <button
                                         type="button"
-                                        onClick={async () => {
-                                            try {
-                                                const res = await api.syncStaffAuth();
-                                                // Fix #13: Show per-user temp passwords
-                                                if (res.created && res.created.length > 0) {
-                                                    const list = res.created.map((c: any) => `${c.name}: ${c.tempPassword}`).join('\n');
-                                                    alert(`Sync complete! New accounts created:\n\n${list}\n\nPlease share these passwords securely.`);
-                                                } else {
-                                                    toast.success(res.message || 'All accounts already synced');
-                                                }
-                                            } catch (err: any) {
-                                                toast.error(err.message || 'Sync failed');
-                                            }
-                                        }}
-                                        className="px-4 py-2 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg transition-colors flex items-center gap-2"
+                                        onClick={handleSyncAccounts}
+                                        className="px-4 py-2 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl transition-colors flex items-center gap-2 text-xs cursor-pointer"
                                         title="Ensure all staff have login accounts"
                                     >
-                                        <span className="material-symbols-outlined text-[18px]">sync</span>
-                                        Sync Accounts
+                                        <span className="material-symbols-outlined text-[16px]">sync</span>
+                                        <span>Sync Accounts</span>
                                     </button>
                                 )}
-                                <button type="submit" form="staffForm" className="px-6 py-2 bg-primary text-white font-bold rounded-lg shadow-lg shadow-primary/20 hover:bg-primary-dark transition-colors">{isEditing ? 'Save Changes' : 'Add Member'}</button>
+                                <button
+                                    type="button"
+                                    onClick={() => setIsModalOpen(false)}
+                                    className="px-4 py-2.5 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 font-bold hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl transition-colors text-xs cursor-pointer"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    form="staffForm"
+                                    className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 font-bold rounded-xl shadow-lg shadow-slate-900/10 hover:shadow-xl transition-all text-xs cursor-pointer flex items-center gap-2"
+                                >
+                                    <span className="material-symbols-outlined text-[16px]">{isEditing ? 'save' : 'person_add'}</span>
+                                    <span>{isEditing ? 'Save Changes' : 'Add Member'}</span>
+                                </button>
                             </div>
                         </div>
                     </div>

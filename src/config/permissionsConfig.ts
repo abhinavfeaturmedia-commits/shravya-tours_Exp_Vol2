@@ -658,6 +658,83 @@ export const buildAdminPermissions = (): Record<string, any> => {
   return result;
 };
 
+/**
+ * Normalizes any permissions data (raw DB JSON, legacy boolean objects, stringified JSON, or partial objects)
+ * into a fully populated, type-safe Record<string, { view: boolean; manage: boolean; scope: DataScopeLevel; features: Record<string, boolean> }>
+ * guaranteeing that every single module from ALL_MODULE_DEFINITIONS has valid keys and booleans.
+ */
+export const normalizePermissions = (
+  raw: any,
+  _userType?: 'Staff' | 'Admin'
+): Record<string, { view: boolean; manage: boolean; scope: DataScopeLevel; features: Record<string, boolean> }> => {
+  let parsed = raw;
+  while (typeof parsed === 'string') {
+    if (!parsed.trim()) break;
+    try {
+      parsed = JSON.parse(parsed);
+    } catch {
+      break;
+    }
+  }
+
+  const safeObj = (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
+  const baseDefaults = buildDefaultPermissions();
+  const result: Record<string, { view: boolean; manage: boolean; scope: DataScopeLevel; features: Record<string, boolean> }> = {};
+
+  for (const mod of ALL_MODULE_DEFINITIONS) {
+    const rawMod = safeObj[mod.key];
+    const defaultMod = baseDefaults[mod.key] || {
+      view: false,
+      manage: false,
+      scope: mod.defaultScope || 'assigned',
+      features: {}
+    };
+
+    let view = defaultMod.view;
+    let manage = defaultMod.manage;
+    let scope: DataScopeLevel = defaultMod.scope || mod.defaultScope || 'assigned';
+    const features: Record<string, boolean> = {};
+
+    if (rawMod !== undefined) {
+      if (typeof rawMod === 'boolean') {
+        // Legacy boolean format e.g. { "leads": true }
+        view = rawMod;
+        manage = rawMod && !['inbox', 'accounts', 'finance_verification', 'staff'].includes(mod.key);
+      } else if (typeof rawMod === 'object' && rawMod !== null) {
+        if (typeof rawMod.view === 'boolean') view = rawMod.view;
+        if (typeof rawMod.manage === 'boolean') manage = rawMod.manage;
+        if (rawMod.scope && ['assigned', 'department', 'all'].includes(rawMod.scope)) {
+          scope = rawMod.scope;
+        }
+      }
+    }
+
+    // Populate sub-features with guaranteed booleans
+    for (const feat of mod.subFeatures) {
+      if (rawMod && typeof rawMod === 'object' && rawMod.features && typeof rawMod.features[feat.key] === 'boolean') {
+        features[feat.key] = rawMod.features[feat.key];
+      } else {
+        // Default based on manage flag or defaultStaff
+        features[feat.key] = manage ? true : feat.defaultStaff;
+      }
+    }
+
+    // Logical consistency: manage requires view
+    if (manage && !view) {
+      view = true;
+    }
+
+    result[mod.key] = {
+      view,
+      manage,
+      scope,
+      features
+    };
+  }
+
+  return result;
+};
+
 // ─── ROLE PRESETS (One-Click Convenience) ───
 export interface RolePreset {
   id: string;
