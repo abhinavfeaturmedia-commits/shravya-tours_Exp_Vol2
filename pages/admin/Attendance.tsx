@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { TodayAttendanceResponse, TodayRosterItem, StaffLeave, AttendanceSettings, AttendanceReportResponse } from '../../types';
 
 export const Attendance: React.FC = () => {
-    const { currentUser, isAuthenticated, hasPermission } = useAuth();
+    const { currentUser, isAuthenticated, hasPermission, canAccess } = useAuth();
 
     // Active tab state
     const [activeTab, setActiveTab] = useState<'roster' | 'my-attendance' | 'reports' | 'leaves' | 'settings'>('roster');
@@ -359,6 +359,10 @@ export const Attendance: React.FC = () => {
 
     const handleSaveEdit = async () => {
         if (!editingItem) return;
+        if (!canAccess('attendance', 'manage_roster')) {
+            toast.error('Permission Denied: You do not have permission to adjust roster attendance records.');
+            return;
+        }
         setIsSavingEdit(true);
         try {
             await api.adjustAttendance(editingItem.id, {
@@ -425,6 +429,10 @@ export const Attendance: React.FC = () => {
 
     // Approve/Reject Leave
     const handleUpdateLeaveStatus = async (leaveId: string, status: 'Approved' | 'Rejected', rejectionReason?: string) => {
+        if (!canAccess('attendance', 'approve_leaves')) {
+            toast.error('Permission Denied: You do not have permission to approve or reject staff leaves.');
+            return;
+        }
         try {
             await api.updateStaffLeaveStatus(leaveId, { status, rejectionReason });
             toast.success(`Leave request ${status.toLowerCase()}!`);
@@ -459,6 +467,10 @@ export const Attendance: React.FC = () => {
     };
 
     const handleApproveReg = async (logId: string) => {
+        if (!canAccess('attendance', 'approve_regularization')) {
+            toast.error('Permission Denied: You do not have permission to approve regularizations.');
+            return;
+        }
         try {
             await api.updateRegularizationStatus(logId, { status: 'Approved' });
             toast.success('Attendance regularization approved!');
@@ -472,6 +484,10 @@ export const Attendance: React.FC = () => {
     };
 
     const handleRejectReg = async (logId: string) => {
+        if (!canAccess('attendance', 'approve_regularization')) {
+            toast.error('Permission Denied: You do not have permission to reject regularizations.');
+            return;
+        }
         const reason = window.prompt('Please enter a rejection reason:', 'Discrepancy in punch times');
         if (reason === null) return;
         try {

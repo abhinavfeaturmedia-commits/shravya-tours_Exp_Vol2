@@ -48,10 +48,17 @@ export const Leads: React.FC = () => {
     const { addFollowUp, followUps, customers, addCustomer, tasks, updateTask, addTask, deleteTask, updateFollowUp } = useData();
     const { leads, addLead, updateLead, deleteLead, addLeadLog, updateLeadLog, deleteLeadLog, isLoading, refetchLeads } = useLeads();
     const { addBooking } = useBookings();
-    const { currentUser, staff, hasPermission } = useAuth();
+    const { currentUser, staff, hasPermission, canAccess, isContactMasked } = useAuth();
     const { transfers, refetchTransfers } = useTransfers();
     const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
     const navigate = useNavigate();
+
+    const maskPhoneNumber = (phone?: string) => {
+        if (!phone) return '';
+        const clean = phone.trim();
+        if (clean.length <= 5) return '***';
+        return clean.slice(0, 3) + '*****' + clean.slice(-2);
+    };
 
     // UI State
     const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
@@ -591,6 +598,10 @@ export const Leads: React.FC = () => {
     };
 
     const handleDeleteLead = () => {
+        if (!canAccess('leads', 'delete_lead')) {
+            toast.error('Permission Denied: You do not have permission to delete leads.');
+            return;
+        }
         if (selectedLeadId && confirm('Are you sure you want to delete this lead? This action cannot be undone.')) {
             deleteLead(selectedLeadId);
             setSelectedLeadId(null);
@@ -824,6 +835,11 @@ export const Leads: React.FC = () => {
     };
 
     const handleExport = () => {
+        if (!canAccess('leads', 'export_leads')) {
+            toast.error('Permission Denied: You do not have permission to export leads data.');
+            return;
+        }
+
         const columns: ExportColumn<Lead>[] = [
             { header: 'ID', key: 'id', width: 25 },
             { header: 'Name', key: 'name', width: 30 },
@@ -1359,7 +1375,7 @@ export const Leads: React.FC = () => {
                             />
                         </div>
                         <div className="flex items-center gap-3 overflow-x-auto hide-scrollbar pb-2 md:pb-0">
-                            {hasPermission('leads', 'manage') && (
+                            {hasPermission('leads', 'manage') && canAccess('leads', 'import_leads') && (
                                 <button onClick={() => setIsImportModalOpen(true)} className="flex-1 md:flex-none justify-center px-4 md:px-6 py-3 bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold shadow-sm flex items-center gap-2 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap">
                                     <span className="material-symbols-outlined text-[20px]">upload_file</span> <span className="hidden sm:inline">Import</span>
                                 </button>
@@ -1367,9 +1383,11 @@ export const Leads: React.FC = () => {
                             <Link to="/admin/reports?entity=leads" className="flex-1 md:flex-none justify-center px-4 md:px-5 py-3 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold shadow-sm flex items-center gap-2 transition-colors hover:bg-slate-200 dark:hover:bg-slate-700 whitespace-nowrap">
                                 <span className="material-symbols-outlined text-[20px] text-primary">analytics</span> <span className="hidden sm:inline">Report Center</span>
                             </Link>
-                            <button onClick={handleExport} className="flex-1 md:flex-none justify-center px-4 md:px-6 py-3 bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold shadow-sm flex items-center gap-2 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap">
-                                <span className="material-symbols-outlined text-[20px]">download</span> <span className="hidden sm:inline">Export</span>
-                            </button>
+                            {canAccess('leads', 'export_leads') && (
+                                <button onClick={handleExport} className="flex-1 md:flex-none justify-center px-4 md:px-6 py-3 bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold shadow-sm flex items-center gap-2 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap">
+                                    <span className="material-symbols-outlined text-[20px]">download</span> <span className="hidden sm:inline">Export</span>
+                                </button>
+                            )}
                             {hasPermission('leads', 'manage') && (
                                 <button onClick={openAddModal} className="flex-[2] md:flex-none justify-center bg-primary hover:bg-primary-dark text-white px-4 md:px-6 py-3 rounded-xl font-bold shadow-lg shadow-primary/20 flex items-center gap-2 transition-transform active:scale-95 whitespace-nowrap btn-glow">
                                     <Plus size={20} /> Add Lead
@@ -1695,8 +1713,8 @@ export const Leads: React.FC = () => {
                                         <Edit2 size={18} />
                                     </button>
                                 )}
-                                {hasPermission('leads', 'manage') && (
-                                    <button onClick={handleDeleteLead} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10 rounded-lg transition-colors">
+                                {hasPermission('leads', 'manage') && canAccess('leads', 'delete_lead') && (
+                                    <button onClick={handleDeleteLead} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10 rounded-lg transition-colors" title="Delete Lead">
                                         <Trash2 size={18} />
                                     </button>
                                 )}
@@ -2284,10 +2302,18 @@ export const Leads: React.FC = () => {
                             <div className="grid grid-cols-2 gap-y-4 gap-x-4">
                                 <div>
                                     <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Primary Phone</p>
-                                    <a href={`tel:${selectedLead.phone}`} className="text-sm font-bold text-slate-900 dark:text-white hover:underline hover:text-primary flex items-center gap-1.5">
-                                        <Phone size={14} className="text-primary" />
-                                        {selectedLead.phone}
-                                    </a>
+                                    {isContactMasked('leads') ? (
+                                        <span className="text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5" title="Client phone is masked for data privacy">
+                                            <Phone size={14} className="text-amber-500" />
+                                            <span>{maskPhoneNumber(selectedLead.phone)}</span>
+                                            <span className="text-[9px] font-black uppercase tracking-wider bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 px-1.5 py-0.5 rounded">Masked</span>
+                                        </span>
+                                    ) : (
+                                        <a href={`tel:${selectedLead.phone}`} className="text-sm font-bold text-slate-900 dark:text-white hover:underline hover:text-primary flex items-center gap-1.5">
+                                            <Phone size={14} className="text-primary" />
+                                            {selectedLead.phone}
+                                        </a>
+                                    )}
                                 </div>
                                 <div>
                                     <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Email Address</p>
@@ -2299,19 +2325,33 @@ export const Leads: React.FC = () => {
                                 {selectedLead.altPhone && (
                                     <div>
                                         <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Alternate Phone</p>
-                                        <a href={`tel:${selectedLead.altPhone}`} className="text-sm font-bold text-slate-900 dark:text-white hover:underline hover:text-primary flex items-center gap-1.5">
-                                            <span className="material-symbols-outlined text-primary text-[14px]">phone_iphone</span>
-                                            {selectedLead.altPhone}
-                                        </a>
+                                        {isContactMasked('leads') ? (
+                                            <span className="text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                                                <span className="material-symbols-outlined text-amber-500 text-[14px]">phone_iphone</span>
+                                                {maskPhoneNumber(selectedLead.altPhone)}
+                                            </span>
+                                        ) : (
+                                            <a href={`tel:${selectedLead.altPhone}`} className="text-sm font-bold text-slate-900 dark:text-white hover:underline hover:text-primary flex items-center gap-1.5">
+                                                <span className="material-symbols-outlined text-primary text-[14px]">phone_iphone</span>
+                                                {selectedLead.altPhone}
+                                            </a>
+                                        )}
                                     </div>
                                 )}
                                 {selectedLead.whatsapp && (
                                     <div>
                                         <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">WhatsApp Number</p>
-                                        <a href={`https://wa.me/${selectedLead.whatsapp.replace(/\D/g, '')}`} target="_blank" className="text-sm font-bold text-green-600 dark:text-green-400 hover:underline flex items-center gap-1.5">
-                                            <MessageCircle size={14} className="text-green-500" />
-                                            {selectedLead.whatsapp}
-                                        </a>
+                                        {isContactMasked('leads') ? (
+                                            <span className="text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                                                <MessageCircle size={14} className="text-amber-500" />
+                                                {maskPhoneNumber(selectedLead.whatsapp)}
+                                            </span>
+                                        ) : (
+                                            <a href={`https://wa.me/${selectedLead.whatsapp.replace(/\D/g, '')}`} target="_blank" className="text-sm font-bold text-green-600 dark:text-green-400 hover:underline flex items-center gap-1.5">
+                                                <MessageCircle size={14} className="text-green-500" />
+                                                {selectedLead.whatsapp}
+                                            </a>
+                                        )}
                                     </div>
                                 )}
                             </div>
@@ -2492,18 +2532,42 @@ export const Leads: React.FC = () => {
                         <div className="mb-8">
                             <h3 className="text-xs font-bold text-slate-400 uppercase mb-4 tracking-wider section-heading-accent">Communication</h3>
                             <div className="grid grid-cols-3 gap-3 mb-3">
-                                <a href={`tel:${selectedLead.phone}`} className="flex flex-col items-center justify-center p-3 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-primary/50 hover:bg-primary/5 transition-all text-slate-600 dark:text-slate-300 hover:text-primary gap-2">
-                                    <div className="h-8 w-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center"><Phone size={16} /></div>
-                                    <span className="text-xs font-bold">Call</span>
-                                </a>
+                                {isContactMasked('leads') ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => toast.info('Client phone number is masked for data privacy.')}
+                                        className="flex flex-col items-center justify-center p-3 rounded-xl border border-slate-200 dark:border-slate-800 opacity-60 cursor-not-allowed text-slate-400 gap-2"
+                                        title="Phone number masked"
+                                    >
+                                        <div className="h-8 w-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 flex items-center justify-center"><Phone size={16} /></div>
+                                        <span className="text-xs font-bold">Call (Masked)</span>
+                                    </button>
+                                ) : (
+                                    <a href={`tel:${selectedLead.phone}`} className="flex flex-col items-center justify-center p-3 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-primary/50 hover:bg-primary/5 transition-all text-slate-600 dark:text-slate-300 hover:text-primary gap-2">
+                                        <div className="h-8 w-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center"><Phone size={16} /></div>
+                                        <span className="text-xs font-bold">Call</span>
+                                    </a>
+                                )}
                                 <a href={`mailto:${selectedLead.email}`} className="flex flex-col items-center justify-center p-3 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-purple-500/50 hover:bg-purple-50 dark:hover:bg-purple-900/10 transition-all text-slate-600 dark:text-slate-300 hover:text-purple-600 gap-2">
                                     <div className="h-8 w-8 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center"><Mail size={16} /></div>
                                     <span className="text-xs font-bold">Email</span>
                                 </a>
-                                <a href={`https://wa.me/${selectedLead.phone?.replace(/\D/g, '')}`} target="_blank" className="flex flex-col items-center justify-center p-3 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-green-500/50 hover:bg-green-50 dark:hover:bg-green-900/10 transition-all text-slate-600 dark:text-slate-300 hover:text-green-600 gap-2">
-                                    <div className="h-8 w-8 rounded-full bg-green-50 text-green-600 flex items-center justify-center"><MessageCircle size={16} /></div>
-                                    <span className="text-xs font-bold">WhatsApp</span>
-                                </a>
+                                {isContactMasked('leads') ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => toast.info('Client WhatsApp number is masked for data privacy.')}
+                                        className="flex flex-col items-center justify-center p-3 rounded-xl border border-slate-200 dark:border-slate-800 opacity-60 cursor-not-allowed text-slate-400 gap-2"
+                                        title="WhatsApp number masked"
+                                    >
+                                        <div className="h-8 w-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 flex items-center justify-center"><MessageCircle size={16} /></div>
+                                        <span className="text-xs font-bold">WhatsApp</span>
+                                    </button>
+                                ) : (
+                                    <a href={`https://wa.me/${selectedLead.phone?.replace(/\D/g, '')}`} target="_blank" className="flex flex-col items-center justify-center p-3 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-green-500/50 hover:bg-green-50 dark:hover:bg-green-900/10 transition-all text-slate-600 dark:text-slate-300 hover:text-green-600 gap-2">
+                                        <div className="h-8 w-8 rounded-full bg-green-50 text-green-600 flex items-center justify-center"><MessageCircle size={16} /></div>
+                                        <span className="text-xs font-bold">WhatsApp</span>
+                                    </a>
+                                )}
                             </div>
                             {hasPermission('leads', 'manage') && (
                                 <>
@@ -2779,23 +2843,36 @@ export const Leads: React.FC = () => {
                                 </div>
                             </div>
                             <div>
-                                <StaffMultiSelect
-                                    staffMembers={staff}
-                                    selectedStaffIds={leadForm.assignedStaffIds || (leadForm.assignedTo ? [leadForm.assignedTo] : [])}
-                                    primaryStaffId={leadForm.assignedTo}
-                                    onChange={(ids) => setLeadForm({
-                                        ...leadForm,
-                                        assignedStaffIds: ids,
-                                        assignedTo: ids.length > 0 ? ids[0] : undefined
-                                    })}
-                                    onPrimaryChange={(primaryId) => setLeadForm({
-                                        ...leadForm,
-                                        assignedTo: primaryId
-                                    })}
-                                    label="Assigned Team / Multi-Staff"
-                                    placeholder="Select one or more staff members..."
-                                    helperText="Assign one or multiple staff members. The first or starred member is the Primary Lead Owner."
-                                />
+                                {modalMode === 'edit' && !canAccess('leads', 'reassign_staff') ? (
+                                    <div className="p-3 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-xl">
+                                        <p className="text-xs font-bold text-slate-500 uppercase mb-1">Assigned Team / Owner</p>
+                                        <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                                            {leadForm.assignedTo ? (staff.find(s => Number(s.id) === Number(leadForm.assignedTo))?.name || `Staff #${leadForm.assignedTo}`) : 'Unassigned'}
+                                        </p>
+                                        <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-1 font-semibold flex items-center gap-1">
+                                            <span className="material-symbols-outlined text-[12px]">lock</span>
+                                            Reassigning staff requires Manager or Admin permissions.
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <StaffMultiSelect
+                                        staffMembers={staff}
+                                        selectedStaffIds={leadForm.assignedStaffIds || (leadForm.assignedTo ? [leadForm.assignedTo] : [])}
+                                        primaryStaffId={leadForm.assignedTo}
+                                        onChange={(ids) => setLeadForm({
+                                            ...leadForm,
+                                            assignedStaffIds: ids,
+                                            assignedTo: ids.length > 0 ? ids[0] : undefined
+                                        })}
+                                        onPrimaryChange={(primaryId) => setLeadForm({
+                                            ...leadForm,
+                                            assignedTo: primaryId
+                                        })}
+                                        label="Assigned Team / Multi-Staff"
+                                        placeholder="Select one or more staff members..."
+                                        helperText="Assign one or multiple staff members. The first or starred member is the Primary Lead Owner."
+                                    />
+                                )}
                             </div>
                             <div>
                                 <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Special Preferences / Notes</label>

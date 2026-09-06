@@ -1324,7 +1324,12 @@ async function callOpenRouterAI(messages, systemPrompt) {
 
 // ─── Migrate Staff Permissions (adds new permission keys to existing records) ───
 // Runs on every startup. Non-destructive: only adds missing keys, never overwrites.
-const NEW_PERMISSION_KEYS = ['operations', 'invoices', 'proposals', 'settings', 'cms', 'partners', 'memberships', 'testimonials'];
+const NEW_PERMISSION_KEYS = [
+    'operations', 'invoices', 'proposals', 'settings', 'cms', 'partners', 'memberships', 'testimonials',
+    'inbox', 'attendance', 'analytics', 'car_rental', 'kyc', 'coupons', 'marketing_logs', 'accounts',
+    'expenses', 'finance_verification', 'team_performance', 'productivity', 'packages', 'trending',
+    'offer_banners', 'training', 'support_inbox'
+];
 const DEFAULT_NEW_PERMISSION = { view: false, manage: false };
 
 async function migrateStaffPermissions() {
@@ -2723,23 +2728,24 @@ function writeGuard(req, res, next) {
 // ─── Permissions & Scoping Helpers ───
 
 // Map DB tables to their logical permission modules in AuthContext
+// Map DB tables to their logical permission modules in AuthContext
 const TABLE_TO_MODULE = {
-    'packages': 'inventory',
+    'packages': 'packages',
     'daily_inventory': 'inventory',
     'inventory_slots': 'inventory',
     'bookings': 'bookings',
-    'booking_transactions': 'invoices',
+    'booking_transactions': 'finance_verification',
     'supplier_bookings': 'operations',
     'booking_daily_deliverables': 'operations',
     'leads': 'leads',
     'lead_logs': 'leads',
     'vendors': 'vendors',
-    'accounts': 'finance',
-    'account_transactions': 'finance',
+    'accounts': 'accounts',
+    'account_transactions': 'accounts',
     'staff_members': 'staff',
     'customers': 'customers',
-    'campaigns': 'marketing',
-    'expenses': 'finance',
+    'campaigns': 'marketing_logs',
+    'expenses': 'expenses',
     'master_locations': 'masters',
     'master_hotels': 'masters',
     'tasks': 'dashboard',
@@ -2750,7 +2756,7 @@ const TABLE_TO_MODULE = {
     'master_plans': 'masters',
     'master_lead_sources': 'masters',
     'master_terms_templates': 'masters',
-    'cms_banners': 'cms',
+    'cms_banners': 'offer_banners',
     'cms_testimonials': 'testimonials',
     'cms_gallery_images': 'cms',
     'cms_posts': 'cms',
@@ -2765,26 +2771,42 @@ const TABLE_TO_MODULE = {
     'invoices': 'invoices',
     'invoice_items': 'invoices',
     'invoice_custom_fields': 'invoices',
-    'attendance_logs': 'operations',
+    'attendance_logs': 'attendance',
     'membership_plans': 'memberships',
     'customer_memberships': 'memberships',
     'partners': 'partners',
     'partner_commissions': 'partners',
+    'coupons': 'coupons',
+    'marketing_logs': 'marketing_logs',
+    'marketing_targets': 'marketing_logs',
+    'marketing_log_comments': 'marketing_logs',
+    'marketing_log_reactions': 'marketing_logs',
+    'marketing_log_leads': 'marketing_logs',
+    'marketing_log_bookings': 'marketing_logs',
+    'in_app_notifications': 'dashboard',
+    'vehicle_categories': 'car_rental',
+    'vehicles': 'car_rental',
+    'drivers': 'car_rental',
+    'car_bookings': 'car_rental',
+    'car_booking_payments': 'car_rental',
+    'car_reviews': 'car_rental',
+    'report_history': 'reports'
+};
+
+// Fallback modules for legacy permission grants
+const MODULE_FALLBACKS = {
+    'accounts': 'finance',
+    'expenses': 'finance',
+    'finance_verification': 'invoices',
+    'car_rental': 'operations',
+    'packages': 'inventory',
+    'attendance': 'operations',
     'coupons': 'marketing',
     'marketing_logs': 'marketing',
-    'marketing_targets': 'marketing',
-    'marketing_log_comments': 'marketing',
-    'marketing_log_reactions': 'marketing',
-    'marketing_log_leads': 'marketing',
-    'marketing_log_bookings': 'marketing',
-    'in_app_notifications': 'dashboard',
-    'vehicle_categories': 'operations',
-    'vehicles': 'operations',
-    'drivers': 'operations',
-    'car_bookings': 'operations',
-    'car_booking_payments': 'operations',
-    'car_reviews': 'operations',
-    'report_history': 'reports'
+    'offer_banners': 'cms',
+    'trending': 'cms',
+    'kyc': 'partners',
+    'support_inbox': 'memberships'
 };
 
 // ─── Permission Cache (60s TTL) ─────────────────────────────────────────────
@@ -2806,11 +2828,11 @@ function parsePermissionsSafe(raw) {
 }
 
 async function getStaffPermissionsAndScope(email) {
-    if (!email) return { permissions: {}, queryScope: 'Show Assigned Query Only', isAdmin: false };
+    if (!email) return { permissions: {}, queryScope: 'Show Assigned Query Only', isAdmin: false, department: null };
 
     // Bypass DB for the mock admin bypass account — always full admin
     if (email.toLowerCase() === 'admin@shravyatours.com') {
-        return { permissions: {}, queryScope: 'Show All Queries', isAdmin: true };
+        return { permissions: {}, queryScope: 'Show All Queries', isAdmin: true, department: null };
     }
 
     // Check cache first
@@ -2819,9 +2841,9 @@ async function getStaffPermissionsAndScope(email) {
         return cached.data;
     }
 
-    const [rows] = await pool.query('SELECT permissions, query_scope, user_type FROM staff_members WHERE email = ?', [email]);
+    const [rows] = await pool.query('SELECT permissions, query_scope, user_type, department FROM staff_members WHERE email = ?', [email]);
     if (rows.length === 0) {
-        const empty = { permissions: {}, queryScope: 'Show Assigned Query Only', isAdmin: false };
+        const empty = { permissions: {}, queryScope: 'Show Assigned Query Only', isAdmin: false, department: null };
         _permissionsCache.set(email, { data: empty, expiresAt: Date.now() + 60000 });
         return empty;
     }
@@ -2830,7 +2852,8 @@ async function getStaffPermissionsAndScope(email) {
     const result = {
         permissions,
         queryScope: row.query_scope || 'Show Assigned Query Only',
-        isAdmin: row.user_type === 'Admin'
+        isAdmin: row.user_type === 'Admin',
+        department: row.department || null
     };
     _permissionsCache.set(email, { data: result, expiresAt: Date.now() + 60000 });
     return result;
@@ -2878,10 +2901,27 @@ async function permissionGuard(req, res, next) {
             return next();
         }
 
-        const allowed = permissions[module]?.[action] ?? false;
+        const fallback = MODULE_FALLBACKS[module];
+        const allowed = Boolean(permissions[module]?.[action]) || Boolean(fallback && permissions[fallback]?.[action]);
         if (!allowed) {
             console.warn(`[Permission Denied] User ${req.user?.email} lacks '${action}' permission for table '${table}' (Module: ${module})`);
             return res.status(403).json({ error: `Unauthorized: You do not have permission to ${action} this module (${module}).` });
+        }
+
+        // Sub-feature check on DELETE operations
+        if (method === 'DELETE') {
+            if (table === 'leads' && permissions.leads?.features && permissions.leads.features.delete_lead === false) {
+                return res.status(403).json({ error: 'Unauthorized: Deleting leads is not permitted for your account.' });
+            }
+            if (table === 'bookings' && permissions.bookings?.features && permissions.bookings.features.delete_booking === false) {
+                return res.status(403).json({ error: 'Unauthorized: Deleting bookings is not permitted for your account.' });
+            }
+            if (table === 'expenses' && permissions.expenses?.features && permissions.expenses.features.delete_expense === false) {
+                return res.status(403).json({ error: 'Unauthorized: Deleting expenses is not permitted for your account.' });
+            }
+            if (table === 'staff_members' && permissions.staff?.features && permissions.staff.features.delete_staff === false) {
+                return res.status(403).json({ error: 'Unauthorized: Deleting staff accounts is not permitted for your account.' });
+            }
         }
 
         // Ownership checks for non-admin on write/modify actions
@@ -7345,17 +7385,34 @@ app.get('/api/crud/:table', optionalAuthMiddleware, injectPackageStatusFilter, v
         const whereClauses = [];
         
         // --- Strict RBAC Scoping & Ownership Validation ---
-        const { isAdmin, queryScope } = await getStaffPermissionsAndScope(req.user?.email);
-        const isRestrictedScope = (queryScope === 'Show Assigned Query Only') && !isAdmin && req.user?.role !== 'admin' && req.user?.role !== 'Admin';
+        const { isAdmin, queryScope, department, permissions: staffPerms } = await getStaffPermissionsAndScope(req.user?.email);
+        const moduleName = TABLE_TO_MODULE[table];
+        const moduleScope = staffPerms?.[moduleName]?.scope;
 
-        if (isRestrictedScope) {
-            let staffIds = [];
-            if (req.user?.email) {
-                const [sRows] = await pool.query('SELECT id FROM staff_members WHERE email = ?', [req.user.email]);
-                staffIds = sRows.map(s => String(s.id));
+        let effectiveScope = 'all';
+        if (!isAdmin && req.user?.role !== 'admin' && req.user?.role !== 'Admin') {
+            if (moduleScope) {
+                effectiveScope = moduleScope;
+            } else if (queryScope === 'Show Assigned Query Only') {
+                effectiveScope = 'assigned';
+            } else if (queryScope === 'Show Department Queries') {
+                effectiveScope = 'department';
             }
-            if (req.user?.staffId && !staffIds.includes(String(req.user.staffId))) {
-                staffIds.push(String(req.user.staffId));
+        }
+
+        if (effectiveScope === 'assigned' || effectiveScope === 'department') {
+            let staffIds = [];
+            if (effectiveScope === 'department' && department) {
+                const [deptStaff] = await pool.query('SELECT id FROM staff_members WHERE department = ?', [department]);
+                staffIds = deptStaff.map(s => String(s.id));
+            } else {
+                if (req.user?.email) {
+                    const [sRows] = await pool.query('SELECT id FROM staff_members WHERE email = ?', [req.user.email]);
+                    staffIds = sRows.map(s => String(s.id));
+                }
+                if (req.user?.staffId && !staffIds.includes(String(req.user.staffId))) {
+                    staffIds.push(String(req.user.staffId));
+                }
             }
 
             if (staffIds.length > 0) {
@@ -7993,18 +8050,23 @@ app.put('/api/crud/:table/:id', authMiddleware, validateTable, writeGuard, permi
             }
         }
 
-        // Enforce that regular staff cannot assign their own records to others unless they have global scope
+        // Enforce that regular staff cannot assign their own records to others unless permitted
         const assignedDataTables = ['leads', 'bookings', 'follow_ups', 'tasks'];
-        const { isAdmin, queryScope } = await getStaffPermissionsAndScope(req.user?.email);
+        const { isAdmin, queryScope, permissions: editPerms } = await getStaffPermissionsAndScope(req.user?.email);
+        const canReassignLeads = editPerms?.leads?.features?.reassign_staff === true;
         if (assignedDataTables.includes(table) && req.user && req.user.role !== 'admin' && req.user.role !== 'Admin' && !isAdmin) {
             if ('assigned_to' in body) {
-                if (table === 'leads' || table === 'bookings') {
-                    // Block direct assignment changes for staff
-                    const oldAssignee = table === 'leads' ? oldLead?.assigned_to : oldBooking?.assigned_to;
-                    if (oldAssignee !== undefined && String(body.assigned_to) !== String(oldAssignee)) {
-                        return res.status(403).json({ error: 'Direct assignment changes are not permitted for staff. Please request a transfer instead.' });
+                if (table === 'leads') {
+                    const oldAssignee = oldLead?.assigned_to;
+                    if (oldAssignee !== undefined && String(body.assigned_to) !== String(oldAssignee) && !canReassignLeads) {
+                        return res.status(403).json({ error: 'Direct lead reassignments are not permitted for your role. Please ask a manager or admin.' });
                     }
-                } else if (queryScope !== 'Global') {
+                } else if (table === 'bookings') {
+                    const oldAssignee = oldBooking?.assigned_to;
+                    if (oldAssignee !== undefined && String(body.assigned_to) !== String(oldAssignee)) {
+                        return res.status(403).json({ error: 'Direct booking reassignments are not permitted for staff.' });
+                    }
+                } else if (queryScope !== 'Global' && queryScope !== 'Show All Queries') {
                     if (req.user.staffId) {
                         body.assigned_to = req.user.staffId;
                     } else if (req.user.email) {

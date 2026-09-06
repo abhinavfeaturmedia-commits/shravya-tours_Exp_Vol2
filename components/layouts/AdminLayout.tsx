@@ -37,12 +37,12 @@ const TOP_NAV_CATEGORIES: NavCategory[] = [
     icon: 'dashboard',
     altShortcut: 'Alt+1',
     colorTheme: 'indigo',
-    quickAction: { label: 'Go to Analytics', icon: 'bar_chart', path: '/admin/analytics', module: 'reports' },
+    quickAction: { label: 'Go to Analytics', icon: 'bar_chart', path: '/admin/analytics', module: 'analytics' },
     items: [
       { name: 'Dashboard', path: '/admin', icon: 'dashboard', module: 'dashboard', desc: 'Real-time metrics, revenue KPIs & quick ops', tag: '#Realtime' },
-      { name: 'Inbox & Approvals', path: '/admin/inbox', icon: 'all_inbox', module: 'dashboard', desc: 'Central governance queue: Payments, Leaves, Ops, KYC', tag: '#Approvals' },
-      { name: 'Staff Attendance', path: '/admin/attendance', icon: 'fingerprint', module: 'dashboard', desc: 'Live presence, shifts & attendance roster', tag: '#Roster' },
-      { name: 'Analytics', path: '/admin/analytics', icon: 'bar_chart', module: 'reports', desc: 'Revenue breakdown, growth & sales insights', tag: '#Reports' },
+      { name: 'Inbox & Approvals', path: '/admin/inbox', icon: 'all_inbox', module: 'inbox', desc: 'Central governance queue: Payments, Leaves, Ops, KYC', tag: '#Approvals' },
+      { name: 'Staff Attendance', path: '/admin/attendance', icon: 'fingerprint', module: 'attendance', desc: 'Live presence, shifts & attendance roster', tag: '#Roster' },
+      { name: 'Analytics', path: '/admin/analytics', icon: 'bar_chart', module: 'analytics', desc: 'Revenue breakdown, growth & sales insights', tag: '#Reports' },
       { name: 'Reports Extractor', path: '/admin/reports', icon: 'file_download', module: 'reports', desc: 'Data extractor, aggregated CSV/Excel reports & history', tag: '#Exports' },
     ]
   },
@@ -57,10 +57,10 @@ const TOP_NAV_CATEGORIES: NavCategory[] = [
       { name: 'Leads CRM', path: '/admin/leads', icon: 'groups', module: 'leads', desc: 'Sales funnel, inquiries & follow-up reminders', tag: '#Pipeline' },
       { name: 'Customers', path: '/admin/customers', icon: 'face', module: 'customers', desc: 'Traveler profiles, history & loyalty details', tag: '#Travelers' },
       { name: 'Memberships', path: '/admin/memberships', icon: 'card_membership', module: 'memberships', desc: 'VIP membership & loyalty privileges', tag: '#VIP' },
-      { name: 'Support Inbox', path: '/admin/support-inbox', icon: 'forum', module: 'memberships', desc: 'Customer support tickets & messaging', tag: '#Tickets' },
+      { name: 'Support Inbox', path: '/admin/support-inbox', icon: 'forum', module: 'support', desc: 'Customer support tickets & messaging', tag: '#Tickets' },
       { name: 'Associates / Partners', path: '/admin/partners', icon: 'handshake', module: 'partners', desc: 'B2B agent network & partner directory', tag: '#B2B' },
-      { name: 'KYC Management', path: '/admin/kyc', icon: 'verified_user', module: 'partners', desc: 'Document verification for partners & drivers', tag: '#Verification' },
-      { name: 'Coupons', path: '/admin/coupons', icon: 'local_offer', module: 'marketing', desc: 'Discount vouchers, promo codes & deals', tag: '#Discounts' },
+      { name: 'KYC Management', path: '/admin/kyc', icon: 'verified_user', module: 'kyc', desc: 'Document verification for partners & drivers', tag: '#Verification' },
+      { name: 'Coupons', path: '/admin/coupons', icon: 'local_offer', module: 'coupons', desc: 'Discount vouchers, promo codes & deals', tag: '#Discounts' },
       { name: 'Marketing Logs', path: '/admin/marketing-logs', icon: 'edit_note', module: 'marketing', desc: 'Campaign broadcasting & email/SMS logs', tag: '#Campaigns' },
     ]
   },
@@ -77,7 +77,7 @@ const TOP_NAV_CATEGORIES: NavCategory[] = [
       { name: 'Vendors', path: '/admin/vendors', icon: 'storefront', module: 'vendors', desc: 'Suppliers, hotel contracts & vendor profiles', tag: '#Hotels' },
       { name: 'Itinerary Builder', path: '/admin/itinerary-builder', icon: 'map', module: 'itinerary', desc: 'Interactive day-by-day tour planner', tag: '#Builder' },
       { name: 'Live Operations', path: '/admin/operations', icon: 'traffic', module: 'operations', desc: 'Real-time driver, vehicle & trip tracking', tag: '#LiveOps' },
-      { name: 'Car Rentals', path: '/admin/car-rental', icon: 'directions_car', module: 'operations', desc: 'Vehicle rentals, fleet schedule & driver roster', tag: '#Cars' },
+      { name: 'Car Rentals', path: '/admin/car-rental', icon: 'directions_car', module: 'carRental', desc: 'Vehicle rentals, fleet schedule & driver roster', tag: '#Cars' },
       { name: 'Masters Catalog', path: '/admin/masters', icon: 'dataset', module: 'masters', desc: 'Destinations, hotels, activities & pricing catalogs', tag: '#Catalog' },
     ]
   },
@@ -89,9 +89,9 @@ const TOP_NAV_CATEGORIES: NavCategory[] = [
     colorTheme: 'emerald',
     quickAction: { label: '+ Create Invoice', icon: 'receipt', path: '/admin/invoices', module: 'invoices' },
     items: [
-      { name: 'Bank Accounts', path: '/admin/accounts', icon: 'account_balance', module: 'finance', desc: 'Bank accounts, ledgers & cash balances', tag: '#Banks' },
-      { name: 'Expenses', path: '/admin/expenses', icon: 'receipt_long', module: 'finance', desc: 'Vendor payouts, operational costs & vouchers', tag: '#Payouts' },
-      { name: 'Payment Approvals', path: '/admin/finance-verification', icon: 'fact_check', module: 'invoices', desc: 'Bank transaction matching & payment verification', tag: '#Audit' },
+      { name: 'Bank Accounts', path: '/admin/accounts', icon: 'account_balance', module: 'accounts', desc: 'Bank accounts, ledgers & cash balances', tag: '#Banks' },
+      { name: 'Expenses', path: '/admin/expenses', icon: 'receipt_long', module: 'expenses', desc: 'Vendor payouts, operational costs & vouchers', tag: '#Payouts' },
+      { name: 'Payment Approvals', path: '/admin/finance-verification', icon: 'fact_check', module: 'financeVerification', desc: 'Bank transaction matching & payment verification', tag: '#Audit' },
       { name: 'Proposals', path: '/admin/proposals', icon: 'description', module: 'proposals', desc: 'Client travel quotes & proposal drafts', tag: '#Quotes' },
       { name: 'Invoices', path: '/admin/invoices', icon: 'receipt', module: 'invoices', desc: 'GST invoices, billing & payment receipts', tag: '#GST' },
     ]
@@ -105,16 +105,16 @@ const TOP_NAV_CATEGORIES: NavCategory[] = [
     quickAction: { label: '+ Add Master Data', icon: 'dataset', path: '/admin/masters', module: 'masters' },
     items: [
       { name: 'Staff Members', path: '/admin/staff', icon: 'badge', module: 'staff', desc: 'Employee accounts, roles & access permissions', tag: '#Roles' },
-      { name: 'Staff Attendance', path: '/admin/attendance', icon: 'fingerprint', module: 'staff', desc: 'Live presence, shifts, leaves & roster', tag: '#Attendance' },
-      { name: 'Team Performance', path: '/admin/team-performance', icon: 'monitoring', module: 'staff', desc: 'Sales targets, agent KPIs & productivity', tag: '#KPIs' },
-      { name: 'Staff Productivity', path: '/admin/productivity', icon: 'speed', module: 'staff', desc: 'Active workload, task tracking & velocity metrics', tag: '#Workload' },
-      { name: 'Tour Packages', path: '/admin/packages', icon: 'inventory_2', module: 'inventory', desc: 'Tour package catalog & holiday offerings', tag: '#Tours' },
+      { name: 'Staff Attendance', path: '/admin/attendance', icon: 'fingerprint', module: 'attendance', desc: 'Live presence, shifts, leaves & roster', tag: '#Attendance' },
+      { name: 'Team Performance', path: '/admin/team-performance', icon: 'monitoring', module: 'team_performance', desc: 'Sales targets, agent KPIs & productivity', tag: '#KPIs' },
+      { name: 'Staff Productivity', path: '/admin/productivity', icon: 'speed', module: 'productivity', desc: 'Active workload, task tracking & velocity metrics', tag: '#Workload' },
+      { name: 'Tour Packages', path: '/admin/packages', icon: 'inventory_2', module: 'packages', desc: 'Tour package catalog & holiday offerings', tag: '#Tours' },
       { name: 'Testimonials', path: '/admin/testimonials', icon: 'rate_review', module: 'testimonials', desc: 'Client reviews & website testimonials', tag: '#Reviews' },
-      { name: 'Trending Spots', path: '/admin/trending', icon: 'trending_up', module: 'cms', desc: 'Homepage featured destinations & spots', tag: '#Spots' },
-      { name: 'Offer Banners', path: '/admin/offer-banners', icon: 'local_offer', module: 'cms', desc: 'Homepage promotional banners', tag: '#Banners' },
-      { name: 'Video Training', path: '/admin/training', icon: 'video_library', module: 'staff', desc: 'Video training content & tutorials', tag: '#Videos' },
-      { name: 'Staff Training Hub', path: '/admin/staff-training', icon: 'school', module: 'staff', desc: 'Employee onboarding & learning center', tag: '#Hub' },
-      { name: 'Activity Feed', path: '/admin/activity', icon: 'pending_actions', module: 'audit', desc: 'Live system user activity stream', tag: '#Feed' },
+      { name: 'Trending Spots', path: '/admin/trending', icon: 'trending_up', module: 'trending', desc: 'Homepage featured destinations & spots', tag: '#Spots' },
+      { name: 'Offer Banners', path: '/admin/offer-banners', icon: 'local_offer', module: 'offerBanners', desc: 'Homepage promotional banners', tag: '#Banners' },
+      { name: 'Video Training', path: '/admin/training', icon: 'video_library', module: 'training', desc: 'Video training content & tutorials', tag: '#Videos' },
+      { name: 'Staff Training Hub', path: '/admin/staff-training', icon: 'school', module: 'trainingHub', desc: 'Employee onboarding & learning center', tag: '#Hub' },
+      { name: 'Activity Feed', path: '/admin/activity', icon: 'pending_actions', module: 'activityFeed', desc: 'Live system user activity stream', tag: '#Feed' },
       { name: 'Audit Logs', path: '/admin/audit', icon: 'history', module: 'audit', desc: 'Security logs, system changes & history', tag: '#Audit' },
       { name: 'System Settings', path: '/admin/settings', icon: 'settings', module: 'settings', desc: 'Global settings, branding & preferences', tag: '#Config' },
     ]
@@ -380,7 +380,7 @@ export const AdminLayout: React.FC = () => {
       case 'operations': return `${bookings.length} Bookings`;
       case 'crm': return `${leads.length} Leads`;
       case 'finance': return `₹45.8k Due`;
-      case 'system': return `11 Modules`;
+      case 'system': return `${TOP_NAV_CATEGORIES.find(c => c.key === 'system')?.items.length || 13} Modules`;
       default: return `2 Reports`;
     }
   }, [bookings.length, leads.length]);
@@ -853,7 +853,11 @@ export const AdminLayout: React.FC = () => {
           {/* Floating Segmented Control Track for Sub-Navigation Tabs */}
           {activeCategoryInfo.activeCat.items.length > 1 && (
             <div className="relative flex-1 md:flex-initial min-w-0 max-w-full">
-              <div className="flex items-center gap-1 p-1 bg-slate-200/70 dark:bg-slate-800/80 rounded-2xl border border-slate-200/80 dark:border-slate-700/60 overflow-x-auto scrollbar-none shadow-inner">
+              <div 
+                data-no-scrollbar="true"
+                style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+                className="flex items-center gap-1 p-1 bg-slate-200/70 dark:bg-slate-800/80 rounded-2xl border border-slate-200/80 dark:border-slate-700/60 overflow-x-auto no-scrollbar scrollbar-none shadow-inner"
+              >
                 {activeCategoryInfo.activeCat.items.map((subItem) => {
                   const isSubActive = subItem.path === '/admin'
                     ? location.pathname === '/admin'

@@ -30,7 +30,7 @@ export const Bookings: React.FC = () => {
     const { bookings, addBooking, updateBooking, deleteBooking, isLoading } = useBookings();
     const { transfers, refetchTransfers } = useTransfers();
     const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
-    const { currentUser, hasPermission, staff } = useAuth();
+    const { currentUser, hasPermission, canAccess, canViewCostMargins, staff } = useAuth();
     const { settings } = useSettings();
     const fi = settings.finance;
     const location = useLocation();
@@ -803,6 +803,11 @@ export const Bookings: React.FC = () => {
     };
 
     const handleExport = () => {
+        if (!canAccess('bookings', 'export_bookings')) {
+            toast.error('Permission Denied: You do not have permission to export bookings data.');
+            return;
+        }
+
         const columns: ExportColumn<Booking>[] = [
             { header: 'ID', key: 'id', width: 25 },
             { header: 'Customer', key: 'customer', width: 30 },
@@ -828,6 +833,10 @@ export const Bookings: React.FC = () => {
     // --- Actions Logic ---
 
     const handleCancelBooking = (id: string) => {
+        if (!canAccess('bookings', 'cancel_booking')) {
+            toast.error('Permission Denied: You do not have permission to cancel bookings.');
+            return;
+        }
         if (confirm("Are you sure you want to cancel this booking? This action will set the status to 'Cancelled'.")) {
             updateBooking(id, { status: BookingStatus.CANCELLED });
         }
@@ -2634,9 +2643,11 @@ export const Bookings: React.FC = () => {
                         <Link to="/admin/reports?entity=bookings" className="hidden sm:flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-sm font-bold transition-all border border-slate-200 dark:border-slate-700">
                             <span className="material-symbols-outlined text-[18px] text-primary">analytics</span> Report Center
                         </Link>
-                        <button onClick={handleExport} className="hidden sm:flex items-center gap-2 px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-xl text-sm font-bold hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors dark:text-white">
-                            <span className="material-symbols-outlined text-[18px]">download</span> Export Excel
-                        </button>
+                        {canAccess('bookings', 'export_bookings') && (
+                            <button onClick={handleExport} className="hidden sm:flex items-center gap-2 px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-xl text-sm font-bold hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors dark:text-white">
+                                <span className="material-symbols-outlined text-[18px]">download</span> Export Excel
+                            </button>
+                        )}
                         {hasPermission('bookings', 'manage') && (
                             <button onClick={openCreateModal} className="flex items-center gap-2 px-5 py-2.5 bg-primary text-white rounded-xl text-sm font-bold shadow-lg shadow-primary/20 hover:bg-primary-dark transition-all active:scale-95 btn-glow">
                                 <span className="material-symbols-outlined text-[20px]">add</span> New Booking
@@ -2916,6 +2927,15 @@ export const Bookings: React.FC = () => {
                                                     <td className="px-6 py-4">
                                                         <div className="flex flex-col gap-1 relative">
                                                             {(() => {
+                                                                if (!canViewCostMargins()) {
+                                                                    return (
+                                                                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-800/80 px-2.5 py-1 rounded-md w-fit" title="Vendor costs are restricted for your role">
+                                                                            <span className="material-symbols-outlined text-[13px]">lock</span>
+                                                                            Confidential
+                                                                        </span>
+                                                                    );
+                                                                }
+
                                                                 const sBookings = booking.supplierBookings || [];
                                                                 const activeSBookings = sBookings.filter(sb => sb.bookingStatus !== 'Cancelled');
                                                                 const totalCost = activeSBookings.reduce((sum, sb) => sum + (sb.cost || 0), 0);

@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 
 export const InboxApprovalsHub: React.FC = () => {
   const navigate = useNavigate();
-  const { currentUser } = useAuth();
+  const { currentUser, canAccess } = useAuth();
   const { allItems, counts, toggleStar, handleApprove, handleReject, handleSendBack, refetchAll } = useInboxHub();
   const { updateBooking, addTask, masterTransports, vendors, addSupplierBooking } = useData();
 
@@ -178,9 +178,26 @@ export const InboxApprovalsHub: React.FC = () => {
     }
   };
 
+  // Helper to evaluate approval permission per category
+  const canApproveCurrentItem = (item?: UnifiedInboxItem | null): boolean => {
+    if (!item) return false;
+    if (currentUser?.userType === 'Admin') return true;
+    switch (item.category) {
+      case 'finance': return canAccess('inbox', 'approve_payments');
+      case 'hr': return canAccess('inbox', 'approve_leaves');
+      case 'operations': return canAccess('inbox', 'approve_ops_cabs');
+      case 'partner_kyc': return canAccess('inbox', 'approve_kyc');
+      default: return canAccess('inbox', 'manage');
+    }
+  };
+
   // Execution Handlers
   const onApprove = async () => {
     if (!activeItem) return;
+    if (!canApproveCurrentItem(activeItem)) {
+      toast.error(`Permission Denied: You do not have approval authorization for ${activeItem.category.toUpperCase()} requests.`);
+      return;
+    }
     setIsProcessing(true);
     try {
       // If operations driver assignment item
@@ -218,6 +235,10 @@ export const InboxApprovalsHub: React.FC = () => {
 
   const onReject = async () => {
     if (!activeItem) return;
+    if (!canApproveCurrentItem(activeItem)) {
+      toast.error(`Permission Denied: You do not have authorization to reject ${activeItem.category.toUpperCase()} requests.`);
+      return;
+    }
     if (!decisionNote.trim()) {
       toast.error('Please enter a justification or reason for rejection.');
       return;
@@ -233,6 +254,10 @@ export const InboxApprovalsHub: React.FC = () => {
 
   const onSendBack = async () => {
     if (!activeItem) return;
+    if (!canApproveCurrentItem(activeItem)) {
+      toast.error(`Permission Denied: You do not have authorization to modify ${activeItem.category.toUpperCase()} requests.`);
+      return;
+    }
     if (!decisionNote.trim()) {
       toast.error('Please enter instructions or clarifications needed.');
       return;
@@ -1128,36 +1153,43 @@ export const InboxApprovalsHub: React.FC = () => {
 
               {/* ─── Sticky Bottom Action Suite (with Right Buffer for FAB!) ─── */}
               {activeItem.status === 'Pending' && (
-                <div className="p-3.5 border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm flex items-center justify-between gap-2 shrink-0 sticky bottom-0 z-20 pr-16 shadow-xs">
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={onSendBack}
-                      disabled={isProcessing}
-                      className="flex items-center gap-1 px-3.5 py-2 rounded-xl text-xs font-black bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 transition-all cursor-pointer disabled:opacity-50 active:scale-[0.98]"
-                    >
-                      <span className="material-symbols-outlined text-[15px]">undo</span>
-                      <span>Send Back</span>
-                    </button>
+                canApproveCurrentItem(activeItem) ? (
+                  <div className="p-3.5 border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm flex items-center justify-between gap-2 shrink-0 sticky bottom-0 z-20 pr-16 shadow-xs">
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={onSendBack}
+                        disabled={isProcessing}
+                        className="flex items-center gap-1 px-3.5 py-2 rounded-xl text-xs font-black bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 transition-all cursor-pointer disabled:opacity-50 active:scale-[0.98]"
+                      >
+                        <span className="material-symbols-outlined text-[15px]">undo</span>
+                        <span>Send Back</span>
+                      </button>
+
+                      <button
+                        onClick={onReject}
+                        disabled={isProcessing}
+                        className="flex items-center gap-1 px-3.5 py-2 rounded-xl text-xs font-black bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 transition-all cursor-pointer disabled:opacity-50 active:scale-[0.98]"
+                      >
+                        <span className="material-symbols-outlined text-[15px]">close</span>
+                        <span>Reject</span>
+                      </button>
+                    </div>
 
                     <button
-                      onClick={onReject}
+                      onClick={onApprove}
                       disabled={isProcessing}
-                      className="flex items-center gap-1 px-3.5 py-2 rounded-xl text-xs font-black bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 transition-all cursor-pointer disabled:opacity-50 active:scale-[0.98]"
+                      className="flex items-center gap-1.5 px-5 py-2 rounded-xl text-xs font-black bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-md shadow-emerald-600/25 transition-all cursor-pointer disabled:opacity-50 active:scale-[0.98]"
                     >
-                      <span className="material-symbols-outlined text-[15px]">close</span>
-                      <span>Reject</span>
+                      <span className="material-symbols-outlined text-[16px]">check_circle</span>
+                      <span>{isProcessing ? 'Processing...' : 'Authorize & Approve'}</span>
                     </button>
                   </div>
-
-                  <button
-                    onClick={onApprove}
-                    disabled={isProcessing}
-                    className="flex items-center gap-1.5 px-5 py-2 rounded-xl text-xs font-black bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-md shadow-emerald-600/25 transition-all cursor-pointer disabled:opacity-50 active:scale-[0.98]"
-                  >
-                    <span className="material-symbols-outlined text-[16px]">check_circle</span>
-                    <span>{isProcessing ? 'Processing...' : 'Authorize & Approve'}</span>
-                  </button>
-                </div>
+                ) : (
+                  <div className="p-3.5 border-t border-slate-200 dark:border-slate-800 bg-amber-50/90 dark:bg-amber-950/30 backdrop-blur-sm flex items-center gap-2 shrink-0 sticky bottom-0 z-20 pr-16 text-amber-800 dark:text-amber-300 text-xs font-bold">
+                    <span className="material-symbols-outlined text-[18px] text-amber-600">lock</span>
+                    <span>Read-Only View: You do not have approval authorization for {activeItem.category.toUpperCase()} items.</span>
+                  </div>
+                )
               )}
 
             </div>

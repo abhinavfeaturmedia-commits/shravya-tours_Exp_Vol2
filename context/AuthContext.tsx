@@ -24,54 +24,11 @@ const saveToStorage = <T,>(key: string, data: T) => {
     }
 };
 
-// Default permissions
-const DEFAULT_PERMISSIONS: StaffPermissions = {
-    dashboard: { view: true, manage: false },
-    leads: { view: false, manage: false },
-    customers: { view: false, manage: false },
-    bookings: { view: false, manage: false },
-    operations: { view: false, manage: false },
-    itinerary: { view: false, manage: false },
-    inventory: { view: false, manage: false },
-    masters: { view: false, manage: false },
-    vendors: { view: false, manage: false },
-    finance: { view: false, manage: false },
-    invoices: { view: false, manage: false },
-    proposals: { view: false, manage: false },
-    marketing: { view: false, manage: false },
-    staff: { view: false, manage: false },
-    reports: { view: false, manage: false },
-    audit: { view: false, manage: false },
-    settings: { view: false, manage: false },
-    cms: { view: false, manage: false },
-    partners: { view: false, manage: false },
-    memberships: { view: false, manage: false },
-    testimonials: { view: false, manage: false },
-};
+import { buildDefaultPermissions, buildAdminPermissions, DataScopeLevel, ALL_MODULE_DEFINITIONS } from '../src/config/permissionsConfig';
 
-const ADMIN_PERMISSIONS: StaffPermissions = {
-    dashboard: { view: true, manage: true },
-    leads: { view: true, manage: true },
-    customers: { view: true, manage: true },
-    bookings: { view: true, manage: true },
-    operations: { view: true, manage: true },
-    itinerary: { view: true, manage: true },
-    inventory: { view: true, manage: true },
-    masters: { view: true, manage: true },
-    vendors: { view: true, manage: true },
-    finance: { view: true, manage: true },
-    invoices: { view: true, manage: true },
-    proposals: { view: true, manage: true },
-    marketing: { view: true, manage: true },
-    staff: { view: true, manage: true },
-    reports: { view: true, manage: true },
-    audit: { view: true, manage: true },
-    settings: { view: true, manage: true },
-    cms: { view: true, manage: true },
-    partners: { view: true, manage: true },
-    memberships: { view: true, manage: true },
-    testimonials: { view: true, manage: true },
-};
+// Default and Admin permissions built from central registry
+const DEFAULT_PERMISSIONS: StaffPermissions = buildDefaultPermissions() as StaffPermissions;
+const ADMIN_PERMISSIONS: StaffPermissions = buildAdminPermissions() as StaffPermissions;
 
 const INITIAL_STAFF: StaffMember[] = [];
 
@@ -85,7 +42,11 @@ interface AuthContextType {
     addStaff: (member: StaffMember, password?: string) => void;
     updateStaff: (id: number, member: Partial<StaffMember>) => void;
     deleteStaff: (id: number) => void;
-    hasPermission: (module: keyof StaffPermissions, action: 'view' | 'manage') => boolean;
+    hasPermission: (module: keyof StaffPermissions | string, action: 'view' | 'manage') => boolean;
+    canAccess: (module: string, subFeature?: string) => boolean;
+    getModuleScope: (module: string) => DataScopeLevel;
+    isContactMasked: (module?: string) => boolean;
+    canViewCostMargins: (module?: string) => boolean;
     masqueradeAs: (staffId: number) => void;
     stopMasquerading: () => void;
     isMasquerading: boolean;
@@ -120,7 +81,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         permissions: ADMIN_PERMISSIONS,
     };
 
-    // Ensures loaded permissions always have all keys — fills in new keys with defaults
+    // Ensures loaded permissions always have all keys & sub-features — fills in new keys with defaults
     // if a staff record was created before new permissions were added.
     const mergePermissions = useCallback((stored: any): StaffPermissions => {
         let parsed = stored;
@@ -133,13 +94,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
         }
         const safeObj = (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
-        const merged = { ...DEFAULT_PERMISSIONS };
-        for (const key of Object.keys(DEFAULT_PERMISSIONS) as Array<keyof StaffPermissions>) {
-            if (key in safeObj && safeObj[key] !== undefined) {
-                merged[key] = safeObj[key] as any;
+        const base = buildDefaultPermissions();
+
+        // Deep merge: module keys, view, manage, scope, and features
+        for (const modKey of Object.keys(base)) {
+            if (modKey in safeObj && safeObj[modKey] !== undefined) {
+                const userMod = safeObj[modKey];
+                const baseMod = base[modKey];
+                base[modKey] = {
+                    ...baseMod,
+                    view: typeof userMod.view === 'boolean' ? userMod.view : baseMod.view,
+                    manage: typeof userMod.manage === 'boolean' ? userMod.manage : baseMod.manage,
+                    scope: userMod.scope || baseMod.scope || 'assigned',
+                    features: {
+                        ...(baseMod.features || {}),
+                        ...(userMod.features || {}),
+                    }
+                };
             }
         }
-        return merged;
+        return base as StaffPermissions;
     }, []);
 
     // Unified User Loading Logic
@@ -515,13 +489,82 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
     }, [realUser, currentUser, logAuthAction]);
 
+    const resolveModulePerm = useCallback((module: string): any => {
+        if (!currentUser?.permissions) return undefined;
+        const perms = currentUser.permissions as any;
+        if (perms[module]) return perms[module];
+        
+        // Snake-case fallback (e.g. carRental -> car_rental)
+        const snakeKey = module.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+        if (perms[snakeKey]) return perms[snakeKey];
+
+        // Camel-case fallback (e.g. car_rental -> carRental)
+        const camelKey = module.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+        if (perms[camelKey]) return perms[camelKey];
+
+        // Common aliases
+        if (module === 'performance' || module === 'teamPerformance') return perms.team_performance;
+        if (module === 'team_performance') return perms.performance;
+        if (module === 'marketing') return perms.marketing_logs;
+        if (module === 'marketing_logs') return perms.marketing;
+
+        return undefined;
+    }, [currentUser]);
+
     const hasPermission = useCallback(
-        (module: keyof StaffPermissions, action: 'view' | 'manage'): boolean => {
+        (module: keyof StaffPermissions | string, action: 'view' | 'manage'): boolean => {
             if (!currentUser) return false;
             if (currentUser.userType === 'Admin') return true;
-            return currentUser.permissions?.[module]?.[action] ?? false;
+            const modPerm = resolveModulePerm(String(module));
+            return modPerm?.[action] ?? false;
         },
-        [currentUser]
+        [currentUser, resolveModulePerm]
+    );
+
+    const canAccess = useCallback(
+        (module: string, subFeature?: string): boolean => {
+            if (!currentUser) return false;
+            if (currentUser.userType === 'Admin') return true;
+            const modPerm = resolveModulePerm(module);
+            if (!modPerm || !modPerm.view) return false;
+            if (!subFeature) return true;
+            if (modPerm.features && typeof modPerm.features[subFeature] === 'boolean') {
+                return modPerm.features[subFeature];
+            }
+            return modPerm.manage ?? false;
+        },
+        [currentUser, resolveModulePerm]
+    );
+
+    const getModuleScope = useCallback(
+        (module: string): DataScopeLevel => {
+            if (!currentUser) return 'assigned';
+            if (currentUser.userType === 'Admin') return 'all';
+            const modPerm = resolveModulePerm(module);
+            if (modPerm?.scope) return modPerm.scope;
+            if (currentUser.queryScope === 'Show All Queries') return 'all';
+            if (currentUser.queryScope === 'Show Department Queries') return 'department';
+            return 'assigned';
+        },
+        [currentUser, resolveModulePerm]
+    );
+
+    const isContactMasked = useCallback(
+        (module?: string): boolean => {
+            if (!currentUser) return true;
+            if (currentUser.userType === 'Admin') return false;
+            return canAccess(module || 'leads', 'mask_contacts');
+        },
+        [currentUser, canAccess]
+    );
+
+    const canViewCostMargins = useCallback(
+        (module?: string): boolean => {
+            if (!currentUser) return false;
+            if (currentUser.userType === 'Admin') return true;
+            return canAccess(module || 'bookings', 'view_cost_margins');
+        },
+        [currentUser, canAccess]
     );
 
     const refreshStaff = useCallback(async () => {
@@ -562,13 +605,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             updateStaff,
             deleteStaff,
             hasPermission,
+            canAccess,
+            getModuleScope,
+            isContactMasked,
+            canViewCostMargins,
             masqueradeAs,
             stopMasquerading,
             isMasquerading: !!realUser,
             realUser,
             refreshStaff,
         }),
-        [staff, currentUser, loading, login, logout, addStaff, updateStaff, deleteStaff, hasPermission, masqueradeAs, stopMasquerading, realUser, refreshStaff]
+        [staff, currentUser, loading, login, logout, addStaff, updateStaff, deleteStaff, hasPermission, canAccess, getModuleScope, isContactMasked, canViewCostMargins, masqueradeAs, stopMasquerading, realUser, refreshStaff]
     );
 
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

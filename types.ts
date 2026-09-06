@@ -467,12 +467,13 @@ export interface Customer {
   gstin?: string;
 }
 
-
-
+export type DataScopeLevel = 'assigned' | 'department' | 'all';
 
 export interface StaffModulePermissions {
   view: boolean;
   manage: boolean;
+  scope?: DataScopeLevel;
+  features?: Record<string, boolean>;
 }
 
 export interface StaffPermissions {
@@ -497,6 +498,25 @@ export interface StaffPermissions {
   partners: StaffModulePermissions;    // B2B Partners
   memberships: StaffModulePermissions; // Memberships
   testimonials: StaffModulePermissions;// Testimonials
+  // Granular Submodules & Pages
+  inbox?: StaffModulePermissions;
+  attendance?: StaffModulePermissions;
+  analytics?: StaffModulePermissions;
+  car_rental?: StaffModulePermissions;
+  kyc?: StaffModulePermissions;
+  coupons?: StaffModulePermissions;
+  marketing_logs?: StaffModulePermissions;
+  accounts?: StaffModulePermissions;
+  expenses?: StaffModulePermissions;
+  finance_verification?: StaffModulePermissions;
+  team_performance?: StaffModulePermissions;
+  productivity?: StaffModulePermissions;
+  packages?: StaffModulePermissions;
+  trending?: StaffModulePermissions;
+  offer_banners?: StaffModulePermissions;
+  training?: StaffModulePermissions;
+  support_inbox?: StaffModulePermissions;
+  [key: string]: StaffModulePermissions | undefined;
 }
 
 export interface StaffMember {
@@ -513,8 +533,8 @@ export interface StaffMember {
   color: string;
   currentSessionId?: string; // For single session enforcement
   permissions?: StaffPermissions;
-  queryScope?: 'Show Assigned Query Only' | 'Show All Queries';
-  whatsappScope?: 'Assigned Queries Messages' | 'All Messages';
+  queryScope?: 'Show Assigned Query Only' | 'Show Department Queries' | 'Show All Queries';
+  whatsappScope?: 'Assigned Queries Messages' | 'Department Messages' | 'All Messages';
   joinedDate?: string;
   // Attendance
   attendanceStatus?: 'Present' | 'Absent' | 'On Field' | 'Remote' | 'On Leave';
