@@ -261,7 +261,31 @@
       animation-delay: 360ms;
     }
 
-    /* Scrollbar Styling */
+    /* Scrollbar Styling - Cross Browser Windows Chrome / Edge / Firefox */
+    .no-scrollbar::-webkit-scrollbar,
+    .scrollbar-none::-webkit-scrollbar,
+    [data-no-scrollbar]::-webkit-scrollbar {
+      display: none !important;
+      width: 0 !important;
+      height: 0 !important;
+      background: transparent !important;
+    }
+
+    .no-scrollbar::-webkit-scrollbar-button,
+    .scrollbar-none::-webkit-scrollbar-button,
+    [data-no-scrollbar]::-webkit-scrollbar-button {
+      display: none !important;
+      width: 0 !important;
+      height: 0 !important;
+    }
+
+    .no-scrollbar,
+    .scrollbar-none,
+    [data-no-scrollbar] {
+      -ms-overflow-style: none !important;
+      scrollbar-width: none !important;
+    }
+
     .scrollbar-thin::-webkit-scrollbar {
       width: 6px;
       height: 6px;
@@ -423,7 +447,7 @@
   }
 }
 </script>
-  <script type="module" crossorigin src="/assets/index-CYIL8YUm.js"></script>
+  <script type="module" crossorigin src="/assets/index-BstAifdT.js"></script>
 </head>
 
 
