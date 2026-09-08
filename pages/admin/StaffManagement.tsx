@@ -38,7 +38,7 @@ const formatLastActive = (value: string | null | undefined): string => {
 };
 
 export const StaffManagement: React.FC = () => {
-    const { staff, addStaff, updateStaff, deleteStaff, currentUser, masqueradeAs, refreshStaff } = useAuth();
+    const { staff, addStaff, updateStaff, deleteStaff, currentUser, masqueradeAs, refreshStaff, hasPermission, canAccess } = useAuth();
     const [search, setSearch] = useState('');
     const [selectedStaffId, setSelectedStaffId] = useState<number | string | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -169,7 +169,7 @@ export const StaffManagement: React.FC = () => {
             status: member.status,
             queryScope: member.queryScope || 'Show Assigned Query Only',
             whatsappScope: member.whatsappScope || 'Assigned Queries Messages',
-            permissions: normalizePermissions(member.permissions, member.userType || 'Staff')
+            permissions: normalizePermissions(member.permissions, member.userType || 'Staff', member.queryScope)
         });
         // Reset password section state when opening edit modal
         setShowResetPassword(false);
@@ -429,7 +429,7 @@ export const StaffManagement: React.FC = () => {
         if (derivedUserType === 'Admin') {
             finalPermissions = buildAdminPermissions();
         } else {
-            finalPermissions = normalizePermissions(formData.permissions, 'Staff');
+            finalPermissions = normalizePermissions(formData.permissions, 'Staff', formData.queryScope);
         }
 
         const staffData = {
@@ -1040,7 +1040,23 @@ export const StaffManagement: React.FC = () => {
                                                         </div>
                                                         <select
                                                             value={formData.queryScope}
-                                                            onChange={e => setFormData({ ...formData, queryScope: e.target.value as any })}
+                                                            onChange={e => {
+                                                                const newScope = e.target.value as 'Show Assigned Query Only' | 'Show Department Queries' | 'Show All Queries';
+                                                                const targetModScope: DataScopeLevel = newScope === 'Show All Queries' ? 'all' : newScope === 'Show Department Queries' ? 'department' : 'assigned';
+                                                                setFormData(prev => {
+                                                                    const updated = { ...prev.permissions };
+                                                                    Object.keys(updated).forEach(k => {
+                                                                        if (updated[k]) {
+                                                                            updated[k] = { ...updated[k], scope: targetModScope };
+                                                                        }
+                                                                    });
+                                                                    return {
+                                                                        ...prev,
+                                                                        queryScope: newScope,
+                                                                        permissions: updated
+                                                                    };
+                                                                });
+                                                            }}
                                                             className="mt-2 w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-bold focus:ring-2 focus:ring-primary outline-none cursor-pointer"
                                                         >
                                                             <option value="Show Assigned Query Only">Show Assigned Only (Own records)</option>
@@ -1260,6 +1276,20 @@ export const StaffManagement: React.FC = () => {
                                                                             </button>
                                                                         </div>
 
+                                                                        {/* Module-Level Data Scope Dropdown */}
+                                                                        {mod.hasScope && modPerm.view && (
+                                                                            <select
+                                                                                value={modPerm.scope || 'assigned'}
+                                                                                onChange={e => handleModuleScopeChange(mod.key, e.target.value as DataScopeLevel)}
+                                                                                className="text-[11px] font-bold bg-white dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 rounded-lg px-2 py-1 text-slate-700 dark:text-slate-200 cursor-pointer outline-none focus:ring-1 focus:ring-primary"
+                                                                                title={`Data visibility scope for ${mod.name}`}
+                                                                            >
+                                                                                <option value="assigned">Assigned Only</option>
+                                                                                <option value="department">Department</option>
+                                                                                <option value="all">All Records</option>
+                                                                            </select>
+                                                                        )}
+
                                                                         {/* Sub-Features Accordion Button */}
                                                                         {mod.subFeatures.length > 0 && modPerm.view && (
                                                                             <button
@@ -1419,7 +1449,7 @@ export const StaffManagement: React.FC = () => {
                                 >
                                     <span className={`material-symbols-outlined text-[20px] block ${isRefreshing ? 'animate-spin text-indigo-600' : ''}`}>refresh</span>
                                 </button>
-                                {currentUser?.userType === 'Admin' && (
+                                {(currentUser?.userType === 'Admin' || hasPermission('staff', 'manage') || canAccess('staff', 'add_staff')) && (
                                     <button
                                         onClick={handleOpenAdd}
                                         className="flex-1 md:flex-initial flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 px-5 py-2.5 rounded-xl font-bold text-sm shadow-xl shadow-slate-900/10 hover:shadow-2xl hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200 cursor-pointer group"

@@ -12,10 +12,16 @@ const zipFile = path.join(rootDir, 'shravya-deploy.zip');
 console.log('--- Shravya Tours Deployment Zip Creator ---');
 
 try {
-    // 1. Clean previous builds
+    // 1. Clean previous builds (safely preserving backend/public/uploads)
     console.log('1. Cleaning up previous builds...');
     if (fs.existsSync(distDir)) fs.rmSync(distDir, { recursive: true, force: true });
-    if (fs.existsSync(publicDir)) fs.rmSync(publicDir, { recursive: true, force: true });
+    if (fs.existsSync(publicDir)) {
+        fs.readdirSync(publicDir).forEach((file) => {
+            if (file !== 'uploads') {
+                fs.rmSync(path.join(publicDir, file), { recursive: true, force: true });
+            }
+        });
+    }
     if (fs.existsSync(tmpDeployDir)) fs.rmSync(tmpDeployDir, { recursive: true, force: true });
     if (fs.existsSync(zipFile)) fs.rmSync(zipFile, { force: true });
 
@@ -27,7 +33,7 @@ try {
     console.log('3. Moving frontend build to backend/public...');
     fs.cpSync(distDir, publicDir, { recursive: true });
 
-    // 4. Copy backend files to .tmp/deploy_staging (excluding node_modules)
+    // 4. Copy backend files to .tmp/deploy_staging (excluding node_modules and uploads contents)
     console.log('4. Staging files for compression...');
     fs.mkdirSync(tmpDeployDir, { recursive: true });
 
@@ -37,6 +43,11 @@ try {
         const isDirectory = exists && stats.isDirectory();
         if (isDirectory) {
             if (path.basename(src) === 'node_modules') return;
+            if (path.basename(src) === 'uploads') {
+                // Ensure the uploads directory exists without copying local upload files
+                fs.mkdirSync(dest, { recursive: true });
+                return;
+            }
             fs.mkdirSync(dest, { recursive: true });
             fs.readdirSync(src).forEach((childItemName) => {
                 copyRecursiveSync(path.join(src, childItemName), path.join(dest, childItemName));

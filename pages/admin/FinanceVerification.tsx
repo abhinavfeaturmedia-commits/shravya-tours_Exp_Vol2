@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { useFinance, FinanceTransaction } from '../../src/hooks/useFinance';
 import { useAuth } from '../../context/AuthContext';
 import { useTransfers, TransferRequest } from '../../src/hooks/useTransfers';
@@ -353,7 +354,7 @@ export const FinanceVerification: React.FC = () => {
                                                 </td>
                                                 <td className="px-6 py-4 text-right">
                                                     <ActionMenu>
-                                                        {hasPermission('finance', 'manage') && tx.status === 'Pending' && (
+                                                        {(hasPermission('finance_verification', 'manage') || hasPermission('finance', 'manage')) && tx.status === 'Pending' && (
                                                             <>
                                                                 <button 
                                                                     onClick={() => {
@@ -386,7 +387,7 @@ export const FinanceVerification: React.FC = () => {
                                                                 </button>
                                                             </>
                                                         )}
-                                                        {hasPermission('finance', 'manage') && tx.status !== 'Pending' && (
+                                                        {(hasPermission('finance_verification', 'manage') || hasPermission('finance', 'manage')) && tx.status !== 'Pending' && (
                                                             <span className="text-xs text-slate-400 px-3">Processed</span>
                                                         )}
                                                     </ActionMenu>
@@ -430,15 +431,15 @@ export const FinanceVerification: React.FC = () => {
                                                 </td>
                                                 <td className="px-6 py-4">
                                                     <div>
-                                                        <a 
-                                                            href={`/admin/${tr.item_type === 'Lead' ? 'leads' : 'bookings'}`}
+                                                        <Link 
+                                                            to={`/admin/${tr.item_type === 'Lead' ? 'leads' : 'bookings'}`}
                                                             className="text-sm font-bold text-primary hover:underline flex items-center gap-1"
                                                         >
                                                             <span className="material-symbols-outlined text-[16px]">
                                                                 {tr.item_type === 'Lead' ? 'leaderboard' : 'book_online'}
                                                             </span>
                                                             {tr.item_name || `${tr.item_type} (${tr.item_id.substring(0, 8)})`}
-                                                        </a>
+                                                        </Link>
                                                         <span className="block text-[10px] text-slate-400 font-mono mt-0.5">ID: {tr.item_id}</span>
                                                     </div>
                                                 </td>

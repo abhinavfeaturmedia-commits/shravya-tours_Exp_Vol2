@@ -13,7 +13,7 @@ export const AdminDashboard: React.FC = () => {
         bookings: globalBookings, packages, leads: globalLeads, masterLocations, masterHotels, masterActivities,
         tasks, followUps, customers, getActiveMembershipForCustomer, expenses = []
     } = useData();
-    const { currentUser, staff } = useAuth();
+    const { currentUser, staff, getModuleScope } = useAuth();
     const [greeting, setGreeting] = useState('');
     const [selectedYear, setSelectedYear] = useState('This Year');
     const [salesTimeFilter, setSalesTimeFilter] = useState<'7' | '14' | '30'>('7');
@@ -62,22 +62,45 @@ export const AdminDashboard: React.FC = () => {
     };
 
     // --- RBAC Scoping ---
-    const isRestricted = currentUser?.queryScope === 'Show Assigned Query Only' && currentUser?.userType !== 'Admin';
+    const effectiveScope = useMemo(() => {
+        if (!currentUser || currentUser.userType === 'Admin') return 'all';
+        return getModuleScope ? getModuleScope('dashboard') : (
+            currentUser.queryScope === 'Show All Queries' ? 'all' :
+            currentUser.queryScope === 'Show Department Queries' ? 'department' : 'assigned'
+        );
+    }, [currentUser, getModuleScope]);
 
-    const matchesUserAssigned = (assignedTo: any) => {
-        if (!assignedTo || !currentUser) return false;
-        return String(assignedTo) === String(currentUser.id) || String(assignedTo) === String((currentUser as any).staffId);
+    const myId = String(currentUser?.id || (currentUser as any)?.staffId || '');
+    const deptStaffIds = useMemo(() => {
+        if (!staff || !currentUser?.department) return [myId];
+        return staff.filter(s => s.department === currentUser.department).map(s => String(s.id));
+    }, [staff, currentUser?.department, myId]);
+
+    const matchesRecordScope = (item: any) => {
+        if (effectiveScope === 'all') return true;
+        const assigned = item.assignedTo ? String(item.assignedTo) : null;
+        const staffList: string[] = Array.isArray(item.assignedStaffIds)
+            ? item.assignedStaffIds.map(String)
+            : (item.assignedStaffIds ? [String(item.assignedStaffIds)] : []);
+
+        if (effectiveScope === 'department') {
+            return (assigned ? deptStaffIds.includes(assigned) : false) || 
+                   staffList.some(id => deptStaffIds.includes(id)) || 
+                   (assigned === myId);
+        }
+        // assigned only
+        return assigned === myId || staffList.includes(myId);
     };
 
     const bookings = useMemo(() => {
-        if (!isRestricted) return globalBookings;
-        return globalBookings.filter(b => matchesUserAssigned(b.assignedTo));
-    }, [globalBookings, isRestricted, currentUser]);
+        if (effectiveScope === 'all') return globalBookings;
+        return globalBookings.filter(matchesRecordScope);
+    }, [globalBookings, effectiveScope, deptStaffIds, myId]);
 
     const leads = useMemo(() => {
-        if (!isRestricted) return globalLeads;
-        return globalLeads.filter(l => matchesUserAssigned(l.assignedTo));
-    }, [globalLeads, isRestricted, currentUser]);
+        if (effectiveScope === 'all') return globalLeads;
+        return globalLeads.filter(matchesRecordScope);
+    }, [globalLeads, effectiveScope, deptStaffIds, myId]);
 
     // --- Enhanced Business Intelligence Calculations ---
 
@@ -284,8 +307,7 @@ export const AdminDashboard: React.FC = () => {
         cutoffDate.setDate(cutoffDate.getDate() - daysToSubtract);
         cutoffDate.setHours(0, 0, 0, 0);
 
-        const validBookings = globalBookings.filter(b => {
-            if (isRestricted && !matchesUserAssigned(b.assignedTo)) return false;
+        const validBookings = bookings.filter(b => {
             if (b.status === 'Cancelled') return false;
             const bDate = new Date(b.date);
             return bDate >= cutoffDate;
@@ -318,7 +340,7 @@ export const AdminDashboard: React.FC = () => {
             if (b.count !== a.count) return b.count - a.count;
             return b.revenue - a.revenue;
         }).slice(0, 5);
-    }, [globalBookings, salesTimeFilter, staff, isRestricted, currentUser]);
+    }, [bookings, salesTimeFilter, staff, currentUser]);
 
     // Lead Conversion Funnel
     const leadFunnel = useMemo(() => {

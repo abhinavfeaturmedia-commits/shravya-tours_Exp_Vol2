@@ -88,6 +88,7 @@ export const ALL_MODULE_DEFINITIONS: ModuleDefinition[] = [
       { key: 'view_all_staff', name: 'View All Staff Attendance', description: 'See live presence and attendance history of all employees', risk: 'medium', defaultStaff: false, defaultAdmin: true },
       { key: 'manage_roster', name: 'Manage Shifts & Weekly Offs', description: 'Configure staff shifts, work timings, and team roster', risk: 'high', defaultStaff: false, defaultAdmin: true },
       { key: 'approve_regularization', name: 'Approve Attendance Regularization', description: 'Approve or reject attendance dispute & missed punch requests', risk: 'high', defaultStaff: false, defaultAdmin: true },
+      { key: 'approve_leaves', name: 'Approve Staff Leaves', description: 'Approve or reject employee leave applications', risk: 'high', defaultStaff: false, defaultAdmin: true },
       { key: 'export_attendance', name: 'Export Monthly Attendance to Excel', description: 'Download monthly payroll attendance reports', risk: 'medium', defaultStaff: false, defaultAdmin: true },
     ]
   },
@@ -141,6 +142,7 @@ export const ALL_MODULE_DEFINITIONS: ModuleDefinition[] = [
       { key: 'reassign_staff', name: 'Reassign Lead to Another Staff', description: 'Transfer lead ownership to a different team member', risk: 'high', defaultStaff: false, defaultAdmin: true },
       { key: 'mask_contacts', name: 'Mask Client Contact Numbers', description: 'Hide phone & email (+91 98*** **210) to prevent lead poaching', risk: 'high', defaultStaff: true, defaultAdmin: false },
       { key: 'export_leads', name: 'Export Leads to CSV / Excel', description: 'Download client database and lead records', risk: 'critical', defaultStaff: false, defaultAdmin: true },
+      { key: 'import_leads', name: 'Import Leads from CSV / Excel', description: 'Bulk upload lead records into CRM', risk: 'high', defaultStaff: false, defaultAdmin: true },
       { key: 'send_communication', name: 'Direct WhatsApp & Email Messaging', description: 'Send templates and direct messages from CRM', risk: 'low', defaultStaff: true, defaultAdmin: true },
       { key: 'convert_to_booking', name: 'Convert Lead to Booking', description: 'Turn inquiry into confirmed booking reservation', risk: 'medium', defaultStaff: true, defaultAdmin: true },
     ]
@@ -665,8 +667,13 @@ export const buildAdminPermissions = (): Record<string, any> => {
  */
 export const normalizePermissions = (
   raw: any,
-  _userType?: 'Staff' | 'Admin'
+  _userType?: 'Staff' | 'Admin',
+  queryScope?: string
 ): Record<string, { view: boolean; manage: boolean; scope: DataScopeLevel; features: Record<string, boolean> }> => {
+  if (_userType === 'Admin') {
+    return buildAdminPermissions();
+  }
+
   let parsed = raw;
   while (typeof parsed === 'string') {
     if (!parsed.trim()) break;
@@ -681,8 +688,40 @@ export const normalizePermissions = (
   const baseDefaults = buildDefaultPermissions();
   const result: Record<string, { view: boolean; manage: boolean; scope: DataScopeLevel; features: Record<string, boolean> }> = {};
 
+  let fallbackScope: DataScopeLevel = 'assigned';
+  if (queryScope) {
+    const qs = queryScope.toLowerCase();
+    if (qs.includes('all') || qs === 'global') fallbackScope = 'all';
+    else if (qs.includes('department')) fallbackScope = 'department';
+    else fallbackScope = 'assigned';
+  }
+
+  const aliasLookup: Record<string, string[]> = {
+    support_inbox: ['support', 'supportInbox'],
+    training: ['trainingHub', 'training_hub'],
+    audit: ['activityFeed', 'activity_feed', 'activity', 'auditLogs', 'audit_logs'],
+    marketing_logs: ['marketing', 'marketingLogs'],
+    car_rental: ['carRental'],
+    finance_verification: ['financeVerification', 'finance'],
+    offer_banners: ['offerBanners'],
+    team_performance: ['performance', 'teamPerformance'],
+    flight_hotels: ['flightHotels'],
+    visa_services: ['visaServices'],
+    staff: ['staff_management', 'staffManagement'],
+    content_cms: ['cms', 'contentCms'],
+  };
+
   for (const mod of ALL_MODULE_DEFINITIONS) {
-    const rawMod = safeObj[mod.key];
+    let rawMod = safeObj[mod.key];
+    if (rawMod === undefined && aliasLookup[mod.key]) {
+      for (const alias of aliasLookup[mod.key]) {
+        if (safeObj[alias] !== undefined) {
+          rawMod = safeObj[alias];
+          break;
+        }
+      }
+    }
+
     const defaultMod = baseDefaults[mod.key] || {
       view: false,
       manage: false,
@@ -692,7 +731,9 @@ export const normalizePermissions = (
 
     let view = defaultMod.view;
     let manage = defaultMod.manage;
-    let scope: DataScopeLevel = defaultMod.scope || mod.defaultScope || 'assigned';
+    let scope: DataScopeLevel = queryScope && mod.hasScope
+      ? fallbackScope
+      : (defaultMod.scope || mod.defaultScope || 'assigned');
     const features: Record<string, boolean> = {};
 
     if (rawMod !== undefined) {

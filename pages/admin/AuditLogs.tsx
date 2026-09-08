@@ -1,5 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useData } from '../../context/DataContext';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -28,8 +29,9 @@ const ActionBadge = ({ action }: { action: string }) => {
 };
 
 export const AuditLogs: React.FC = () => {
+    const navigate = useNavigate();
     const { auditLogs } = useData();
-    const { currentUser } = useAuth();
+    const { currentUser, hasPermission, canAccess } = useAuth();
 
     // UI State
     const [search, setSearch] = useState('');
@@ -37,6 +39,9 @@ export const AuditLogs: React.FC = () => {
     const [filterAction, setFilterAction] = useState<string>('All');
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 15;
+
+    const canView = !currentUser || currentUser.userType === 'Admin' || hasPermission('audit', 'view');
+    const canExport = !currentUser || currentUser.userType === 'Admin' || canAccess('audit', 'export_audit_trail');
 
     // Derived Data
     const uniqueModules = useMemo(() => ['All', ...Array.from(new Set(auditLogs.map(log => log.module)))], [auditLogs]);
@@ -74,6 +79,24 @@ export const AuditLogs: React.FC = () => {
         XLSX.writeFile(wb, `Audit_Logs_${new Date().toISOString().split('T')[0]}.xlsx`);
     };
 
+    if (currentUser && !canView) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 p-8">
+                <ShieldAlert className="size-16 text-rose-500" />
+                <h2 className="text-xl font-black text-slate-800 dark:text-slate-200">Access Denied</h2>
+                <p className="text-sm text-slate-500 text-center max-w-md">
+                    You do not have permission to view System Audit Logs. Please contact your administrator.
+                </p>
+                <button
+                    onClick={() => navigate('/admin')}
+                    className="px-5 py-2.5 bg-primary text-white font-bold rounded-xl shadow-md hover:bg-primary-dark transition-all text-sm cursor-pointer"
+                >
+                    Back to Dashboard
+                </button>
+            </div>
+        );
+    }
+
     return (
         <div className="flex flex-col h-full admin-page-bg">
             {/* Header */}
@@ -87,12 +110,14 @@ export const AuditLogs: React.FC = () => {
                         Track system activities, security events, and data changes.
                     </p>
                 </div>
-                <button
-                    onClick={handleExport}
-                    className="flex items-center justify-center gap-2 bg-white dark:bg-[#1A2633] text-slate-700 dark:text-slate-200 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-sm btn-glow w-full md:w-auto"
-                >
-                    <Download size={18} /> Export Excel
-                </button>
+                {canExport && (
+                    <button
+                        onClick={handleExport}
+                        className="flex items-center justify-center gap-2 bg-white dark:bg-[#1A2633] text-slate-700 dark:text-slate-200 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-sm btn-glow w-full md:w-auto cursor-pointer"
+                    >
+                        <Download size={18} /> Export Excel
+                    </button>
+                )}
             </div>
 
             {/* Filters Toolbar */}

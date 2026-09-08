@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useData } from '../../context/DataContext';
 import { useLeads } from '../../src/hooks/useLeads';
 import { useBookings } from '../../src/hooks/useBookings';
@@ -14,7 +14,7 @@ import {
     Phone, Mail, MapPin, Calendar, Users, Clock, X, Plus, Search,
     ChevronRight, Sparkles, Edit2, Trash2, ArrowRight, MessageCircle,
     FileText, Bell, CheckCircle2, MoreHorizontal, Filter, Save, CalendarDays,
-    ChevronDown, ChevronUp
+    ChevronDown, ChevronUp, Lock, AlertCircle
 } from 'lucide-react';
 import { TravelerSelector } from '../../components/ui/TravelerSelector';
 import { StaffMultiSelect } from '../../components/admin/StaffMultiSelect';
@@ -47,11 +47,20 @@ const StatusBadge = ({ status }: { status: string }) => {
 export const Leads: React.FC = () => {
     const { addFollowUp, followUps, customers, addCustomer, tasks, updateTask, addTask, deleteTask, updateFollowUp } = useData();
     const { leads, addLead, updateLead, deleteLead, addLeadLog, updateLeadLog, deleteLeadLog, isLoading, refetchLeads } = useLeads();
-    const { addBooking } = useBookings();
+    const { bookings, addBooking } = useBookings();
     const { currentUser, staff, hasPermission, canAccess, isContactMasked } = useAuth();
     const { transfers, refetchTransfers } = useTransfers();
     const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
     const navigate = useNavigate();
+
+    // Helper to find the active booking linked to a lead
+    const getLinkedBooking = useCallback((lead: Lead | null | undefined) => {
+        if (!lead) return null;
+        return (bookings || []).find(b => 
+            (lead.convertedBookingId && String(b.id) === String(lead.convertedBookingId)) ||
+            (b.leadId && String(b.leadId) === String(lead.id))
+        );
+    }, [bookings]);
 
     const maskPhoneNumber = (phone?: string) => {
         if (!phone) return '';
@@ -152,6 +161,23 @@ export const Leads: React.FC = () => {
     const [followUpPriority, setFollowUpPriority] = useState<'High' | 'Medium' | 'Low'>('Medium');
 
     const selectedLead = leads.find(l => l.id === selectedLeadId);
+    const linkedBooking = useMemo(() => getLinkedBooking(selectedLead), [getLinkedBooking, selectedLead]);
+    const isLeadLockedToBooking = Boolean(
+        (selectedLead?.status === 'Converted' || Boolean(selectedLead?.convertedBookingId)) &&
+        linkedBooking &&
+        linkedBooking.status !== BookingStatus.CANCELLED
+    );
+
+    const formLinkedBooking = useMemo(() => {
+        if (modalMode !== 'edit' || !leadForm.id) return null;
+        return getLinkedBooking(leads.find(l => l.id === leadForm.id) || (leadForm as Lead));
+    }, [modalMode, leadForm, getLinkedBooking, leads]);
+
+    const isFormLeadLocked = Boolean(
+        formLinkedBooking &&
+        formLinkedBooking.status !== BookingStatus.CANCELLED &&
+        (leadForm.status === 'Converted' || Boolean((leadForm as any).convertedBookingId))
+    );
 
     const [leadModalTab, setLeadModalTab] = useState<'info' | 'tasks' | 'chat'>('info');
     const [chatInput, setChatInput] = useState('');
@@ -352,11 +378,29 @@ export const Leads: React.FC = () => {
 
     const handleBulkStatusChange = async (newStatus: string) => {
         if (!selectedLeadIds.length || !newStatus) return;
+        const lockedLeads = selectedLeadIds.map(id => leads.find(l => l.id === id)).filter(l => {
+            const b = getLinkedBooking(l);
+            return b && b.status !== BookingStatus.CANCELLED;
+        });
+        const eligibleLeadIds = selectedLeadIds.filter(id => {
+            const l = leads.find(lead => lead.id === id);
+            const b = getLinkedBooking(l);
+            return !b || b.status === BookingStatus.CANCELLED;
+        });
+
+        if (lockedLeads.length > 0) {
+            toast.info(`${lockedLeads.length} lead(s) skipped: Converted into active bookings.`);
+        }
+        if (!eligibleLeadIds.length) {
+            toast.error('All selected leads have active bookings and cannot be updated.');
+            return;
+        }
+
         try {
-            for (const id of selectedLeadIds) {
+            for (const id of eligibleLeadIds) {
                 await updateLead(id, { status: newStatus as any });
             }
-            toast.success(`Updated ${selectedLeadIds.length} lead(s) to ${newStatus}`);
+            toast.success(`Updated ${eligibleLeadIds.length} lead(s) to ${newStatus}`);
             setSelectedLeadIds([]);
         } catch (err) {
             toast.error('Failed to bulk update lead stage');
@@ -391,6 +435,12 @@ export const Leads: React.FC = () => {
 
     const handleStageChange = async (lead: Lead, newStatus: string) => {
         if (lead.status === newStatus) return;
+        const linked = getLinkedBooking(lead);
+        if (linked && linked.status !== BookingStatus.CANCELLED && newStatus !== 'Converted') {
+            toast.error(`Stage is locked: This lead has an active booking (#${linked.bookingNumber || linked.id}). Delete the booking first to change stage.`);
+            return;
+        }
+
         if (newStatus === 'Converted') {
             handleConvertToBooking();
             return;
@@ -588,6 +638,7 @@ export const Leads: React.FC = () => {
 
             updateLead(leadForm.id!, {
                 ...leadForm,
+                ...(isFormLeadLocked && formLinkedBooking ? { status: 'Converted' as any, convertedBookingId: formLinkedBooking.id } : {}),
                 assignedTo: resolvedPrimary,
                 assignedStaffIds: resolvedStaffIds,
                 potentialValue: Number(leadForm.potentialValue) || 0
@@ -1740,10 +1791,18 @@ export const Leads: React.FC = () => {
                         {/* Interactive 1-Click Lead Stage Stepper */}
                         {hasPermission('leads', 'manage') && (
                             <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800">
-                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Advance Stage Stepper</p>
+                                <div className="flex items-center justify-between mb-2">
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Advance Stage Stepper</p>
+                                    {isLeadLockedToBooking && linkedBooking && (
+                                        <span className="flex items-center gap-1 text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800/60 px-2 py-0.5 rounded-full animate-in fade-in duration-200">
+                                            <Lock size={10} /> Locked to Booking #{linkedBooking.bookingNumber || linkedBooking.id}
+                                        </span>
+                                    )}
+                                </div>
                                 <div className="flex items-center gap-1.5 overflow-x-auto hide-scrollbar pb-1">
                                     {(['New', 'Warm', 'Hot', 'Offer Sent', 'Converted', 'Cold'] as const).map((stage, idx) => {
                                         const isActive = selectedLead.status === stage;
+                                        const isLockedStage = isLeadLockedToBooking && stage !== 'Converted';
                                         const stageColors: Record<string, string> = {
                                             'New': 'bg-blue-600 text-white',
                                             'Warm': 'bg-amber-600 text-white',
@@ -1755,20 +1814,54 @@ export const Leads: React.FC = () => {
                                         return (
                                             <button
                                                 key={stage}
-                                                onClick={() => handleStageChange(selectedLead, stage)}
+                                                disabled={isLockedStage}
+                                                onClick={() => {
+                                                    if (isLockedStage) {
+                                                        toast.error(`Stage is locked: This lead is converted to Booking #${linkedBooking?.bookingNumber || linkedBooking?.id}. Delete the booking to change stage.`);
+                                                        return;
+                                                    }
+                                                    handleStageChange(selectedLead, stage);
+                                                }}
+                                                title={isLockedStage ? `Locked: Converted to Booking #${linkedBooking?.bookingNumber || linkedBooking?.id}. Delete the booking to change stage.` : undefined}
                                                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
                                                     isActive 
                                                         ? `${stageColors[stage]} shadow-md ring-2 ring-offset-2 ring-primary/40`
-                                                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                                                        : isLockedStage
+                                                            ? 'bg-slate-100/70 dark:bg-slate-800/40 text-slate-300 dark:text-slate-600 cursor-not-allowed opacity-60'
+                                                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
                                                 }`}
                                             >
                                                 <span className="text-[10px] font-mono opacity-80">{idx + 1}.</span>
                                                 <span>{stage}</span>
-                                                {isActive && <CheckCircle2 size={12} className="ml-0.5" />}
+                                                {isActive && stage === 'Converted' && isLeadLockedToBooking && (
+                                                    <Lock size={11} className="ml-0.5 text-white/90" />
+                                                )}
+                                                {isActive && (!isLeadLockedToBooking || stage !== 'Converted') && (
+                                                    <CheckCircle2 size={12} className="ml-0.5" />
+                                                )}
+                                                {isLockedStage && (
+                                                    <Lock size={10} className="ml-0.5 opacity-60" />
+                                                )}
                                             </button>
                                         );
                                     })}
                                 </div>
+                                {isLeadLockedToBooking && linkedBooking && (
+                                    <div className="mt-2 p-2.5 rounded-xl bg-amber-50/80 dark:bg-amber-950/20 border border-amber-200/80 dark:border-amber-900/40 flex items-center justify-between text-xs text-amber-800 dark:text-amber-300">
+                                        <div className="flex items-center gap-1.5 min-w-0">
+                                            <Lock size={13} className="text-amber-600 shrink-0" />
+                                            <span className="truncate">
+                                                Other stages are locked because this lead is actively converted to <strong>Booking #{linkedBooking.bookingNumber || linkedBooking.id}</strong>.
+                                            </span>
+                                        </div>
+                                        <Link 
+                                            to={`/admin/bookings?search=${encodeURIComponent(linkedBooking.customer || '')}`}
+                                            className="shrink-0 ml-2 font-bold text-amber-700 dark:text-amber-400 hover:underline inline-flex items-center gap-0.5"
+                                        >
+                                            View Booking <ChevronRight size={13} />
+                                        </Link>
+                                    </div>
+                                )}
                             </div>
                         )}
                         <div className="flex gap-4 mt-4 border-b border-slate-100 dark:border-slate-800 pb-2">
@@ -1844,13 +1937,14 @@ export const Leads: React.FC = () => {
                                         )}
                                     </p>
                                 </div>
-                                <a
-                                    href={`/admin/customers?id=${selectedLead.customerId}`}
+                                <Link
+                                    to={`/admin/customers?id=${encodeURIComponent(String(selectedLead.customerId))}`}
+                                    onClick={() => setSelectedLeadId(null)}
                                     className="shrink-0 text-xs font-black text-amber-700 dark:text-amber-400 hover:text-amber-900 dark:hover:text-amber-200 underline underline-offset-2 transition-colors whitespace-nowrap"
                                     title="View customer profile"
                                 >
                                     View Profile →
-                                </a>
+                                </Link>
                             </div>
                         )}
                         {/* ── End Returning Customer Banner ── */}
@@ -2836,10 +2930,32 @@ export const Leads: React.FC = () => {
                                     </select>
                                 </div>
                                 <div>
-                                    <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Status</label>
-                                    <select value={leadForm.status} onChange={e => setLeadForm({ ...leadForm, status: e.target.value as any })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary">
+                                    <div className="flex items-center justify-between mb-1">
+                                        <label className="text-xs font-bold text-slate-500 uppercase block">Status</label>
+                                        {isFormLeadLocked && formLinkedBooking && (
+                                            <span className="flex items-center gap-1 text-[10px] font-bold text-amber-600 dark:text-amber-400">
+                                                <Lock size={10} /> Locked
+                                            </span>
+                                        )}
+                                    </div>
+                                    <select 
+                                        value={leadForm.status} 
+                                        disabled={isFormLeadLocked}
+                                        onChange={e => setLeadForm({ ...leadForm, status: e.target.value as any })} 
+                                        className={`w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none ${
+                                            isFormLeadLocked 
+                                                ? 'opacity-60 cursor-not-allowed bg-slate-100 dark:bg-slate-800/60' 
+                                                : 'focus:ring-2 focus:ring-primary'
+                                        }`}
+                                    >
                                         {['New', 'Warm', 'Hot', 'Cold', 'Offer Sent', 'Converted'].map(s => <option key={s} value={s}>{s}</option>)}
                                     </select>
+                                    {isFormLeadLocked && formLinkedBooking && (
+                                        <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-1 font-semibold flex items-center gap-1">
+                                            <Lock size={11} className="shrink-0" />
+                                            <span>Locked to Booking #{formLinkedBooking.bookingNumber || formLinkedBooking.id}. Delete booking to change status.</span>
+                                        </p>
+                                    )}
                                 </div>
                             </div>
                             <div>

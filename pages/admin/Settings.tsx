@@ -1359,17 +1359,18 @@ const IntegrationsSection: React.FC = () => {
 // ─── Main Settings Page ──────────────────────────────────────────────────────
 export const Settings: React.FC = () => {
   const [activeTab, setActiveTab] = useState('company');
-  const { currentUser } = useAuth();
+  const { currentUser, hasPermission } = useAuth();
   const navigate = useNavigate();
   const { isLoading } = useSettings();
 
-  // Admin-only guard
-  if (currentUser && currentUser.userType !== 'Admin') {
+  // Permissions guard
+  const canAccessSettings = !currentUser || currentUser.userType === 'Admin' || hasPermission('settings', 'view') || hasPermission('settings', 'manage');
+  if (currentUser && !canAccessSettings) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-4 p-10">
         <span className="material-symbols-outlined text-6xl text-slate-300">lock</span>
-        <h2 className="text-xl font-bold text-slate-700 dark:text-slate-300">Admin Access Only</h2>
-        <p className="text-slate-500 text-sm">Settings can only be accessed by administrators.</p>
+        <h2 className="text-xl font-bold text-slate-700 dark:text-slate-300">Access Denied</h2>
+        <p className="text-slate-500 text-sm">You do not have permission to view or manage System Settings.</p>
         <button onClick={() => navigate('/admin')} className="mt-2 px-6 py-2 bg-primary text-white rounded-xl font-bold text-sm">
           Back to Dashboard
         </button>

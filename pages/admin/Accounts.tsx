@@ -257,38 +257,48 @@ export const Accounts: React.FC = () => {
 
                     {/* List */}
                     <div className="flex-1 overflow-y-auto p-2 space-y-2">
-                        {filteredAccounts.map(acc => (
-                            <div
-                                key={acc.id}
-                                onClick={() => setSelectedAccountId(acc.id)}
-                                className={`p-4 cursor-pointer rounded-xl transition-all border ${selectedAccountId === acc.id ? 'bg-primary/5 border-primary shadow-sm' : 'bg-white dark:bg-[#1A2633] border-transparent hover:bg-slate-50 dark:hover:bg-slate-800'}`}
-                            >
-                                <div className="flex justify-between items-start mb-2">
-                                    <div className="flex items-center gap-3">
-                                        <div className={`size-10 rounded-full flex items-center justify-center font-black text-sm bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700`}>
-                                            {(acc.companyName || '?').charAt(0)}
-                                        </div>
-                                        <div>
-                                            <h3 className={`text-sm font-bold ${selectedAccountId === acc.id ? 'text-primary' : 'text-slate-900 dark:text-white'}`}>{acc.companyName || 'Unnamed Account'}</h3>
-                                            <p className="text-xs text-slate-500 font-medium truncate max-w-[120px]">{acc.name || ''}</p>
-                                        </div>
-                                    </div>
-                                    <span className={`text-[10px] px-2 py-0.5 rounded border font-bold uppercase tracking-wide ${acc.status === 'Active' ? 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-400 dark:border-green-800' : 'bg-red-50 text-red-700 border-red-200'}`}>
-                                        {acc.status}
-                                    </span>
+                        {filteredAccounts.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center p-8 text-center my-auto h-64">
+                                <div className="size-14 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 mb-3">
+                                    <span className="material-symbols-outlined text-[28px]">domain_disabled</span>
                                 </div>
-                                <div className="flex items-center justify-between pl-[52px]">
-                                    <div className="flex flex-col">
-                                        <span className="text-[10px] text-slate-400 font-bold uppercase">Balance</span>
-                                        <span className={`text-sm font-black ${(acc.currentBalance || 0) < 0 ? 'text-red-500' : 'text-slate-900 dark:text-white'}`}>₹{((acc.currentBalance || 0) / 1000).toFixed(1)}k</span>
-                                    </div>
-                                    <div className="flex flex-col text-right">
-                                        <span className="text-[10px] text-slate-400 font-bold uppercase">Type</span>
-                                        <span className="text-sm font-medium text-slate-900 dark:text-white">{acc.type}</span>
-                                    </div>
-                                </div>
+                                <p className="text-sm font-bold text-slate-700 dark:text-slate-200">No accounts yet</p>
+                                <p className="text-xs text-slate-400 mt-1 max-w-[200px]">Click &quot;+ Add Account&quot; to register a B2B partner or corporate agent.</p>
                             </div>
-                        ))}
+                        ) : (
+                            filteredAccounts.map(acc => (
+                                <div
+                                    key={acc.id}
+                                    onClick={() => setSelectedAccountId(acc.id)}
+                                    className={`p-4 cursor-pointer rounded-xl transition-all border ${selectedAccountId === acc.id ? 'bg-primary/5 border-primary shadow-sm' : 'bg-white dark:bg-[#1A2633] border-transparent hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+                                >
+                                    <div className="flex justify-between items-start mb-2">
+                                        <div className="flex items-center gap-3">
+                                            <div className={`size-10 rounded-full flex items-center justify-center font-black text-sm bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700`}>
+                                                {(acc.companyName || '?').charAt(0)}
+                                            </div>
+                                            <div>
+                                                <h3 className={`text-sm font-bold ${selectedAccountId === acc.id ? 'text-primary' : 'text-slate-900 dark:text-white'}`}>{acc.companyName || 'Unnamed Account'}</h3>
+                                                <p className="text-xs text-slate-500 font-medium truncate max-w-[120px]">{acc.name || ''}</p>
+                                            </div>
+                                        </div>
+                                        <span className={`text-[10px] px-2 py-0.5 rounded border font-bold uppercase tracking-wide ${acc.status === 'Active' ? 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-400 dark:border-green-800' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                                            {acc.status}
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center justify-between pl-[52px]">
+                                        <div className="flex flex-col">
+                                            <span className="text-[10px] text-slate-400 font-bold uppercase">Balance</span>
+                                            <span className={`text-sm font-black ${(acc.currentBalance || 0) < 0 ? 'text-red-500' : 'text-slate-900 dark:text-white'}`}>₹{((acc.currentBalance || 0) / 1000).toFixed(1)}k</span>
+                                        </div>
+                                        <div className="flex flex-col text-right">
+                                            <span className="text-[10px] text-slate-400 font-bold uppercase">Type</span>
+                                            <span className="text-sm font-medium text-slate-900 dark:text-white">{acc.type}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))
+                        )}
                     </div>
                 </div>
 
@@ -516,8 +526,23 @@ export const Accounts: React.FC = () => {
                             <div className="size-32 bg-white dark:bg-slate-800 rounded-full flex items-center justify-center mb-6 shadow-sm animate-in zoom-in duration-500 border border-slate-100 dark:border-slate-700">
                                 <span className="material-symbols-outlined text-6xl text-slate-300 dark:text-slate-600">account_balance</span>
                             </div>
-                            <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Select an account</h3>
-                            <p className="text-slate-500 max-w-xs">View booking history, wallet balance, and manage B2B partners.</p>
+                            <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">
+                                {accounts.length === 0 ? "No accounts created yet" : "Select an account"}
+                            </h3>
+                            <p className="text-slate-500 max-w-xs mb-4">
+                                {accounts.length === 0
+                                    ? "Get started by clicking '+ Add Account' above to register a corporate partner or travel agent."
+                                    : "View booking history, wallet balance, and manage B2B partners."}
+                            </p>
+                            {accounts.length === 0 && (
+                                <button
+                                    onClick={() => setIsCreateModalOpen(true)}
+                                    className="flex items-center gap-2 bg-primary hover:bg-primary-dark text-white px-5 py-2.5 rounded-xl font-bold shadow-md shadow-primary/20 transition-all text-sm"
+                                >
+                                    <span className="material-symbols-outlined text-[18px]">add</span>
+                                    Add Your First Account
+                                </button>
+                            )}
                         </div>
                     )}
                 </div>

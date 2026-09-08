@@ -16,7 +16,7 @@ export const ActivityLogs: React.FC = () => {
         auditLogs, bookings, leads, packages, vendors, customers,
         masterHotels, masterLocations, tasks, followUps
     } = useData();
-    const { staff } = useAuth();
+    const { staff, currentUser, hasPermission } = useAuth();
 
     // UI Filter States
     const [searchQuery, setSearchQuery] = useState('');
@@ -461,6 +461,25 @@ export const ActivityLogs: React.FC = () => {
         if (diffDays < 7) return `${diffDays}d ago`;
         return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
     };
+
+    const canView = !currentUser || currentUser.userType === 'Admin' || hasPermission('audit', 'view');
+    if (currentUser && !canView) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 p-8">
+                <ShieldAlert className="size-16 text-rose-500" />
+                <h2 className="text-xl font-black text-slate-800 dark:text-slate-200">Access Denied</h2>
+                <p className="text-sm text-slate-500 text-center max-w-md">
+                    You do not have permission to view the activity feed. Please contact your administrator.
+                </p>
+                <button
+                    onClick={() => navigate('/admin')}
+                    className="px-5 py-2.5 bg-primary text-white font-bold rounded-xl shadow-md hover:bg-primary-dark transition-all text-sm cursor-pointer"
+                >
+                    Back to Dashboard
+                </button>
+            </div>
+        );
+    }
 
     return (
         <div className="flex flex-col min-h-screen bg-slate-50/50 dark:bg-[#0A0F1D] p-6 lg:p-10 space-y-8 font-sans">

@@ -57,11 +57,11 @@ const TOP_NAV_CATEGORIES: NavCategory[] = [
       { name: 'Leads CRM', path: '/admin/leads', icon: 'groups', module: 'leads', desc: 'Sales funnel, inquiries & follow-up reminders', tag: '#Pipeline' },
       { name: 'Customers', path: '/admin/customers', icon: 'face', module: 'customers', desc: 'Traveler profiles, history & loyalty details', tag: '#Travelers' },
       { name: 'Memberships', path: '/admin/memberships', icon: 'card_membership', module: 'memberships', desc: 'VIP membership & loyalty privileges', tag: '#VIP' },
-      { name: 'Support Inbox', path: '/admin/support-inbox', icon: 'forum', module: 'support', desc: 'Customer support tickets & messaging', tag: '#Tickets' },
+      { name: 'Support Inbox', path: '/admin/support-inbox', icon: 'forum', module: 'support_inbox', desc: 'Customer support tickets & messaging', tag: '#Tickets' },
       { name: 'Associates / Partners', path: '/admin/partners', icon: 'handshake', module: 'partners', desc: 'B2B agent network & partner directory', tag: '#B2B' },
       { name: 'KYC Management', path: '/admin/kyc', icon: 'verified_user', module: 'kyc', desc: 'Document verification for partners & drivers', tag: '#Verification' },
       { name: 'Coupons', path: '/admin/coupons', icon: 'local_offer', module: 'coupons', desc: 'Discount vouchers, promo codes & deals', tag: '#Discounts' },
-      { name: 'Marketing Logs', path: '/admin/marketing-logs', icon: 'edit_note', module: 'marketing', desc: 'Campaign broadcasting & email/SMS logs', tag: '#Campaigns' },
+      { name: 'Marketing Logs', path: '/admin/marketing-logs', icon: 'edit_note', module: 'marketing_logs', desc: 'Campaign broadcasting & email/SMS logs', tag: '#Campaigns' },
     ]
   },
   {
@@ -77,7 +77,7 @@ const TOP_NAV_CATEGORIES: NavCategory[] = [
       { name: 'Vendors', path: '/admin/vendors', icon: 'storefront', module: 'vendors', desc: 'Suppliers, hotel contracts & vendor profiles', tag: '#Hotels' },
       { name: 'Itinerary Builder', path: '/admin/itinerary-builder', icon: 'map', module: 'itinerary', desc: 'Interactive day-by-day tour planner', tag: '#Builder' },
       { name: 'Live Operations', path: '/admin/operations', icon: 'traffic', module: 'operations', desc: 'Real-time driver, vehicle & trip tracking', tag: '#LiveOps' },
-      { name: 'Car Rentals', path: '/admin/car-rental', icon: 'directions_car', module: 'carRental', desc: 'Vehicle rentals, fleet schedule & driver roster', tag: '#Cars' },
+      { name: 'Car Rentals', path: '/admin/car-rental', icon: 'directions_car', module: 'car_rental', desc: 'Vehicle rentals, fleet schedule & driver roster', tag: '#Cars' },
       { name: 'Masters Catalog', path: '/admin/masters', icon: 'dataset', module: 'masters', desc: 'Destinations, hotels, activities & pricing catalogs', tag: '#Catalog' },
     ]
   },
@@ -91,7 +91,7 @@ const TOP_NAV_CATEGORIES: NavCategory[] = [
     items: [
       { name: 'Bank Accounts', path: '/admin/accounts', icon: 'account_balance', module: 'accounts', desc: 'Bank accounts, ledgers & cash balances', tag: '#Banks' },
       { name: 'Expenses', path: '/admin/expenses', icon: 'receipt_long', module: 'expenses', desc: 'Vendor payouts, operational costs & vouchers', tag: '#Payouts' },
-      { name: 'Payment Approvals', path: '/admin/finance-verification', icon: 'fact_check', module: 'financeVerification', desc: 'Bank transaction matching & payment verification', tag: '#Audit' },
+      { name: 'Payment Approvals', path: '/admin/finance-verification', icon: 'fact_check', module: 'finance_verification', desc: 'Bank transaction matching & payment verification', tag: '#Audit' },
       { name: 'Proposals', path: '/admin/proposals', icon: 'description', module: 'proposals', desc: 'Client travel quotes & proposal drafts', tag: '#Quotes' },
       { name: 'Invoices', path: '/admin/invoices', icon: 'receipt', module: 'invoices', desc: 'GST invoices, billing & payment receipts', tag: '#GST' },
     ]
@@ -111,10 +111,10 @@ const TOP_NAV_CATEGORIES: NavCategory[] = [
       { name: 'Tour Packages', path: '/admin/packages', icon: 'inventory_2', module: 'packages', desc: 'Tour package catalog & holiday offerings', tag: '#Tours' },
       { name: 'Testimonials', path: '/admin/testimonials', icon: 'rate_review', module: 'testimonials', desc: 'Client reviews & website testimonials', tag: '#Reviews' },
       { name: 'Trending Spots', path: '/admin/trending', icon: 'trending_up', module: 'trending', desc: 'Homepage featured destinations & spots', tag: '#Spots' },
-      { name: 'Offer Banners', path: '/admin/offer-banners', icon: 'local_offer', module: 'offerBanners', desc: 'Homepage promotional banners', tag: '#Banners' },
+      { name: 'Offer Banners', path: '/admin/offer-banners', icon: 'local_offer', module: 'offer_banners', desc: 'Homepage promotional banners', tag: '#Banners' },
       { name: 'Video Training', path: '/admin/training', icon: 'video_library', module: 'training', desc: 'Video training content & tutorials', tag: '#Videos' },
-      { name: 'Staff Training Hub', path: '/admin/staff-training', icon: 'school', module: 'trainingHub', desc: 'Employee onboarding & learning center', tag: '#Hub' },
-      { name: 'Activity Feed', path: '/admin/activity', icon: 'pending_actions', module: 'activityFeed', desc: 'Live system user activity stream', tag: '#Feed' },
+      { name: 'Staff Training Hub', path: '/admin/staff-training', icon: 'school', module: 'training', desc: 'Employee onboarding & learning center', tag: '#Hub' },
+      { name: 'Activity Feed', path: '/admin/activity', icon: 'pending_actions', module: 'audit', desc: 'Live system user activity stream', tag: '#Feed' },
       { name: 'Audit Logs', path: '/admin/audit', icon: 'history', module: 'audit', desc: 'Security logs, system changes & history', tag: '#Audit' },
       { name: 'System Settings', path: '/admin/settings', icon: 'settings', module: 'settings', desc: 'Global settings, branding & preferences', tag: '#Config' },
     ]
@@ -316,6 +316,7 @@ export const AdminLayout: React.FC = () => {
   }, [hasPermission]);
 
   const allNavItems = useMemo(() => visibleCategories.flatMap(c => c.items), [visibleCategories]);
+  const ALL_POSSIBLE_NAV_ITEMS = useMemo(() => TOP_NAV_CATEGORIES.flatMap(c => c.items), []);
 
   const activeCategoryInfo = useMemo(() => {
     for (const cat of visibleCategories) {
@@ -331,15 +332,15 @@ export const AdminLayout: React.FC = () => {
 
   useEffect(() => {
     if (!currentUser) return;
-    const sortedRoutes = [...allNavItems].sort((a, b) => b.path.length - a.path.length);
+    const sortedRoutes = [...ALL_POSSIBLE_NAV_ITEMS].sort((a, b) => b.path.length - a.path.length);
     const matchedRoute = sortedRoutes.find(route =>
-      location.pathname === route.path || location.pathname.startsWith(route.path + '/')
+      route.path !== '/admin' && (location.pathname === route.path || location.pathname.startsWith(route.path + '/'))
     );
     if (matchedRoute && !hasPermission(matchedRoute.module as any, 'view')) {
       toast.error(`Access Denied: You do not have permission to view ${matchedRoute.name}.`);
       navigate('/admin', { replace: true });
     }
-  }, [location.pathname, currentUser, hasPermission, navigate, allNavItems]);
+  }, [location.pathname, currentUser, hasPermission, navigate, ALL_POSSIBLE_NAV_ITEMS]);
 
   useEffect(() => {
     const handleAltNav = (e: KeyboardEvent) => {
@@ -388,7 +389,7 @@ export const AdminLayout: React.FC = () => {
   const quickActions = useMemo(() => [
     { name: 'New Booking', icon: 'add_circle', path: '/admin/bookings', color: 'from-blue-500 to-indigo-600', module: 'bookings' },
     { name: 'Add Lead', icon: 'person_add', path: '/admin/leads', color: 'from-purple-500 to-pink-600', module: 'leads' },
-    { name: 'Create Package', icon: 'travel_explore', path: '/admin/itinerary-builder', color: 'from-emerald-500 to-teal-600', module: 'inventory' },
+    { name: 'Create Package', icon: 'travel_explore', path: '/admin/itinerary-builder', color: 'from-emerald-500 to-teal-600', module: 'itinerary' },
     { name: 'Add Master Data', icon: 'dataset', path: '/admin/masters', color: 'from-orange-500 to-rose-500', module: 'masters' },
   ].filter(action => hasPermission(action.module as any, 'manage')), [hasPermission]);
 

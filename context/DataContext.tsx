@@ -897,17 +897,34 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
     const previousState = bookings;
+    const previousLeads = leads;
+    const targetBooking = bookings.find(b => b.id === id);
+    const targetLeadId = targetBooking?.leadId;
+
     setBookings(prev => prev.filter(b => b.id !== id));
+    setLeads(prev => prev.map(l => {
+      if ((targetLeadId && l.id === targetLeadId) || l.convertedBookingId === id) {
+        return {
+          ...l,
+          convertedBookingId: undefined,
+          status: l.status === 'Converted' ? ('Warm' as any) : l.status
+        };
+      }
+      return l;
+    }));
+
     try {
       await api.deleteBooking(id);
       logAction('Delete', 'Bookings', `Deleted Booking: ${id}`);
       toast.success("Booking deleted");
       window.dispatchEvent(new CustomEvent('bookings-changed'));
+      window.dispatchEvent(new CustomEvent('leads-changed'));
     } catch (e: any) {
       setBookings(previousState);
+      setLeads(previousLeads);
       toast.error(e.message || "Failed to delete booking");
     }
-  }, [bookings]);
+  }, [bookings, leads, logAction]);
 
   // Booking Transaction Handlers
   const addBookingTransaction = useCallback(async (bookingId: string, tx: BookingTransaction) => {

@@ -611,7 +611,7 @@ const TrendChart: React.FC<{ pts: TrendPoint[]; fmt: (n: number) => string }> = 
 export const Analytics: React.FC = () => {
    const navigate = useNavigate();
    const { bookings: globalBookings, vendors, leads: globalLeads, customers: globalCustomers, followUps: globalFollowUps, expenses: globalExpenses, refreshData } = useData();
-   const { staff, currentUser } = useAuth();
+   const { staff, currentUser, getModuleScope } = useAuth();
    const [timeRange, setTimeRange] = useState<'all' | '7days' | '30days' | 'thisMonth' | 'thisYear'>('all');
    const [activeTab, setActiveTab] = useState<'financial' | 'months12' | 'sales' | 'team' | 'bi'>('financial');
    const [twelveMonthMode, setTwelveMonthMode] = useState<'matrix' | 'pnl' | 'seasonality' | 'sources'>('matrix');
@@ -679,25 +679,59 @@ export const Analytics: React.FC = () => {
       }
    };
 
-   // --- RBAC Scoping ---
-   const isAdmin = currentUser?.userType === 'Admin';
-   const canSeeAll = isAdmin || currentUser?.queryScope === 'Show All Queries';
+   // --- RBAC Scoping (3-Tier Engine: All, Department, Assigned) ---
+   const effectiveScope = useMemo(() => {
+      if (!currentUser || currentUser.userType === 'Admin') return 'all';
+      return getModuleScope ? getModuleScope('analytics') : (
+         currentUser.queryScope === 'Show All Queries' ? 'all' :
+         currentUser.queryScope === 'Show Department Queries' ? 'department' : 'assigned'
+      );
+   }, [currentUser, getModuleScope]);
 
-   const bookings = useMemo(() => canSeeAll ? globalBookings : globalBookings.filter(b =>
-      String(b.assignedTo) === String(currentUser?.id) || String(b.assignedTo) === String((currentUser as any)?.staffId)
-   ), [canSeeAll, globalBookings, currentUser]);
+   const myId = String(currentUser?.id || (currentUser as any)?.staffId || '');
+   const deptStaffIds = useMemo(() => {
+      if (!staff || !currentUser?.department) return [myId];
+      return staff.filter(s => s.department === currentUser.department).map(s => String(s.id));
+   }, [staff, currentUser?.department, myId]);
 
-   const leads = useMemo(() => canSeeAll ? globalLeads : globalLeads.filter(l =>
-      String(l.assignedTo) === String(currentUser?.id) || String(l.assignedTo) === String((currentUser as any)?.staffId)
-   ), [canSeeAll, globalLeads, currentUser]);
+   const matchesRecordScope = useCallback((item: any) => {
+      if (effectiveScope === 'all') return true;
+      const assigned = item.assignedTo ? String(item.assignedTo) : null;
+      const staffList: string[] = Array.isArray(item.assignedStaffIds)
+         ? item.assignedStaffIds.map(String)
+         : (item.assignedStaffIds ? [String(item.assignedStaffIds)] : []);
 
-   const followUps = useMemo(() => canSeeAll ? globalFollowUps : globalFollowUps.filter(f =>
-      String(f.assignedTo) === String(currentUser?.id) || String(f.assignedTo) === String((currentUser as any)?.staffId)
-   ), [canSeeAll, globalFollowUps, currentUser]);
+      if (effectiveScope === 'department') {
+         return (assigned ? deptStaffIds.includes(assigned) : false) || 
+                staffList.some(id => deptStaffIds.includes(id)) || 
+                (assigned === myId);
+      }
+      // assigned only
+      return assigned === myId || staffList.includes(myId);
+   }, [effectiveScope, deptStaffIds, myId]);
 
-   const customers = useMemo(() => canSeeAll ? globalCustomers : globalCustomers.filter(c =>
-      bookings.some(b => b.customer === c.id || b.customerId === c.id) || leads.some(l => l.email === c.email || l.phone === c.phone)
-   ), [canSeeAll, globalCustomers, bookings, leads]);
+   const bookings = useMemo(() => {
+      if (effectiveScope === 'all') return globalBookings;
+      return globalBookings.filter(matchesRecordScope);
+   }, [effectiveScope, globalBookings, matchesRecordScope]);
+
+   const leads = useMemo(() => {
+      if (effectiveScope === 'all') return globalLeads;
+      return globalLeads.filter(matchesRecordScope);
+   }, [effectiveScope, globalLeads, matchesRecordScope]);
+
+   const followUps = useMemo(() => {
+      if (effectiveScope === 'all') return globalFollowUps;
+      return globalFollowUps.filter(matchesRecordScope);
+   }, [effectiveScope, globalFollowUps, matchesRecordScope]);
+
+   const customers = useMemo(() => {
+      if (effectiveScope === 'all') return globalCustomers;
+      return globalCustomers.filter(c =>
+         bookings.some(b => b.customer === c.id || b.customerId === c.id) || 
+         leads.some(l => l.email === c.email || l.phone === c.phone)
+      );
+   }, [effectiveScope, globalCustomers, bookings, leads]);
 
    const expenses = useMemo(() => globalExpenses || [], [globalExpenses]);
 
@@ -1706,7 +1740,7 @@ export const Analytics: React.FC = () => {
                      <h3 className="text-3xl kpi-number text-emerald-600 dark:text-emerald-400 mt-2">{fmt(metrics.totalCashCollected)}</h3>
                      <p className="text-emerald-600 text-xs font-semibold mt-2 flex items-center gap-1">
                         <span className="bg-emerald-50 dark:bg-emerald-900/30 px-1.5 py-0.5 rounded font-bold">Bank Ledger</span>
-                        Trip Cash: {fmtShort(metrics.bookingCashCollected)} (+{fmtShort(metrics.unlinkedAmount)} other credits)
+                        Trip Cash: {fmtShort(metrics.bookingCashCollected)}{metrics.unlinkedAmount > 0 ? ` (+${fmtShort(metrics.unlinkedAmount)} other credits)` : ''}
                      </p>
                   </div>
 

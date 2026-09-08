@@ -24,7 +24,7 @@ const saveToStorage = <T,>(key: string, data: T) => {
     }
 };
 
-import { buildDefaultPermissions, buildAdminPermissions, DataScopeLevel, ALL_MODULE_DEFINITIONS } from '../src/config/permissionsConfig';
+import { buildDefaultPermissions, buildAdminPermissions, normalizePermissions, DataScopeLevel, ALL_MODULE_DEFINITIONS } from '../src/config/permissionsConfig';
 
 // Default and Admin permissions built from central registry
 const DEFAULT_PERMISSIONS: StaffPermissions = buildDefaultPermissions() as StaffPermissions;
@@ -83,37 +83,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Ensures loaded permissions always have all keys & sub-features — fills in new keys with defaults
     // if a staff record was created before new permissions were added.
-    const mergePermissions = useCallback((stored: any): StaffPermissions => {
-        let parsed = stored;
-        while (typeof parsed === 'string') {
-            if (!parsed.trim()) break;
-            try {
-                parsed = JSON.parse(parsed);
-            } catch {
-                break;
-            }
-        }
-        const safeObj = (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
-        const base = buildDefaultPermissions();
-
-        // Deep merge: module keys, view, manage, scope, and features
-        for (const modKey of Object.keys(base)) {
-            if (modKey in safeObj && safeObj[modKey] !== undefined) {
-                const userMod = safeObj[modKey];
-                const baseMod = base[modKey];
-                base[modKey] = {
-                    ...baseMod,
-                    view: typeof userMod.view === 'boolean' ? userMod.view : baseMod.view,
-                    manage: typeof userMod.manage === 'boolean' ? userMod.manage : baseMod.manage,
-                    scope: userMod.scope || baseMod.scope || 'assigned',
-                    features: {
-                        ...(baseMod.features || {}),
-                        ...(userMod.features || {}),
-                    }
-                };
-            }
-        }
-        return base as StaffPermissions;
+    const mergePermissions = useCallback((stored: any, userType?: 'Staff' | 'Admin', queryScope?: string): StaffPermissions => {
+        return normalizePermissions(stored, userType, queryScope) as unknown as StaffPermissions;
     }, []);
 
     // Unified User Loading Logic
@@ -122,7 +93,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             // 1. Try single fetch first
             const me = await api.getStaffByEmail(email);
             if (me) {
-                const userProfile = { ...me, permissions: mergePermissions(me.permissions) };
+                const userProfile = { ...me, permissions: mergePermissions(me.permissions, me.userType, me.queryScope) };
                 if (isAdminOverride) {
                     userProfile.userType = 'Admin';
                     userProfile.permissions = ADMIN_PERMISSIONS;
@@ -136,7 +107,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     if (s.email.toLowerCase() === email.toLowerCase() && isAdminOverride) {
                         return { ...s, userType: 'Admin', role: 'Administrator', permissions: ADMIN_PERMISSIONS };
                     }
-                    return { ...s, permissions: mergePermissions(s.permissions) };
+                    return { ...s, permissions: mergePermissions(s.permissions, s.userType, s.queryScope) };
                 }))).catch(async () => {
                     // 403 or network error — show at least the current user's own profile
                     const selfProfile = { ...userProfile };
@@ -151,7 +122,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const found = allStaff.find(s => s.email.toLowerCase() === email.toLowerCase());
 
             if (found) {
-                const userProfile = { ...found, permissions: mergePermissions(found.permissions) };
+                const userProfile = { ...found, permissions: mergePermissions(found.permissions, found.userType, found.queryScope) };
                 if (isAdminOverride) {
                     userProfile.userType = 'Admin';
                     userProfile.permissions = ADMIN_PERMISSIONS;
@@ -164,7 +135,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     if (s.email.toLowerCase() === email.toLowerCase() && isAdminOverride) {
                         return { ...s, userType: 'Admin', role: 'Administrator', permissions: ADMIN_PERMISSIONS };
                     }
-                    return { ...s, permissions: mergePermissions(s.permissions) };
+                    return { ...s, permissions: mergePermissions(s.permissions, s.userType, s.queryScope) };
                 }));
             } else {
                 // No auto-create: use basic profile from email. Admins should create staff profiles explicitly.
@@ -184,7 +155,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     whatsappScope: 'All Messages',
                     permissions: isAdminOverride ? ADMIN_PERMISSIONS : DEFAULT_PERMISSIONS,
                 });
-                setStaff(allStaff.map(s => ({ ...s, permissions: mergePermissions(s.permissions) })));
+                setStaff(allStaff.map(s => ({ ...s, permissions: mergePermissions(s.permissions, s.userType, s.queryScope) })));
             }
         } catch (e) {
             console.error("Error loading user profile:", e);
@@ -339,7 +310,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                         status: data.staff.status != null ? data.staff.status : 'Active',
                         initials: data.staff.initials,
                         color: data.staff.color,
-                        permissions: mergePermissions(data.staff.permissions),
+                        permissions: mergePermissions(data.staff.permissions, data.staff.user_type, data.staff.query_scope),
                         queryScope: data.staff.query_scope,
                         whatsappScope: data.staff.whatsapp_scope,
                         lastActive: data.staff.last_active,
@@ -494,6 +465,49 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const perms = currentUser.permissions as any;
         if (perms[module]) return perms[module];
         
+        // Canonical alias mappings across navigation, backend tables, and permission keys
+        const ALIAS_MAP: Record<string, string[]> = {
+            support: ['support_inbox', 'supportInbox'],
+            support_inbox: ['support', 'supportInbox', 'inbox'],
+            supportInbox: ['support_inbox', 'support'],
+            trainingHub: ['training', 'training_hub'],
+            training_hub: ['training', 'trainingHub'],
+            training: ['trainingHub', 'training_hub'],
+            activityFeed: ['audit', 'activity_feed', 'activity'],
+            activity_feed: ['audit', 'activityFeed', 'activity'],
+            activity: ['audit', 'activityFeed', 'activity_feed'],
+            audit: ['activityFeed', 'activity_feed', 'activity', 'auditLogs', 'audit_logs'],
+            marketing: ['marketing_logs', 'marketingLogs'],
+            marketing_logs: ['marketing', 'marketingLogs'],
+            marketingLogs: ['marketing_logs', 'marketing'],
+            carRental: ['car_rental'],
+            car_rental: ['carRental'],
+            financeVerification: ['finance_verification', 'finance', 'accounts'],
+            finance_verification: ['financeVerification', 'finance', 'accounts'],
+            finance: ['finance_verification', 'financeVerification', 'accounts', 'expenses'],
+            offerBanners: ['offer_banners'],
+            offer_banners: ['offerBanners', 'cms'],
+            teamPerformance: ['team_performance', 'performance'],
+            team_performance: ['teamPerformance', 'performance'],
+            performance: ['team_performance', 'teamPerformance'],
+            flightHotels: ['flight_hotels'],
+            flight_hotels: ['flightHotels'],
+            visaServices: ['visa_services'],
+            visa_services: ['visaServices'],
+            staff: ['staff_management', 'staffManagement'],
+            staff_management: ['staff', 'staffManagement'],
+            staffManagement: ['staff', 'staff_management'],
+            cms: ['content_cms', 'contentCms', 'testimonials', 'trending', 'offer_banners'],
+            content_cms: ['cms', 'contentCms', 'testimonials', 'trending', 'offer_banners'],
+            contentCms: ['cms', 'content_cms', 'testimonials', 'trending', 'offer_banners'],
+        };
+
+        if (ALIAS_MAP[module]) {
+            for (const alias of ALIAS_MAP[module]) {
+                if (perms[alias]) return perms[alias];
+            }
+        }
+
         // Snake-case fallback (e.g. carRental -> car_rental)
         const snakeKey = module.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
         if (perms[snakeKey]) return perms[snakeKey];
@@ -501,12 +515,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // Camel-case fallback (e.g. car_rental -> carRental)
         const camelKey = module.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
         if (perms[camelKey]) return perms[camelKey];
-
-        // Common aliases
-        if (module === 'performance' || module === 'teamPerformance') return perms.team_performance;
-        if (module === 'team_performance') return perms.performance;
-        if (module === 'marketing') return perms.marketing_logs;
-        if (module === 'marketing_logs') return perms.marketing;
 
         return undefined;
     }, [currentUser]);
@@ -540,11 +548,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         (module: string): DataScopeLevel => {
             if (!currentUser) return 'assigned';
             if (currentUser.userType === 'Admin') return 'all';
+
+            // Global scope string
+            const userScopeStr = String(currentUser.queryScope || '').toLowerCase();
+            let globalScope: DataScopeLevel = 'assigned';
+            if (userScopeStr.includes('all') || userScopeStr === 'global') {
+                globalScope = 'all';
+            } else if (userScopeStr.includes('department')) {
+                globalScope = 'department';
+            }
+
             const modPerm = resolveModulePerm(module);
-            if (modPerm?.scope) return modPerm.scope;
-            if (currentUser.queryScope === 'Show All Queries') return 'all';
-            if (currentUser.queryScope === 'Show Department Queries') return 'department';
-            return 'assigned';
+            if (modPerm?.scope) {
+                const modScopeStr = String(modPerm.scope).toLowerCase();
+                let modScope: DataScopeLevel = 'assigned';
+                if (modScopeStr.includes('all') || modScopeStr === 'global') {
+                    modScope = 'all';
+                } else if (modScopeStr.includes('department')) {
+                    modScope = 'department';
+                }
+
+                // If global scope was explicitly set to 'all', don't let a default 'assigned' trap the user
+                if (globalScope === 'all') {
+                    return 'all';
+                }
+                if (globalScope === 'department' && modScope === 'assigned') {
+                    return 'department';
+                }
+                return modScope;
+            }
+
+            return globalScope;
         },
         [currentUser, resolveModulePerm]
     );

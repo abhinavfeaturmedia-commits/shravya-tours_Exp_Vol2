@@ -104,10 +104,15 @@ export const Customers: React.FC = () => {
 
     // Handle deep linking for specific customer details drawer
     useEffect(() => {
-        const searchParams = new URLSearchParams(location.search);
+        const queryStr = location.search || (window.location.hash.includes('?') ? window.location.hash.substring(window.location.hash.indexOf('?')) : '') || window.location.search;
+        const searchParams = new URLSearchParams(queryStr);
         const idParam = searchParams.get('id');
         if (idParam && customers.length > 0) {
-            const customer = customers.find(c => String(c.id) === String(idParam));
+            const customer = customers.find(c => 
+                String(c.id) === String(idParam) ||
+                (c.phone && normalisePhone(c.phone) === normalisePhone(idParam)) ||
+                (c.email && c.email.toLowerCase() === idParam.toLowerCase())
+            );
             if (customer) {
                 setSelectedCustomer(customer);
             }
@@ -1112,7 +1117,13 @@ export const Customers: React.FC = () => {
                 {/* ─── 360° Slide-over Details Drawer ─────────────────── */}
                 <CustomerDetailsDrawer
                     isOpen={!!selectedCustomer}
-                    onClose={() => setSelectedCustomer(null)}
+                    onClose={() => {
+                        setSelectedCustomer(null);
+                        const queryStr = location.search || (window.location.hash.includes('?') ? window.location.hash.substring(window.location.hash.indexOf('?')) : '');
+                        if (queryStr.includes('id=')) {
+                            navigate('/admin/customers', { replace: true });
+                        }
+                    }}
                     customer={selectedCustomer}
                     bookings={bookings}
                     leads={leads}

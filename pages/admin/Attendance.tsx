@@ -115,7 +115,7 @@ export const Attendance: React.FC = () => {
 
     // Fetch Pending Regularizations for Managers
     const fetchPendingRegs = async () => {
-        if (currentUser?.userType === 'Admin' || hasPermission('settings', 'manage')) {
+        if (currentUser?.userType === 'Admin' || canAccess('attendance', 'approve_regularization') || hasPermission('attendance', 'manage') || hasPermission('settings', 'manage')) {
             setLoadingRegs(true);
             try {
                 const regs = await api.getPendingRegularizations();
@@ -779,7 +779,7 @@ export const Attendance: React.FC = () => {
                     )}
                 </button>
 
-                {hasPermission('settings', 'manage') && (
+                {(currentUser?.userType === 'Admin' || hasPermission('attendance', 'manage') || hasPermission('settings', 'manage')) && (
                     <button
                         onClick={() => setActiveTab('settings')}
                         className={`flex items-center gap-2 px-4 py-3 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap ${
@@ -1087,7 +1087,7 @@ export const Attendance: React.FC = () => {
                         </div>
 
                         <div className="flex flex-wrap items-center gap-3">
-                            {currentUser?.userType === 'Admin' && todayData?.roster && (
+                            {(currentUser?.userType === 'Admin' || hasPermission('attendance', 'manage') || canAccess('attendance', 'approve_regularization')) && todayData?.roster && (
                                 <select
                                     value={selectedStaffId || ''}
                                     onChange={e => setSelectedStaffId(e.target.value ? Number(e.target.value) : undefined)}
@@ -1116,7 +1116,7 @@ export const Attendance: React.FC = () => {
                     </div>
 
                     {/* Pending Regularizations Review Box (Admins/Managers) */}
-                    {(currentUser?.userType === 'Admin' || hasPermission('settings', 'manage')) && pendingRegularizations.length > 0 && (
+                    {(currentUser?.userType === 'Admin' || canAccess('attendance', 'approve_regularization') || hasPermission('attendance', 'manage') || hasPermission('settings', 'manage')) && pendingRegularizations.length > 0 && (
                         <div className="bg-amber-500/10 border border-amber-500/30 rounded-3xl p-5 space-y-3">
                             <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2">
@@ -1415,7 +1415,7 @@ export const Attendance: React.FC = () => {
                                                     </span>
                                                 </td>
                                                 <td className="py-3 px-5 text-right">
-                                                    {l.status === 'Pending' && hasPermission('settings', 'manage') && (
+                                                    {l.status === 'Pending' && (canAccess('attendance', 'approve_leaves') || hasPermission('attendance', 'manage') || hasPermission('settings', 'manage')) && (
                                                         <div className="flex items-center justify-end gap-1.5">
                                                             <button
                                                                 onClick={() => handleUpdateLeaveStatus(l.id, 'Approved')}

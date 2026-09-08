@@ -30,7 +30,7 @@ export const Bookings: React.FC = () => {
     const { bookings, addBooking, updateBooking, deleteBooking, isLoading } = useBookings();
     const { transfers, refetchTransfers } = useTransfers();
     const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
-    const { currentUser, hasPermission, canAccess, canViewCostMargins, staff } = useAuth();
+    const { currentUser, hasPermission, canAccess, canViewCostMargins, staff, getModuleScope } = useAuth();
     const { settings } = useSettings();
     const fi = settings.finance;
     const location = useLocation();
@@ -890,11 +890,24 @@ export const Bookings: React.FC = () => {
             b.title.toLowerCase().includes(search.toLowerCase()) ||
             (b.payment && b.payment.toLowerCase() === search.toLowerCase());
 
-        // Permission Filter
-        const isRestricted = currentUser?.queryScope === 'Show Assigned Query Only' && currentUser?.userType !== 'Admin';
+        // Permission & Scope Filter
+        const effectiveScope = (!currentUser || currentUser.userType === 'Admin') ? 'all' : (
+            getModuleScope ? getModuleScope('bookings') : (
+                currentUser.queryScope === 'Show All Queries' ? 'all' :
+                currentUser.queryScope === 'Show Department Queries' ? 'department' : 'assigned'
+            )
+        );
         const myId = String(currentUser?.id || (currentUser as any)?.staffId || '');
-        const isAssigned = String(b.assignedTo) === myId || (b.assignedStaffIds && b.assignedStaffIds.map(String).includes(myId));
-        const matchesAssignment = !isRestricted || isAssigned;
+        let matchesAssignment = true;
+        if (effectiveScope === 'department') {
+            const deptStaffIds = staff?.filter(s => s.department === currentUser?.department).map(s => String(s.id)) || [myId];
+            const assigned = b.assignedTo ? String(b.assignedTo) : null;
+            const staffList = (b.assignedStaffIds || []).map(String);
+            matchesAssignment = (assigned ? deptStaffIds.includes(assigned) : false) || staffList.some(id => deptStaffIds.includes(id)) || (assigned === myId);
+        } else if (effectiveScope === 'assigned') {
+            const isAssigned = String(b.assignedTo) === myId || (b.assignedStaffIds && b.assignedStaffIds.map(String).includes(myId));
+            matchesAssignment = isAssigned;
+        }
 
         return matchesTab && matchesSearch && matchesAssignment;
     });
@@ -2531,8 +2544,8 @@ export const Bookings: React.FC = () => {
                                             type="number"
                                             value={formData.amount}
                                             onChange={e => setFormData({ ...formData, amount: e.target.value })}
-                                            className={`w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none ${isEditMode && currentUser?.userType !== 'Admin' ? 'opacity-60 cursor-not-allowed' : ''}`}
-                                            disabled={isEditMode && currentUser?.userType !== 'Admin'}
+                                            className={`w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none ${isEditMode && currentUser?.userType !== 'Admin' && !hasPermission('bookings', 'manage') && !canAccess('bookings', 'edit_booking') ? 'opacity-60 cursor-not-allowed' : ''}`}
+                                            disabled={isEditMode && currentUser?.userType !== 'Admin' && !hasPermission('bookings', 'manage') && !canAccess('bookings', 'edit_booking')}
                                         />
                                     </div>
                                     <div className="space-y-1">
@@ -2598,8 +2611,8 @@ export const Bookings: React.FC = () => {
                             </div>
 
                             <div className="flex justify-between pt-4">
-                                {/* New Refund Button in Modal */}
-                                {currentUser?.userType === 'Admin' && formData.status === BookingStatus.CANCELLED && (formData.payment === 'Paid' || formData.payment === 'Deposit') ? (
+                                {/* Refund Button in Modal */}
+                                {(currentUser?.userType === 'Admin' || hasPermission('finance_verification', 'manage') || canAccess('bookings', 'manage_payments')) && formData.status === BookingStatus.CANCELLED && (formData.payment === 'Paid' || formData.payment === 'Deposit') ? (
                                     <button type="button" onClick={() => handleProcessRefund(formData.id)} className="px-6 py-2.5 rounded-xl border border-purple-200 bg-purple-50 text-purple-700 font-bold hover:bg-purple-100 transition-colors flex items-center gap-2">
                                         <span className="material-symbols-outlined text-[18px]">currency_exchange</span> Process Refund
                                     </button>
