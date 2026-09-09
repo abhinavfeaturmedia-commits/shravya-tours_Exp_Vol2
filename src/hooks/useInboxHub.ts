@@ -114,6 +114,19 @@ export function formatCleanDate(dateStr?: string): string {
   return dateFormatted;
 }
 
+export function formatCompactDateTime(dateStr?: string): string {
+  if (!dateStr) return 'Pending';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  const dayMonth = d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+  const hasTime = (dateStr.includes('T') || dateStr.includes(' ')) && !dateStr.endsWith('T00:00:00.000Z') && !dateStr.endsWith('T00:00:00');
+  if (hasTime) {
+    const timeFormatted = d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+    return `${dayMonth}, ${timeFormatted}`;
+  }
+  return dayMonth;
+}
+
 export function formatRelativeTime(dateStr?: string): string {
   if (!dateStr) return 'Recently';
   const time = new Date(dateStr).getTime();
@@ -133,7 +146,8 @@ export const useInboxHub = () => {
   const { currentUser } = useAuth();
   const { transactions, updateTransactionStatus } = useFinance();
   const { transfers, approveTransfer, rejectTransfer } = useTransfers();
-  const { bookings, updateBooking, leads, updateLead, followUps, updateFollowUp, tasks, updateTask } = useData();
+  const { bookings, updateBooking, leads, updateLead, addLeadLog, followUps, updateFollowUp, tasks, updateTask, refreshData } = useData();
+  const [isSyncing, setIsSyncing] = useState(false);
 
   // Local persistent state for starred items
   const [starredIds, setStarredIds] = useState<string[]>(() => {
@@ -497,13 +511,13 @@ export const useInboxHub = () => {
           originalId: f.id,
           category: 'crm',
           categoryLabel: 'Sales & Follow-ups',
-          type: `Overdue ${f.type} Reminder`,
-          title: `Follow-up: ${f.leadName || 'Lead Inquiry'} (${f.type})`,
-          subtitle: `Scheduled: ${formatCleanDate(f.scheduledAt)} • "${f.description || f.notes || 'Call lead'}"`,
+          type: 'Overdue Call',
+          title: `Follow-up: ${f.leadName || 'Lead Inquiry'} (${f.type || 'Call'})`,
+          subtitle: `Scheduled: ${formatCompactDateTime(f.scheduledAt)} • "${f.description || f.notes || 'Call lead'}"`,
           requesterName: f.leadName || 'Lead Traveler',
           requesterInitials: getInitials(f.leadName || 'LD'),
           avatarColor: getAvatarColor(f.leadName || f.id),
-          activityIcon: 'call',
+          activityIcon: f.type === 'WhatsApp' ? 'forum' : f.type === 'Email' ? 'mail' : 'call',
           iconBgColor: 'bg-purple-500 text-white',
           referenceCode: `FU-${f.id.substring(0, 6)}`,
           priority: 'Urgent',
@@ -513,12 +527,14 @@ export const useInboxHub = () => {
           isOverdue: true,
           timeAgo: formatRelativeTime(f.scheduledAt),
           starred: isStarred,
-          deepLinkUrl: '/admin/leads',
+          deepLinkUrl: f.leadId ? `/admin/leads?id=${f.leadId}` : '/admin/leads',
           metadata: {
             ...f
           },
           actions: {
             canApprove: true,
+            canReject: true,
+            canSendBack: true,
             customActionLabel: 'Mark Done'
           }
         });
@@ -534,7 +550,7 @@ export const useInboxHub = () => {
           originalId: l.id,
           category: 'crm',
           categoryLabel: 'Unassigned Leads',
-          type: 'Unassigned Inbound Lead',
+          type: 'Unassigned Lead',
           title: `New Inquiry: ${l.name} (${l.destination || 'Custom Tour'})`,
           subtitle: `Budget: ${l.budget || 'Flexible'} • Travelers: ${l.travelers || '1'} • Source: ${l.source || 'Website'}`,
           requesterName: l.name,
@@ -551,12 +567,14 @@ export const useInboxHub = () => {
           createdAt: l.addedOn || new Date().toISOString(),
           timeAgo: formatRelativeTime(l.addedOn),
           starred: isStarred,
-          deepLinkUrl: '/admin/leads',
+          deepLinkUrl: `/admin/leads?id=${l.id}`,
           metadata: {
             ...l
           },
           actions: {
             canApprove: true,
+            canReject: true,
+            canSendBack: true,
             customActionLabel: 'Assign Agent'
           }
         });
@@ -667,13 +685,13 @@ export const useInboxHub = () => {
         let linkedEntityDisplay = assignedToName || 'Staff Task';
 
         if (t.relatedBookingId) {
-          deepLinkUrl = '/admin/bookings';
+          deepLinkUrl = `/admin/bookings?id=${t.relatedBookingId}`;
           const bk = bookings.find(b => b.id === t.relatedBookingId);
           if (bk) {
             linkedEntityDisplay = `${bk.customer} (${bk.invoiceNo || (bk.bookingNumber ? `BK-${String(bk.bookingNumber).padStart(4, '0')}` : bk.id.substring(0, 8))})`;
           }
         } else if (t.relatedLeadId) {
-          deepLinkUrl = '/admin/leads';
+          deepLinkUrl = `/admin/leads?id=${t.relatedLeadId}`;
           const ld = leads.find(l => l.id === t.relatedLeadId);
           if (ld) {
             linkedEntityDisplay = `${ld.name} (${ld.leadNumber ? `LD-${String(ld.leadNumber).padStart(4, '0')}` : ld.id.substring(0, 8)})`;
@@ -794,9 +812,51 @@ export const useInboxHub = () => {
         }
         await refetchPartners();
         toast.success(`Partner account activated!`);
-      } else if (item.category === 'crm' && item.type.includes('Follow-up')) {
-        updateFollowUp(item.originalId, { status: 'Done', completedAt: new Date().toISOString() });
-        toast.success(`Follow-up marked as completed!`);
+      } else if (item.category === 'crm') {
+        if (item.type.includes('Follow-up') || item.type.includes('Call')) {
+          const noteText = decisionNote || 'Follow-up marked Done via Inbox Hub';
+          const existingNotes = item.metadata.notes || '';
+          const updatedNotes = existingNotes 
+            ? `${existingNotes}\n[${new Date().toLocaleDateString('en-IN')}]: ${noteText}`
+            : noteText;
+
+          await updateFollowUp(item.originalId, { 
+            status: 'Done', 
+            notes: updatedNotes,
+            completedAt: new Date().toISOString() 
+          });
+
+          if (item.metadata.leadId && addLeadLog) {
+            addLeadLog(item.metadata.leadId, {
+              id: `LOG-${Date.now()}`,
+              text: `Follow-up completed: ${noteText}`,
+              date: new Date().toISOString(),
+              author: currentUser?.name || 'Admin',
+              type: 'Call'
+            });
+          }
+          toast.success(`Follow-up marked as completed!`);
+        } else if (item.type.includes('Lead')) {
+          const assignee = decisionNote?.includes('Assign to:')
+            ? decisionNote.split('Assign to:')[1].trim()
+            : (currentUser?.name || 'Admin');
+          
+          await updateLead(item.originalId, {
+            assignedTo: currentUser?.id || currentUser?.name || 'Admin',
+            status: 'Warm'
+          });
+
+          if (addLeadLog) {
+            addLeadLog(item.originalId, {
+              id: `LOG-${Date.now()}`,
+              text: `Lead accepted and assigned to ${assignee} via Inbox Hub`,
+              date: new Date().toISOString(),
+              author: currentUser?.name || 'Admin',
+              type: 'Status Change'
+            });
+          }
+          toast.success(`Lead accepted and assigned!`);
+        }
       } else if (item.category === 'tasks' || (item.category === 'hr' && item.type.includes('Task'))) {
         await updateTask(item.originalId, {
           status: 'Completed',
@@ -907,9 +967,69 @@ export const useInboxHub = () => {
         }
         await refetchPartners();
         toast.success(`Partner registration rejected`);
+      } else if (item.category === 'crm') {
+        if (item.type.includes('Follow-up') || item.type.includes('Call')) {
+          await updateFollowUp(item.originalId, {
+            status: 'Cancelled',
+            notes: `${item.metadata.notes || ''}\n[Cancelled]: ${rejectionReason}`,
+            completedAt: new Date().toISOString()
+          });
+          if (item.metadata.leadId && addLeadLog) {
+            addLeadLog(item.metadata.leadId, {
+              id: `LOG-${Date.now()}`,
+              text: `Follow-up cancelled: ${rejectionReason}`,
+              date: new Date().toISOString(),
+              author: currentUser?.name || 'Admin',
+              type: 'Note'
+            });
+          }
+          toast.success(`Follow-up cancelled`);
+        } else if (item.type.includes('Lead')) {
+          await updateLead(item.originalId, {
+            status: 'Cold'
+          });
+          if (addLeadLog) {
+            addLeadLog(item.originalId, {
+              id: `LOG-${Date.now()}`,
+              text: `Lead rejected and marked Cold: ${rejectionReason}`,
+              date: new Date().toISOString(),
+              author: currentUser?.name || 'Admin',
+              type: 'Note'
+            });
+          }
+          toast.success(`Lead marked as Cold`);
+        }
       } else if (item.category === 'tasks') {
-        updateTask(item.originalId, { status: 'Pending', description: `${item.metadata.description || ''} [Rejected: ${rejectionReason}]` });
-        toast.success(`Task rejected with feedback`);
+        // Correctly set task to Cancelled so it moves to Rejected / Trash
+        await updateTask(item.originalId, { 
+          status: 'Cancelled', 
+          description: `${item.metadata.description || ''}\n[Cancelled: ${rejectionReason}]` 
+        });
+        toast.success(`Task rejected and cancelled`);
+      } else if (item.category === 'operations') {
+        if (item.type.includes('Voucher Confirmation') || item.type.includes('Supplier')) {
+          await api.updateSupplierBooking(item.originalId, {
+            bookingStatus: 'Cancelled',
+            notes: `Rejected via Inbox Hub: ${rejectionReason}`
+          });
+          window.dispatchEvent(new CustomEvent('supplier-bookings-changed', {
+            detail: { supplierBookingId: item.originalId }
+          }));
+        } else if (item.type.includes('Driver Allocation')) {
+          const booking = bookings.find(b => b.id === item.originalId);
+          if (booking) {
+            const existingNotes = booking.notes || [];
+            await updateBooking(booking.id, {
+              notes: [...existingNotes, {
+                id: `NOTE-OPS-REJ-${Date.now()}`,
+                text: `Driver allocation rejected: ${rejectionReason}`,
+                date: new Date().toISOString(),
+                author: currentUser?.name || 'Admin'
+              }]
+            });
+          }
+        }
+        toast.success(`Operations request rejected`);
       }
 
       queryClient.invalidateQueries({ queryKey: ['finance-transactions'] });
@@ -932,38 +1052,77 @@ export const useInboxHub = () => {
 
     try {
       if (item.category === 'tasks') {
-        updateTask(item.originalId, {
+        await updateTask(item.originalId, {
           status: 'In Progress',
           description: `${item.metadata.description || ''}\n[Feedback: ${feedbackNote}]`
         });
+        toast.success(`Task sent back with feedback`);
       } else if (item.category === 'hr' && item.type.includes('Leave')) {
         await api.updateStaffLeaveStatus(item.originalId, { status: 'Rejected', rejectionReason: `Sent back for revision: ${feedbackNote}` });
         await refetchLeaves();
+        toast.success(`Leave sent back for revision`);
       } else if (item.category === 'hr' && item.type.includes('Regularization')) {
         await api.updateRegularizationStatus(item.originalId, { status: 'Rejected', rejectionReason: `Sent back for revision: ${feedbackNote}` });
         await refetchRegularizations();
+        toast.success(`Regularization sent back for revision`);
+      } else if (item.category === 'crm') {
+        if (item.type.includes('Follow-up') || item.type.includes('Call')) {
+          const tomorrow = new Date(Date.now() + 24 * 3600 * 1000).toISOString();
+          await updateFollowUp(item.originalId, {
+            scheduledAt: tomorrow,
+            notes: `${item.metadata.notes || ''}\n[Rescheduled/Feedback]: ${feedbackNote}`
+          });
+          if (item.metadata.leadId && addLeadLog) {
+            addLeadLog(item.metadata.leadId, {
+              id: `LOG-${Date.now()}`,
+              text: `Follow-up snoozed / sent back: ${feedbackNote}`,
+              date: new Date().toISOString(),
+              author: currentUser?.name || 'Admin',
+              type: 'Note'
+            });
+          }
+          toast.success(`Follow-up rescheduled +24 hours`);
+        }
+      } else if (item.category === 'finance') {
+        await updateTransactionStatus(item.originalId, 'Rejected');
+        toast.success(`Payment sent back for re-upload: "${feedbackNote.substring(0, 30)}..."`);
       }
-      toast.success(`Feedback sent back to requester: "${feedbackNote.substring(0, 40)}..."`);
     } catch (err: any) {
       toast.error(err.message || 'Failed to send back feedback');
       throw err;
     }
   };
 
+  const refetchAll = useCallback(async () => {
+    setIsSyncing(true);
+    try {
+      if (refreshData) {
+        await refreshData();
+      }
+      await Promise.allSettled([
+        queryClient.invalidateQueries({ queryKey: ['finance-transactions'] }),
+        queryClient.invalidateQueries({ queryKey: ['transfer-requests'] }),
+        queryClient.invalidateQueries({ queryKey: ['staff-leaves'] }),
+        queryClient.invalidateQueries({ queryKey: ['staff-regularizations'] }),
+        queryClient.invalidateQueries({ queryKey: ['admin-kyc-records'] }),
+        queryClient.invalidateQueries({ queryKey: ['admin-partners-list'] })
+      ]);
+      toast.success('Queue synchronized with database!');
+    } catch (e: any) {
+      toast.error('Failed to sync queue');
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [queryClient, refreshData]);
+
   return {
     allItems,
     counts,
+    isSyncing,
     toggleStar,
     handleApprove,
     handleReject,
     handleSendBack,
-    refetchAll: () => {
-      queryClient.invalidateQueries({ queryKey: ['finance-transactions'] });
-      queryClient.invalidateQueries({ queryKey: ['transfer-requests'] });
-      queryClient.invalidateQueries({ queryKey: ['staff-leaves'] });
-      queryClient.invalidateQueries({ queryKey: ['staff-regularizations'] });
-      queryClient.invalidateQueries({ queryKey: ['admin-kyc-records'] });
-      queryClient.invalidateQueries({ queryKey: ['admin-partners-list'] });
-    }
+    refetchAll
   };
 };

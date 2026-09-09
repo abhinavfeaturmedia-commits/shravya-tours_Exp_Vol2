@@ -10,7 +10,7 @@ import { TravelerSelector } from '../components/ui/TravelerSelector';
 import { PhoneInput } from '../components/ui/PhoneInput';
 import { api } from '../src/lib/api';
 import { ImageUpload } from '../components/ui/ImageUpload';
-import { formatPrice, formatPriceCompact, getLocationName, formatTripDuration } from '../utils/packageUtils';
+import { formatPrice, formatPriceCompact, getLocationName, formatTripDuration, getPackageBasePax } from '../utils/packageUtils';
 import { getEmbedUrl, getVideoThumbnail } from '../utils/videoUtils';
 import { copyToClipboard } from '../utils/clipboard';
 import { useCustomerAuth, CUSTOMER_JWT_KEY } from '../context/CustomerAuthContext';
@@ -159,7 +159,11 @@ export const PackageDetail: React.FC = () => {
     videos: [] as PackageVideo[]
   });
 
-  const [guests, setGuests] = useState('2 Adults');
+  const [guests, setGuests] = useState(() => {
+    const initialTour = packages?.find(p => p.id === id);
+    const basePax = initialTour ? getPackageBasePax(initialTour) : 2;
+    return `${basePax} Adult${basePax > 1 ? 's' : ''}`;
+  });
   const [bookingModal, setBookingModal] = useState(false);
   const [bookingData, setBookingData] = useState({
     name: '',
@@ -238,6 +242,16 @@ export const PackageDetail: React.FC = () => {
     // Fallback: direct API fetch result (handles fresh new-window opens via affiliate links)
     return fullPackageData ?? null;
   }, [rawTour, fullPackageData]);
+
+  // Auto-synchronize default guests count to the package's canonical groupSize once tour loads
+  const initializedPkgIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (tour?.id && initializedPkgIdRef.current !== tour.id) {
+      initializedPkgIdRef.current = tour.id;
+      const basePax = getPackageBasePax(tour);
+      setGuests(`${basePax} Adult${basePax > 1 ? 's' : ''}`);
+    }
+  }, [tour?.id, tour?.groupSize]);
 
   // Aspect ratio of the first image in the gallery
   const [firstImageRatio, setFirstImageRatio] = useState(1.777); // Default 16:9
@@ -782,14 +796,14 @@ export const PackageDetail: React.FC = () => {
 
   const calculateTotal = () => {
     const { adults, children } = parseGuestCounts();
-    const isGroup = (tour.pricingMode || 'group') === 'group';
+    const isGroup = !(tour.pricingMode && String(tour.pricingMode).toLowerCase().includes('person'));
+    const basePax = getPackageBasePax(tour);
+    const totalGuests = adults + children;
+
     if (isGroup) {
-      const capacity = getOccupancyCapacity(activeOccupancy.id, activeOccupancy.label);
-      const rooms = Math.ceil(adults / capacity);
-      const adultCost = rooms * activeOccupancy.price;
-      const perPersonBase = activeOccupancy.price / capacity;
-      const childCost = children * Math.round(perPersonBase * 0.85);
-      return Math.round(adultCost + childCost + getAddonsTotal());
+      const packageMultiplier = Math.max(1, Math.ceil(totalGuests / (basePax > 0 ? basePax : 2)));
+      const tourBasePrice = activeOccupancy.price * packageMultiplier;
+      return Math.round(tourBasePrice + getAddonsTotal());
     } else {
       const adultCost = adults * activeOccupancy.price;
       const childCost = children * Math.round(activeOccupancy.price * 0.85);
@@ -800,18 +814,18 @@ export const PackageDetail: React.FC = () => {
   const calculateOriginalTotal = () => {
     if (!tour.originalPrice) return 0;
     const { adults, children } = parseGuestCounts();
-    const originalRate = tour.originalPrice;
-    const isGroup = (tour.pricingMode || 'group') === 'group';
+    const isGroup = !(tour.pricingMode && String(tour.pricingMode).toLowerCase().includes('person'));
+    const basePax = getPackageBasePax(tour);
+    const totalGuests = adults + children;
+    const occupancyRatio = (tour.price && Number(tour.price) > 0) ? (activeOccupancy.price / Number(tour.price)) : 1;
+    const adjustedOriginalRate = Number(tour.originalPrice) * occupancyRatio;
+
     if (isGroup) {
-      const capacity = getOccupancyCapacity(activeOccupancy.id, activeOccupancy.label);
-      const rooms = Math.ceil(adults / capacity);
-      const adultCost = rooms * originalRate;
-      const perPersonBase = originalRate / capacity;
-      const childCost = children * Math.round(perPersonBase * 0.85);
-      return Math.round(adultCost + childCost + getAddonsTotal());
+      const packageMultiplier = Math.max(1, Math.ceil(totalGuests / (basePax > 0 ? basePax : 2)));
+      return Math.round((adjustedOriginalRate * packageMultiplier) + getAddonsTotal());
     } else {
-      const adultCost = adults * originalRate;
-      const childCost = children * Math.round(originalRate * 0.85);
+      const adultCost = adults * adjustedOriginalRate;
+      const childCost = children * Math.round(adjustedOriginalRate * 0.85);
       return Math.round(adultCost + childCost + getAddonsTotal());
     }
   };
@@ -2133,7 +2147,7 @@ export const PackageDetail: React.FC = () => {
                         >
                           {occupancyOptions.map(option => (
                             <option key={option.id} value={option.id}>
-                              {option.label} — {formatPrice(option.price)}
+                              {option.label} — {formatPrice(option.price)}{(tour?.pricingMode && String(tour.pricingMode).toLowerCase().includes('person')) ? ' / person' : ''}
                             </option>
                           ))}
                         </select>

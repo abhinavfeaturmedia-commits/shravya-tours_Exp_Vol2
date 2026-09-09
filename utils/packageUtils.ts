@@ -169,6 +169,24 @@ export interface FormattedPackagePricing {
  * @example getPackagePricingInfo({ price: 69367, pricingMode: 'group' }, 2)
  *          → { perPersonPrice: 34684, perPersonFormatted: "₹34,684", perPersonCompact: "₹34.7k", totalPrice: 69367, totalFormatted: "₹69,367" }
  */
+/**
+ * Extracts the canonical base guest count for a package.
+ * Inspects `pkg.groupSize` for numbers (e.g. "6", "6 Pax", "Max 6" -> 6).
+ * Defaults to 2 if missing or unparseable.
+ */
+export const getPackageBasePax = (
+  pkg: { groupSize?: number | string | null } | null | undefined
+): number => {
+  if (pkg?.groupSize) {
+    const match = String(pkg.groupSize).match(/\d+/);
+    if (match) {
+      const parsed = parseInt(match[0], 10);
+      if (parsed > 0) return parsed;
+    }
+  }
+  return 2;
+};
+
 export const getPackagePricingInfo = (
   pkg: {
     price?: number | string | null;
@@ -184,16 +202,10 @@ export const getPackagePricingInfo = (
   const rawOrigPrice = typeof pkg?.originalPrice === 'string' ? parseFloat(pkg.originalPrice) : (pkg?.originalPrice ?? 0);
   const originalPrice = isNaN(rawOrigPrice) || rawOrigPrice <= 0 ? undefined : Math.round(rawOrigPrice);
 
-  const mode: 'per_person' | 'group' = pkg?.pricingMode === 'per_person' ? 'per_person' : 'group';
+  const mode: 'per_person' | 'group' = (pkg?.pricingMode && String(pkg.pricingMode).toLowerCase().includes('person')) ? 'per_person' : 'group';
+  const basePax = getPackageBasePax(pkg);
 
-  let pax = guestCount && guestCount > 0 ? guestCount : 2;
-  if (!guestCount && pkg?.groupSize) {
-    const match = String(pkg.groupSize).match(/\d+/);
-    if (match) {
-      const parsed = parseInt(match[0], 10);
-      if (parsed > 0) pax = parsed;
-    }
-  }
+  const pax = guestCount && guestCount > 0 ? guestCount : basePax;
 
   let perPersonPrice = price;
   let totalPrice = price;
@@ -201,12 +213,13 @@ export const getPackagePricingInfo = (
   let totalOriginalPrice = originalPrice;
 
   if (mode === 'group') {
-    totalPrice = price;
-    perPersonPrice = Math.round(price / (pax > 0 ? pax : 2));
+    const packageMultiplier = Math.max(1, Math.ceil(pax / (basePax > 0 ? basePax : 2)));
+    totalPrice = price * packageMultiplier;
+    perPersonPrice = Math.round(totalPrice / (pax > 0 ? pax : 2));
 
     if (originalPrice) {
-      totalOriginalPrice = originalPrice;
-      perPersonOriginalPrice = Math.round(originalPrice / (pax > 0 ? pax : 2));
+      totalOriginalPrice = originalPrice * packageMultiplier;
+      perPersonOriginalPrice = Math.round(totalOriginalPrice / (pax > 0 ? pax : 2));
     }
   } else {
     // per_person mode

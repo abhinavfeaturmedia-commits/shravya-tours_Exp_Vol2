@@ -19,7 +19,7 @@ import { Pagination, usePagination } from '../../components/ui/Pagination';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { exportToExcel, ExportColumn } from '../../src/lib/exportUtils';
-import { formatPrice, calculateTripDuration, formatTripDuration } from '../../utils/packageUtils';
+import { formatPrice, calculateTripDuration, formatTripDuration, getPackageBasePax } from '../../utils/packageUtils';
 import { Plus, X, Edit2, Trash2 } from 'lucide-react';
 import { parsePaxString, formatPaxString } from '../../utils/paxUtils';
 import { StaffMultiSelect } from '../../components/admin/StaffMultiSelect';
@@ -91,9 +91,9 @@ export const Bookings: React.FC = () => {
     };
 
     // Always derive from live bookings array so modals auto-refresh after mutations
-    const bookingForLedger = bookingForLedgerId ? bookings.find(b => b.id === bookingForLedgerId) ?? null : null;
-    const viewingBooking = viewingBookingId ? bookings.find(b => b.id === viewingBookingId) ?? null : null;
-    const selectedBookingForSuppliers = selectedBookingForSuppliersId ? bookings.find(b => b.id === selectedBookingForSuppliersId) ?? null : null;
+    const bookingForLedger = bookingForLedgerId ? bookings?.find(b => b.id === bookingForLedgerId) ?? null : null;
+    const viewingBooking = viewingBookingId ? bookings?.find(b => b.id === viewingBookingId) ?? null : null;
+    const selectedBookingForSuppliers = selectedBookingForSuppliersId ? bookings?.find(b => b.id === selectedBookingForSuppliersId) ?? null : null;
 
     const [noteText, setNoteText] = useState('');
     const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
@@ -288,7 +288,7 @@ export const Bookings: React.FC = () => {
     const handleConfirmCompletion = async () => {
         if (!completionNoteTask || !viewingBooking) return;
         const now = new Date().toISOString();
-        const completedByName = currentUser?.name || staff.find(s => String(s.id) === String(currentUser?.id))?.name || 'Staff';
+        const completedByName = currentUser?.name || staff?.find(s => String(s.id) === String(currentUser?.id))?.name || 'Staff';
         try {
             await updateTask(completionNoteTask.id, {
                 status: 'Completed',
@@ -423,19 +423,17 @@ export const Bookings: React.FC = () => {
         setFormData(prev => {
             let updatedAmount = prev.amount;
             if (prev.packageId && !isEditMode) {
-                const selectedPkg = packages.find(p => p.id === prev.packageId);
+                const selectedPkg = packages?.find(p => p.id === prev.packageId);
                 if (selectedPkg) {
-                    const isGroup = (selectedPkg.pricingMode || 'group') === 'group';
-                    const adults = guestCounts.adults;
-                    const children = guestCounts.children;
+                    const isGroup = !(selectedPkg.pricingMode && String(selectedPkg.pricingMode).toLowerCase().includes('person'));
+                    const basePax = getPackageBasePax(selectedPkg);
+                    const totalGuests = (guestCounts.adults || 0) + (guestCounts.children || 0);
                     if (isGroup) {
-                        const rooms = Math.ceil(adults / 2);
-                        const adultCost = rooms * selectedPkg.price;
-                        const childCost = children * Math.round((selectedPkg.price / 2) * 0.85);
-                        updatedAmount = Math.round(adultCost + childCost);
+                        const packageMultiplier = Math.max(1, Math.ceil(totalGuests / (basePax > 0 ? basePax : 2)));
+                        updatedAmount = Math.round(Number(selectedPkg.price) * packageMultiplier);
                     } else {
-                        const adultCost = adults * selectedPkg.price;
-                        const childCost = children * Math.round(selectedPkg.price * 0.85);
+                        const adultCost = (guestCounts.adults || 0) * Number(selectedPkg.price);
+                        const childCost = (guestCounts.children || 0) * Math.round(Number(selectedPkg.price) * 0.85);
                         updatedAmount = Math.round(adultCost + childCost);
                     }
                 }
@@ -528,7 +526,7 @@ export const Bookings: React.FC = () => {
         const searchParams = new URLSearchParams(location.search);
         const idParam = searchParams.get('id');
         if (idParam && bookings.length > 0) {
-            const foundBooking = bookings.find(b => String(b.id) === String(idParam) || String(b.bookingNumber) === String(idParam));
+            const foundBooking = bookings?.find(b => String(b.id) === String(idParam) || String(b.bookingNumber) === String(idParam));
             if (foundBooking) {
                 setViewingBookingId(foundBooking.id);
             }
@@ -540,7 +538,7 @@ export const Bookings: React.FC = () => {
     const handleAddNote = (e: React.FormEvent, bookingId: string) => {
         e.preventDefault();
         if (!noteText.trim()) return;
-        const booking = bookings.find(b => b.id === bookingId);
+        const booking = bookings?.find(b => b.id === bookingId);
         if (!booking) return;
 
         const newNote: BookingNote = {
@@ -576,7 +574,7 @@ export const Bookings: React.FC = () => {
 
     const handleDeleteNote = (bookingId: string, noteId: string) => {
         if (!confirm('Delete this note?')) return;
-        const booking = bookings.find(b => b.id === bookingId);
+        const booking = bookings?.find(b => b.id === bookingId);
         if (!booking) return;
 
         const updatedNotes = (booking.notes || []).filter(n => n.id !== noteId);
@@ -586,7 +584,7 @@ export const Bookings: React.FC = () => {
 
     const handleUpdateNote = (bookingId: string, noteId: string) => {
         if (!editNoteText.trim()) return;
-        const booking = bookings.find(b => b.id === bookingId);
+        const booking = bookings?.find(b => b.id === bookingId);
         if (!booking) return;
 
         const updatedNotes = (booking.notes || []).map(n =>
@@ -676,7 +674,7 @@ export const Bookings: React.FC = () => {
 
     const handlePackageChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const pkgId = e.target.value;
-        const selectedPkg = packages.find(p => p.id === pkgId);
+        const selectedPkg = packages?.find(p => p.id === pkgId);
         
         let calculatedEndDate = formData.date;
         if (selectedPkg && selectedPkg.days) {
@@ -688,18 +686,17 @@ export const Bookings: React.FC = () => {
 
         let calculatedAmount = formData.amount;
         if (selectedPkg) {
-            const isGroup = (selectedPkg.pricingMode || 'group') === 'group';
+            const isGroup = !(selectedPkg.pricingMode && String(selectedPkg.pricingMode).toLowerCase().includes('person'));
+            const basePax = getPackageBasePax(selectedPkg);
             const adults = guestCounts.adults || 2;
             const children = guestCounts.children || 0;
+            const totalGuests = adults + children;
             if (isGroup) {
-                // assume double sharing (capacity = 2) for group default
-                const rooms = Math.ceil(adults / 2);
-                const adultCost = rooms * selectedPkg.price;
-                const childCost = children * Math.round((selectedPkg.price / 2) * 0.85);
-                calculatedAmount = Math.round(adultCost + childCost);
+                const packageMultiplier = Math.max(1, Math.ceil(totalGuests / (basePax > 0 ? basePax : 2)));
+                calculatedAmount = Math.round(Number(selectedPkg.price) * packageMultiplier);
             } else {
-                const adultCost = adults * selectedPkg.price;
-                const childCost = children * Math.round(selectedPkg.price * 0.85);
+                const adultCost = adults * Number(selectedPkg.price);
+                const childCost = children * Math.round(Number(selectedPkg.price) * 0.85);
                 calculatedAmount = Math.round(adultCost + childCost);
             }
         }
@@ -718,7 +715,7 @@ export const Bookings: React.FC = () => {
 
     const handleCustomerSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const custId = e.target.value;
-        const cust = customers.find(c => c.id === custId);
+        const cust = customers?.find(c => c.id === custId);
         if (cust) {
             setFormData(prev => ({
                 ...prev,
@@ -763,7 +760,7 @@ export const Bookings: React.FC = () => {
                 title: formData.title || `${formData.type} Booking`,
                 date: formData.date,
                 endDate: formData.endDate,
-                durationDays: formData.durationDays || (packages.find(p => p.id === formData.packageId)?.days) || 1,
+                durationDays: formData.durationDays || (packages?.find(p => p.id === formData.packageId)?.days) || 1,
                 amount: Number(formData.amount) || 0,
                 status: formData.status,
                 payment: formData.payment as any,
@@ -1074,7 +1071,7 @@ export const Bookings: React.FC = () => {
                     : amountPaid > 0 ? 'Deposit'
                     : amountPaid < 0 ? 'Refunded'
                     : 'Unpaid';
-                const linkedPkg = packages.find(p => p.id === viewingBooking.packageId);
+                const linkedPkg = packages?.find(p => p.id === viewingBooking.packageId);
                 return (
                 <div className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in" onClick={() => setViewingBookingId(null)}>
                     <div className="bg-white dark:bg-[#1A2633] w-full max-w-2xl rounded-t-3xl sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 sm:zoom-in-95 h-[95vh] sm:h-auto sm:max-h-[92vh]" onClick={e => e.stopPropagation()}>
@@ -1206,7 +1203,7 @@ export const Bookings: React.FC = () => {
                         <div className={`p-6 ${bookingModalTab === 'chat' ? 'flex flex-col h-[55vh]' : 'overflow-y-auto space-y-5'}`}>
                             {bookingModalTab === 'chat' ? (
                                 (() => {
-                                    const relatedLead = leads.find(l => 
+                                    const relatedLead = leads?.find(l => 
                                         l.partnerId === viewingBooking.partnerId && 
                                         l.email?.toLowerCase() === viewingBooking.email?.toLowerCase()
                                     );
@@ -1807,7 +1804,7 @@ export const Bookings: React.FC = () => {
                                                                         className="font-bold text-slate-700 dark:text-slate-300 hover:text-primary hover:underline flex items-center gap-0.5"
                                                                         title="Click to reassign task"
                                                                     >
-                                                                        {staff.find(s => String(s.id) === String(task.assignedTo))?.name || 'Unassigned'}
+                                                                        {staff?.find(s => String(s.id) === String(task.assignedTo))?.name || 'Unassigned'}
                                                                         <span className="material-symbols-outlined text-[10px]">edit</span>
                                                                     </button>
                                                                 )}
@@ -1906,7 +1903,7 @@ export const Bookings: React.FC = () => {
                                                         return <span className="text-xs text-slate-400 italic">No staff assigned</span>;
                                                     }
                                                     return assignedStaffIds.map(stId => {
-                                                        const s = staff.find(member => String(member.id) === String(stId));
+                                                        const s = staff?.find(member => String(member.id) === String(stId));
                                                         const isLead = String(stId) === String(viewingBooking.assignedTo);
                                                         return (
                                                             <div
@@ -1936,7 +1933,7 @@ export const Bookings: React.FC = () => {
                                             </div>
 
                                             {(() => {
-                                                const pending = transfers.find(tr => tr.item_type === 'Booking' && tr.item_id === viewingBooking.id && tr.status === 'Pending');
+                                                const pending = transfers?.find(tr => tr.item_type === 'Booking' && tr.item_id === viewingBooking.id && tr.status === 'Pending');
                                                 return pending ? (
                                                     <div className="p-2 rounded bg-amber-50 dark:bg-amber-955/20 border border-amber-250 dark:border-amber-900/50 text-[10px] text-amber-700 dark:text-amber-400 font-bold flex items-center gap-1.5 mt-1 animate-pulse">
                                                         <span className="material-symbols-outlined text-[13px] animate-spin">sync</span>
@@ -2592,13 +2589,19 @@ export const Bookings: React.FC = () => {
                             <div>
                                 <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-2">Staff & Team Assignment</h3>
                                 <StaffMultiSelect
-                                    staff={staff}
-                                    selectedStaffIds={formData.assignedStaffIds || (formData.assignedTo ? [formData.assignedTo] : [])}
-                                    primaryStaffId={formData.assignedTo}
-                                    onChange={(ids, primaryId) => {
+                                    staffMembers={staff || []}
+                                    selectedStaffIds={formData.assignedStaffIds || (formData.assignedTo ? [Number(formData.assignedTo)] : [])}
+                                    primaryStaffId={formData.assignedTo ? Number(formData.assignedTo) : undefined}
+                                    onChange={(ids) => {
                                         setFormData(prev => ({
                                             ...prev,
                                             assignedStaffIds: ids,
+                                            assignedTo: prev.assignedTo && ids.includes(Number(prev.assignedTo)) ? Number(prev.assignedTo) : (ids[0] || undefined)
+                                        }));
+                                    }}
+                                    onPrimaryChange={(primaryId) => {
+                                        setFormData(prev => ({
+                                            ...prev,
                                             assignedTo: primaryId
                                         }));
                                     }}
@@ -2787,7 +2790,7 @@ export const Bookings: React.FC = () => {
                                                                         ? booking.assignedStaffIds 
                                                                         : (booking.assignedTo ? [booking.assignedTo] : []);
                                                                     if (!assignedStaffIds.length) return null;
-                                                                    const firstStaff = staff.find(s => String(s.id) === String(assignedStaffIds[0]));
+                                                                    const firstStaff = staff?.find(s => String(s.id) === String(assignedStaffIds[0]));
                                                                     const extraCount = assignedStaffIds.length - 1;
                                                                     return (
                                                                         <div className="flex items-center gap-1 mt-1 text-[11px] font-semibold text-slate-500">
@@ -3374,7 +3377,7 @@ export const Bookings: React.FC = () => {
                                                                 ? booking.assignedStaffIds 
                                                                 : (booking.assignedTo ? [booking.assignedTo] : []);
                                                             if (!assignedStaffIds.length) return null;
-                                                            const firstStaff = staff.find(s => String(s.id) === String(assignedStaffIds[0]));
+                                                            const firstStaff = staff?.find(s => String(s.id) === String(assignedStaffIds[0]));
                                                             const extraCount = assignedStaffIds.length - 1;
                                                             return (
                                                                 <div className="flex items-center gap-1 mt-0.5 text-[11px] font-semibold text-slate-500">
@@ -3479,7 +3482,7 @@ export const Bookings: React.FC = () => {
                                                             ? booking.assignedStaffIds 
                                                             : (booking.assignedTo ? [booking.assignedTo] : []);
                                                         if (!assignedStaffIds.length) return null;
-                                                        const firstStaff = staff.find(s => String(s.id) === String(assignedStaffIds[0]));
+                                                        const firstStaff = staff?.find(s => String(s.id) === String(assignedStaffIds[0]));
                                                         const extraCount = assignedStaffIds.length - 1;
                                                         return (
                                                             <div className="flex items-center gap-1 mb-2 text-[10px] font-semibold text-slate-500">

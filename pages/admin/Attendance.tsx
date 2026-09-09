@@ -55,13 +55,13 @@ export const Attendance: React.FC = () => {
     const [loadingRegs, setLoadingRegs] = useState(false);
 
     // Reports Tab State
-    const [reportDateRange, setReportDateRange] = useState({
-        startDate: () => {
-            const d = new Date();
-            d.setDate(1);
-            return d.toISOString().split('T')[0];
-        },
-        endDate: () => new Date().toISOString().split('T')[0]
+    const [reportDateRange, setReportDateRange] = useState(() => {
+        const d = new Date();
+        d.setDate(1);
+        return {
+            startDate: d.toISOString().split('T')[0],
+            endDate: new Date().toISOString().split('T')[0]
+        };
     });
     const [reportDept, setReportDept] = useState('All');
     const [reportData, setReportData] = useState<AttendanceReportResponse | null>(null);
@@ -72,6 +72,7 @@ export const Attendance: React.FC = () => {
     const [loadingLeaves, setLoadingLeaves] = useState(false);
     const [showApplyLeaveModal, setShowApplyLeaveModal] = useState(false);
     const [leaveForm, setLeaveForm] = useState({
+        staffId: undefined as number | undefined,
         leaveType: 'Casual' as 'Casual' | 'Sick' | 'Paid' | 'Unpaid' | 'Half Day',
         startDate: new Date().toISOString().split('T')[0],
         endDate: new Date().toISOString().split('T')[0],
@@ -207,8 +208,8 @@ export const Attendance: React.FC = () => {
         setLoadingReports(true);
         try {
             const res = await api.getAttendanceReports({
-                startDate: typeof reportDateRange.startDate === 'function' ? reportDateRange.startDate() : reportDateRange.startDate,
-                endDate: typeof reportDateRange.endDate === 'function' ? reportDateRange.endDate() : reportDateRange.endDate,
+                startDate: reportDateRange.startDate,
+                endDate: reportDateRange.endDate,
                 department: reportDept !== 'All' ? reportDept : undefined
             });
             setReportData(res);
@@ -255,6 +256,38 @@ export const Attendance: React.FC = () => {
         const m = mins % 60;
         if (h > 0) return `${h}h ${m}m`;
         return `${m}m`;
+    };
+
+    const formatDateDisplay = (rawDate?: string | null) => {
+        if (!rawDate) return '-';
+        try {
+            const str = String(rawDate);
+            if (str.includes('T')) {
+                const d = new Date(str);
+                const istStr = d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+                const [y, m, day] = istStr.split('-');
+                const localD = new Date(Number(y), Number(m) - 1, Number(day));
+                return localD.toLocaleDateString('en-US', {
+                    weekday: 'short',
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric'
+                });
+            }
+            const parts = str.split('-');
+            if (parts.length === 3) {
+                const localD = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+                return localD.toLocaleDateString('en-US', {
+                    weekday: 'short',
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric'
+                });
+            }
+            return str;
+        } catch {
+            return String(rawDate).split('T')[0];
+        }
     };
 
     // Live Current User Attendance
@@ -405,16 +438,29 @@ export const Attendance: React.FC = () => {
     const handleApplyLeave = async (e: React.FormEvent) => {
         e.preventDefault();
         try {
+            let computedDays = Number(leaveForm.daysCount) || 1.0;
+            if (leaveForm.leaveType === 'Half Day') {
+                computedDays = 0.5;
+            } else if (leaveForm.startDate && leaveForm.endDate) {
+                const s = new Date(leaveForm.startDate).getTime();
+                const en = new Date(leaveForm.endDate).getTime();
+                if (!isNaN(s) && !isNaN(en) && en >= s) {
+                    computedDays = Math.max(1, Math.round((en - s) / (1000 * 60 * 60 * 24)) + 1);
+                }
+            }
+
             await api.applyStaffLeave({
+                staffId: leaveForm.staffId,
                 leaveType: leaveForm.leaveType,
                 startDate: leaveForm.startDate,
                 endDate: leaveForm.endDate,
-                daysCount: Number(leaveForm.daysCount),
+                daysCount: computedDays,
                 reason: leaveForm.reason
             });
             toast.success('Leave application submitted!');
             setShowApplyLeaveModal(false);
             setLeaveForm({
+                staffId: undefined,
                 leaveType: 'Casual',
                 startDate: new Date().toISOString().split('T')[0],
                 endDate: new Date().toISOString().split('T')[0],
@@ -455,7 +501,8 @@ export const Attendance: React.FC = () => {
                 date: regForm.date,
                 requestedCheckIn: checkInIso,
                 requestedCheckOut: checkOutIso,
-                reason: regForm.reason
+                reason: regForm.reason,
+                staffId: selectedStaffId
             });
             toast.success('Regularization request submitted to manager!');
             setShowRegularizeModal(false);
@@ -580,6 +627,37 @@ export const Attendance: React.FC = () => {
         link.click();
         document.body.removeChild(link);
         toast.success('Roster exported successfully');
+    };
+
+    // Export Reports CSV (Muster Roll / Payroll)
+    const handleExportReportCSV = () => {
+        if (!reportData?.staffSummaries || reportData.staffSummaries.length === 0) {
+            toast.error('No report data to export');
+            return;
+        }
+        const sDate = reportDateRange.startDate;
+        const eDate = reportDateRange.endDate;
+        const headers = ['Staff Name', 'Department', 'Present Days', 'Late Days', 'Half Days', 'Total Worked (Mins)', 'Total Worked (Hours)', 'Overtime (Mins)', 'Overtime (Hours)'];
+        const rows = reportData.staffSummaries.map((st: any) => [
+            `"${st.name}"`,
+            `"${st.department || 'Operations'}"`,
+            st.presentCount || 0,
+            st.lateCount || 0,
+            st.halfDayCount || 0,
+            st.totalWorkedMinutes || 0,
+            ((st.totalWorkedMinutes || 0) / 60).toFixed(1),
+            st.totalOvertimeMinutes || 0,
+            ((st.totalOvertimeMinutes || 0) / 60).toFixed(1)
+        ]);
+        const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e: any) => e.join(','))].join('\n');
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement('a');
+        link.setAttribute('href', encodedUri);
+        link.setAttribute('download', `shrawello-attendance-report-${sDate}-to-${eDate}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        toast.success('Attendance report exported successfully');
     };
 
     const formattedTodayDate = liveTime.toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
@@ -905,7 +983,7 @@ export const Attendance: React.FC = () => {
                             <table className="w-full text-left text-xs">
                                 <thead>
                                     <tr className="border-b border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 text-[11px] font-extrabold uppercase tracking-wider text-slate-400">
-                                        <th className="py-3.5 px-5">Staff Member</th>
+                                        <th className="py-3.5 px-5 sticky left-0 z-20 bg-slate-50 dark:bg-slate-800 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)]">Staff Member</th>
                                         <th className="py-3.5 px-3">Status</th>
                                         <th className="py-3.5 px-3">First Login</th>
                                         <th className="py-3.5 px-3">Clock In</th>
@@ -915,7 +993,7 @@ export const Attendance: React.FC = () => {
                                         <th className="py-3.5 px-3">Active Time</th>
                                         <th className="py-3.5 px-3">Idle Time</th>
                                         <th className="py-3.5 px-3">Productivity</th>
-                                        <th className="py-3.5 px-5 text-right">Quick Actions</th>
+                                        <th className="py-3.5 px-5 text-right sticky right-0 z-20 bg-slate-50 dark:bg-slate-800 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.08)]">Quick Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
@@ -944,9 +1022,9 @@ export const Attendance: React.FC = () => {
                                                 : (item.checkInTime ? 100 : 0);
 
                                             return (
-                                                <tr key={item.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/30 transition-colors">
+                                                <tr key={item.id} className="group hover:bg-slate-50/70 dark:hover:bg-slate-800/30 transition-colors">
                                                     {/* Staff Info */}
-                                                    <td className="py-3.5 px-5">
+                                                    <td className="py-3.5 px-5 sticky left-0 z-10 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/60 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)] transition-colors">
                                                         <div className="flex items-center gap-3">
                                                             <div className={`size-9 rounded-2xl ${item.color || 'bg-indigo-600'} text-white font-bold flex items-center justify-center text-xs shadow-sm shrink-0`}>
                                                                 {item.initials}
@@ -1034,7 +1112,7 @@ export const Attendance: React.FC = () => {
                                                     </td>
 
                                                     {/* Quick Actions */}
-                                                    <td className="py-3.5 px-5 text-right">
+                                                    <td className="py-3.5 px-5 text-right sticky right-0 z-10 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/60 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.08)] transition-colors">
                                                         <div className="flex items-center justify-end gap-1.5">
                                                             {item.status === 'Absent' && (
                                                                 <button
@@ -1137,7 +1215,7 @@ export const Attendance: React.FC = () => {
                                             <div className="flex items-center justify-between">
                                                 <span className="font-bold text-xs text-slate-900 dark:text-white">{reg.staff_name}</span>
                                                 <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200">
-                                                    {reg.date}
+                                                    {formatDateDisplay(reg.date)}
                                                 </span>
                                             </div>
                                             <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
@@ -1215,8 +1293,17 @@ export const Attendance: React.FC = () => {
                                         </tr>
                                     ) : (
                                         myHistory.logs.map((log: any) => (
-                                            <tr key={log.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/30">
-                                                <td className="py-3 px-5 font-bold text-slate-900 dark:text-white">{log.date}</td>
+                                            <tr key={log.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/30 transition-colors">
+                                                <td className="py-3.5 px-5">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="material-symbols-outlined text-slate-400 dark:text-slate-500 text-[16px]">
+                                                            calendar_today
+                                                        </span>
+                                                        <span className="font-bold text-slate-900 dark:text-white text-xs">
+                                                            {formatDateDisplay(log.date)}
+                                                        </span>
+                                                    </div>
+                                                </td>
                                                 <td className="py-3 px-4">{renderStatusBadge(log.status)}</td>
                                                 <td className="py-3 px-4 font-semibold">{formatClockTime(log.check_in_time)}</td>
                                                 <td className="py-3 px-4 font-semibold">{formatClockTime(log.check_out_time)}</td>
@@ -1235,6 +1322,24 @@ export const Attendance: React.FC = () => {
                                                         <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border border-rose-200" title={log.regularization_reason}>
                                                             Rejected
                                                         </span>
+                                                    ) : (log.status === 'Absent' || log.status === 'Half Day' || log.status === 'Late' || !log.check_out_time) ? (
+                                                        <button
+                                                            onClick={() => {
+                                                                const cleanD = (log.date || '').toString().includes('T')
+                                                                    ? new Date(log.date).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })
+                                                                    : (log.date || '').toString().split('T')[0];
+                                                                setRegForm({
+                                                                    date: cleanD,
+                                                                    checkIn: '09:30',
+                                                                    checkOut: '18:30',
+                                                                    reason: ''
+                                                                });
+                                                                setShowRegularizeModal(true);
+                                                            }}
+                                                            className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                                                        >
+                                                            Regularize
+                                                        </button>
                                                     ) : (
                                                         <span className="text-slate-400">-</span>
                                                     )}
@@ -1265,14 +1370,14 @@ export const Attendance: React.FC = () => {
                         <div className="flex flex-wrap items-center gap-3">
                             <input
                                 type="date"
-                                value={typeof reportDateRange.startDate === 'function' ? reportDateRange.startDate() : reportDateRange.startDate}
+                                value={reportDateRange.startDate}
                                 onChange={e => setReportDateRange(prev => ({ ...prev, startDate: e.target.value }))}
                                 className="px-3.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-bold"
                             />
                             <span className="text-slate-400 font-bold">to</span>
                             <input
                                 type="date"
-                                value={typeof reportDateRange.endDate === 'function' ? reportDateRange.endDate() : reportDateRange.endDate}
+                                value={reportDateRange.endDate}
                                 onChange={e => setReportDateRange(prev => ({ ...prev, endDate: e.target.value }))}
                                 className="px-3.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-bold"
                             />
@@ -1285,6 +1390,14 @@ export const Attendance: React.FC = () => {
                                     <option key={d} value={d}>{d === 'All' ? 'All Departments' : d}</option>
                                 ))}
                             </select>
+                            <button
+                                onClick={handleExportReportCSV}
+                                className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-2xl shadow-sm transition-all cursor-pointer"
+                                title="Export Reports & Muster Roll CSV"
+                            >
+                                <span className="material-symbols-outlined text-[16px]">download</span>
+                                <span>Export CSV</span>
+                            </button>
                         </div>
                     </div>
 
@@ -1398,42 +1511,84 @@ export const Attendance: React.FC = () => {
                                             <td colSpan={7} className="py-12 text-center text-slate-400 font-bold">No leave applications found</td>
                                         </tr>
                                     ) : (
-                                        leavesList.map(l => (
-                                            <tr key={l.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/30">
-                                                <td className="py-3 px-5 font-bold text-slate-900 dark:text-white">{l.staffName || `Staff #${l.staffId}`}</td>
-                                                <td className="py-3 px-4 font-semibold text-slate-700 dark:text-slate-300">{l.leaveType}</td>
-                                                <td className="py-3 px-4 text-slate-600 dark:text-slate-400">{l.startDate} → {l.endDate}</td>
-                                                <td className="py-3 px-4 font-bold">{l.daysCount} d</td>
-                                                <td className="py-3 px-4 text-slate-500 text-[11px] max-w-xs truncate">{l.reason}</td>
-                                                <td className="py-3 px-4">
-                                                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase ${
-                                                        l.status === 'Approved' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' :
-                                                        l.status === 'Rejected' ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300' :
-                                                        'bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300'
-                                                    }`}>
-                                                        {l.status}
-                                                    </span>
-                                                </td>
-                                                <td className="py-3 px-5 text-right">
-                                                    {l.status === 'Pending' && (canAccess('attendance', 'approve_leaves') || hasPermission('attendance', 'manage') || hasPermission('settings', 'manage')) && (
-                                                        <div className="flex items-center justify-end gap-1.5">
-                                                            <button
-                                                                onClick={() => handleUpdateLeaveStatus(l.id, 'Approved')}
-                                                                className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold"
-                                                            >
-                                                                Approve
-                                                            </button>
-                                                            <button
-                                                                onClick={() => setRejectingLeaveId(l.id)}
-                                                                className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-bold"
-                                                            >
-                                                                Reject
-                                                            </button>
+                                        leavesList.map(l => {
+                                            const sId = l.staffId || (l as any).staff_id;
+                                            const sName = l.staffName || (l as any).staff_name || (sId ? `Staff #${sId}` : 'Staff Member');
+                                            const lType = l.leaveType || (l as any).leave_type || 'Casual';
+                                            const sDate = (l.startDate || (l as any).start_date || '').toString().split('T')[0];
+                                            const eDate = (l.endDate || (l as any).end_date || '').toString().split('T')[0];
+                                            const dCount = Number(l.daysCount ?? (l as any).days_count ?? 1);
+                                            const initials = l.initials || sName.split(' ').map((p: string) => p[0]).join('').substring(0, 2).toUpperCase();
+                                            const dept = l.department || (l as any).department || 'Operations';
+                                            const role = l.role || (l as any).role || '';
+
+                                            return (
+                                                <tr key={l.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/30 transition-colors">
+                                                    <td className="py-3.5 px-5">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="size-9 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900/50 flex items-center justify-center font-bold text-xs uppercase shadow-sm shrink-0">
+                                                                {initials}
+                                                            </div>
+                                                            <div>
+                                                                <div className="flex items-center gap-1.5">
+                                                                    <span className="font-bold text-slate-900 dark:text-white text-xs">{sName}</span>
+                                                                    {sId && (
+                                                                        <span className="px-1.5 py-0.2 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded text-[10px] font-mono">
+                                                                            #{sId}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                                <div className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5">
+                                                                    <span>{dept}</span>
+                                                                    {role && <span>• {role}</span>}
+                                                                </div>
+                                                            </div>
                                                         </div>
-                                                    )}
-                                                </td>
-                                            </tr>
-                                        ))
+                                                    </td>
+                                                    <td className="py-3.5 px-4 font-semibold text-slate-700 dark:text-slate-300">
+                                                        <span className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[11px] font-bold">
+                                                            {lType}
+                                                        </span>
+                                                    </td>
+                                                    <td className="py-3.5 px-4 text-slate-600 dark:text-slate-400 font-medium">
+                                                        {formatDateDisplay(sDate)} {eDate && eDate !== sDate ? `→ ${formatDateDisplay(eDate)}` : ''}
+                                                    </td>
+                                                    <td className="py-3.5 px-4 font-bold text-slate-900 dark:text-white">
+                                                        {dCount} {dCount === 1 ? 'day' : 'days'}
+                                                    </td>
+                                                    <td className="py-3.5 px-4 text-slate-500 text-[11px] max-w-xs truncate" title={l.reason}>
+                                                        {l.reason}
+                                                    </td>
+                                                    <td className="py-3.5 px-4">
+                                                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase ${
+                                                            l.status === 'Approved' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/40' :
+                                                            l.status === 'Rejected' ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border border-rose-200 dark:border-rose-800/40' :
+                                                            'bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200 dark:border-amber-800/40'
+                                                        }`}>
+                                                            {l.status}
+                                                        </span>
+                                                    </td>
+                                                    <td className="py-3.5 px-5 text-right">
+                                                        {l.status === 'Pending' && (canAccess('attendance', 'approve_leaves') || hasPermission('attendance', 'manage') || hasPermission('settings', 'manage')) && (
+                                                            <div className="flex items-center justify-end gap-1.5">
+                                                                <button
+                                                                    onClick={() => handleUpdateLeaveStatus(l.id, 'Approved')}
+                                                                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm cursor-pointer"
+                                                                >
+                                                                    Approve
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => setRejectingLeaveId(l.id)}
+                                                                    className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-bold transition-all cursor-pointer"
+                                                                >
+                                                                    Reject
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })
                                     )}
                                 </tbody>
                             </table>
@@ -1834,6 +1989,24 @@ export const Attendance: React.FC = () => {
                         </div>
 
                         <div className="space-y-3 text-xs">
+                            {(currentUser?.userType === 'Admin' || canAccess('attendance', 'approve_leaves') || hasPermission('attendance', 'manage') || hasPermission('settings', 'manage')) && todayData?.roster && (
+                                <div>
+                                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Staff Member</label>
+                                    <select
+                                        value={leaveForm.staffId || ''}
+                                        onChange={e => setLeaveForm(prev => ({ ...prev, staffId: e.target.value ? Number(e.target.value) : undefined }))}
+                                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-800 dark:text-slate-200"
+                                    >
+                                        <option value="">Myself ({currentUser?.name || 'Current User'})</option>
+                                        {todayData.roster.map(r => (
+                                            <option key={r.staffId} value={r.staffId}>
+                                                {r.name} ({r.department || 'Operations'} - #{r.staffId})
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
+
                             <div>
                                 <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Leave Type</label>
                                 <select
@@ -1916,6 +2089,14 @@ export const Attendance: React.FC = () => {
                         </div>
 
                         <div className="space-y-3 text-xs">
+                            {selectedStaffId && todayData?.roster && (
+                                <div className="p-2.5 bg-indigo-50 dark:bg-indigo-950/40 rounded-xl border border-indigo-100 dark:border-indigo-900/50 flex items-center gap-2">
+                                    <span className="material-symbols-outlined text-indigo-600 dark:text-indigo-400 text-[18px]">person</span>
+                                    <span className="text-xs font-bold text-indigo-900 dark:text-indigo-200">
+                                        Regularizing for: {todayData.roster.find(r => r.staffId === selectedStaffId)?.name || `Staff #${selectedStaffId}`}
+                                    </span>
+                                </div>
+                            )}
                             <div>
                                 <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Date to Correct</label>
                                 <input

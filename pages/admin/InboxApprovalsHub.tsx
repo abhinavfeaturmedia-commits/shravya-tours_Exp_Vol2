@@ -1,6 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useInboxHub, UnifiedInboxItem, InboxItemCategory, InboxFolder, formatCleanDate } from '../../src/hooks/useInboxHub';
+import { useInboxHub, UnifiedInboxItem, InboxItemCategory, InboxFolder, formatCleanDate, formatCompactDateTime } from '../../src/hooks/useInboxHub';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { formatPrice } from '../../utils/packageUtils';
@@ -9,7 +9,7 @@ import { toast } from 'sonner';
 export const InboxApprovalsHub: React.FC = () => {
   const navigate = useNavigate();
   const { currentUser, canAccess } = useAuth();
-  const { allItems, counts, toggleStar, handleApprove, handleReject, handleSendBack, refetchAll } = useInboxHub();
+  const { allItems, counts, isSyncing, toggleStar, handleApprove, handleReject, handleSendBack, refetchAll } = useInboxHub();
   const { updateBooking, addTask, masterTransports, vendors, addSupplierBooking } = useData();
 
   // Navigation State
@@ -18,6 +18,21 @@ export const InboxApprovalsHub: React.FC = () => {
   const [filterPill, setFilterPill] = useState<'ALL' | 'PAYMENT' | 'CAB/OPS' | 'TASKS' | 'LEAVES' | 'FOLLOWUP' | 'KYC' | 'TRANSFER'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+
+  // Live Counts per Filter Pill
+  const pillCounts = useMemo(() => {
+    const pending = allItems.filter(i => i.status === 'Pending');
+    return {
+      ALL: pending.length,
+      PAYMENT: pending.filter(i => i.category === 'finance').length,
+      'CAB/OPS': pending.filter(i => i.category === 'operations').length,
+      TASKS: pending.filter(i => i.category === 'tasks').length,
+      LEAVES: pending.filter(i => i.category === 'hr').length,
+      FOLLOWUP: pending.filter(i => i.category === 'crm').length,
+      KYC: pending.filter(i => i.category === 'partner_kyc').length,
+      TRANSFER: pending.filter(i => i.category === 'transfer').length,
+    };
+  }, [allItems]);
 
   // Decision Note & Action State
   const [decisionNote, setDecisionNote] = useState('');
@@ -179,7 +194,7 @@ export const InboxApprovalsHub: React.FC = () => {
   };
 
   // Helper to evaluate approval permission per category
-  const canApproveCurrentItem = (item?: UnifiedInboxItem | null): boolean => {
+  const canApproveCurrentItem = useCallback((item?: UnifiedInboxItem | null): boolean => {
     if (!item) return false;
     if (currentUser?.userType === 'Admin') return true;
     switch (item.category) {
@@ -189,10 +204,10 @@ export const InboxApprovalsHub: React.FC = () => {
       case 'partner_kyc': return canAccess('inbox', 'approve_kyc');
       default: return canAccess('inbox', 'manage');
     }
-  };
+  }, [currentUser, canAccess]);
 
   // Execution Handlers
-  const onApprove = async () => {
+  const onApprove = useCallback(async () => {
     if (!activeItem) return;
     if (!canApproveCurrentItem(activeItem)) {
       toast.error(`Permission Denied: You do not have approval authorization for ${activeItem.category.toUpperCase()} requests.`);
@@ -231,7 +246,7 @@ export const InboxApprovalsHub: React.FC = () => {
     } finally {
       setIsProcessing(false);
     }
-  };
+  }, [activeItem, canApproveCurrentItem, driverNameInput, driverPhoneInput, vehicleNumberInput, vendorCostInput, selectedVendorId, decisionNote, addSupplierBooking, handleApprove]);
 
   const onReject = async () => {
     if (!activeItem) return;
@@ -271,6 +286,52 @@ export const InboxApprovalsHub: React.FC = () => {
     }
   };
 
+  // Keyboard Navigation Shortcuts (↑/↓ or J/K to navigate items, A to approve, S to star, Esc to close modals)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const isInput = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable);
+
+      if (e.key === 'Escape') {
+        if (lightboxImage) {
+          setLightboxImage(null);
+          return;
+        }
+        if (showNewRequestModal) {
+          setShowNewRequestModal(false);
+          return;
+        }
+      }
+
+      if (isInput) return;
+
+      if (e.key === 'ArrowDown' || e.key.toLowerCase() === 'j') {
+        e.preventDefault();
+        if (filteredItems.length === 0) return;
+        const currentIndex = filteredItems.findIndex(i => i.id === activeItem?.id);
+        const nextIndex = currentIndex < filteredItems.length - 1 ? currentIndex + 1 : 0;
+        setSelectedItemId(filteredItems[nextIndex].id);
+      } else if (e.key === 'ArrowUp' || e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        if (filteredItems.length === 0) return;
+        const currentIndex = filteredItems.findIndex(i => i.id === activeItem?.id);
+        const prevIndex = currentIndex > 0 ? currentIndex - 1 : filteredItems.length - 1;
+        setSelectedItemId(filteredItems[prevIndex].id);
+      } else if (e.key.toLowerCase() === 's' && activeItem) {
+        e.preventDefault();
+        toggleStar(activeItem.id);
+      } else if (e.key.toLowerCase() === 'a' && activeItem && activeItem.status === 'Pending') {
+        e.preventDefault();
+        if (canApproveCurrentItem(activeItem) && !isProcessing) {
+          onApprove();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [filteredItems, activeItem, lightboxImage, showNewRequestModal, isProcessing, canApproveCurrentItem, onApprove, toggleStar]);
+
   // Batch Actions
   const handleToggleSelect = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -282,23 +343,18 @@ export const InboxApprovalsHub: React.FC = () => {
     if (!confirm(`Are you sure you want to approve ${selectedIds.length} selected request(s)?`)) return;
 
     setIsProcessing(true);
-    let successCount = 0;
-    let failCount = 0;
-    const errors: string[] = [];
-
     try {
-      for (const id of selectedIds) {
-        const item = allItems.find(x => x.id === id);
-        if (item) {
-          try {
-            await handleApprove(item, 'Batch approved via Inbox Hub');
-            successCount++;
-          } catch (err: any) {
-            failCount++;
-            errors.push(err.message || `Item ${id}`);
-          }
-        }
-      }
+      const targetItems = selectedIds
+        .map(id => allItems.find(x => x.id === id))
+        .filter((item): item is UnifiedInboxItem => !!item);
+
+      const results = await Promise.allSettled(
+        targetItems.map(item => handleApprove(item, 'Batch approved via Inbox Hub'))
+      );
+
+      const successCount = results.filter(r => r.status === 'fulfilled').length;
+      const failCount = results.filter(r => r.status === 'rejected').length;
+
       setSelectedIds([]);
       if (failCount === 0) {
         toast.success(`All ${successCount} requests authorized successfully!`);
@@ -359,13 +415,20 @@ export const InboxApprovalsHub: React.FC = () => {
 
         {/* Header Actions */}
         <div className="flex items-center gap-2.5">
+          <span className="hidden xl:inline text-[11px] text-slate-400 font-medium mr-1">
+            Shortcuts: <kbd className="px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-mono">J</kbd>/<kbd className="px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-mono">K</kbd> Navigate · <kbd className="px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-mono">A</kbd> Approve · <kbd className="px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-mono">S</kbd> Star
+          </span>
+
           <button
             onClick={() => refetchAll()}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 shadow-sm transition-all cursor-pointer active:scale-95"
-            title="Refresh feed"
+            disabled={isSyncing}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 shadow-sm transition-all cursor-pointer active:scale-95 disabled:opacity-60"
+            title="Refresh feed and sync database"
           >
-            <span className="material-symbols-outlined text-[16px] text-slate-500">refresh</span>
-            <span>Sync</span>
+            <span className={`material-symbols-outlined text-[16px] ${isSyncing ? 'animate-spin text-emerald-600' : 'text-slate-500'}`}>
+              refresh
+            </span>
+            <span>{isSyncing ? 'Syncing...' : 'Sync'}</span>
           </button>
 
           <button
@@ -647,19 +710,31 @@ export const InboxApprovalsHub: React.FC = () => {
 
             {/* Filter Pills (Clean No-Scrollbar Track) */}
             <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              {(['ALL', 'PAYMENT', 'CAB/OPS', 'TASKS', 'LEAVES', 'FOLLOWUP', 'KYC', 'TRANSFER'] as const).map(pill => (
-                <button
-                  key={pill}
-                  onClick={() => setFilterPill(pill)}
-                  className={`px-2.5 py-1 rounded-full text-[10px] font-black tracking-wider transition-all cursor-pointer whitespace-nowrap active:scale-95 ${
-                    filterPill === pill
-                      ? 'bg-emerald-600 text-white shadow-xs'
-                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
-                  }`}
-                >
-                  {pill}
-                </button>
-              ))}
+              {(['ALL', 'PAYMENT', 'CAB/OPS', 'TASKS', 'LEAVES', 'FOLLOWUP', 'KYC', 'TRANSFER'] as const).map(pill => {
+                const count = pillCounts[pill] || 0;
+                return (
+                  <button
+                    key={pill}
+                    onClick={() => setFilterPill(pill)}
+                    className={`px-2.5 py-1 rounded-full text-[10px] font-black tracking-wider transition-all cursor-pointer whitespace-nowrap active:scale-95 flex items-center gap-1.5 ${
+                      filterPill === pill
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    <span>{pill}</span>
+                    {count > 0 && (
+                      <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-bold ${
+                        filterPill === pill
+                          ? 'bg-emerald-700/80 text-white'
+                          : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+                      }`}>
+                        {count}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
 
             {/* Floating Batch Command Bar for Fast Operations */}
@@ -773,7 +848,7 @@ export const InboxApprovalsHub: React.FC = () => {
                               {formatPrice(item.amount)}
                             </span>
                           ) : (
-                            <span className="text-[9px] font-black uppercase text-slate-500 dark:text-slate-400 px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 tracking-wider truncate max-w-[130px]">
+                            <span className="text-[9px] font-black uppercase text-slate-500 dark:text-slate-400 px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 tracking-wider">
                               {item.type}
                             </span>
                           )}
@@ -877,7 +952,7 @@ export const InboxApprovalsHub: React.FC = () => {
                   </button>
 
                   {/* Immediate 1-Click Quick Approve in Header */}
-                  {activeItem.status === 'Pending' && (
+                  {activeItem.status === 'Pending' && canApproveCurrentItem(activeItem) && (
                     <button
                       onClick={onApprove}
                       disabled={isProcessing}
@@ -934,14 +1009,14 @@ export const InboxApprovalsHub: React.FC = () => {
                     </span>
                   </div>
 
-                  <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
+                  <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800" title={activeItem.dueAt || undefined}>
                     <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block">
                       {activeItem.amount !== undefined ? 'Amount' : 'Due Date'}
                     </span>
                     <span className="text-xs font-black text-slate-900 dark:text-white mt-0.5 block truncate">
                       {activeItem.amount !== undefined 
                         ? formatPrice(activeItem.amount) 
-                        : (activeItem.dueAt ? formatCleanDate(activeItem.dueAt) : 'Pending')}
+                        : (activeItem.dueAt ? formatCompactDateTime(activeItem.dueAt) : 'Pending')}
                     </span>
                   </div>
 
@@ -1151,10 +1226,10 @@ export const InboxApprovalsHub: React.FC = () => {
                 )}
               </div>
 
-              {/* ─── Sticky Bottom Action Suite (with Right Buffer for FAB!) ─── */}
+              {/* ─── Sticky Bottom Action Suite ─── */}
               {activeItem.status === 'Pending' && (
                 canApproveCurrentItem(activeItem) ? (
-                  <div className="p-3.5 border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm flex items-center justify-between gap-2 shrink-0 sticky bottom-0 z-20 pr-16 shadow-xs">
+                  <div className="p-3.5 border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm flex items-center justify-between gap-2 shrink-0 sticky bottom-0 z-20 pr-4 shadow-xs">
                     <div className="flex items-center gap-2">
                       <button
                         onClick={onSendBack}
@@ -1185,7 +1260,7 @@ export const InboxApprovalsHub: React.FC = () => {
                     </button>
                   </div>
                 ) : (
-                  <div className="p-3.5 border-t border-slate-200 dark:border-slate-800 bg-amber-50/90 dark:bg-amber-950/30 backdrop-blur-sm flex items-center gap-2 shrink-0 sticky bottom-0 z-20 pr-16 text-amber-800 dark:text-amber-300 text-xs font-bold">
+                  <div className="p-3.5 border-t border-slate-200 dark:border-slate-800 bg-amber-50/90 dark:bg-amber-950/30 backdrop-blur-sm flex items-center gap-2 shrink-0 sticky bottom-0 z-20 pr-4 text-amber-800 dark:text-amber-300 text-xs font-bold">
                     <span className="material-symbols-outlined text-[18px] text-amber-600">lock</span>
                     <span>Read-Only View: You do not have approval authorization for {activeItem.category.toUpperCase()} items.</span>
                   </div>

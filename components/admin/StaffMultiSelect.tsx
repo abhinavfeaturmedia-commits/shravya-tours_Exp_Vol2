@@ -3,8 +3,9 @@ import { StaffMember } from '../../types';
 import { UserCheck, Users, X, Search, ChevronDown, Check, Star, ShieldAlert } from 'lucide-react';
 
 interface StaffMultiSelectProps {
-  staffMembers: StaffMember[];
-  selectedStaffIds: number[];
+  staffMembers?: StaffMember[];
+  staff?: StaffMember[];
+  selectedStaffIds?: number[];
   onChange: (ids: number[]) => void;
   primaryStaffId?: number;
   onPrimaryChange?: (primaryId: number) => void;
@@ -17,6 +18,7 @@ interface StaffMultiSelectProps {
 
 export const StaffMultiSelect: React.FC<StaffMultiSelectProps> = ({
   staffMembers,
+  staff,
   selectedStaffIds = [],
   onChange,
   primaryStaffId,
@@ -27,6 +29,9 @@ export const StaffMultiSelect: React.FC<StaffMultiSelectProps> = ({
   helperText,
   className = '',
 }) => {
+  const staffList = staffMembers || staff || [];
+  const safeSelectedStaffIds = Array.isArray(selectedStaffIds) ? selectedStaffIds : [];
+
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
@@ -48,39 +53,42 @@ export const StaffMultiSelect: React.FC<StaffMultiSelectProps> = ({
 
   // Selected staff objects
   const selectedStaffList = useMemo(() => {
-    return selectedStaffIds
-      .map(id => staffMembers.find(s => Number(s.id) === Number(id)))
+    if (!Array.isArray(staffList)) return [];
+    return safeSelectedStaffIds
+      .map(id => staffList.find(s => s && Number(s.id) === Number(id)))
       .filter((s): s is StaffMember => !!s);
-  }, [selectedStaffIds, staffMembers]);
+  }, [safeSelectedStaffIds, staffList]);
 
   // Active / Filtered staff members
   const filteredStaff = useMemo(() => {
+    if (!Array.isArray(staffList)) return [];
     const query = searchQuery.trim().toLowerCase();
-    return staffMembers.filter(staff => {
-      if (staff.status === 'Inactive') return false;
+    return staffList.filter(staffMember => {
+      if (!staffMember) return false;
+      if (staffMember.status === 'Inactive') return false;
       if (!query) return true;
-      const idMatch = String(staff.id).includes(query);
-      const nameMatch = staff.name?.toLowerCase().includes(query);
-      const roleMatch = staff.role?.toLowerCase().includes(query);
-      const deptMatch = staff.department?.toLowerCase().includes(query);
-      const emailMatch = staff.email?.toLowerCase().includes(query);
+      const idMatch = String(staffMember.id).includes(query);
+      const nameMatch = staffMember.name?.toLowerCase().includes(query);
+      const roleMatch = staffMember.role?.toLowerCase().includes(query);
+      const deptMatch = staffMember.department?.toLowerCase().includes(query);
+      const emailMatch = staffMember.email?.toLowerCase().includes(query);
       return idMatch || nameMatch || roleMatch || deptMatch || emailMatch;
     });
-  }, [staffMembers, searchQuery]);
+  }, [staffList, searchQuery]);
 
-  const effectivePrimaryId = primaryStaffId || (selectedStaffIds.length > 0 ? selectedStaffIds[0] : undefined);
+  const effectivePrimaryId = primaryStaffId || (safeSelectedStaffIds.length > 0 ? safeSelectedStaffIds[0] : undefined);
 
   const toggleStaff = (id: number) => {
     if (disabled) return;
     const numId = Number(id);
-    if (selectedStaffIds.includes(numId)) {
-      const next = selectedStaffIds.filter(x => x !== numId);
+    if (safeSelectedStaffIds.includes(numId)) {
+      const next = safeSelectedStaffIds.filter(x => x !== numId);
       onChange(next);
       if (effectivePrimaryId === numId && next.length > 0 && onPrimaryChange) {
         onPrimaryChange(next[0]);
       }
     } else {
-      const next = [...selectedStaffIds, numId];
+      const next = [...safeSelectedStaffIds, numId];
       onChange(next);
       if (next.length === 1 && onPrimaryChange) {
         onPrimaryChange(numId);
@@ -92,7 +100,7 @@ export const StaffMultiSelect: React.FC<StaffMultiSelectProps> = ({
     e.stopPropagation();
     if (disabled) return;
     const numId = Number(id);
-    const next = selectedStaffIds.filter(x => x !== numId);
+    const next = safeSelectedStaffIds.filter(x => x !== numId);
     onChange(next);
     if (effectivePrimaryId === numId && next.length > 0 && onPrimaryChange) {
       onPrimaryChange(next[0]);
@@ -104,7 +112,7 @@ export const StaffMultiSelect: React.FC<StaffMultiSelectProps> = ({
     if (disabled) return;
     const numId = Number(id);
     // Put primary at front of array
-    const without = selectedStaffIds.filter(x => x !== numId);
+    const without = safeSelectedStaffIds.filter(x => x !== numId);
     const reordered = [numId, ...without];
     onChange(reordered);
     if (onPrimaryChange) {
@@ -120,9 +128,9 @@ export const StaffMultiSelect: React.FC<StaffMultiSelectProps> = ({
             <Users className="w-3.5 h-3.5 text-blue-500" />
             {label}
           </label>
-          {selectedStaffIds.length > 0 && (
+          {safeSelectedStaffIds.length > 0 && (
             <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
-              {selectedStaffIds.length} {selectedStaffIds.length === 1 ? 'person assigned' : 'people assigned'}
+              {safeSelectedStaffIds.length} {safeSelectedStaffIds.length === 1 ? 'person assigned' : 'people assigned'}
             </span>
           )}
         </div>
@@ -249,7 +257,7 @@ export const StaffMultiSelect: React.FC<StaffMultiSelectProps> = ({
               </div>
             ) : (
               filteredStaff.map(staff => {
-                const isSelected = selectedStaffIds.includes(Number(staff.id));
+                const isSelected = safeSelectedStaffIds.includes(Number(staff.id));
                 const isPrimary = Number(staff.id) === Number(effectivePrimaryId);
 
                 return (
@@ -331,15 +339,15 @@ export const StaffMultiSelect: React.FC<StaffMultiSelectProps> = ({
           {/* Quick Actions Footer */}
           <div className="p-2 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
             <span className="text-[11px]">
-              {selectedStaffIds.length > 0 ? (
+              {safeSelectedStaffIds.length > 0 ? (
                 <span className="text-blue-600 dark:text-blue-400 font-medium">
-                  {selectedStaffIds.length} selected
+                  {safeSelectedStaffIds.length} selected
                 </span>
               ) : (
                 'None selected'
               )}
             </span>
-            {selectedStaffIds.length > 0 && (
+            {safeSelectedStaffIds.length > 0 && (
               <button
                 type="button"
                 onClick={() => onChange([])}

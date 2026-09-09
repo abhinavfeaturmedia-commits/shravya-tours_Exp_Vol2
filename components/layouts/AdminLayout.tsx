@@ -1123,31 +1123,33 @@ export const AdminLayout: React.FC = () => {
         </div>
       )}
 
-      <div className="fixed bottom-6 right-4 lg:right-6 z-50">
-        {isFabOpen && (
-          <div className="absolute bottom-16 right-0 mb-2 space-y-2 animate-slide-up">
-            {quickActions.map((action, idx) => (
-              <button
-                key={idx}
-                onClick={() => { navigate(action.path); setIsFabOpen(false); }}
-                className="flex items-center gap-3 px-4 py-3 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-100 dark:border-slate-700 hover:scale-105 transition-all group whitespace-nowrap"
-                style={{ animationDelay: `${idx * 50}ms` }}
-              >
-                <div className={`size-10 rounded-xl bg-gradient-to-br ${action.color} flex items-center justify-center text-white shadow-lg`}>
-                  <span className="material-symbols-outlined text-[20px]">{action.icon}</span>
-                </div>
-                <span className="font-semibold text-slate-700 dark:text-slate-200 text-sm">{action.name}</span>
-              </button>
-            ))}
-          </div>
-        )}
-        <button
-          onClick={() => setIsFabOpen(!isFabOpen)}
-          className={`size-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-xl shadow-indigo-500/30 flex items-center justify-center transition-all duration-300 hover:shadow-indigo-500/50 hover:scale-105 ${isFabOpen ? 'rotate-45' : ''}`}
-        >
-          <span className="material-symbols-outlined text-[28px]">{isFabOpen ? 'close' : 'add'}</span>
-        </button>
-      </div>
+      {!location.pathname.startsWith('/admin/inbox') && !location.pathname.startsWith('/admin/attendance') && (
+        <div className="fixed bottom-6 right-4 lg:right-6 z-50">
+          {isFabOpen && (
+            <div className="absolute bottom-16 right-0 mb-2 space-y-2 animate-slide-up">
+              {quickActions.map((action, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => { navigate(action.path); setIsFabOpen(false); }}
+                  className="flex items-center gap-3 px-4 py-3 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-100 dark:border-slate-700 hover:scale-105 transition-all group whitespace-nowrap"
+                  style={{ animationDelay: `${idx * 50}ms` }}
+                >
+                  <div className={`size-10 rounded-xl bg-gradient-to-br ${action.color} flex items-center justify-center text-white shadow-lg`}>
+                    <span className="material-symbols-outlined text-[20px]">{action.icon}</span>
+                  </div>
+                  <span className="font-semibold text-slate-700 dark:text-slate-200 text-sm">{action.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <button
+            onClick={() => setIsFabOpen(!isFabOpen)}
+            className={`size-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-xl shadow-indigo-500/30 flex items-center justify-center transition-all duration-300 hover:shadow-indigo-500/50 hover:scale-105 ${isFabOpen ? 'rotate-45' : ''}`}
+          >
+            <span className="material-symbols-outlined text-[28px]">{isFabOpen ? 'close' : 'add'}</span>
+          </button>
+        </div>
+      )}
 
       {showMorningBriefing && (() => {
         const overdueFollowUps = followUps.filter(f => f.status === 'Pending' && f.scheduledAt && new Date(f.scheduledAt) <= new Date()).length;

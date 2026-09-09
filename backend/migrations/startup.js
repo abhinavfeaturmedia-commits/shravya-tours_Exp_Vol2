@@ -410,6 +410,8 @@ export async function runStartupMigrations(pool) {
             if (!leaveColNames.includes('rejection_reason')) await pool.query("ALTER TABLE staff_leaves ADD COLUMN rejection_reason TEXT DEFAULT NULL").catch(() => {});
             if (!leaveColNames.includes('approved_by')) await pool.query("ALTER TABLE staff_leaves ADD COLUMN approved_by INT DEFAULT NULL").catch(() => {});
             if (!leaveColNames.includes('approval_date')) await pool.query("ALTER TABLE staff_leaves ADD COLUMN approval_date DATETIME DEFAULT NULL").catch(() => {});
+            // Consolidate legacy merged staff ID 1006 -> 29
+            await pool.query("UPDATE staff_leaves SET staff_id = 29 WHERE staff_id = 1006").catch(() => {});
         } catch (e) {
             console.warn('[Migration Leave Columns Error]', e.message);
         }

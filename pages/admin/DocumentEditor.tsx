@@ -2527,11 +2527,16 @@ export const DocumentEditor: React.FC = () => {
                                                 </span>
                                             </td>
                                             <td className="px-2 py-4.5 align-middle text-right">
+                                                <span className="hidden print:inline font-semibold">
+                                                    {Number(item.unit_price || 0) % 1 === 0
+                                                        ? Number(item.unit_price || 0).toLocaleString('en-IN')
+                                                        : Number(item.unit_price || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                                                </span>
                                                 <input
-                                                    type="number" min="0"
+                                                    type="number" min="0" step="any"
                                                     value={item.unit_price}
                                                     onChange={(e) => handleItemChange(index, 'unit_price', parseFloat(e.target.value) || 0)}
-                                                    className="w-full bg-slate-50 dark:bg-slate-800/40 text-right text-slate-700 dark:text-slate-200 outline-none border border-slate-200/60 dark:border-slate-800 focus:border-orange-500 focus:ring-0 font-semibold rounded-xl transition-all text-xs px-2.5 py-1.5"
+                                                    className="w-full print:hidden bg-slate-50 dark:bg-slate-800/40 text-right text-slate-700 dark:text-slate-200 outline-none border border-slate-200/60 dark:border-slate-800 focus:border-orange-500 focus:ring-0 font-semibold rounded-xl transition-all text-xs px-2.5 py-1.5"
                                                 />
                                             </td>
                                             {docData.is_gst === 1 && (

@@ -363,24 +363,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
     }, [currentUser?.id]);
 
-    // Listen for 5-minute inactivity / closed-tab session timeout
-    useEffect(() => {
-        const handleSessionTimeout = async () => {
-            if (!currentUser) return;
-            const userEmail = currentUser.email || 'Unknown User';
-            try {
-                await activityTracker.endSession('inactivity_timeout', true);
-            } catch (_) {}
-            localStorage.removeItem(STORAGE_KEY_MOCK);
-            localStorage.removeItem(JWT_KEY);
-            localStorage.removeItem('shrawello_last_active_ts');
-            setCurrentUser(null);
-            logAuthAction('Inactivity Timeout', 'Authentication', `User ${userEmail} automatically clocked out & logged off after 5 min inactivity`, userEmail).catch(console.error);
-        };
+    // Inactivity presence is handled non-destructively by activityTracker (switching between Active and Idle state without terminating the user session or shift)
 
-        window.addEventListener('shrawello:session-timeout', handleSessionTimeout);
-        return () => window.removeEventListener('shrawello:session-timeout', handleSessionTimeout);
-    }, [currentUser, logAuthAction]);
 
     const logout = useCallback(async () => {
         const userEmail = currentUser?.email || 'Unknown User';

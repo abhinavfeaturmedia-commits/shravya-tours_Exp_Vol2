@@ -131,16 +131,6 @@ class ActivityTrackerEngine {
 
     private onUserInteraction() {
         const now = Date.now();
-        const lastSaved = Number(localStorage.getItem('shrawello_last_active_ts') || now);
-        
-        // If returning after >= 5 minutes (300,000 ms) away
-        if (now - lastSaved >= 5 * 60 * 1000) {
-            window.dispatchEvent(new CustomEvent('shrawello:session-timeout', {
-                detail: { reason: 'inactivity_5min', awayDurationMs: now - lastSaved }
-            }));
-            return;
-        }
-
         this.lastActivityTimestamp = now;
         localStorage.setItem('shrawello_last_active_ts', String(now));
 
@@ -160,13 +150,6 @@ class ActivityTrackerEngine {
             localStorage.setItem('shrawello_last_active_ts', String(now));
             this.notify();
         } else {
-            const lastSaved = Number(localStorage.getItem('shrawello_last_active_ts') || now);
-            if (now - lastSaved >= 5 * 60 * 1000) {
-                window.dispatchEvent(new CustomEvent('shrawello:session-timeout', {
-                    detail: { reason: 'inactivity_5min', awayDurationMs: now - lastSaved }
-                }));
-                return;
-            }
             this.onUserInteraction();
         }
     }
@@ -210,14 +193,7 @@ class ActivityTrackerEngine {
             const now = Date.now();
             const elapsedSinceInteraction = Math.floor((now - this.lastActivityTimestamp) / 1000);
 
-            // 5-minute inactivity check while tab is open
-            if (elapsedSinceInteraction >= 5 * 60) {
-                window.dispatchEvent(new CustomEvent('shrawello:session-timeout', {
-                    detail: { reason: 'inactivity_5min', awayDurationMs: elapsedSinceInteraction * 1000 }
-                }));
-                return;
-            }
-
+            // Inactivity threshold triggers Idle / Away presence without terminating the session
             if (document.hidden || elapsedSinceInteraction >= this.idleThresholdSeconds) {
                 if (this.isActive) {
                     this.isActive = false;

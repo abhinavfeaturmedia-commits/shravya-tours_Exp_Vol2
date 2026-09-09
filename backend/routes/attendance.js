@@ -25,6 +25,52 @@ function getTodayISTDate() {
     return istDate.toISOString().split('T')[0];
 }
 
+// Helper to extract minutes from midnight in Indian Standard Time (IST, UTC+5:30)
+function getISTMinutes(timestamp) {
+    if (!timestamp) return 0;
+    if (typeof timestamp === 'string' && /^\d{1,2}:\d{2}/.test(timestamp) && !timestamp.includes('T') && !timestamp.includes('-') && !timestamp.includes(' ')) {
+        const [h, m] = timestamp.split(':').map(Number);
+        return h * 60 + m;
+    }
+    const d = new Date(timestamp);
+    if (isNaN(d.getTime())) return 0;
+    try {
+        const parts = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'Asia/Kolkata',
+            hour: 'numeric',
+            minute: 'numeric',
+            hour12: false
+        }).formatToParts(d);
+        let hours = 0;
+        let minutes = 0;
+        for (const part of parts) {
+            if (part.type === 'hour') hours = parseInt(part.value, 10) === 24 ? 0 : parseInt(part.value, 10);
+            if (part.type === 'minute') minutes = parseInt(part.value, 10);
+        }
+        return hours * 60 + minutes;
+    } catch {
+        const istOffset = 5.5 * 60 * 60 * 1000;
+        const istDate = new Date(d.getTime() + istOffset);
+        return istDate.getUTCHours() * 60 + istDate.getUTCMinutes();
+    }
+}
+
+// Helper to format any date/datetime/string into a clean YYYY-MM-DD string in IST (+05:30)
+function formatISTDateString(dateVal) {
+    if (!dateVal) return '';
+    if (typeof dateVal === 'string') {
+        if (dateVal.includes('T')) {
+            const d = new Date(dateVal);
+            return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+        }
+        return dateVal.split(' ')[0];
+    }
+    if (dateVal instanceof Date) {
+        return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(dateVal);
+    }
+    return String(dateVal).split('T')[0];
+}
+
 // Helper to resolve staff member from request
 async function resolveStaff(pool, req) {
     if (req.user?.staffId) {
@@ -49,12 +95,13 @@ async function resolveStaff(pool, req) {
     return null;
 }
 
-// Routine to cleanly close orphan unclosed sessions from previous days or long inactivity (5 minutes threshold)
+// Routine to cleanly close orphan unclosed sessions from previous days or long-abandoned after shift end
 export async function autoCloseOrphanSessions(pool) {
     try {
         const today = getTodayISTDate();
         const now = new Date();
-        // 1. Close open sessions from previous days
+        
+        // 1. Close open sessions from previous days (day rollover)
         await pool.query(`
             UPDATE attendance_sessions SET
                 session_end = COALESCE(last_ping_time, session_start),
@@ -63,96 +110,98 @@ export async function autoCloseOrphanSessions(pool) {
             WHERE session_end IS NULL AND DATE(session_start) < ?
         `, [now, today]);
 
-        // 2. Check for long-inactive sessions (> auto_clockout_idle_minutes, default 5 mins) for today
+        // 2. Only auto-close today's sessions if well past shift end (> 2 hours after shift_end) AND unpinged for > 60 minutes
         const [settingsRows] = await pool.query('SELECT * FROM attendance_settings WHERE id = ?', ['default']).catch(() => [[]]);
         const settings = settingsRows.length > 0 ? settingsRows[0] : {};
-        const autoClockoutMins = Number(settings?.auto_clockout_idle_minutes) || 5;
-        const halfDayMins = Number(settings?.half_day_hours || 4.5) * 60;
-        
-        const cutoffTime = new Date(now.getTime() - autoClockoutMins * 60 * 1000);
+        const shiftEndStr = settings?.shift_end || '18:30';
+        const [endHour, endMin] = shiftEndStr.split(':').map(Number);
+        const shiftEndMins = endHour * 60 + endMin;
+        const currentMins = getISTMinutes(now);
 
-        // Find sessions with no heartbeat for > autoClockoutMins minutes
-        const [timedOutSessions] = await pool.query(`
-            SELECT id, staff_id, attendance_id, session_start, last_ping_time FROM attendance_sessions
-            WHERE session_end IS NULL 
-              AND DATE(session_start) = ?
-              AND last_ping_time < ?
-        `, [today, cutoffTime]);
+        // Only check abandonment if it is at least 2 hours past scheduled shift end (e.g. after 20:30)
+        if (currentMins > shiftEndMins + 120) {
+            const abandonedCutoff = new Date(now.getTime() - 60 * 60 * 1000);
+            const [abandonedSessions] = await pool.query(`
+                SELECT id, staff_id, attendance_id, session_start, last_ping_time FROM attendance_sessions
+                WHERE session_end IS NULL 
+                  AND DATE(session_start) = ?
+                  AND last_ping_time < ?
+            `, [today, abandonedCutoff]);
 
-        for (const s of timedOutSessions) {
-            const sessionEnd = s.last_ping_time || s.session_start;
-            await pool.query(`
-                UPDATE attendance_sessions SET
-                    session_end = ?,
-                    logout_type = 'inactivity_timeout',
-                    updated_at = ?
-                WHERE id = ?
-            `, [sessionEnd, now, s.id]);
-
-            // Automatically close any dangling open break for this attendance
-            const [openBreaks] = await pool.query(`
-                SELECT id, start_time FROM attendance_breaks
-                WHERE attendance_id = ? AND end_time IS NULL
-            `, [s.attendance_id]);
-
-            let additionalBreakMins = 0;
-            for (const brk of openBreaks) {
-                const bStart = new Date(brk.start_time);
-                const bEnd = new Date(sessionEnd);
-                const bDuration = Math.max(1, Math.floor((bEnd.getTime() - bStart.getTime()) / 60000));
-                additionalBreakMins += bDuration;
+            for (const s of abandonedSessions) {
+                const sessionEnd = s.last_ping_time || s.session_start;
                 await pool.query(`
-                    UPDATE attendance_breaks SET
-                        end_time = ?,
-                        duration_minutes = ?
+                    UPDATE attendance_sessions SET
+                        session_end = ?,
+                        logout_type = 'shift_rollover',
+                        updated_at = ?
                     WHERE id = ?
-                `, [sessionEnd, bDuration, brk.id]);
-            }
+                `, [sessionEnd, now, s.id]);
 
-            // Calculate total worked minutes from all sessions today up to sessionEnd
-            const [allStaffSessions] = await pool.query(`
-                SELECT session_start, session_end FROM attendance_sessions
-                WHERE staff_id = ? AND DATE(session_start) = ?
-            `, [s.staff_id, today]);
+                // Close any dangling open break
+                const [openBreaks] = await pool.query(`
+                    SELECT id, start_time FROM attendance_breaks
+                    WHERE attendance_id = ? AND end_time IS NULL
+                `, [s.attendance_id]);
 
-            let totalWorkedMinsToday = 0;
-            for (const sess of allStaffSessions) {
-                const start = new Date(sess.session_start);
-                const end = sess.session_end ? new Date(sess.session_end) : new Date(sessionEnd);
-                const durMs = Math.max(0, end.getTime() - start.getTime());
-                totalWorkedMinsToday += Math.floor(durMs / 60000);
-            }
-
-            // Fetch current attendance log
-            const [curLogs] = await pool.query('SELECT total_break_minutes, is_late, status FROM attendance_logs WHERE id = ?', [s.attendance_id]);
-            const totalBreakMins = (curLogs[0]?.total_break_minutes || 0) + additionalBreakMins;
-            const netWorkedMins = Math.max(0, totalWorkedMinsToday - totalBreakMins);
-
-            let status = 'Clocked Out';
-            if (curLogs[0]?.status !== 'On Leave') {
-                if (netWorkedMins < halfDayMins && netWorkedMins > 0) {
-                    status = 'Half Day';
-                } else if (netWorkedMins === 0) {
-                    status = 'Absent';
+                let additionalBreakMins = 0;
+                for (const brk of openBreaks) {
+                    const bStart = new Date(brk.start_time);
+                    const bEnd = new Date(sessionEnd);
+                    const bDuration = Math.max(1, Math.floor((bEnd.getTime() - bStart.getTime()) / 60000));
+                    additionalBreakMins += bDuration;
+                    await pool.query(`
+                        UPDATE attendance_breaks SET
+                            end_time = ?,
+                            duration_minutes = ?
+                        WHERE id = ?
+                    `, [sessionEnd, bDuration, brk.id]);
                 }
-            } else {
-                status = 'On Leave';
+
+                // Sum completed worked minutes
+                const [allStaffSessions] = await pool.query(`
+                    SELECT session_start, session_end FROM attendance_sessions
+                    WHERE staff_id = ? AND DATE(session_start) = ?
+                `, [s.staff_id, today]);
+
+                let totalWorkedMinsToday = 0;
+                for (const sess of allStaffSessions) {
+                    const start = new Date(sess.session_start);
+                    const end = sess.session_end ? new Date(sess.session_end) : new Date(sessionEnd);
+                    const durMs = Math.max(0, end.getTime() - start.getTime());
+                    totalWorkedMinsToday += Math.floor(durMs / 60000);
+                }
+
+                const [curLogs] = await pool.query('SELECT total_break_minutes, is_late, status FROM attendance_logs WHERE id = ?', [s.attendance_id]);
+                const totalBreakMins = (curLogs[0]?.total_break_minutes || 0) + additionalBreakMins;
+                const netWorkedMins = Math.max(0, totalWorkedMinsToday - totalBreakMins);
+                const halfDayMins = Number(settings?.half_day_hours || 4.5) * 60;
+
+                let status = 'Clocked Out';
+                if (curLogs[0]?.status !== 'On Leave') {
+                    if (netWorkedMins < halfDayMins && netWorkedMins > 0) {
+                        status = 'Half Day';
+                    } else if (netWorkedMins === 0) {
+                        status = 'Absent';
+                    }
+                } else {
+                    status = 'On Leave';
+                }
+
+                await pool.query(`
+                    UPDATE attendance_logs SET
+                        check_out_time = ?,
+                        break_start_time = NULL,
+                        total_break_minutes = ?,
+                        status = ?,
+                        auto_clocked_out = 1,
+                        worked_minutes = ?,
+                        updated_at = ?
+                    WHERE id = ?
+                `, [sessionEnd, totalBreakMins, status, netWorkedMins, now, s.attendance_id]);
+
+                await pool.query("UPDATE staff_members SET last_active = ? WHERE id = ?", [sessionEnd, s.staff_id]).catch(() => {});
             }
-
-            // Mark attendance log as auto clocked out and set accurate worked minutes
-            await pool.query(`
-                UPDATE attendance_logs SET
-                    check_out_time = ?,
-                    break_start_time = NULL,
-                    total_break_minutes = ?,
-                    status = ?,
-                    auto_clocked_out = 1,
-                    worked_minutes = ?,
-                    updated_at = ?
-                WHERE id = ?
-            `, [sessionEnd, totalBreakMins, status, netWorkedMins, now, s.attendance_id]);
-
-            await pool.query("UPDATE staff_members SET last_active = ? WHERE id = ?", [sessionEnd, s.staff_id]).catch(() => {});
         }
     } catch (e) {
         console.warn('[AutoCloseOrphanSessions Warn]:', e.message);
@@ -184,13 +233,11 @@ export async function recordStaffLoginAndAutoClockIn(pool, staffMember, req, log
             return null; // Admin disabled auto clock in
         }
 
-        // 2. Calculate late / punctuality status
+        // 2. Calculate late / punctuality status using IST minutes
         const [shiftHour, shiftMinute] = (settings.shift_start || '09:30').split(':').map(Number);
         const graceMins = Number(settings.grace_period_mins || 15);
         const shiftCutoffMins = shiftHour * 60 + shiftMinute + graceMins;
-        const istOffset = 5.5 * 60 * 60 * 1000;
-        const istDate = new Date(now.getTime() + istOffset);
-        const currentMins = istDate.getUTCHours() * 60 + istDate.getUTCMinutes();
+        const currentMins = getISTMinutes(now);
 
         let isLate = 0;
         let lateMinutes = 0;
@@ -215,7 +262,16 @@ export async function recordStaffLoginAndAutoClockIn(pool, staffMember, req, log
             `, [logId, staffId, today, status, now, now, isLate, lateMinutes, now, req?.body?.location || null, ipAddress, deviceInfo, now, now]);
         } else {
             const log = existingLogs[0];
-            const isReopening = (log.status === 'Clocked Out' || log.status === 'Absent' || log.check_out_time != null);
+            
+            // CRITICAL: If the user manually clocked out (check_out_time != null and auto_clocked_out === 0),
+            // background polling must NEVER reopen the punch or set check_out_time back to NULL!
+            const isManualClockedOut = log.check_out_time != null && Number(log.auto_clocked_out) === 0;
+            if (isManualClockedOut) {
+                await pool.query("UPDATE staff_members SET last_active = ? WHERE id = ?", [now, staffId]).catch(() => {});
+                return null;
+            }
+
+            const isReopening = (log.status === 'Clocked Out' && Number(log.auto_clocked_out) === 1);
 
             await pool.query(`
                 UPDATE attendance_logs SET
@@ -231,7 +287,7 @@ export async function recordStaffLoginAndAutoClockIn(pool, staffMember, req, log
             `, [now, now, isReopening ? 1 : 0, isReopening ? 1 : 0, (log.is_late || isLate) ? 'Late' : 'Present', now, now, logId]);
         }
 
-        // 4. Manage attendance session with smart resumption
+        // 4. Manage attendance session: Reuse existing active session or cleanly resume without fragmenting
         const [openSessions] = await pool.query(
             'SELECT * FROM attendance_sessions WHERE staff_id = ? AND session_end IS NULL AND DATE(session_start) = ? ORDER BY session_start DESC LIMIT 1',
             [staffId, today]
@@ -242,23 +298,15 @@ export async function recordStaffLoginAndAutoClockIn(pool, staffMember, req, log
             session = openSessions[0];
             await pool.query('UPDATE attendance_sessions SET last_ping_time = ?, updated_at = ? WHERE id = ?', [now, now, session.id]);
         } else {
-            // Check if previous session ended due to inactivity/logout or was ended > 2 minutes ago
+            // Check if previous session can be cleanly resumed
             const [recentSessions] = await pool.query(
                 'SELECT * FROM attendance_sessions WHERE staff_id = ? AND DATE(session_start) = ? ORDER BY id DESC LIMIT 1',
                 [staffId, today]
             );
 
             const lastSession = recentSessions[0];
-            // Only resume if it was a quick tab-switch/reload (under 2 minutes AND was NOT an explicit logout or inactivity timeout)
-            const isQuickTabReload = lastSession && 
-                lastSession.session_end && 
-                lastSession.logout_type !== 'inactivity_timeout' && 
-                lastSession.logout_type !== 'manual_punch_out' && 
-                lastSession.logout_type !== 'manual_logout' &&
-                (now.getTime() - new Date(lastSession.session_end).getTime() < 2 * 60 * 1000);
-
-            if (isQuickTabReload) {
-                // Resume existing session seamlessly
+            // If the last session was not explicitly ended via manual punch out, resume it
+            if (lastSession && lastSession.logout_type !== 'manual_punch_out' && lastSession.logout_type !== 'manual_logout') {
                 await pool.query(
                     'UPDATE attendance_sessions SET session_end = NULL, logout_type = NULL, last_ping_time = ?, updated_at = ? WHERE id = ?',
                     [now, now, lastSession.id]
@@ -267,7 +315,7 @@ export async function recordStaffLoginAndAutoClockIn(pool, staffMember, req, log
                 session.session_end = null;
                 session.logout_type = null;
             } else {
-                // Create clean new session
+                // Create clean session row
                 const [countRows] = await pool.query(
                     'SELECT COUNT(*) as count FROM attendance_sessions WHERE staff_id = ? AND DATE(session_start) = ?',
                     [staffId, today]
@@ -450,8 +498,7 @@ export function createAttendanceRoutes(app, pool) {
                             const grace = Number(settings.grace_period_mins || 15);
                             const cutoffMins = sHour * 60 + sMin + grace; // e.g. 9:30 + 15 = 9:45 AM (585 mins)
                             
-                            const punchDate = new Date(evalPunchTime);
-                            const punchMins = punchDate.getHours() * 60 + punchDate.getMinutes();
+                            const punchMins = getISTMinutes(evalPunchTime);
                             
                             if (punchMins <= cutoffMins) {
                                 isLate = false;
@@ -669,9 +716,7 @@ export function createAttendanceRoutes(app, pool) {
             const graceMins = Number(settings.grace_period_mins || 15);
             const shiftCutoffMins = shiftHour * 60 + shiftMinute + graceMins;
 
-            const istOffset = 5.5 * 60 * 60 * 1000;
-            const istDate = new Date(now.getTime() + istOffset);
-            const currentMins = istDate.getUTCHours() * 60 + istDate.getUTCMinutes();
+            const currentMins = getISTMinutes(now);
 
             let isLate = 0;
             let lateMinutes = 0;
@@ -1094,11 +1139,10 @@ export function createAttendanceRoutes(app, pool) {
             }
 
             if (checkInTime && calculatedIsLate === undefined) {
-                const cIn = new Date(checkInTime);
                 const [sH, sM] = (settings.shift_start || '09:30').split(':').map(Number);
                 const grace = Number(settings.grace_period_mins || 15);
                 const cutoff = sH * 60 + sM + grace;
-                const punchMins = cIn.getHours() * 60 + cIn.getMinutes();
+                const punchMins = getISTMinutes(checkInTime);
                 if (punchMins > cutoff) {
                     calculatedIsLate = 1;
                     lateMins = punchMins - (sH * 60 + sM);
@@ -1152,12 +1196,18 @@ export function createAttendanceRoutes(app, pool) {
 
             const month = req.query.month || getTodayISTDate().substring(0, 7); // e.g. "2026-08"
 
-            const [logs] = await pool.query(
-                `SELECT * FROM attendance_logs 
+            const [rawLogs] = await pool.query(
+                `SELECT *, DATE_FORMAT(date, '%Y-%m-%d') as clean_date 
+                 FROM attendance_logs 
                  WHERE staff_id = ? AND date LIKE ? 
                  ORDER BY date DESC`,
                 [targetStaffId, `${month}%`]
             );
+
+            const logs = rawLogs.map(l => ({
+                ...l,
+                date: l.clean_date || formatISTDateString(l.date)
+            }));
 
             // Compute monthly summary
             let presentDays = 0;
@@ -1199,13 +1249,14 @@ export function createAttendanceRoutes(app, pool) {
     app.post('/api/attendance/regularize', authMiddleware, async (req, res) => {
         try {
             const currentStaff = await resolveStaff(pool, req);
-            const { date, requestedCheckIn, requestedCheckOut, reason } = req.body;
+            const { date, requestedCheckIn, requestedCheckOut, reason, staffId } = req.body;
+            const targetStaffId = staffId ? Number(staffId) : currentStaff?.id;
 
-            if (!currentStaff?.id || !date || !reason) {
-                return res.status(400).json({ error: 'Date and reason are required' });
+            if (!targetStaffId || !date || !reason) {
+                return res.status(400).json({ error: 'Staff member, date, and reason are required' });
             }
 
-            const logId = `ATL-${currentStaff.id}-${date}`;
+            const logId = `ATL-${targetStaffId}-${date}`;
 
             await pool.query(`
                 INSERT INTO attendance_logs (
@@ -1218,7 +1269,7 @@ export function createAttendanceRoutes(app, pool) {
                     regularization_status = 'Requested',
                     regularization_reason = VALUES(regularization_reason),
                     updated_at = NOW()
-            `, [logId, currentStaff.id, date, requestedCheckIn || null, requestedCheckOut || null, reason]);
+            `, [logId, targetStaffId, date, requestedCheckIn || null, requestedCheckOut || null, reason]);
 
             res.json({ success: true, message: 'Regularization request submitted for manager approval' });
         } catch (err) {
@@ -1231,7 +1282,7 @@ export function createAttendanceRoutes(app, pool) {
     app.get('/api/attendance/regularizations/pending', authMiddleware, async (req, res) => {
         try {
             const [rows] = await pool.query(`
-                SELECT l.id, l.staff_id, l.date, l.status, l.check_in_time, l.check_out_time,
+                SELECT l.id, l.staff_id, DATE_FORMAT(l.date, '%Y-%m-%d') as clean_date, l.date, l.status, l.check_in_time, l.check_out_time,
                        l.requested_check_in, l.requested_check_out, l.regularization_status, l.regularization_reason,
                        l.created_at, l.updated_at,
                        s.name as staff_name, s.email as staff_email, s.department, s.role, s.initials, s.color
@@ -1240,7 +1291,11 @@ export function createAttendanceRoutes(app, pool) {
                 WHERE l.regularization_status = 'Requested'
                 ORDER BY l.date DESC
             `);
-            res.json(rows);
+            const normalizedRows = (rows || []).map(r => ({
+                ...r,
+                date: r.clean_date || formatISTDateString(r.date)
+            }));
+            res.json(normalizedRows);
         } catch (err) {
             console.error('[Get Pending Regularizations Error]:', err);
             res.status(500).json({ error: err.message });
@@ -1290,7 +1345,7 @@ export function createAttendanceRoutes(app, pool) {
                     const [sH, sM] = (settings.shift_start || '09:30').split(':').map(Number);
                     const grace = Number(settings.grace_period_mins || 15);
                     const cutoff = sH * 60 + sM + grace;
-                    const punchMins = cIn.getHours() * 60 + cIn.getMinutes();
+                    const punchMins = getISTMinutes(checkIn);
                     if (punchMins > cutoff) {
                         isLate = 1;
                         lateMins = punchMins - (sH * 60 + sM);
@@ -1348,7 +1403,7 @@ export function createAttendanceRoutes(app, pool) {
             const end = endDate || getTodayISTDate();
 
             let query = `
-                SELECT l.*, s.name as staff_name, s.department, s.role, s.initials, s.color
+                SELECT l.*, DATE_FORMAT(l.date, '%Y-%m-%d') as clean_date, s.name as staff_name, s.department, s.role, s.initials, s.color
                 FROM attendance_logs l
                 JOIN staff_members s ON l.staff_id = s.id
                 WHERE l.date BETWEEN ? AND ?
@@ -1366,7 +1421,11 @@ export function createAttendanceRoutes(app, pool) {
 
             query += ' ORDER BY l.date DESC, s.name ASC';
 
-            const [records] = await pool.query(query, params);
+            const [rawRecords] = await pool.query(query, params);
+            const records = (rawRecords || []).map(r => ({
+                ...r,
+                date: r.clean_date || formatISTDateString(r.date)
+            }));
 
             // Fetch all staff for Muster Roll matrix
             const [allStaff] = await pool.query(
@@ -1423,7 +1482,65 @@ export function createAttendanceRoutes(app, pool) {
                 LEFT JOIN staff_members approver ON l.approved_by = approver.id
                 ORDER BY l.created_at DESC
             `);
-            res.json(leaves);
+
+            const formatDateStr = (val) => {
+                if (!val) return '';
+                if (typeof val === 'string') return val.split('T')[0];
+                if (val instanceof Date) {
+                    const y = val.getFullYear();
+                    const m = String(val.getMonth() + 1).padStart(2, '0');
+                    const d = String(val.getDate()).padStart(2, '0');
+                    return `${y}-${m}-${d}`;
+                }
+                return String(val).split('T')[0];
+            };
+
+            const mapped = (leaves || []).map(l => {
+                const sId = Number(l.staff_id);
+                const sName = l.staff_name || (sId ? `Staff #${sId}` : 'Staff Member');
+                const initials = l.initials || (sName ? sName.split(' ').map(p => p[0]).join('').substring(0, 2).toUpperCase() : 'ST');
+                const startDate = formatDateStr(l.start_date);
+                const endDate = formatDateStr(l.end_date);
+                const daysCount = Number(l.days_count || 1.0);
+
+                return {
+                    id: String(l.id),
+                    staffId: sId,
+                    staffName: sName,
+                    staffEmail: l.staff_email || '',
+                    staffPhone: l.staff_phone || '',
+                    department: l.department || 'Operations',
+                    role: l.role || 'Staff',
+                    initials: initials,
+                    color: l.color || 'bg-indigo-600',
+                    leaveType: l.leave_type || 'Casual',
+                    startDate: startDate,
+                    endDate: endDate,
+                    daysCount: daysCount,
+                    reason: l.reason || '',
+                    status: l.status || 'Pending',
+                    approvedBy: l.approved_by || null,
+                    approvedByName: l.approved_by_name || null,
+                    rejectionReason: l.rejection_reason || null,
+                    createdAt: l.created_at,
+                    updatedAt: l.updated_at,
+
+                    // Legacy snake_case aliases for full backwards compatibility
+                    staff_id: sId,
+                    staff_name: sName,
+                    staff_email: l.staff_email || '',
+                    staff_phone: l.staff_phone || '',
+                    leave_type: l.leave_type || 'Casual',
+                    start_date: startDate,
+                    end_date: endDate,
+                    days_count: daysCount,
+                    approved_by: l.approved_by || null,
+                    approved_by_name: l.approved_by_name || null,
+                    rejection_reason: l.rejection_reason || null
+                };
+            });
+
+            res.json(mapped);
         } catch (err) {
             console.error('[Get Leaves Error]:', err);
             res.status(500).json({ error: err.message });
@@ -1434,18 +1551,22 @@ export function createAttendanceRoutes(app, pool) {
         try {
             const currentStaff = await resolveStaff(pool, req);
             const { staffId, leaveType = 'Casual', startDate, endDate, daysCount = 1.0, reason } = req.body;
-            const targetStaffId = staffId || currentStaff?.id;
+            const targetStaffId = Number(staffId || currentStaff?.id);
 
             if (!targetStaffId || !startDate || !endDate || !reason) {
                 return res.status(400).json({ error: 'Missing required leave fields' });
             }
+
+            const cleanStartDate = String(startDate).split('T')[0];
+            const cleanEndDate = String(endDate).split('T')[0];
+            const numericDays = Number(daysCount) || 1.0;
 
             const leaveId = crypto.randomBytes(16).toString('hex');
             await pool.query(`
                 INSERT INTO staff_leaves (
                     id, staff_id, leave_type, start_date, end_date, days_count, reason, status, created_at, updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, 'Pending', NOW(), NOW())
-            `, [leaveId, targetStaffId, leaveType, startDate, endDate, daysCount, reason]);
+            `, [leaveId, targetStaffId, leaveType, cleanStartDate, cleanEndDate, numericDays, reason]);
 
             res.json({ success: true, message: 'Leave application submitted successfully', leaveId });
         } catch (err) {
@@ -1488,7 +1609,10 @@ export function createAttendanceRoutes(app, pool) {
                         await pool.query(`
                             INSERT INTO attendance_logs (id, staff_id, date, status, notes, created_at, updated_at)
                             VALUES (?, ?, ?, 'On Leave', 'Approved Leave', NOW(), NOW())
-                            ON DUPLICATE KEY UPDATE status = 'On Leave', notes = 'Approved Leave', updated_at = NOW()
+                            ON DUPLICATE KEY UPDATE 
+                                status = CASE WHEN check_in_time IS NULL THEN 'On Leave' ELSE status END,
+                                notes = CASE WHEN check_in_time IS NULL THEN 'Approved Leave' ELSE notes END,
+                                updated_at = NOW()
                         `, [logId, staff_id, dateStr]);
                     }
                 } else if (status === 'Rejected' || status === 'Cancelled') {

@@ -189,7 +189,7 @@ const mapPackage = (row: any): Package => {
         description: row.description || '',
         price: row.price,
         originalPrice: row.original_price ? Number(row.original_price) : undefined,
-        pricingMode: (row.pricing_mode as any) || 'group',
+        pricingMode: (row.pricing_mode && String(row.pricing_mode).toLowerCase().includes('person')) ? 'per_person' : 'group',
         image: row.image || '',
         tag: row.tag || undefined,
         tagColor: row.tag_color || undefined,
@@ -3658,7 +3658,7 @@ export const api = {
         if (staffId) qs.set('staffId', String(staffId));
         return fetchApi(`/api/attendance/my-history${qs.toString() ? `?${qs.toString()}` : ''}`);
     },
-    submitRegularization: async (data: { date: string; requestedCheckIn?: string; requestedCheckOut?: string; reason: string }) => {
+    submitRegularization: async (data: { date: string; requestedCheckIn?: string; requestedCheckOut?: string; reason: string; staffId?: number }) => {
         return fetchApi('/api/attendance/regularize', { method: 'POST', body: JSON.stringify(data) });
     },
     getPendingRegularizations: async (): Promise<any[]> => {

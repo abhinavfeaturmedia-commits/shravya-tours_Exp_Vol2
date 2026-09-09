@@ -472,6 +472,22 @@ const parseDaysKm = (val: string | number | undefined | null): number => {
     return 1;
 };
 
+// Formats unit rates: shows decimals up to 2 places if present (e.g. 12.5 -> "12.5", 12.75 -> "12.75"), or clean integers (e.g. 13 -> "13", 2500 -> "2,500")
+const formatRate = (rate: number): string => {
+    const num = Number(rate) || 0;
+    return num % 1 === 0
+        ? num.toLocaleString('en-IN')
+        : num.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+};
+
+// Formats monetary amounts: shows whole rupees cleanly (e.g. 3,750), or exactly 2 decimal places if paise exist (e.g. 3,750.50)
+const formatAmount = (val: number): string => {
+    const num = Number(val) || 0;
+    return num % 1 === 0
+        ? num.toLocaleString('en-IN')
+        : num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
 export const generateTrueInvoicePDF = async (docData: any, items: any[], company: any, finance: any, customFields?: { label: string; amount: number; is_deduction: boolean }[], fieldLabels?: Record<string, string>) => {
     // ── Load UPI QR Code Asynchronously ──
     const loadQrCode = (upiId: string, amount: number, customQr?: string): Promise<HTMLImageElement | null> => {
@@ -852,16 +868,16 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
                     item.hsn_sac || '9985',
                     qty.toString(),
                     daysKmStr.toString(),
-                    `Rs. ${Math.round(rate).toLocaleString('en-IN')}`,
-                    `Rs. ${Math.round(baseAmount).toLocaleString('en-IN')}`,
-                    `${taxRate}%\nRs. ${Math.round(taxAmount).toLocaleString('en-IN')}`,
-                    `Rs. ${Math.round(total).toLocaleString('en-IN')}`
+                    `Rs. ${formatRate(rate)}`,
+                    `Rs. ${formatAmount(baseAmount)}`,
+                    `${taxRate}%\nRs. ${formatAmount(taxAmount)}`,
+                    `Rs. ${formatAmount(total)}`
                 ];
             });
 
             const totalTaxAmt = items.reduce((acc, item) => acc + (parseDaysKm(item.total_days_km) * Number(item.unit_price || 0) * (Number(item.tax_rate || 0) / 100)), 0);
             const totalFullAmt = subtotalAmount + totalTaxAmt;
-            bodyData.push(['', 'TOTAL', '', '', '', '', `Rs. ${Math.round(subtotalAmount).toLocaleString('en-IN')}`, `Rs. ${Math.round(totalTaxAmt).toLocaleString('en-IN')}`, `Rs. ${Math.round(totalFullAmt).toLocaleString('en-IN')}`]);
+            bodyData.push(['', 'TOTAL', '', '', '', '', `Rs. ${formatAmount(subtotalAmount)}`, `Rs. ${formatAmount(totalTaxAmt)}`, `Rs. ${formatAmount(totalFullAmt)}`]);
         } else {
             tableHeaders = [['#', 'DESCRIPTION', 'HSN/SAC', 'QTY', 'DAYS / KM', 'RATE', 'TAXABLE VAL', 'CGST', 'SGST', 'TOTAL']];
             tableColStyles = {
@@ -892,17 +908,17 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
                     item.hsn_sac || '9985',
                     qty.toString(),
                     daysKmStr.toString(),
-                    `Rs. ${Math.round(rate).toLocaleString('en-IN')}`,
-                    `Rs. ${Math.round(baseAmount).toLocaleString('en-IN')}`,
-                    `${(taxRate / 2)}%\nRs. ${Math.round(taxAmount / 2).toLocaleString('en-IN')}`,
-                    `${(taxRate / 2)}%\nRs. ${Math.round(taxAmount / 2).toLocaleString('en-IN')}`,
-                    `Rs. ${Math.round(total).toLocaleString('en-IN')}`
+                    `Rs. ${formatRate(rate)}`,
+                    `Rs. ${formatAmount(baseAmount)}`,
+                    `${(taxRate / 2)}%\nRs. ${formatAmount(taxAmount / 2)}`,
+                    `${(taxRate / 2)}%\nRs. ${formatAmount(taxAmount / 2)}`,
+                    `Rs. ${formatAmount(total)}`
                 ];
             });
 
             const totalTaxAmt = items.reduce((acc, item) => acc + (parseDaysKm(item.total_days_km) * Number(item.unit_price || 0) * (Number(item.tax_rate || 0) / 100)), 0);
             const totalFullAmt = subtotalAmount + totalTaxAmt;
-            bodyData.push(['', 'TOTAL', '', '', '', '', `Rs. ${Math.round(subtotalAmount).toLocaleString('en-IN')}`, `Rs. ${Math.round(totalTaxAmt / 2).toLocaleString('en-IN')}`, `Rs. ${Math.round(totalTaxAmt / 2).toLocaleString('en-IN')}`, `Rs. ${Math.round(totalFullAmt).toLocaleString('en-IN')}`]);
+            bodyData.push(['', 'TOTAL', '', '', '', '', `Rs. ${formatAmount(subtotalAmount)}`, `Rs. ${formatAmount(totalTaxAmt / 2)}`, `Rs. ${formatAmount(totalTaxAmt / 2)}`, `Rs. ${formatAmount(totalFullAmt)}`]);
         }
     } else {
         tableHeaders = [['#', 'DESCRIPTION', 'QTY', 'DAYS / KM', 'RATE', 'AMOUNT']];
@@ -926,13 +942,13 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
                 item.description ? cleanText(item.description) : 'Tour Service Operator',
                 qty.toString(),
                 daysKmStr.toString(),
-                `Rs. ${Math.round(rate).toLocaleString('en-IN')}`,
-                `Rs. ${Math.round(total).toLocaleString('en-IN')}`
+                `Rs. ${formatRate(rate)}`,
+                `Rs. ${formatAmount(total)}`
             ];
         });
 
         bodyData.push(['', 'TOTAL', '', '', '',
-            `Rs. ${Math.round(subtotalAmount).toLocaleString('en-IN')}`]);
+            `Rs. ${formatAmount(subtotalAmount)}`]);
     }
 
     let tableStartY = cardY + cardHeight + 4;
@@ -1176,7 +1192,7 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
         doc.text(label, 118, ry);
         doc.setTextColor(30, 41, 59);
         if (bold) doc.setFont("helvetica", "bold");
-        doc.text(`${isNeg ? '-' : ''}Rs. ${Math.round(val).toLocaleString('en-IN')}`, 114 + 81 - 4, ry, { align: 'right' });
+        doc.text(`${isNeg ? '-' : ''}Rs. ${formatAmount(val)}`, 114 + 81 - 4, ry, { align: 'right' });
         ry += 4.2;
     };
 
@@ -1212,7 +1228,7 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
         doc.setTextColor(220, 38, 38);
         doc.text(lDiscount || 'Discount', 121, ry + 2.7);
         doc.setFontSize(7.5);
-        doc.text(`- Rs. ${Math.round(discountAmt).toLocaleString('en-IN')}`, 191, ry + 2.7, { align: 'right' });
+        doc.text(`- Rs. ${formatAmount(discountAmt)}`, 191, ry + 2.7, { align: 'right' });
         ry += 6.0;
     }
 
@@ -1229,7 +1245,7 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
             doc.setTextColor(220, 38, 38);
             doc.text(cf.label || 'Deduction', 121, ry + 2.5);
             doc.setFontSize(7.2);
-            doc.text(`- Rs. ${Math.round(cfAmt).toLocaleString('en-IN')}`, 191, ry + 2.5, { align: 'right' });
+            doc.text(`- Rs. ${formatAmount(cfAmt)}`, 191, ry + 2.5, { align: 'right' });
             ry += 5.8;
         } else {
             drawTotRow(cf.label || 'Custom Field', cfAmt, false, false);
@@ -1249,7 +1265,7 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
     doc.text("TOTAL (INR)", 118, ry);
     doc.setFontSize(11);
     doc.setTextColor(9, 28, 59);
-    doc.text(`Rs. ${Math.round(finalTotal).toLocaleString('en-IN')}`, 191, ry + 0.5, { align: 'right' });
+    doc.text(`Rs. ${formatAmount(finalTotal)}`, 191, ry + 0.5, { align: 'right' });
     ry += 6.5;
 
     // Amount Paid
@@ -1260,7 +1276,7 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
     doc.setTextColor(22, 163, 74);
     doc.text("AMOUNT PAID", 121, ry + 3.2);
     doc.setTextColor(9, 28, 59);
-    doc.text(`Rs. ${Math.round(amountPaid).toLocaleString('en-IN')}`, 191, ry + 3.2, { align: 'right' });
+    doc.text(`Rs. ${formatAmount(amountPaid)}`, 191, ry + 3.2, { align: 'right' });
     ry += 9.5;
 
     // Balance Due
@@ -1270,7 +1286,7 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
     doc.setTextColor(balColor[0], balColor[1], balColor[2]);
     doc.text("BALANCE DUE", 118, ry);
     doc.setTextColor(9, 28, 59);
-    doc.text(`Rs. ${Math.round(Math.max(0, balanceDue)).toLocaleString('en-IN')}`, 191, ry, { align: 'right' });
+    doc.text(`Rs. ${formatAmount(Math.max(0, balanceDue))}`, 191, ry, { align: 'right' });
 
     // ── Check if Terms & Conditions + Footer fits on current page ──
     let termsY = yPos + bottomSectionH + 4;
