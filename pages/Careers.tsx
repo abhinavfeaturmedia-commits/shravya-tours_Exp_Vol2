@@ -8,7 +8,11 @@ export const Careers: React.FC = () => {
 
     return (
         <>
-            <SEO title="Careers | SHRAWELLO Travel Hub and Events LLP" description="Join our team at SHRAWELLO Travel Hub and Events LLP and help us deliver unforgettable travel experiences." />
+            <SEO
+                title="Careers | Join the SHRAWELLO Team"
+                description="Explore job openings and career opportunities at SHRAWELLO Travel Hub and Events LLP. Build the future of corporate and leisure travel."
+                canonical="https://shrawellotravels.com/careers"
+            />
             <div className="bg-slate-50 dark:bg-slate-900 min-h-screen py-24">
                 <div className="container mx-auto px-6 max-w-4xl">
                     <div className="text-center mb-16 animate-in slide-in-from-bottom-5">

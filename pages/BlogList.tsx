@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { BLOG_POSTS, BLOG_CATEGORIES, DEFAULT_BLOG_FALLBACK_IMAGE, BlogPost } from '../src/data/blogData';
+import { SEO } from '../components/ui/SEO';
 
 export const BlogList: React.FC = () => {
   const navigate = useNavigate();
@@ -40,6 +41,19 @@ export const BlogList: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
+      <SEO
+        title="Travel Guides, Tips & Curated Itineraries"
+        description="Explore expert travel guides, destination tips, budget breakdowns, and curated itineraries across India and abroad by SHRAWELLO Travel Hub."
+        keywords="travel guides, india itineraries, holiday tips, kashmir travel, kerala tour guide, corporate retreats, shrawello blog"
+        canonical="https://shrawellotravels.com/blog"
+        schema={{
+          "@context": "https://schema.org",
+          "@type": "Blog",
+          "name": "SHRAWELLO Travel Hub Blog",
+          "url": "https://shrawellotravels.com/blog",
+          "description": "Expert travel guides, curated itineraries, and insider tips from SHRAWELLO Travel Hub."
+        }}
+      />
       {/* Luxury Animated Hero Banner */}
       <section className="relative overflow-hidden bg-gradient-to-r from-emerald-950 via-teal-900 to-slate-950 text-white py-16 sm:py-24 px-4 sm:px-6 lg:px-8">
         {/* Glow Spheres */}

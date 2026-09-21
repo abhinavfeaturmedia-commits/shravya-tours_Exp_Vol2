@@ -1,7 +1,19 @@
 
-import React, { Suspense, lazy } from 'react';
-import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
+import React, { Suspense, lazy, useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { PublicLayout } from './components/layouts/PublicLayout';
+
+// Seamlessly migrate legacy bookmarked /#/path links to clean indexable /path
+const HashRedirectNormalizer: React.FC = () => {
+  const navigate = useNavigate();
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.location.hash && window.location.hash.startsWith('#/')) {
+      const cleanPath = window.location.hash.slice(1);
+      navigate(cleanPath, { replace: true });
+    }
+  }, [navigate]);
+  return null;
+};
 import { AdminLayout } from './components/layouts/AdminLayout';
 import { PartnerLayout } from './components/layouts/PartnerLayout';
 import { DataProvider } from './context/DataContext';
@@ -29,6 +41,7 @@ const InteractiveItinerary = lazy(() => import('./pages/InteractiveItinerary').t
 const BlogList = lazy(() => import('./pages/BlogList').then(module => ({ default: module.BlogList })));
 const BlogPostDetail = lazy(() => import('./pages/BlogPostDetail').then(module => ({ default: module.BlogPostDetail })));
 const DigitalCard = lazy(() => import('./pages/DigitalCard').then(module => ({ default: module.DigitalCard })));
+const CityLandingPage = lazy(() => import('./pages/CityLandingPage').then(module => ({ default: module.CityLandingPage })));
 
 
 
@@ -111,7 +124,8 @@ const App: React.FC = () => {
           <SettingsProvider>
         <DataProvider>
           <ToastProvider />
-          <HashRouter>
+          <BrowserRouter>
+            <HashRedirectNormalizer />
             <Suspense fallback={<PageLoader />}>
               <Routes>
                 {/* Public Routes using PublicLayout (Header/Footer) */}
@@ -130,6 +144,9 @@ const App: React.FC = () => {
                   <Route path="careers" element={<Careers />} />
                   <Route path="blog" element={<BlogList />} />
                   <Route path="blog/:slug" element={<BlogPostDetail />} />
+                  <Route path="travel-agency/:citySlug" element={<CityLandingPage />} />
+                  <Route path="tours-from/:citySlug" element={<CityLandingPage />} />
+                  <Route path="maharashtra-tours" element={<CityLandingPage />} />
                 </Route>
 
                 <Route path="/login" element={<Login />} />
@@ -232,7 +249,7 @@ const App: React.FC = () => {
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </Suspense>
-          </HashRouter>
+          </BrowserRouter>
         </DataProvider>
         </SettingsProvider>
         </CustomerAuthProvider>

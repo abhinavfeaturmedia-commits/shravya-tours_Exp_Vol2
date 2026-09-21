@@ -246,6 +246,31 @@ export const PublicLayout: React.FC = () => {
               </div>
             </div>
           </div>
+          {/* Maharashtra City Hubs Link Grid for Statewide SEO Authority */}
+          <div className="border-t border-slate-100 dark:border-slate-800 pt-8 pb-8">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+              <h4 className="font-bold text-slate-900 dark:text-white uppercase text-xs tracking-[0.2em] flex items-center gap-1.5">
+                <span className="material-symbols-outlined text-primary text-[16px]">location_city</span>
+                Maharashtra Departure Hubs & Travel Offices
+              </h4>
+              <span className="text-xs text-slate-400">100+ Commercial Cabs & Custom Tour Packages Statewide</span>
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs">
+              <Link to="/travel-agency/pune" className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 hover:bg-primary hover:text-white transition-all font-medium">Pune (HQ)</Link>
+              <Link to="/travel-agency/mumbai" className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 hover:bg-primary hover:text-white transition-all font-medium">Mumbai</Link>
+              <Link to="/travel-agency/kolhapur" className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 hover:bg-primary hover:text-white transition-all font-medium">Kolhapur</Link>
+              <Link to="/travel-agency/nagpur" className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 hover:bg-primary hover:text-white transition-all font-medium">Nagpur</Link>
+              <Link to="/travel-agency/nashik" className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 hover:bg-primary hover:text-white transition-all font-medium">Nashik</Link>
+              <Link to="/travel-agency/chhatrapati-sambhaji-nagar" className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 hover:bg-primary hover:text-white transition-all font-medium">Chhatrapati Sambhaji Nagar</Link>
+              <Link to="/travel-agency/thane" className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 hover:bg-primary hover:text-white transition-all font-medium">Thane</Link>
+              <Link to="/travel-agency/navi-mumbai" className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 hover:bg-primary hover:text-white transition-all font-medium">Navi Mumbai</Link>
+              <Link to="/travel-agency/solapur" className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 hover:bg-primary hover:text-white transition-all font-medium">Solapur</Link>
+              <Link to="/travel-agency/amravati" className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 hover:bg-primary hover:text-white transition-all font-medium">Amravati</Link>
+              <Link to="/travel-agency/nanded" className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 hover:bg-primary hover:text-white transition-all font-medium">Nanded</Link>
+              <Link to="/travel-agency/ratnagiri-sindhudurg" className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 hover:bg-primary hover:text-white transition-all font-medium">Ratnagiri & Sindhudurg</Link>
+            </div>
+          </div>
+
           <div className="border-t border-slate-100 dark:border-slate-800 pt-8 pb-6">
             <PaymentLogos />
           </div>
@@ -255,7 +280,7 @@ export const PublicLayout: React.FC = () => {
               <Link to="/customer/login" className="hover:text-slate-900 dark:hover:text-white transition-colors">My Account</Link>
               <Link to="/partner/login" className="hover:text-slate-900 dark:hover:text-white transition-colors">Associate Portal</Link>
               <Link to="/admin" className="hover:text-slate-900 dark:hover:text-white transition-colors">Staff Portal</Link>
-              <button onClick={(e) => handlePlaceholder(e, 'Sitemap')} className="hover:text-slate-900 dark:hover:text-white transition-colors">Sitemap</button>
+              <a href="/sitemap.xml" target="_blank" rel="noopener noreferrer" className="hover:text-slate-900 dark:hover:text-white transition-colors">Sitemap</a>
             </div>
           </div>
         </div>

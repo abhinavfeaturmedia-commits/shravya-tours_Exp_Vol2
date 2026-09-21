@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { SEO } from '../components/ui/SEO';
 
 export const Terms: React.FC = () => {
   // Scroll to top on mount
@@ -8,6 +9,11 @@ export const Terms: React.FC = () => {
 
   return (
     <div className="bg-slate-50 dark:bg-slate-950 min-h-screen py-12 px-4 sm:px-6 lg:px-8">
+      <SEO
+        title="Terms & Conditions"
+        description="Review the official website terms and booking conditions of SHRAWELLO Travel Hub and Events LLP."
+        canonical="https://shrawellotravels.com/terms"
+      />
       <div className="max-w-4xl mx-auto bg-white dark:bg-slate-900 rounded-2xl shadow-xl p-8 md:p-12 border border-slate-100 dark:border-slate-800">
         
         {/* Header */}

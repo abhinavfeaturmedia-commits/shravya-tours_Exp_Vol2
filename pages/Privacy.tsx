@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { SEO } from '../components/ui/SEO';
 
 export const Privacy: React.FC = () => {
     // Scroll to top on mount
@@ -88,6 +89,11 @@ export const Privacy: React.FC = () => {
 
     return (
         <div className="bg-slate-50 dark:bg-slate-950 min-h-screen py-12 px-4 sm:px-6 lg:px-8">
+            <SEO
+                title="Privacy Policy"
+                description="Understand how SHRAWELLO Travel Hub collects, uses, and protects your personal data and booking information."
+                canonical="https://shrawellotravels.com/privacy"
+            />
             <div className="max-w-4xl mx-auto bg-white dark:bg-slate-900 rounded-2xl shadow-xl p-8 md:p-12 border border-slate-100 dark:border-slate-800">
 
                 {/* Header */}

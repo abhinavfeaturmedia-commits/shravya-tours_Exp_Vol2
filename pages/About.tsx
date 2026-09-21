@@ -33,8 +33,9 @@ export const About: React.FC = () => {
     return (
         <>
             <SEO
-                title="About Us | SHRAWELLO Travel Hub and Events LLP"
-                description="SHRAWELLO Travel Hub and Events LLP is a trusted travel company dedicated to creating memorable and personalized travel experiences."
+                title="About Us | Trusted Travel Partner & MICE Specialists"
+                description="Learn about SHRAWELLO Travel Hub and Events LLP — our mission, leadership, corporate travel partnerships, and passion for delivering bespoke journeys."
+                canonical="https://shrawellotravels.com/about"
             />
 
             <div className="bg-slate-50 dark:bg-slate-900 min-h-screen pb-20">

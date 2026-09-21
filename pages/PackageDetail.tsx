@@ -1145,9 +1145,9 @@ export const PackageDetail: React.FC = () => {
         title={tour.title}
         description={tour.overview || tour.description}
         image={tour.image}
+        canonical={`https://shrawellotravels.com/packages/${tour.id}`}
+        schema={jsonLd}
       />
-      
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
 
       <div className="bg-slate-50 dark:bg-[#0B1116] min-h-screen pb-40 md:pb-20 relative pt-24 md:pt-28">
 

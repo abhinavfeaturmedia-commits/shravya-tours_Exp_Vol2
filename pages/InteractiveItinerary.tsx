@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import { api } from '../src/lib/api';
+import { SEO } from '../components/ui/SEO';
 import {
     MapPin, Calendar, Users, Moon, Sun, Clock, Check, X,
     ShieldCheck, Ticket, Printer, MessageSquare, CheckCircle2,
@@ -245,6 +246,10 @@ export const InteractiveItinerary: React.FC = () => {
 
     return (
         <div className="min-h-screen bg-stone-50 selection:bg-amber-200">
+            <SEO
+                title={effectivePkg?.title ? `${effectivePkg.title} - Proposal` : 'Travel Proposal & Itinerary'}
+                description={effectivePkg?.overview || 'Review your personalized interactive itinerary proposal from SHRAWELLO Travel Hub.'}
+            />
 
             {/* Feedback Modal */}
             {showFeedbackModal && (

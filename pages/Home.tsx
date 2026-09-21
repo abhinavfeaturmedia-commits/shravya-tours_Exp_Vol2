@@ -697,8 +697,10 @@ export const Home: React.FC = () => {
   return (
     <>
       <SEO
-        title="Home"
-        description="Book handpicked hotels, seamless flights, and immersive tours. Join 3.5K+ travelers for unforgettable experiences."
+        title="Corporate Travel, Holiday Packages & Curated Itineraries"
+        description="Book handpicked hotels, seamless flights, corporate travel, and immersive domestic & international tour packages with SHRAWELLO Travel Hub."
+        keywords="SHRAWELLO Travel Hub, corporate travel, tour packages, holiday booking, india travel agency, luxury tours, flight booking, hotel reservations"
+        canonical="https://shrawellotravels.com/"
       />
 
       <style>{`

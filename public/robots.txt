@@ -1,0 +1,53 @@
+# robots.txt for SHRAWELLO Travel Hub (https://shrawellotravels.com)
+User-agent: *
+Allow: /
+Allow: /packages
+Allow: /packages/*
+Allow: /itinerary/*
+Allow: /about
+Allow: /contact
+Allow: /careers
+Allow: /blog
+Allow: /blog/*
+Allow: /travel-agency/*
+Allow: /tours-from/*
+Allow: /maharashtra-tours
+Allow: /terms
+Allow: /privacy
+Allow: /cancellation
+Allow: /card/*
+
+# AI Content Signals: Citations and AI Answers YES, Bulk training attribution-free NO
+Content-Signal: search=yes, ai-input=yes, ai-train=no
+
+# Protect private admin, management, and internal APIs
+Disallow: /admin
+Disallow: /admin/*
+Disallow: /partner/dashboard
+Disallow: /partner/leads
+Disallow: /partner/earnings
+Disallow: /customer/dashboard
+Disallow: /api/
+Disallow: /api/*
+
+# AI Search & Answer Engine Crawlers (Allow indexing for citation readiness)
+User-agent: Google-Extended
+Allow: /
+
+User-agent: GPTBot
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Applebot-Extended
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
+# XML Sitemap declaration
+Sitemap: https://shrawellotravels.com/sitemap.xml

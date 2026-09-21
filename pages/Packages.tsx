@@ -189,8 +189,10 @@ export const Packages: React.FC = () => {
   return (
     <>
       <SEO
-        title="Tour Packages"
-        description="Explore curated tour packages for the modern traveler. Find adventures, honeymoons, family trips, and more."
+        title="Tour Packages 2026 | Curated Holiday & Corporate Travel Deals"
+        description="Explore handcrafted domestic and international holiday packages, corporate retreats, luxury tours, and adventure itineraries at unbeatable prices."
+        keywords="tour packages, holiday deals, india tour packages, international holidays, corporate tour packages, luxury travel, honeymoon packages"
+        canonical="https://shrawellotravels.com/packages"
       />
 
       <div className="bg-slate-50 dark:bg-[#0B1116] min-h-screen pt-24 md:pt-28 pb-32 md:pb-20">

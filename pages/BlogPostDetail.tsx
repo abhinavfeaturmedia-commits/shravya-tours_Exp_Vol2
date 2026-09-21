@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { BLOG_POSTS, DEFAULT_BLOG_FALLBACK_IMAGE, BlogPost } from '../src/data/blogData';
 import { TOUR_PACKAGES, TourPackage } from '../constants/tourCatalog';
 import { LeadCaptureModal } from '../components/ui/LeadCaptureModal';
+import { SEO } from '../components/ui/SEO';
 
 export const BlogPostDetail: React.FC = () => {
   const { slug } = useParams<{ slug: string }>();
@@ -16,75 +17,6 @@ export const BlogPostDetail: React.FC = () => {
   const [faqHelpful, setFaqHelpful] = useState<Record<number, boolean | null>>({});
 
   const post: BlogPost | undefined = BLOG_POSTS.find((p) => p.slug === slug);
-
-  // Set document title, meta tags, and structured JSON-LD schema
-  useEffect(() => {
-    if (!post) return;
-
-    document.title = `${post.metaTitle} | Shravya Tours`;
-    
-    let metaDesc = document.querySelector('meta[name="description"]');
-    if (!metaDesc) {
-      metaDesc = document.createElement('meta');
-      metaDesc.setAttribute('name', 'description');
-      document.head.appendChild(metaDesc);
-    }
-    metaDesc.setAttribute('content', post.metaDescription);
-
-    // Inject JSON-LD Schema (Article + FAQPage)
-    const schemaData = [
-      {
-        '@context': 'https://schema.org',
-        '@type': 'Article',
-        headline: post.title,
-        description: post.metaDescription,
-        image: [post.featuredImage],
-        datePublished: post.publishedAt,
-        author: {
-          '@type': 'Person',
-          name: post.author.name,
-          jobTitle: post.author.role
-        },
-        publisher: {
-          '@type': 'Organization',
-          name: 'Shravya Tours',
-          logo: {
-            '@type': 'ImageObject',
-            url: 'https://shravyatours.in/assets/logo.png'
-          }
-        }
-      },
-      {
-        '@context': 'https://schema.org',
-        '@type': 'FAQPage',
-        mainEntity: post.faqs.map((faq) => ({
-          '@type': 'Question',
-          name: faq.question,
-          acceptedAnswer: {
-            '@type': 'Answer',
-            text: faq.answer
-          }
-        }))
-      }
-    ];
-
-    const scriptId = 'blog-jsonld-schema';
-    let scriptTag = document.getElementById(scriptId);
-    if (!scriptTag) {
-      scriptTag = document.createElement('script');
-      scriptTag.id = scriptId;
-      scriptTag.setAttribute('type', 'application/ld+json');
-      document.head.appendChild(scriptTag);
-    }
-    scriptTag.textContent = JSON.stringify(schemaData);
-
-    return () => {
-      const existingScript = document.getElementById(scriptId);
-      if (existingScript) {
-        existingScript.remove();
-      }
-    };
-  }, [post]);
 
   // Reading progress and active TOC section scroll tracking
   useEffect(() => {
@@ -113,6 +45,7 @@ export const BlogPostDetail: React.FC = () => {
   if (!post) {
     return (
       <div className="min-h-screen bg-slate-50 dark:bg-slate-950 py-20 px-4 text-center space-y-4">
+        <SEO title="Article Not Found" description="The requested travel guide does not exist or has been relocated." />
         <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-200">Article Not Found</h2>
         <p className="text-slate-500 text-sm">The requested travel guide does not exist or has been relocated.</p>
         <button
@@ -153,6 +86,49 @@ export const BlogPostDetail: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 transition-colors duration-300 relative">
+      <SEO
+        title={post.metaTitle}
+        description={post.metaDescription}
+        keywords={post.targetKeywords.join(', ')}
+        image={post.featuredImage}
+        canonical={`https://shrawellotravels.com/blog/${post.slug}`}
+        type="article"
+        schema={[
+          {
+            '@context': 'https://schema.org',
+            '@type': 'Article',
+            headline: post.title,
+            description: post.metaDescription,
+            image: [post.featuredImage],
+            datePublished: post.publishedAt,
+            author: {
+              '@type': 'Person',
+              name: post.author.name,
+              jobTitle: post.author.role
+            },
+            publisher: {
+              '@type': 'Organization',
+              name: 'SHRAWELLO Travel Hub',
+              logo: {
+                '@type': 'ImageObject',
+                url: 'https://shrawellotravels.com/logo.png'
+              }
+            }
+          },
+          {
+            '@context': 'https://schema.org',
+            '@type': 'FAQPage',
+            mainEntity: post.faqs.map((faq) => ({
+              '@type': 'Question',
+              name: faq.question,
+              acceptedAnswer: {
+                '@type': 'Answer',
+                text: faq.answer
+              }
+            }))
+          }
+        ]}
+      />
       {/* Top Fixed Reading Progress Indicator */}
       <div className="fixed top-0 left-0 right-0 h-1.5 bg-slate-200 dark:bg-slate-800 z-50">
         <div
