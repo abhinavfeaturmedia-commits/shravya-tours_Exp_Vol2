@@ -628,6 +628,10 @@ export function createIncentiveRoutes(app, pool) {
                     if (adj.adjustment_type === 'BONUS') bonus += amt;
                     else if (adj.adjustment_type === 'DEDUCTION') deduction += amt;
                     else if (adj.adjustment_type === 'REVERSAL' || adj.adjustment_type === 'CLAWBACK') reversal += Math.abs(amt);
+                    else if (adj.adjustment_type === 'CORRECTION') {
+                        if (amt >= 0) bonus += amt;
+                        else deduction += Math.abs(amt);
+                    }
                 }
 
                 // Re-calculate base incentive with calibrated slab rate & KPI multiplier

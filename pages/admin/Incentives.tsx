@@ -20,8 +20,9 @@ interface IncentivesProps {
 }
 
 export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' }) => {
-    const { currentUser, hasPermission } = useAuth();
-    const { bookings, staff } = useData();
+    const { currentUser, hasPermission, staff: authStaff = [] } = useAuth();
+    const { bookings } = useData();
+    const [staffList, setStaffList] = useState<any[]>([]);
 
     // ─── Active Tab State ───
     const [activeTab, setActiveTab] = useState<string>(() => {
@@ -90,6 +91,27 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
     // Check permissions
     const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'Administrator' || currentUser?.userType === 'Admin';
     const isLead = currentUser?.role?.toLowerCase().includes('lead') || currentUser?.role?.toLowerCase().includes('manager');
+
+    // ─── Staff Synchronization ───
+    useEffect(() => {
+        if (Array.isArray(authStaff) && authStaff.length > 0) {
+            setStaffList(authStaff);
+        } else {
+            api.getStaff().then(res => {
+                if (Array.isArray(res) && res.length > 0) {
+                    setStaffList(res);
+                }
+            }).catch(err => {
+                console.warn('[Incentives] Failed to load staff members:', err);
+            });
+        }
+    }, [authStaff]);
+
+    const staffMembers = useMemo(() => {
+        if (Array.isArray(staffList) && staffList.length > 0) return staffList;
+        if (Array.isArray(authStaff) && authStaff.length > 0) return authStaff;
+        return [];
+    }, [staffList, authStaff]);
 
     // ─── Load All Data ───
     const fetchData = useCallback(async () => {
@@ -183,16 +205,35 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
         }
     };
 
+    const [savingAdj, setSavingAdj] = useState<boolean>(false);
+
     // Submit Adjustment
     const handleCreateAdjustment = async () => {
-        if (!adjForm.employeeId || !adjForm.amount || !adjForm.reason) {
-            toast.error('Please select an employee, enter an amount, and provide a reason.');
+        const empId = Number(adjForm.employeeId);
+        if (!empId || empId === 0) {
+            toast.error('Please select an employee.');
             return;
         }
+        const amt = parseFloat(adjForm.amount);
+        if (isNaN(amt) || amt <= 0) {
+            toast.error('Please enter a valid amount greater than ₹0.');
+            return;
+        }
+        if (!adjForm.reason || !adjForm.reason.trim()) {
+            toast.error('Please provide a mandatory audit reason.');
+            return;
+        }
+
+        setSavingAdj(true);
         try {
             const res = await api.addIncentiveAdjustment({
-                ...adjForm,
-                amount: parseFloat(adjForm.amount)
+                employeeId: empId,
+                bookingId: adjForm.bookingId || undefined,
+                incentiveRunId: adjForm.incentiveRunId || undefined,
+                adjustmentType: adjForm.adjustmentType,
+                amount: amt,
+                reason: adjForm.reason.trim(),
+                supportingDocument: adjForm.supportingDocument || undefined
             });
             if (res.success) {
                 toast.success('Adjustment added successfully!');
@@ -207,9 +248,13 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                     supportingDocument: ''
                 });
                 fetchData();
+            } else {
+                toast.error(res.error || 'Failed to record adjustment');
             }
         } catch (err: any) {
             toast.error(err.message || 'Failed to record adjustment');
+        } finally {
+            setSavingAdj(false);
         }
     };
 
@@ -656,7 +701,7 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-sm">
-                                {runs.map((r: IncentiveRun) => {
+                                {(runs || []).map((r: IncentiveRun) => {
                                     let vFlags: any = {};
                                     try { vFlags = typeof r.validation_flags === 'string' ? JSON.parse(r.validation_flags) : r.validation_flags; } catch (_) {}
                                     const withinCeiling = vFlags?.withinCeiling !== false;
@@ -786,7 +831,7 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-sm">
-                                {summaries.map((s: IncentiveEmployeeSummary) => (
+                                {(summaries || []).map((s: IncentiveEmployeeSummary) => (
                                     <tr key={s.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
                                         <td className="py-3 px-4">
                                             <div className="flex items-center gap-2.5">
@@ -894,7 +939,7 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-sm">
-                                {ledger.map((item: IncentiveLedgerItem) => (
+                                {(ledger || []).map((item: IncentiveLedgerItem) => (
                                     <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
                                         <td className="py-3 px-4 font-bold text-slate-800 dark:text-slate-200">
                                             BK-{String(item.booking_number || item.booking_id).slice(-4)}
@@ -1092,7 +1137,7 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-sm">
-                                {adjustments.map((a: IncentiveAdjustment) => (
+                                {(adjustments || []).map((a: IncentiveAdjustment) => (
                                     <tr key={a.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
                                         <td className="py-3 px-4 font-semibold text-slate-900 dark:text-white">
                                             {a.employee_name || 'Staff #' + a.employee_id}
@@ -1155,7 +1200,7 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-sm">
-                                {payouts.map((p: IncentivePayout) => (
+                                {(payouts || []).map((p: IncentivePayout) => (
                                     <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
                                         <td className="py-3 px-4 font-mono text-xs font-semibold text-indigo-600 dark:text-indigo-400">{p.batch_number}</td>
                                         <td className="py-3 px-4 font-semibold text-slate-900 dark:text-white">{p.employee_name || 'Staff #' + p.employee_id}</td>
@@ -1363,7 +1408,7 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                                     onChange={(e) => setRunForm(prev => ({ ...prev, planId: e.target.value }))}
                                     className="w-full px-3.5 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm font-medium outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
                                 >
-                                    {plans.map(p => (
+                                    {(plans || []).map(p => (
                                         <option key={p.id} value={p.id}>
                                             {p.name} (v{p.version} · {p.maximum_booking_percentage}% Cap · {p.gp_protection_percentage}% GP)
                                         </option>
@@ -1539,28 +1584,34 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                     <div className="bg-white dark:bg-[#1A2633] rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-800 w-full max-w-md p-6 space-y-4">
                         <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
                             <h3 className="font-bold text-slate-900 dark:text-white text-base">Record Incentive Adjustment</h3>
-                            <button onClick={() => setShowAdjustmentModal(false)} className="p-1 text-slate-400">
+                            <button onClick={() => setShowAdjustmentModal(false)} className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition">
                                 <X className="size-4" />
                             </button>
                         </div>
 
                         <div className="space-y-3">
                             <div>
-                                <label className="block text-xs font-semibold text-slate-500 mb-1">Employee</label>
+                                <label className="block text-xs font-semibold text-slate-500 mb-1">
+                                    Employee <span className="text-rose-500">*</span>
+                                </label>
                                 <select
                                     value={adjForm.employeeId}
-                                    onChange={(e) => setAdjForm(prev => ({ ...prev, employeeId: parseInt(e.target.value) }))}
+                                    onChange={(e) => setAdjForm(prev => ({ ...prev, employeeId: parseInt(e.target.value) || 0 }))}
                                     className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-medium cursor-pointer"
                                 >
                                     <option value={0}>Select Staff Member</option>
-                                    {staff.map(s => (
-                                        <option key={s.id} value={s.id}>{s.name} ({s.department} · {s.role})</option>
+                                    {(staffMembers || []).map((s: any) => (
+                                        <option key={s.id} value={s.id}>
+                                            {s.name} ({s.department || 'General'} · {s.role || 'Staff'})
+                                        </option>
                                     ))}
                                 </select>
                             </div>
 
                             <div>
-                                <label className="block text-xs font-semibold text-slate-500 mb-1">Adjustment Type</label>
+                                <label className="block text-xs font-semibold text-slate-500 mb-1">
+                                    Adjustment Type <span className="text-rose-500">*</span>
+                                </label>
                                 <select
                                     value={adjForm.adjustmentType}
                                     onChange={(e) => setAdjForm(prev => ({ ...prev, adjustmentType: e.target.value }))}
@@ -1574,9 +1625,12 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                             </div>
 
                             <div>
-                                <label className="block text-xs font-semibold text-slate-500 mb-1">Amount (₹)</label>
+                                <label className="block text-xs font-semibold text-slate-500 mb-1">
+                                    Amount (₹) <span className="text-rose-500">*</span>
+                                </label>
                                 <input
                                     type="number"
+                                    min="1"
                                     placeholder="e.g. 2000"
                                     value={adjForm.amount}
                                     onChange={(e) => setAdjForm(prev => ({ ...prev, amount: e.target.value }))}
@@ -1585,7 +1639,27 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                             </div>
 
                             <div>
-                                <label className="block text-xs font-semibold text-slate-500 mb-1">Mandatory Audit Reason</label>
+                                <label className="block text-xs font-semibold text-slate-500 mb-1">
+                                    Target Incentive Run (Optional)
+                                </label>
+                                <select
+                                    value={adjForm.incentiveRunId}
+                                    onChange={(e) => setAdjForm(prev => ({ ...prev, incentiveRunId: e.target.value }))}
+                                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-medium cursor-pointer"
+                                >
+                                    <option value="">General Adjustment (Applies to all/next runs)</option>
+                                    {(runs || []).map((r: any) => (
+                                        <option key={r.id} value={r.id}>
+                                            {r.run_number} ({r.month_year})
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-semibold text-slate-500 mb-1">
+                                    Mandatory Audit Reason <span className="text-rose-500">*</span>
+                                </label>
                                 <textarea
                                     placeholder="Explain the justification for this adjustment..."
                                     rows={3}
@@ -1599,15 +1673,23 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                         <div className="flex justify-end gap-2 pt-2">
                             <button
                                 onClick={() => setShowAdjustmentModal(false)}
-                                className="px-3 py-1.5 text-xs text-slate-500"
+                                className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition"
                             >
                                 Cancel
                             </button>
                             <button
                                 onClick={handleCreateAdjustment}
-                                className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-semibold shadow-md"
+                                disabled={savingAdj}
+                                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-semibold shadow-md flex items-center gap-1.5 transition"
                             >
-                                Save Adjustment
+                                {savingAdj ? (
+                                    <>
+                                        <RefreshCw className="size-3.5 animate-spin" />
+                                        <span>Saving...</span>
+                                    </>
+                                ) : (
+                                    <span>Save Adjustment</span>
+                                )}
                             </button>
                         </div>
                     </div>
