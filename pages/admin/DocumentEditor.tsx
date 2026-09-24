@@ -8,8 +8,17 @@ import { useData } from '../../context/DataContext';
 import { generateTrueInvoicePDF } from '../../utils/pdfGenerator';
 import { parsePaxString } from '../../utils/paxUtils';
 import { formatTripDuration } from '../../utils/packageUtils';
-import { INDIAN_GST_STATES, isValidGstin, getStateFromGstin, getIndianFinancialYear } from '../../utils/gstUtils';
 import { SendEmailModal } from '../../components/admin/SendEmailModal';
+import { 
+    INDIAN_GST_STATES, 
+    isValidGstin, 
+    getStateFromGstin, 
+    getIndianFinancialYear, 
+    DEFAULT_SAC_CODE, 
+    INDIAN_TOUR_TRAVEL_SAC_CODES, 
+    getSacDetails, 
+    formatSacDisplay 
+} from '../../utils/gstUtils';
 
 interface DescriptionEditorCellProps {
     value: string;
@@ -408,6 +417,12 @@ export const DocumentEditor: React.FC = () => {
     // T&C template selector state
     const [termsDropdownOpen, setTermsDropdownOpen] = useState(false);
 
+    // SAC helper modal state
+    const [showSacModal, setShowSacModal] = useState(false);
+    const [activeSacRowIndex, setActiveSacRowIndex] = useState<number | null>(null);
+    const [sacSearchQuery, setSacSearchQuery] = useState('');
+    const [selectedSacCategory, setSelectedSacCategory] = useState<string>('All');
+
     // Direct automated in-app email modal state
     const [showEmailModal, setShowEmailModal] = useState(false);
     const [emailModalRefId, setEmailModalRefId] = useState<string>('');
@@ -475,14 +490,15 @@ export const DocumentEditor: React.FC = () => {
             quantity: 1,
             total_days_km: String(pkg.days || '1'),
             unit_price: Number(pkg.price || 0),
-            tax_rate: 0
+            tax_rate: 5,
+            hsn_sac: '998555'
         }]);
         setShowCatalogPanel(false);
     };
 
     const [deletedItemIds, setDeletedItemIds] = useState<string[]>([]);
     const [items, setItems] = useState<any[]>([
-        { id: generateId(), description: '', quantity: 1, total_days_km: '1', unit_price: 0, tax_rate: 0 }
+        { id: generateId(), description: '', quantity: 1, total_days_km: '1', unit_price: 0, tax_rate: 0, hsn_sac: fi.defaultSacCode || DEFAULT_SAC_CODE }
     ]);
     const [discount, setDiscount] = useState(0);
     const [loading, setLoading] = useState(isEdit);
@@ -541,7 +557,8 @@ export const DocumentEditor: React.FC = () => {
                             quantity: 1,
                             total_days_km: '1',
                             unit_price: Number(p.amount) || 0,
-                            tax_rate: 0
+                            tax_rate: 5,
+                            hsn_sac: '998555'
                         }]);
                     } catch { /* ignore parse error */ }
                 }
@@ -594,7 +611,7 @@ export const DocumentEditor: React.FC = () => {
                             total_days_km: it.total_days_km || '1',
                             unit_price: Number(it.unit_price || 0),
                             tax_rate: Number(it.tax_rate || 0),
-                            hsn_sac: it.hsn_sac || '9985'
+                            hsn_sac: it.hsn_sac || fi.defaultSacCode || DEFAULT_SAC_CODE
                         })));
                     }
                 }
@@ -648,7 +665,7 @@ export const DocumentEditor: React.FC = () => {
                     children: data.pax_child !== undefined && data.pax_child !== null ? Number(data.pax_child) : pax.children
                 }));
                 if (data.total_price || data.amount) {
-                    setItems([{ id: generateId(), description: 'Tour Package', quantity: 1, total_days_km: '1', unit_price: Number(data.total_price || data.amount), tax_rate: 0 }]);
+                    setItems([{ id: generateId(), description: 'Tour Package', quantity: 1, total_days_km: '1', unit_price: Number(data.total_price || data.amount), tax_rate: 5, hsn_sac: fi.defaultSacCode || DEFAULT_SAC_CODE }]);
                 }
             }
         } catch (e) { console.error(e); } finally { setLoading(false); }
@@ -675,7 +692,7 @@ export const DocumentEditor: React.FC = () => {
                 }));
                 const budget = data.potential_value || data.budget;
                 if (budget) {
-                    setItems([{ id: generateId(), description: `Custom Tour: ${data.destination || 'Destination'}`, quantity: 1, total_days_km: '1', unit_price: Number(budget), tax_rate: 0 }]);
+                    setItems([{ id: generateId(), description: `Custom Tour: ${data.destination || 'Destination'}`, quantity: 1, total_days_km: '1', unit_price: Number(budget), tax_rate: 5, hsn_sac: '998555' }]);
                 }
             }
         } catch (e) { console.error(e); } finally { setLoading(false); }
@@ -759,7 +776,7 @@ export const DocumentEditor: React.FC = () => {
                             total_days_km: it.total_days_km || '1',
                             unit_price: Number(it.unit_price !== undefined && it.unit_price !== null ? it.unit_price : 0),
                             tax_rate: Number(it.tax_rate || 0),
-                            hsn_sac: it.hsn_sac || '9985',
+                            hsn_sac: it.hsn_sac || fi.defaultSacCode || DEFAULT_SAC_CODE,
                             date_from: normalizeDate(it.date_from),
                             date_to: normalizeDate(it.date_to)
                         })));
@@ -775,7 +792,7 @@ export const DocumentEditor: React.FC = () => {
                             total_days_km: '1',
                             unit_price: Number(data.subtotal || data.total_amount || 0),
                             tax_rate: taxRate,
-                            hsn_sac: '9985'
+                            hsn_sac: fi.defaultSacCode || DEFAULT_SAC_CODE
                         }]);
                     }
                 }
@@ -877,7 +894,7 @@ export const DocumentEditor: React.FC = () => {
                 total_days_km: '1',
                 unit_price: Number(record.amount),
                 tax_rate: 0,
-                hsn_sac: '9985'
+                hsn_sac: fi.defaultSacCode || DEFAULT_SAC_CODE
             }]);
         }
 
@@ -893,7 +910,7 @@ export const DocumentEditor: React.FC = () => {
     };
 
     const addItem = () => {
-        setItems([...items, { id: 'temp-' + generateId(), description: '', quantity: 1, total_days_km: '1', unit_price: 0, tax_rate: 0 }]);
+        setItems([...items, { id: 'temp-' + generateId(), description: '', quantity: 1, total_days_km: '1', unit_price: 0, tax_rate: 0, hsn_sac: fi.defaultSacCode || DEFAULT_SAC_CODE }]);
     };
 
     const removeItem = (index: number) => {
@@ -904,6 +921,33 @@ export const DocumentEditor: React.FC = () => {
         const newItems = [...items];
         newItems.splice(index, 1);
         setItems(newItems);
+    };
+
+    const applySacCode = (code: string, rowIndex?: number | null, autoSetTax: boolean = true) => {
+        const sacInfo = getSacDetails(code);
+        const taxRate = autoSetTax && sacInfo ? sacInfo.gstRate : null;
+
+        if (rowIndex !== null && rowIndex !== undefined && items[rowIndex]) {
+            const updated = [...items];
+            updated[rowIndex] = {
+                ...updated[rowIndex],
+                hsn_sac: code,
+                tax_rate: (taxRate !== null && (!updated[rowIndex].tax_rate || updated[rowIndex].tax_rate === 0)) ? taxRate : updated[rowIndex].tax_rate
+            };
+            setItems(updated);
+            toast.success(`Set SAC ${code} for Item #${rowIndex + 1}`);
+        } else {
+            const updated = items.map(it => ({
+                ...it,
+                hsn_sac: code,
+                tax_rate: (taxRate !== null && (!it.tax_rate || it.tax_rate === 0)) ? taxRate : it.tax_rate
+            }));
+            setItems(updated);
+            toast.success(`Set SAC ${code} for all invoice items`);
+        }
+        setIsDirty(true);
+        setShowSacModal(false);
+        setActiveSacRowIndex(null);
     };
 
     const parseDaysKm = (val: string | number | undefined | null): number => {
@@ -1083,7 +1127,7 @@ export const DocumentEditor: React.FC = () => {
                     tax_rate: Number(item.tax_rate || 0),
                     tax_amount: (parseDaysKm(item.total_days_km) * Number(item.unit_price || 0)) * (Number(item.tax_rate || 0) / 100),
                     total: (parseDaysKm(item.total_days_km) * Number(item.unit_price || 0)) * (1 + Number(item.tax_rate || 0) / 100),
-                    hsn_sac: item.hsn_sac || '9985'
+                    hsn_sac: item.hsn_sac || fi.defaultSacCode || DEFAULT_SAC_CODE
                 };
                 await fetch('/api/crud/invoice_items', {
                     method: 'POST',
@@ -1150,7 +1194,7 @@ export const DocumentEditor: React.FC = () => {
                     tax_rate: taxRate,
                     tax_amount: taxAmount,
                     total: total,
-                    hsn_sac: item.hsn_sac || '9985',
+                    hsn_sac: item.hsn_sac || fi.defaultSacCode || DEFAULT_SAC_CODE,
                     date_from: item.date_from ? (String(item.date_from).includes('T') ? String(item.date_from).split('T')[0] : String(item.date_from)) : null,
                     date_to: item.date_to ? (String(item.date_to).includes('T') ? String(item.date_to).split('T')[0] : String(item.date_to)) : null
                 };
@@ -2453,7 +2497,19 @@ export const DocumentEditor: React.FC = () => {
                                         <th className="text-left px-4 py-4 w-[5%]">#</th>
                                         <th className={`text-left px-4 py-4 ${docData.is_gst === 1 ? 'w-[30%]' : 'w-[40%]'}`}>Description</th>
                                         {docData.is_gst === 1 && (
-                                            <th className="text-center px-2 py-4 w-[10%]">HSN/SAC</th>
+                                            <th className="text-center px-2 py-4 w-[11%]">
+                                                <div className="flex items-center justify-center gap-1">
+                                                    <span>HSN/SAC</span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => { setActiveSacRowIndex(null); setShowSacModal(true); }}
+                                                        title="View Indian Tours, Travel & Cab Booking SAC Codes Guide (Default: 996601)"
+                                                        className="print:hidden w-4 h-4 rounded-full bg-white/20 hover:bg-white/30 text-[10px] flex items-center justify-center font-serif italic text-amber-300 transition-colors"
+                                                    >
+                                                        i
+                                                    </button>
+                                                </div>
+                                            </th>
                                         )}
                                         <th className={`text-center px-2 py-4 ${docData.is_gst === 1 ? 'w-[8%]' : 'w-[10%]'}`}>Qty</th>
                                         <th className={`text-center px-2 py-4 ${docData.is_gst === 1 ? 'w-[14%]' : 'w-[18%]'}`}>Total Days / Km</th>
@@ -2480,13 +2536,41 @@ export const DocumentEditor: React.FC = () => {
                                             </td>
                                             {docData.is_gst === 1 && (
                                                 <td className="px-2 py-4.5 align-middle text-center">
-                                                    <input
-                                                        type="text"
-                                                        value={item.hsn_sac || '9985'}
-                                                        onChange={(e) => handleItemChange(index, 'hsn_sac', e.target.value)}
-                                                        placeholder="9985"
-                                                        className="w-full bg-slate-50 dark:bg-slate-800/40 text-center text-slate-700 dark:text-slate-200 outline-none border border-slate-200/60 dark:border-slate-800 focus:border-orange-500 focus:ring-0 font-semibold rounded-xl transition-all text-xs px-2 py-1.5"
-                                                    />
+                                                    <span className="hidden print:inline font-semibold text-xs font-mono">
+                                                        {item.hsn_sac || fi.defaultSacCode || DEFAULT_SAC_CODE}
+                                                    </span>
+                                                    <div className="print:hidden flex flex-col items-center gap-1">
+                                                        <div className="relative w-full">
+                                                            <input
+                                                                type="text"
+                                                                list="sac-options-list"
+                                                                value={item.hsn_sac || fi.defaultSacCode || DEFAULT_SAC_CODE}
+                                                                onChange={(e) => {
+                                                                    const newSac = e.target.value.trim();
+                                                                    handleItemChange(index, 'hsn_sac', newSac);
+                                                                    const matched = getSacDetails(newSac);
+                                                                    if (matched && (!item.tax_rate || item.tax_rate === 0)) {
+                                                                        handleItemChange(index, 'tax_rate', matched.gstRate);
+                                                                    }
+                                                                }}
+                                                                placeholder={DEFAULT_SAC_CODE}
+                                                                className="w-full bg-slate-50 dark:bg-slate-800/40 text-center text-slate-800 dark:text-slate-100 outline-none border border-slate-200/60 dark:border-slate-800 focus:border-orange-500 focus:ring-0 font-mono font-bold rounded-xl transition-all text-xs px-1 py-1.5"
+                                                            />
+                                                        </div>
+                                                        {(() => {
+                                                            const sacInfo = getSacDetails(item.hsn_sac || fi.defaultSacCode || DEFAULT_SAC_CODE);
+                                                            return (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => { setActiveSacRowIndex(index); setShowSacModal(true); }}
+                                                                    title={`${sacInfo?.description || 'Click to change SAC code'}\nClick to browse standard Indian Tour/Cab SAC codes`}
+                                                                    className="text-[9px] font-semibold text-slate-500 dark:text-slate-400 hover:text-orange-600 dark:hover:text-orange-400 truncate max-w-[95px] block leading-tight px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800/80 hover:bg-orange-50 dark:hover:bg-orange-950/40 border border-slate-200/40 dark:border-slate-700/60 transition-colors"
+                                                                >
+                                                                    {sacInfo?.shortName || 'Custom SAC'}
+                                                                </button>
+                                                            );
+                                                        })()}
+                                                    </div>
                                                 </td>
                                             )}
                                             <td className="px-2 py-4.5 align-middle text-center">
@@ -2570,14 +2654,33 @@ export const DocumentEditor: React.FC = () => {
 
                         
                         {/* Add Item Actions (Hidden in print) */}
-                        <div className="flex gap-2 print:hidden mt-2">
+                        <div className="flex flex-wrap items-center gap-2 print:hidden mt-2">
                             <button onClick={addItem} className="text-[#F26222] hover:text-orange-700 hover:scale-[1.02] active:scale-95 flex items-center gap-1.5 text-xs font-bold px-3.5 py-2 bg-orange-50 dark:bg-orange-500/10 hover:bg-orange-100 dark:hover:bg-orange-500/20 rounded-xl border border-orange-100/50 dark:border-orange-500/20 transition-all">
                                 <Plus size={13} /> Add Row
                             </button>
                             <button onClick={() => { setShowCatalogPanel(true); searchCatalog(); }} className="text-slate-700 dark:text-slate-200 hover:scale-[1.02] active:scale-95 flex items-center gap-1.5 text-xs font-bold px-3.5 py-2 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-750 rounded-xl border border-slate-200/50 dark:border-slate-700/80 transition-all">
                                 <Search size={13} /> From Catalog
                             </button>
+                            {docData.is_gst === 1 && (
+                                <button
+                                    type="button"
+                                    onClick={() => { setActiveSacRowIndex(null); setShowSacModal(true); }}
+                                    className="text-amber-700 dark:text-amber-300 hover:scale-[1.02] active:scale-95 flex items-center gap-1.5 text-xs font-bold px-3.5 py-2 bg-amber-50 dark:bg-amber-500/10 hover:bg-amber-100 dark:hover:bg-amber-500/20 rounded-xl border border-amber-200/60 dark:border-amber-500/30 transition-all"
+                                    title="Browse Indian GST Tour, Travel & Cab Booking SAC Directory (Default: 996601)"
+                                >
+                                    <FileText size={13} /> SAC Code Guide (Default: 996601)
+                                </button>
+                            )}
                         </div>
+
+                        {/* Datalist for autocomplete on SAC code input */}
+                        <datalist id="sac-options-list">
+                            {INDIAN_TOUR_TRAVEL_SAC_CODES.map((sac) => (
+                                <option key={sac.code} value={sac.code}>
+                                    {sac.code} - {sac.name} ({sac.gstRateDescription})
+                                </option>
+                            ))}
+                        </datalist>
 
                         {/* Totals Section */}
                         <div className="flex flex-col lg:flex-row items-stretch justify-between gap-8 pt-8 border-t border-slate-100 dark:border-slate-800/80">
@@ -3064,6 +3167,215 @@ export const DocumentEditor: React.FC = () => {
                         paymentStatus: docData.payment_status || 'Unpaid'
                     }}
                 />
+            )}
+            {/* Indian GST SAC Code Directory Modal */}
+            {showSacModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+                        
+                        {/* Modal Header */}
+                        <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between bg-gradient-to-r from-orange-500/10 via-amber-500/5 to-transparent">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-2xl bg-orange-500/10 text-[#F26222] flex items-center justify-center font-bold">
+                                    <FileText size={20} />
+                                </div>
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <h3 className="font-extrabold text-slate-800 dark:text-white text-base">
+                                            Indian GST SAC Code Directory
+                                        </h3>
+                                        <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/40">
+                                            Chapter 99
+                                        </span>
+                                    </div>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                                        Tours, Travels &amp; Cab Bookings • Default SAC code is <strong className="text-orange-600 dark:text-orange-400 font-mono">996601</strong>
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => { setShowSacModal(false); setActiveSacRowIndex(null); }}
+                                className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        {/* Target Row Indicator if triggered from a specific row */}
+                        {activeSacRowIndex !== null && items[activeSacRowIndex] && (
+                            <div className="bg-amber-50/80 dark:bg-amber-950/20 border-b border-amber-200/50 dark:border-amber-900/30 px-6 py-2 flex items-center justify-between text-xs text-amber-800 dark:text-amber-300">
+                                <span>
+                                    Applying to <strong>Item #{activeSacRowIndex + 1}</strong>: <em className="opacity-90">{items[activeSacRowIndex].description ? (items[activeSacRowIndex].description.length > 40 ? items[activeSacRowIndex].description.substring(0, 40) + '...' : items[activeSacRowIndex].description) : 'Untitled Item'}</em>
+                                </span>
+                                <span className="font-mono font-semibold text-[11px] bg-amber-100 dark:bg-amber-900/40 px-2 py-0.5 rounded">
+                                    Current: {items[activeSacRowIndex].hsn_sac || fi.defaultSacCode || DEFAULT_SAC_CODE}
+                                </span>
+                            </div>
+                        )}
+
+                        {/* Search & Filter Toolbar */}
+                        <div className="p-4 border-b border-slate-100 dark:border-slate-800/80 space-y-3 bg-slate-50/50 dark:bg-slate-850/40">
+                            <div className="relative">
+                                <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                                <input
+                                    type="text"
+                                    value={sacSearchQuery}
+                                    onChange={(e) => setSacSearchQuery(e.target.value)}
+                                    placeholder="Search by code (996601, 998555), service name (cab, tour, ticket, bus, hotel)..."
+                                    className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl pl-9 pr-4 py-2 text-xs text-slate-800 dark:text-slate-100 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition-all"
+                                />
+                                {sacSearchQuery && (
+                                    <button onClick={() => setSacSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                                        <X size={13} />
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* Category Filter Chips */}
+                            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs no-scrollbar">
+                                {['All', 'Cab / Vehicle Rental', 'Tour Operators', 'Passenger Transport', 'Travel Agency', 'Accommodation'].map((cat) => {
+                                    const isSelected = selectedSacCategory === cat;
+                                    return (
+                                        <button
+                                            key={cat}
+                                            type="button"
+                                            onClick={() => setSelectedSacCategory(cat)}
+                                            className={`px-3 py-1 rounded-lg font-semibold text-[11px] whitespace-nowrap transition-all ${
+                                                isSelected 
+                                                    ? 'bg-[#091C3B] text-white dark:bg-orange-600 dark:text-white shadow-sm' 
+                                                    : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700/80 hover:bg-slate-100'
+                                            }`}
+                                        >
+                                            {cat}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        {/* List of SAC Cards */}
+                        <div className="flex-1 overflow-y-auto p-4 space-y-2.5 max-h-[50vh]">
+                            {INDIAN_TOUR_TRAVEL_SAC_CODES
+                                .filter(sac => {
+                                    const matchesCat = selectedSacCategory === 'All' || sac.category === selectedSacCategory;
+                                    const q = sacSearchQuery.toLowerCase().trim();
+                                    const matchesQ = !q || sac.code.includes(q) || sac.name.toLowerCase().includes(q) || sac.shortName.toLowerCase().includes(q) || sac.description.toLowerCase().includes(q);
+                                    return matchesCat && matchesQ;
+                                })
+                                .map(sac => {
+                                    const isDefault = sac.code === DEFAULT_SAC_CODE;
+                                    return (
+                                        <div
+                                            key={sac.code}
+                                            className={`border rounded-2xl p-4 transition-all hover:shadow-md ${
+                                                isDefault
+                                                    ? 'bg-orange-50/30 dark:bg-orange-950/10 border-orange-200 dark:border-orange-900/40 hover:border-orange-300'
+                                                    : 'bg-white dark:bg-slate-800/60 border-slate-200/80 dark:border-slate-700/60 hover:border-slate-300'
+                                            }`}
+                                        >
+                                            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                                                <div className="flex-1">
+                                                    <div className="flex flex-wrap items-center gap-2 mb-1">
+                                                        <span className="font-mono text-sm font-black text-[#091C3B] dark:text-white bg-slate-100 dark:bg-slate-750 px-2 py-0.5 rounded-lg border border-slate-200/70 dark:border-slate-700">
+                                                            {sac.code}
+                                                        </span>
+                                                        {isDefault && (
+                                                            <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-orange-500 text-white shadow-sm flex items-center gap-1">
+                                                                ★ DEFAULT SAC
+                                                            </span>
+                                                        )}
+                                                        <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md">
+                                                            {sac.category}
+                                                        </span>
+                                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                                                            sac.gstRate === 5 
+                                                                ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900/40' 
+                                                                : 'bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-900/40'
+                                                        }`}>
+                                                            {sac.gstRateDescription}
+                                                        </span>
+                                                    </div>
+                                                    <h4 className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                                                        {sac.name}
+                                                    </h4>
+                                                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                                                        {sac.description}
+                                                    </p>
+                                                </div>
+
+                                                {/* Action Buttons for this SAC */}
+                                                <div className="flex items-center sm:flex-col gap-1.5 self-end sm:self-center shrink-0">
+                                                    {activeSacRowIndex !== null ? (
+                                                        <>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => applySacCode(sac.code, activeSacRowIndex, true)}
+                                                                className="px-3 py-1.5 bg-[#F26222] hover:bg-orange-600 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1"
+                                                            >
+                                                                <Check size={12} /> Apply to Row #{activeSacRowIndex + 1}
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => applySacCode(sac.code, null, true)}
+                                                                className="px-2.5 py-1 text-[11px] text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/50 rounded-lg transition-colors font-medium"
+                                                            >
+                                                                Apply to All Rows
+                                                            </button>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => applySacCode(sac.code, null, true)}
+                                                                className="px-3 py-1.5 bg-[#091C3B] hover:bg-slate-800 dark:bg-orange-600 dark:hover:bg-orange-500 text-white rounded-xl text-xs font-bold transition-all shadow-sm"
+                                                            >
+                                                                Apply to All Rows
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setItems(prev => [...prev, {
+                                                                        id: 'temp-' + generateId(),
+                                                                        description: sac.name,
+                                                                        quantity: 1,
+                                                                        total_days_km: '1 Days',
+                                                                        unit_price: 0,
+                                                                        tax_rate: sac.gstRate,
+                                                                        hsn_sac: sac.code
+                                                                    }]);
+                                                                    setIsDirty(true);
+                                                                    setShowSacModal(false);
+                                                                    toast.success(`Added new row with SAC ${sac.code}`);
+                                                                }}
+                                                                className="px-2.5 py-1 text-[11px] text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-950/30 rounded-lg transition-colors font-semibold"
+                                                            >
+                                                                + Add New Item
+                                                            </button>
+                                                        </>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                        </div>
+
+                        {/* Modal Footer / GST Compliance Reference */}
+                        <div className="px-6 py-3 border-t border-slate-100 dark:border-slate-800/80 bg-slate-50 dark:bg-slate-850 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-500">
+                            <p className="text-[11px] leading-tight">
+                                ⚖️ <strong>Compliance Note:</strong> Per CBIC Notification 11/2017-CT(Rate), cab rental with operator (SAC 996601) carries 5% GST (without ITC) or 12% GST (with ITC).
+                            </p>
+                            <button
+                                type="button"
+                                onClick={() => { setShowSacModal(false); setActiveSacRowIndex(null); }}
+                                className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold rounded-xl text-xs transition-colors"
+                            >
+                                Close
+                            </button>
+                        </div>
+
+                    </div>
+                </div>
             )}
         </div>
     );

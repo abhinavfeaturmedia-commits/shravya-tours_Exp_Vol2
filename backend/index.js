@@ -27,6 +27,7 @@ import { initEmailService, sendTestEmail, sendCustomEmail, sendAgentIntroduction
 import { createAuthRoutes } from './routes/auth.js';
 import { createTrainingRoutes } from './routes/training.js';
 import { createAttendanceRoutes, autoCloseOrphanSessions } from './routes/attendance.js';
+import { createIncentiveRoutes } from './routes/incentives.js';
 import { runStartupMigrations } from './migrations/startup.js';
 
 dotenv.config();
@@ -89,6 +90,7 @@ initEmailService(pool);
 createAuthRoutes(app, pool);
 createTrainingRoutes(app, pool);
 createAttendanceRoutes(app, pool);
+createIncentiveRoutes(app, pool);
 runStartupMigrations(pool);
 
 // Background cron: Auto-close orphan/inactive sessions (5-minute timeout) every 60 seconds
@@ -153,7 +155,8 @@ async function runMigration() {
         for (const colDef of gstInvoiceCols) {
             try { await pool.query(`ALTER TABLE invoices ${colDef}`); } catch (e) { /* ignore duplicate */ }
         }
-        try { await pool.query("ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS hsn_sac VARCHAR(20) DEFAULT '9985'"); } catch(e) { /* ignore */ }
+        try { await pool.query("ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS hsn_sac VARCHAR(20) DEFAULT '996601'"); } catch(e) { /* ignore */ }
+        try { await pool.query("ALTER TABLE invoice_items ALTER COLUMN hsn_sac SET DEFAULT '996601'"); } catch(e) { /* ignore */ }
         console.log('[Migration] invoices GST columns verified/added');
 
         // Create table for customer packing checklists
@@ -2478,7 +2481,8 @@ async function ensureInvoiceCustomFields() {
         } catch(e) { /* already exists */ }
         // Add hsn_sac column to invoice_items if it doesn't exist
         try {
-            await pool.query("ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS hsn_sac VARCHAR(50) DEFAULT '9985'");
+            await pool.query("ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS hsn_sac VARCHAR(50) DEFAULT '996601'");
+            await pool.query("ALTER TABLE invoice_items ALTER COLUMN hsn_sac SET DEFAULT '996601'");
         } catch(e) { /* already exists */ }
         console.log('[InvoiceCustomFields Migration] Table and columns ensured.');
     } catch (err) {
@@ -6943,7 +6947,7 @@ app.post('/api/invoices/issue', authMiddleware, async (req, res) => {
                     Number(item.tax_rate || 0),
                     Number(item.tax_amount || 0),
                     Number(item.total || 0),
-                    item.hsn_sac || '9985',
+                    item.hsn_sac || '996601',
                     item.date_from || null,
                     item.date_to || null
                 ]);
@@ -7089,7 +7093,7 @@ app.post('/api/invoices/credit-note', authMiddleware, async (req, res) => {
                     Number(item.tax_rate || 0),
                     Number(item.tax_amount || 0),
                     Number(item.total || 0),
-                    item.hsn_sac || '9985'
+                    item.hsn_sac || '996601'
                 ]);
             }
         }

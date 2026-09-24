@@ -3691,6 +3691,76 @@ export const api = {
         return fetchApi('/api/attendance/settings', { method: 'PUT', body: JSON.stringify(settings) });
     },
 
+    // ─── INCENTIVE MANAGEMENT SYSTEM ───
+    getIncentiveOverview: async (params?: { monthYear?: string; department?: string; employeeId?: string }) => {
+        const qs = new URLSearchParams();
+        if (params?.monthYear) qs.set('monthYear', params.monthYear);
+        if (params?.department) qs.set('department', params.department);
+        if (params?.employeeId) qs.set('employeeId', params.employeeId);
+        return fetchApi(`/api/incentives/overview${qs.toString() ? `?${qs.toString()}` : ''}`);
+    },
+    getIncentivePlans: async () => {
+        return fetchApi('/api/incentives/plans');
+    },
+    createIncentivePlan: async (data: any) => {
+        return fetchApi('/api/incentives/plans', { method: 'POST', body: JSON.stringify(data) });
+    },
+    updateIncentivePlan: async (id: string, data: any) => {
+        return fetchApi(`/api/incentives/plans/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) });
+    },
+    addIncentiveRule: async (planId: string, data: any) => {
+        return fetchApi(`/api/incentives/plans/${encodeURIComponent(planId)}/rules`, { method: 'POST', body: JSON.stringify(data) });
+    },
+    calculateIncentiveRun: async (data: { monthYear: string; periodStart: string; periodEnd: string; planId?: string }) => {
+        return fetchApi('/api/incentives/runs/calculate', { method: 'POST', body: JSON.stringify(data) });
+    },
+    advanceIncentiveRunStatus: async (runId: string, action: string, comment?: string) => {
+        return fetchApi(`/api/incentives/runs/${encodeURIComponent(runId)}/advance-status`, { method: 'POST', body: JSON.stringify({ action, comment }) });
+    },
+    getIncentiveLedger: async (params?: { runId?: string; employeeId?: string; bookingId?: string; search?: string; limit?: number; page?: number }) => {
+        const qs = new URLSearchParams();
+        if (params?.runId) qs.set('runId', params.runId);
+        if (params?.employeeId) qs.set('employeeId', params.employeeId);
+        if (params?.bookingId) qs.set('bookingId', params.bookingId);
+        if (params?.search) qs.set('search', params.search);
+        if (params?.limit) qs.set('limit', String(params.limit));
+        if (params?.page) qs.set('page', String(params.page));
+        return fetchApi(`/api/incentives/ledger${qs.toString() ? `?${qs.toString()}` : ''}`);
+    },
+    getIncentiveSummaries: async (params?: { runId?: string; monthYear?: string; department?: string }) => {
+        const qs = new URLSearchParams();
+        if (params?.runId) qs.set('runId', params.runId);
+        if (params?.monthYear) qs.set('monthYear', params.monthYear);
+        if (params?.department) qs.set('department', params.department);
+        return fetchApi(`/api/incentives/summaries${qs.toString() ? `?${qs.toString()}` : ''}`);
+    },
+    getIncentiveAdjustments: async () => {
+        return fetchApi('/api/incentives/adjustments');
+    },
+    addIncentiveAdjustment: async (data: { employeeId: number; bookingId?: string; incentiveRunId?: string; adjustmentType: string; amount: number; reason: string; supportingDocument?: string }) => {
+        return fetchApi('/api/incentives/adjustments', { method: 'POST', body: JSON.stringify(data) });
+    },
+    getIncentivePayouts: async () => {
+        return fetchApi('/api/incentives/payouts');
+    },
+    createIncentivePayoutBatch: async (incentiveRunId: string) => {
+        return fetchApi('/api/incentives/payouts/create-batch', { method: 'POST', body: JSON.stringify({ incentiveRunId }) });
+    },
+    markIncentivePayoutPaid: async (payoutId: string, data: { paymentReference?: string; paymentDate?: string; paymentMethod?: string }) => {
+        return fetchApi(`/api/incentives/payouts/${encodeURIComponent(payoutId)}/mark-paid`, { method: 'POST', body: JSON.stringify(data) });
+    },
+    getMyIncentiveSummary: async (employeeId?: number) => {
+        const qs = new URLSearchParams();
+        if (employeeId) qs.set('employeeId', String(employeeId));
+        return fetchApi(`/api/incentives/my-summary${qs.toString() ? `?${qs.toString()}` : ''}`);
+    },
+    raiseIncentiveDispute: async (data: { employeeId?: number; incentiveRunId?: string; ledgerId?: string; reason: string }) => {
+        return fetchApi('/api/incentives/disputes', { method: 'POST', body: JSON.stringify(data) });
+    },
+    overrideBookingEligibility: async (bookingId: string, reason: string) => {
+        return fetchApi('/api/incentives/override-eligibility', { method: 'POST', body: JSON.stringify({ bookingId, reason }) });
+    },
+
     crud
 };
 

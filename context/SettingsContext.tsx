@@ -44,6 +44,7 @@ export interface FinanceSettings {
   defaultPlaceOfSupply?: string;
   defaultPlaceOfSupplyCode?: string;
   defaultReverseCharge?: string;
+  defaultSacCode?: string;
 }
 
 export interface StaffRoleSettings {
@@ -170,6 +171,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     defaultPlaceOfSupply: 'Maharashtra',
     defaultPlaceOfSupplyCode: '27',
     defaultReverseCharge: 'No',
+    defaultSacCode: '996601',
   },
   staffRoles: {
     idleTimeoutMinutes: 20,

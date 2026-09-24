@@ -684,6 +684,10 @@ export interface MasterLocation {
   name: string;
   type: MasterLocationType;
   region: string;
+  state?: string;
+  country?: string;
+  countryCode?: string;
+  currency?: string;
   image?: string;
   status: 'Active' | 'Inactive';
 }
@@ -1338,4 +1342,208 @@ export interface ReportEntityMeta {
   badgeBg: string;
   badgeText: string;
   countKey?: string;
+}
+
+
+// ─── INCENTIVE MANAGEMENT SYSTEM TYPES ───
+
+export interface TargetSlab {
+  min_pct: number;
+  max_pct: number;
+  rate_pct: number;
+  label: string;
+}
+
+export interface KPIMultiplier {
+  min_score: number;
+  max_score: number;
+  multiplier: number;
+  label: string;
+}
+
+export interface IncentivePlan {
+  id: string;
+  name: string;
+  description?: string;
+  effective_from: string;
+  effective_to?: string;
+  maximum_booking_percentage: number;
+  gp_protection_percentage: number;
+  status: 'Active' | 'Inactive';
+  version: string;
+  created_by?: string;
+  created_at?: string;
+  rules?: IncentiveRule[];
+}
+
+export interface IncentiveRule {
+  id: string;
+  plan_id: string;
+  department: string;
+  role: string;
+  incentive_type: 'percentage' | 'fixed';
+  percentage: number;
+  fixed_amount: number;
+  kpi_dependency: boolean | number;
+  target_dependency: boolean | number;
+  slabs_json?: string | TargetSlab[];
+  kpi_weights_json?: any;
+  kpi_multipliers_json?: string | KPIMultiplier[];
+  priority: number;
+  status: 'Active' | 'Inactive';
+  version: string;
+}
+
+export interface IncentiveRun {
+  id: string;
+  run_number: string;
+  period_start: string;
+  period_end: string;
+  month_year: string;
+  incentive_plan_id: string;
+  incentive_plan_version: string;
+  total_bookings: number;
+  eligible_bookings: number;
+  excluded_bookings: number;
+  total_booking_value: number;
+  total_gross_profit: number;
+  maximum_capacity: number;
+  gp_protection_limit: number;
+  total_incentive: number;
+  status: 'DRAFT' | 'CALCULATED' | 'UNDER_REVIEW' | 'LEAD_APPROVED' | 'FINANCE_APPROVED' | 'FINAL_APPROVED' | 'READY_FOR_PAYMENT' | 'PAID' | 'LOCKED' | 'REJECTED';
+  created_by?: string;
+  lead_approved_by?: string;
+  lead_approved_at?: string;
+  finance_approved_by?: string;
+  finance_approved_at?: string;
+  final_approved_by?: string;
+  final_approved_at?: string;
+  notes?: string;
+  validation_flags?: {
+    withinCeiling?: boolean;
+    ceilingDifference?: string;
+    warning?: string | null;
+  };
+  created_at: string;
+  finalized_at?: string;
+}
+
+export interface IncentiveLedgerItem {
+  id: string;
+  incentive_run_id: string;
+  booking_id: string;
+  booking_number?: number;
+  employee_id: number;
+  department: string;
+  role: string;
+  incentive_type: string;
+  booking_value: number;
+  eligible_value: number;
+  supplier_cost: number;
+  gross_profit: number;
+  applicable_rate: number;
+  gross_incentive: number;
+  kpi_score: number;
+  kpi_multiplier: number;
+  target_achievement: number;
+  target_multiplier: number;
+  bonus: number;
+  deduction: number;
+  adjustment: number;
+  final_incentive: number;
+  incentive_plan_id: string;
+  incentive_plan_version: string;
+  rule_id: string;
+  rule_version: string;
+  period: string;
+  status: string;
+  calculation_trace?: any;
+  employee_name?: string;
+  employee_email?: string;
+  customer_name?: string;
+  tour_title?: string;
+  booking_date?: string;
+  created_at: string;
+}
+
+export interface IncentiveEmployeeSummary {
+  id: string;
+  incentive_run_id: string;
+  employee_id: number;
+  department: string;
+  role: string;
+  month_year: string;
+  eligible_business: number;
+  booking_count: number;
+  monthly_target: number;
+  target_achievement_pct: number;
+  target_slab_rate: number;
+  kpi_score: number;
+  kpi_multiplier: number;
+  base_incentive: number;
+  kpi_adjustment: number;
+  target_adjustment: number;
+  performance_bonus: number;
+  deduction: number;
+  manual_adjustment: number;
+  reversal: number;
+  final_payable: number;
+  approval_status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'HOLD';
+  payment_status: 'UNPAID' | 'PROCESSING' | 'PAID';
+  employee_name?: string;
+  employee_email?: string;
+  initials?: string;
+  color?: string;
+  created_at: string;
+}
+
+export interface IncentiveAdjustment {
+  id: string;
+  employee_id: number;
+  booking_id?: string;
+  incentive_run_id?: string;
+  original_ledger_id?: string;
+  adjustment_type: 'BONUS' | 'DEDUCTION' | 'CORRECTION' | 'REVERSAL' | 'CLAWBACK';
+  amount: number;
+  reason: string;
+  supporting_document?: string;
+  created_by: string;
+  approved_by?: string;
+  status: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'APPLIED';
+  employee_name?: string;
+  employee_dept?: string;
+  created_at: string;
+}
+
+export interface IncentivePayout {
+  id: string;
+  batch_number: string;
+  incentive_run_id: string;
+  employee_id: number;
+  amount: number;
+  payment_status: 'PENDING' | 'PROCESSING' | 'PAID' | 'FAILED' | 'ON_HOLD';
+  payment_reference?: string;
+  payment_date?: string;
+  payment_method?: string;
+  processed_by?: string;
+  notes?: string;
+  is_locked: boolean | number;
+  employee_name?: string;
+  employee_dept?: string;
+  run_number?: string;
+  month_year?: string;
+  created_at: string;
+}
+
+export interface IncentiveDispute {
+  id: string;
+  employee_id: number;
+  incentive_run_id?: string;
+  ledger_id?: string;
+  reason: string;
+  status: 'SUBMITTED' | 'UNDER_REVIEW' | 'RESOLVED' | 'REJECTED';
+  resolution_notes?: string;
+  resolved_by?: string;
+  resolved_at?: string;
+  created_at: string;
 }

@@ -91,6 +91,7 @@ const TOP_NAV_CATEGORIES: NavCategory[] = [
     items: [
       { name: 'Bank Accounts', path: '/admin/accounts', icon: 'account_balance', module: 'accounts', desc: 'Bank accounts, ledgers & cash balances', tag: '#Banks' },
       { name: 'Expenses', path: '/admin/expenses', icon: 'receipt_long', module: 'expenses', desc: 'Vendor payouts, operational costs & vouchers', tag: '#Payouts' },
+      { name: 'Incentives', path: '/admin/incentives', icon: 'monetization_on', module: 'incentives', desc: 'Employee commissions, monthly runs & payouts', tag: '#Incentives' },
       { name: 'Payment Approvals', path: '/admin/finance-verification', icon: 'fact_check', module: 'finance_verification', desc: 'Bank transaction matching & payment verification', tag: '#Audit' },
       { name: 'Proposals', path: '/admin/proposals', icon: 'description', module: 'proposals', desc: 'Client travel quotes & proposal drafts', tag: '#Quotes' },
       { name: 'Invoices', path: '/admin/invoices', icon: 'receipt', module: 'invoices', desc: 'GST invoices, billing & payment receipts', tag: '#GST' },
@@ -121,6 +122,51 @@ const TOP_NAV_CATEGORIES: NavCategory[] = [
   }
 ];
 
+const getCategoryThemeStyles = (theme?: string) => {
+  switch (theme) {
+    case 'blue':
+      return {
+        bg: 'from-blue-500/10 via-sky-500/5 to-transparent',
+        border: 'border-blue-100 dark:border-blue-900/30',
+        iconBg: 'from-blue-500 to-indigo-600',
+        statColor: 'text-blue-600 dark:text-blue-400',
+        btn: 'from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-blue-500/20'
+      };
+    case 'purple':
+      return {
+        bg: 'from-purple-500/10 via-indigo-500/5 to-transparent',
+        border: 'border-purple-100 dark:border-purple-900/30',
+        iconBg: 'from-purple-500 to-indigo-600',
+        statColor: 'text-purple-600 dark:text-purple-400',
+        btn: 'from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 shadow-purple-500/20'
+      };
+    case 'emerald':
+      return {
+        bg: 'from-emerald-500/10 via-teal-500/5 to-transparent',
+        border: 'border-emerald-100 dark:border-emerald-900/30',
+        iconBg: 'from-emerald-500 to-teal-600',
+        statColor: 'text-emerald-600 dark:text-emerald-400',
+        btn: 'from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 shadow-emerald-500/20'
+      };
+    case 'amber':
+      return {
+        bg: 'from-amber-500/10 via-orange-500/5 to-transparent',
+        border: 'border-amber-100 dark:border-amber-900/30',
+        iconBg: 'from-amber-500 to-orange-600',
+        statColor: 'text-amber-600 dark:text-amber-400',
+        btn: 'from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 shadow-amber-500/20'
+      };
+    default:
+      return {
+        bg: 'from-indigo-500/10 via-purple-500/5 to-transparent',
+        border: 'border-indigo-100 dark:border-indigo-900/30',
+        iconBg: 'from-indigo-500 to-purple-600',
+        statColor: 'text-indigo-600 dark:text-indigo-400',
+        btn: 'from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 shadow-indigo-500/20'
+      };
+  }
+};
+
 export const AdminLayout: React.FC = () => {
   const { currentUser, logout, isAuthenticated, isLoading, isMasquerading, stopMasquerading, hasPermission } = useAuth();
   const { bookings, leads, followUps, updateFollowUp } = useData();
@@ -149,6 +195,43 @@ export const AdminLayout: React.FC = () => {
   const navigate = useNavigate();
   const megaMenuRef = useRef<HTMLDivElement>(null);
   const profileMenuRef = useRef<HTMLDivElement>(null);
+  const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const [dropdownPos, setDropdownPos] = useState<{ left: number; arrowLeft: number } | null>(null);
+
+  useEffect(() => {
+    if (!activeMegaCategory) {
+      setDropdownPos(null);
+      return;
+    }
+    const updatePosition = () => {
+      const btn = tabRefs.current[activeMegaCategory];
+      if (btn && megaMenuRef.current) {
+        const navRect = megaMenuRef.current.getBoundingClientRect();
+        const tabRect = btn.getBoundingClientRect();
+        const tabCenterInNav = (tabRect.left + tabRect.width / 2) - navRect.left;
+        
+        const menuWidth = 740;
+        const idealLeft = tabCenterInNav - menuWidth / 2;
+        
+        // Boundaries: ensure menu never clips the left of the viewport or nav
+        const minLeft = Math.max(0, 16 - navRect.left);
+        // Ensure menu never clips the right of the viewport
+        const maxLeft = Math.max(minLeft, window.innerWidth - 16 - navRect.left - menuWidth);
+        
+        const clampedLeft = Math.max(minLeft, Math.min(idealLeft, maxLeft));
+        const arrowPos = tabCenterInNav - clampedLeft;
+        
+        setDropdownPos({
+          left: clampedLeft,
+          arrowLeft: Math.max(28, Math.min(arrowPos, menuWidth - 28))
+        });
+      }
+    };
+
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    return () => window.removeEventListener('resize', updatePosition);
+  }, [activeMegaCategory]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -481,10 +564,13 @@ export const AdminLayout: React.FC = () => {
                 <span className="text-[8px] xl:text-[9px] font-bold text-transparent bg-clip-text bg-gradient-to-r from-indigo-500 to-purple-500 uppercase tracking-[0.18em] mt-0.5">Admin Hub</span>
               </div>
             </Link>
-          </div>
-          {/* Desktop Top Primary Categories Navigation Tabs */}
-          <nav ref={megaMenuRef} className="hidden lg:flex items-center gap-1 xl:gap-1.5 relative h-full shrink-0">
-            {visibleCategories.map((category, catIdx) => {
+          </div>          {/* Desktop Top Primary Categories Navigation Tabs */}
+          <nav 
+            ref={megaMenuRef} 
+            className="hidden lg:flex items-center gap-1 xl:gap-1.5 relative h-full shrink-0"
+            onMouseLeave={() => setActiveMegaCategory(null)}
+          >
+            {visibleCategories.map((category) => {
               const isCategoryActive = category.items.some(item =>
                 item.path === '/admin'
                   ? location.pathname === '/admin'
@@ -492,15 +578,15 @@ export const AdminLayout: React.FC = () => {
               );
               const isOpen = activeMegaCategory === category.key;
               const liveStatBadge = getCategoryStatBadge(category.key);
-              const isRightAligned = catIdx >= Math.floor(visibleCategories.length / 2);
 
               return (
                 <div
                   key={category.key}
-                  className="relative h-full flex items-center shrink-0"
+                  className="h-full flex items-center shrink-0"
                   onMouseEnter={() => setActiveMegaCategory(category.key)}
                 >
                   <button
+                    ref={el => { tabRefs.current[category.key] = el; }}
                     onClick={() => setActiveMegaCategory(isOpen ? null : category.key)}
                     className={`group flex items-center gap-1.5 xl:gap-2 px-2.5 xl:px-3.5 py-1.5 xl:py-2 rounded-xl xl:rounded-2xl text-xs font-bold transition-all duration-200 cursor-pointer ${
                       isCategoryActive || isOpen
@@ -530,60 +616,98 @@ export const AdminLayout: React.FC = () => {
                       expand_more
                     </span>
                   </button>
+                </div>
+              );
+            })}
 
-                  {/* 2-Column Pro Max Mega-Menu Dropdown Popover with Smart Alignment */}
-                  {isOpen && (
-                    <div
-                      onMouseLeave={() => setActiveMegaCategory(null)}
-                      className={`absolute top-full mt-2 w-[680px] max-w-[calc(100vw-2rem)] bg-white/95 dark:bg-[#0F172A]/95 backdrop-blur-2xl rounded-3xl shadow-2xl shadow-indigo-950/20 border border-slate-200/90 dark:border-slate-800 z-[150] animate-in fade-in zoom-in-95 overflow-hidden flex ${
-                        isRightAligned ? 'right-0' : 'left-0'
-                      }`}
-                    >
-                      {/* Left Column: Category Summary & Quick Action Card */}
-                      <div className="w-56 bg-gradient-to-b from-slate-50/80 to-indigo-50/40 dark:from-slate-900 dark:to-slate-800/50 p-4 border-r border-slate-100 dark:border-slate-800 flex flex-col justify-between shrink-0">
-                        <div>
-                          <div className="flex items-center gap-2.5 mb-3">
-                            <div className="size-9 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white flex items-center justify-center shadow-md">
-                              <span className="material-symbols-outlined text-[18px]">{category.icon}</span>
-                            </div>
-                            <div>
-                              <p className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-wider">{category.title}</p>
-                              <p className="text-[10px] font-semibold text-slate-400">{category.items.length} Active Modules</p>
-                            </div>
-                          </div>
+            {/* Anchored Pro Max Mega-Menu Dropdown Popover with Smart Clamped Alignment */}
+            {(() => {
+              const activeCategory = visibleCategories.find(c => c.key === activeMegaCategory);
+              if (!activeCategory) return null;
 
-                          <div className="p-3 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md rounded-2xl border border-slate-200/70 dark:border-slate-700/70 shadow-sm space-y-1 mb-3">
-                            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Live Metric</p>
-                            <p className="text-sm font-black text-indigo-600 dark:text-indigo-400">{liveStatBadge}</p>
-                            <p className="text-[10px] text-slate-500 dark:text-slate-400">Synced with MySQL tables</p>
-                          </div>
+              const liveStatBadge = getCategoryStatBadge(activeCategory.key);
+              const themeStyles = getCategoryThemeStyles(activeCategory.colorTheme);
+
+              return (
+                <div
+                  onMouseEnter={() => setActiveMegaCategory(activeCategory.key)}
+                  onMouseLeave={() => setActiveMegaCategory(null)}
+                  className="absolute top-full mt-2 w-[740px] max-w-[calc(100vw-2rem)] bg-white dark:bg-[#0F172A] rounded-3xl shadow-2xl shadow-slate-950/20 dark:shadow-black/70 border border-slate-200/90 dark:border-slate-800 z-[150] animate-in fade-in-0 zoom-in-95 duration-150 overflow-hidden flex transition-[left] duration-150 ease-out before:absolute before:-top-3 before:left-0 before:right-0 before:h-4 before:content-['']"
+                  style={{
+                    left: `${dropdownPos?.left ?? 0}px`
+                  }}
+                >
+                  {/* Arrow notch indicator pointing directly to the active tab */}
+                  <div
+                    className="absolute -top-1.5 w-3.5 h-3.5 bg-white dark:bg-[#0F172A] border-t border-l border-slate-200/90 dark:border-slate-800 rotate-45 z-20 transition-all duration-150 shadow-[-2px_-2px_4px_rgba(0,0,0,0.03)]"
+                    style={{
+                      left: `${dropdownPos?.arrowLeft ?? 60}px`,
+                      transform: 'translateX(-50%) rotate(45deg)'
+                    }}
+                  />
+
+                  {/* Left Column: Category Summary & Quick Action Card */}
+                  <div className={`w-60 bg-gradient-to-b ${themeStyles.bg} bg-slate-50/70 dark:bg-slate-900/70 p-5 border-r border-slate-100 dark:border-slate-800 flex flex-col justify-between shrink-0 relative z-10`}>
+                    <div>
+                      <div className="flex items-center gap-3 mb-4">
+                        <div className={`size-10 rounded-2xl bg-gradient-to-br ${themeStyles.iconBg} text-white flex items-center justify-center shadow-md`}>
+                          <span className="material-symbols-outlined text-[20px]">{activeCategory.icon}</span>
                         </div>
-
-                        <div className="space-y-2">
-                          {/* Quick Action Trigger */}
-                          {hasPermission(category.quickAction.module as any, 'manage') && (
-                            <button
-                              onClick={() => {
-                                navigate(category.quickAction.path);
-                                setActiveMegaCategory(null);
-                              }}
-                              className="w-full flex items-center justify-center gap-2 py-2.5 px-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-xs font-bold rounded-xl shadow-md hover:opacity-95 active:scale-95 transition-all cursor-pointer"
-                            >
-                              <span className="material-symbols-outlined text-[16px]">{category.quickAction.icon}</span>
-                              <span className="truncate">{category.quickAction.label}</span>
-                            </button>
-                          )}
-
-                          <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 px-1">
-                            <span>Shortcut</span>
-                            <span className="bg-slate-200/70 dark:bg-slate-700/70 px-1.5 py-0.5 rounded text-slate-700 dark:text-slate-300 font-mono">{category.altShortcut}</span>
-                          </div>
+                        <div>
+                          <p className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-wider">{activeCategory.title}</p>
+                          <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">{activeCategory.items.length} Modules Available</p>
                         </div>
                       </div>
 
-                      {/* Right Column: Subcategories Grid */}
-                      <div className="flex-1 p-3 grid grid-cols-2 gap-2 max-h-[440px] overflow-y-auto overscroll-contain">
-                        {category.items.map((item) => {
+                      <div className="p-3.5 bg-white dark:bg-slate-850 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 shadow-sm space-y-1.5 mb-4">
+                        <div className="flex items-center justify-between">
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">Live Status</p>
+                          <span className="flex h-2 w-2 relative">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                          </span>
+                        </div>
+                        <p className={`text-sm font-black ${themeStyles.statColor}`}>{liveStatBadge}</p>
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">Real-time Cloud Sync</p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3 pt-2">
+                      {/* Quick Action Trigger */}
+                      {hasPermission(activeCategory.quickAction.module as any, 'manage') && (
+                        <button
+                          onClick={() => {
+                            navigate(activeCategory.quickAction.path);
+                            setActiveMegaCategory(null);
+                          }}
+                          className={`w-full flex items-center justify-center gap-2 py-2.5 px-3 bg-gradient-to-r ${themeStyles.btn} text-white text-xs font-bold rounded-xl shadow-md hover:opacity-95 active:scale-95 transition-all cursor-pointer`}
+                        >
+                          <span className="material-symbols-outlined text-[16px]">{activeCategory.quickAction.icon}</span>
+                          <span className="truncate">{activeCategory.quickAction.label}</span>
+                        </button>
+                      )}
+
+                      <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 dark:text-slate-400 px-1">
+                        <span>Quick Switch</span>
+                        <span className="bg-slate-200/80 dark:bg-slate-700/80 px-2 py-0.5 rounded-md text-slate-700 dark:text-slate-300 font-mono text-[11px]">{activeCategory.altShortcut}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right Column: Subcategories Grid */}
+                  <div className="flex-1 p-4 bg-white dark:bg-[#0F172A] flex flex-col justify-between relative z-10">
+                    <div>
+                      <div className="flex items-center justify-between mb-3 px-1">
+                        <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                          {activeCategory.title} Modules
+                        </span>
+                        <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">
+                          Click to open
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 max-h-[420px] overflow-y-auto overscroll-contain pr-1">
+                        {activeCategory.items.map((item) => {
                           const isItemActive = item.path === '/admin'
                             ? location.pathname === '/admin'
                             : location.pathname === item.path || location.pathname.startsWith(item.path + '/');
@@ -593,32 +717,34 @@ export const AdminLayout: React.FC = () => {
                               key={item.path}
                               to={item.path}
                               onClick={() => setActiveMegaCategory(null)}
-                              className={`flex items-start gap-2.5 p-2.5 rounded-2xl transition-all duration-150 group text-left ${
+                              className={`flex items-start gap-3 p-2.5 rounded-2xl transition-all duration-150 group text-left ${
                                 isItemActive
-                                  ? 'bg-indigo-50/80 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800/60 shadow-sm'
-                                  : 'hover:bg-slate-50 dark:hover:bg-slate-800/50 border border-transparent'
+                                  ? 'bg-indigo-50/90 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800/80 shadow-sm'
+                                  : 'hover:bg-slate-50 dark:hover:bg-slate-850 border border-transparent'
                               }`}
                             >
                               <div className={`size-8 rounded-xl flex items-center justify-center shrink-0 transition-transform group-hover:scale-110 ${
-                                isItemActive ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 group-hover:bg-indigo-500 group-hover:text-white'
+                                isItemActive 
+                                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20' 
+                                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 group-hover:bg-indigo-600 group-hover:text-white group-hover:shadow-md'
                               }`}>
                                 <span className="material-symbols-outlined text-[16px]">{item.icon}</span>
                               </div>
                               <div className="flex-1 min-w-0">
-                                <div className="flex items-center justify-between">
+                                <div className="flex items-center justify-between gap-1">
                                   <p className={`text-xs font-bold truncate ${
-                                    isItemActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-900 dark:text-white group-hover:text-indigo-500'
+                                    isItemActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400'
                                   }`}>
                                     {item.name}
                                   </p>
                                   {item.tag && (
-                                    <span className="text-[9px] font-bold text-slate-400 dark:text-slate-500 ml-1 shrink-0">
+                                    <span className="text-[9px] font-semibold text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded shrink-0">
                                       {item.tag}
                                     </span>
                                   )}
                                 </div>
                                 {item.desc && (
-                                  <p className="text-[10px] text-slate-400 dark:text-slate-500 line-clamp-1 mt-0.5">
+                                  <p className="text-[10px] text-slate-500 dark:text-slate-400 line-clamp-1 mt-0.5">
                                     {item.desc}
                                   </p>
                                 )}
@@ -628,10 +754,10 @@ export const AdminLayout: React.FC = () => {
                         })}
                       </div>
                     </div>
-                  )}
+                  </div>
                 </div>
               );
-            })}
+            })()}
           </nav>
 
           {/* Right Section Header Controls (Anchored & Shrink-0) */}

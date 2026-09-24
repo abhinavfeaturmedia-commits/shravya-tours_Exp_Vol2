@@ -112,24 +112,27 @@ const INITIAL_CUSTOMERS: Customer[] = [
 ];
 
 const INITIAL_MASTER_LOCATIONS: MasterLocation[] = [
-  { id: 'LOC-001', name: 'Delhi', type: 'City', region: 'North India', status: 'Active' },
-  { id: 'LOC-002', name: 'Leh Ladakh', type: 'City', region: 'Ladakh', status: 'Active' },
-  { id: 'LOC-003', name: 'Srinagar', type: 'City', region: 'Kashmir', status: 'Active' },
-  { id: 'LOC-004', name: 'Goa', type: 'State', region: 'West India', status: 'Active' },
-  { id: 'LOC-005', name: 'Manali', type: 'City', region: 'Himachal Pradesh', status: 'Active' },
-  { id: 'LOC-006', name: 'Kerala', type: 'State', region: 'South India', status: 'Active' },
-  { id: 'LOC-007', name: 'Jaipur', type: 'City', region: 'Rajasthan', status: 'Active' },
-  { id: 'LOC-008', name: 'Udaipur', type: 'City', region: 'Rajasthan', status: 'Active' },
-  { id: 'LOC-009', name: 'Agra', type: 'City', region: 'Uttar Pradesh', status: 'Active' },
-  { id: 'LOC-010', name: 'Varanasi', type: 'City', region: 'Uttar Pradesh', status: 'Active' },
-  { id: 'LOC-011', name: 'Shimla', type: 'City', region: 'Himachal Pradesh', status: 'Active' },
-  { id: 'LOC-012', name: 'Andaman', type: 'State', region: 'Bay of Bengal', status: 'Active' },
-  { id: 'LOC-013', name: 'Dubai', type: 'City', region: 'UAE', status: 'Active' },
-  { id: 'LOC-014', name: 'Bali', type: 'City', region: 'Indonesia', status: 'Active' },
-  { id: 'LOC-015', name: 'Singapore', type: 'Country', region: 'Southeast Asia', status: 'Active' },
-  { id: 'LOC-016', name: 'Thailand', type: 'Country', region: 'Southeast Asia', status: 'Active' },
-  { id: 'LOC-017', name: 'Maldives', type: 'Country', region: 'Indian Ocean', status: 'Active' },
-  { id: 'LOC-018', name: 'Vietnam', type: 'Country', region: 'Southeast Asia', status: 'Active' },
+  { id: 'LOC-000', name: 'India', type: 'Country', region: 'South Asia', country: 'India', countryCode: 'IN', currency: 'INR', status: 'Active' },
+  { id: 'LOC-001', name: 'Delhi', type: 'City', region: 'North India', state: 'Delhi', country: 'India', status: 'Active' },
+  { id: 'LOC-002', name: 'Leh Ladakh', type: 'City', region: 'Ladakh', state: 'Ladakh', country: 'India', status: 'Active' },
+  { id: 'LOC-003', name: 'Srinagar', type: 'City', region: 'Kashmir', state: 'Jammu & Kashmir', country: 'India', status: 'Active' },
+  { id: 'LOC-004', name: 'Goa', type: 'State', region: 'West India', state: 'Goa', country: 'India', status: 'Active' },
+  { id: 'LOC-005', name: 'Manali', type: 'City', region: 'Himachal Pradesh', state: 'Himachal Pradesh', country: 'India', status: 'Active' },
+  { id: 'LOC-006', name: 'Kerala', type: 'State', region: 'South India', state: 'Kerala', country: 'India', status: 'Active' },
+  { id: 'LOC-007', name: 'Jaipur', type: 'City', region: 'Rajasthan', state: 'Rajasthan', country: 'India', status: 'Active' },
+  { id: 'LOC-008', name: 'Udaipur', type: 'City', region: 'Rajasthan', state: 'Rajasthan', country: 'India', status: 'Active' },
+  { id: 'LOC-009', name: 'Agra', type: 'City', region: 'Uttar Pradesh', state: 'Uttar Pradesh', country: 'India', status: 'Active' },
+  { id: 'LOC-010', name: 'Varanasi', type: 'City', region: 'Uttar Pradesh', state: 'Uttar Pradesh', country: 'India', status: 'Active' },
+  { id: 'LOC-011', name: 'Shimla', type: 'City', region: 'Himachal Pradesh', state: 'Himachal Pradesh', country: 'India', status: 'Active' },
+  { id: 'LOC-012', name: 'Andaman', type: 'State', region: 'Bay of Bengal', state: 'Andaman & Nicobar', country: 'India', status: 'Active' },
+  { id: 'LOC-013', name: 'Dubai', type: 'City', region: 'UAE', state: 'Dubai Emirate', country: 'United Arab Emirates', status: 'Active' },
+  { id: 'LOC-014', name: 'Bali', type: 'City', region: 'Indonesia', state: 'Bali Province', country: 'Indonesia', status: 'Active' },
+  { id: 'LOC-015', name: 'Singapore', type: 'Country', region: 'Southeast Asia', country: 'Singapore', countryCode: 'SG', currency: 'SGD', status: 'Active' },
+  { id: 'LOC-016', name: 'Thailand', type: 'Country', region: 'Southeast Asia', country: 'Thailand', countryCode: 'TH', currency: 'THB', status: 'Active' },
+  { id: 'LOC-017', name: 'Maldives', type: 'Country', region: 'Indian Ocean', country: 'Maldives', countryCode: 'MV', currency: 'MVR', status: 'Active' },
+  { id: 'LOC-018', name: 'Vietnam', type: 'Country', region: 'Southeast Asia', country: 'Vietnam', countryCode: 'VN', currency: 'VND', status: 'Active' },
+  { id: 'LOC-019', name: 'United Arab Emirates', type: 'Country', region: 'Middle East', country: 'United Arab Emirates', countryCode: 'AE', currency: 'AED', status: 'Active' },
+  { id: 'LOC-020', name: 'Switzerland', type: 'Country', region: 'Europe', country: 'Switzerland', countryCode: 'CH', currency: 'CHF', status: 'Active' },
 ];
 
 const INITIAL_MASTER_HOTELS: MasterHotel[] = [
@@ -277,7 +280,7 @@ interface DataContextType {
   getFollowUpsByLeadId: (leadId: string) => FollowUp[];
 
   // Package Functions
-  addPackage: (pkg: Package) => void;
+  addPackage: (pkg: Package) => Promise<Package>;
   updatePackage: (id: string, pkg: Partial<Package>) => void;
   deletePackage: (id: string) => void;
 

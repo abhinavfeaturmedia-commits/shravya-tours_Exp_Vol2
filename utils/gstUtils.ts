@@ -101,3 +101,116 @@ export function getStateFromGstin(gstin: string): GstState | null {
   const matched = INDIAN_GST_STATES.find(s => s.code === stateCode);
   return matched || null;
 }
+
+/**
+ * Indian GST SAC (Services Accounting Code) structure for Tours, Travel & Cab Bookings.
+ * Default SAC code is 996601: Passenger Vehicle Rental with Operator (Cab/Taxi bookings).
+ */
+export interface SacCodeItem {
+  code: string;
+  name: string;
+  shortName: string;
+  category: 'Cab & Vehicle Rental' | 'Tour Operator & Packages' | 'Travel Agency & Ticketing' | 'Accommodation & Stays' | 'Other Travel Services';
+  gstRate: number; // Standard applicable GST rate in %
+  gstRateDescription: string;
+  description: string;
+}
+
+export const DEFAULT_SAC_CODE = '996601';
+
+export const INDIAN_TOUR_TRAVEL_SAC_CODES: SacCodeItem[] = [
+  {
+    code: '996601',
+    name: 'Rental Services of Passenger Vehicles with Operators',
+    shortName: 'Cab / Taxi Booking with Driver',
+    category: 'Cab & Vehicle Rental',
+    gstRate: 5,
+    gstRateDescription: '5% (without ITC) or 12% (with ITC)',
+    description: 'Chauffeur-driven cab booking, outstation car rentals, airport transfers, city taxis, hourly rentals.'
+  },
+  {
+    code: '996602',
+    name: 'Rental Services of Buses and Coaches with Operators',
+    shortName: 'Bus / Tempo Traveler Rental',
+    category: 'Cab & Vehicle Rental',
+    gstRate: 5,
+    gstRateDescription: '5% (without ITC) or 12% (with ITC)',
+    description: 'Mini-bus, tempo traveler, luxury tourist coach rental with operator for group & corporate journeys.'
+  },
+  {
+    code: '996411',
+    name: 'Local Passenger Transportation Services by Road',
+    shortName: 'Local Road Passenger Transport',
+    category: 'Cab & Vehicle Rental',
+    gstRate: 5,
+    gstRateDescription: '5% (without ITC)',
+    description: 'Point-to-point road passenger transportation by metered cabs, app taxis, or stage carriages.'
+  },
+  {
+    code: '996412',
+    name: 'Sightseeing & Non-scheduled Passenger Transportation',
+    shortName: 'Sightseeing Passenger Transport',
+    category: 'Cab & Vehicle Rental',
+    gstRate: 5,
+    gstRateDescription: '5% (without ITC)',
+    description: 'Dedicated sightseeing transport, chartered tourist bus circuits, special event passenger road transport.'
+  },
+  {
+    code: '998555',
+    name: 'Tour Operator Services',
+    shortName: 'Tour Package / Holiday Package',
+    category: 'Tour Operator & Packages',
+    gstRate: 5,
+    gstRateDescription: '5% (without ITC on composite package)',
+    description: 'Bundled holiday itineraries including tour arrangement, guided sightseeing, accommodation, and transport.'
+  },
+  {
+    code: '998551',
+    name: 'Travel Agency Services for Passenger Transport Reservation',
+    shortName: 'Flight / Train / Bus Ticket Booking',
+    category: 'Travel Agency & Ticketing',
+    gstRate: 18,
+    gstRateDescription: '18% on agency service fees / markup',
+    description: 'Arranging passenger transport tickets (flights, railways, luxury buses), travel itinerary curation.'
+  },
+  {
+    code: '998552',
+    name: 'Travel Agency Services for Accommodation Reservation',
+    shortName: 'Hotel & Resort Booking Services',
+    category: 'Travel Agency & Ticketing',
+    gstRate: 18,
+    gstRateDescription: '18% on facilitation commission / service charge',
+    description: 'Facilitating hotel room reservations, vacation rental bookings, resort stays.'
+  },
+  {
+    code: '996311',
+    name: 'Room or Unit Accommodation Services',
+    shortName: 'Hotel Accommodation Tariff',
+    category: 'Accommodation & Stays',
+    gstRate: 12,
+    gstRateDescription: '12% (tariffs ₹1,000–₹7,500/night) or 18% (>₹7,500)',
+    description: 'Direct room tariffs for hotel, resort, guest house, or homestay accommodations.'
+  },
+  {
+    code: '998559',
+    name: 'Tourist Guide & Other Travel Assistance Services',
+    shortName: 'Tourist Guide & Travel Assistance',
+    category: 'Other Travel Services',
+    gstRate: 18,
+    gstRateDescription: '18% standard rate',
+    description: 'Certified tourist guides, safari trackers, trekking leaders, visa consultation, baggage assistance.'
+  }
+];
+
+export function getSacDetails(code?: string): SacCodeItem | undefined {
+  if (!code) return undefined;
+  const clean = code.trim();
+  return INDIAN_TOUR_TRAVEL_SAC_CODES.find(s => s.code === clean);
+}
+
+export function formatSacDisplay(code?: string): string {
+  if (!code) return DEFAULT_SAC_CODE;
+  const item = getSacDetails(code);
+  return item ? `${item.code} (${item.shortName})` : code;
+}
+

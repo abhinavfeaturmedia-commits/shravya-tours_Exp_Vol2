@@ -2233,13 +2233,17 @@ export const PackageDetail: React.FC = () => {
 
                   {/* Actions */}
                   <div className="p-6 pt-4 border-t border-slate-100 dark:border-slate-800/80 bg-white dark:bg-[#151d29] space-y-4 shrink-0">
-                    <div className="flex gap-2">
+                    <div className="flex items-center gap-3">
                       <button
                         onClick={handleToggleWishlist}
-                        className="size-14 rounded-2xl border border-slate-200 hover:bg-slate-50 flex items-center justify-center transition-all shrink-0 text-red-500 bg-white"
-                        title="Save to Wishlist"
+                        className={`size-14 rounded-2xl border transition-all flex items-center justify-center shrink-0 ${
+                          isWishlisted
+                            ? 'bg-rose-50 border-rose-200 text-rose-500 dark:bg-rose-950/30 dark:border-rose-800'
+                            : 'bg-slate-50 dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 text-slate-400 hover:text-rose-500'
+                        }`}
+                        title={isWishlisted ? "Remove from Wishlist" : "Save to Wishlist"}
                       >
-                        <span className="material-symbols-outlined text-[24px]" style={{ fontVariationSettings: isWishlisted ? "'FILL' 1" : "'FILL' 0" }}>
+                        <span className={`material-symbols-outlined text-2xl ${isWishlisted ? 'fill-current' : ''}`}>
                           favorite
                         </span>
                       </button>

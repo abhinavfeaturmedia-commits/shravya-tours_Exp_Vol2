@@ -140,7 +140,7 @@ export const ALL_MODULE_DEFINITIONS: ModuleDefinition[] = [
       { key: 'delete_lead', name: 'Permanently Delete Lead', description: 'Hard delete lead records from the CRM', risk: 'critical', defaultStaff: false, defaultAdmin: true },
       { key: 'change_status', name: 'Update Pipeline Stage', description: 'Move leads between New, Contacted, Quoted, Won, or Lost', risk: 'low', defaultStaff: true, defaultAdmin: true },
       { key: 'reassign_staff', name: 'Reassign Lead to Another Staff', description: 'Transfer lead ownership to a different team member', risk: 'high', defaultStaff: false, defaultAdmin: true },
-      { key: 'mask_contacts', name: 'Mask Client Contact Numbers', description: 'Hide phone & email (+91 98*** **210) to prevent lead poaching', risk: 'high', defaultStaff: true, defaultAdmin: false },
+      { key: 'mask_contacts', name: 'Mask Client Contact Numbers', description: 'Hide phone & email to prevent lead poaching', risk: 'high', defaultStaff: false, defaultAdmin: false },
       { key: 'export_leads', name: 'Export Leads to CSV / Excel', description: 'Download client database and lead records', risk: 'critical', defaultStaff: false, defaultAdmin: true },
       { key: 'import_leads', name: 'Import Leads from CSV / Excel', description: 'Bulk upload lead records into CRM', risk: 'high', defaultStaff: false, defaultAdmin: true },
       { key: 'send_communication', name: 'Direct WhatsApp & Email Messaging', description: 'Send templates and direct messages from CRM', risk: 'low', defaultStaff: true, defaultAdmin: true },
@@ -454,6 +454,28 @@ export const ALL_MODULE_DEFINITIONS: ModuleDefinition[] = [
       { key: 'download_pdf', name: 'Download Branded Invoice PDF', description: 'Generate official PDF invoice for client or accounting', risk: 'low', defaultStaff: true, defaultAdmin: true },
     ]
   },
+  {
+    key: 'incentives',
+    name: 'Incentive Management',
+    category: 'finance',
+    path: '/admin/incentives',
+    icon: 'monetization_on',
+    description: 'Booking-driven commissions, profit-linked employee incentives, monthly runs & payouts',
+    hasScope: true,
+    defaultScope: 'department',
+    subFeatures: [
+      { key: 'view_own_incentives', name: 'View My Incentives', description: 'Access personal monthly incentive, target achievement, and earnings breakdown', risk: 'low', defaultStaff: true, defaultAdmin: true },
+      { key: 'view_all_incentives', name: 'View All Employee Incentives', description: 'View company-wide employee incentive ledger and summaries', risk: 'medium', defaultStaff: false, defaultAdmin: true },
+      { key: 'calculate_runs', name: 'Run Monthly Incentive Calculations', description: 'Trigger monthly incentive calculation engine and audits', risk: 'high', defaultStaff: false, defaultAdmin: true },
+      { key: 'approve_department', name: 'Approve Department Incentives', description: 'Team Lead review and approval of departmental incentives', risk: 'high', defaultStaff: false, defaultAdmin: true },
+      { key: 'approve_finance', name: 'Finance / Final Approval', description: 'Authorize final incentive calculation and lock run for payouts', risk: 'critical', defaultStaff: false, defaultAdmin: true },
+      { key: 'manage_rules', name: 'Configure Plans & Rules', description: 'Modify incentive percentages, slabs, KPI weights, and GP protection', risk: 'critical', defaultStaff: false, defaultAdmin: true },
+      { key: 'manage_adjustments', name: 'Manage Bonuses & Deductions', description: 'Create manual adjustments, bonuses, and clawback reversals', risk: 'high', defaultStaff: false, defaultAdmin: true },
+      { key: 'manage_payouts', name: 'Manage Payout Batches', description: 'Create payout batches and mark incentives as paid', risk: 'critical', defaultStaff: false, defaultAdmin: true },
+      { key: 'raise_disputes', name: 'Raise Incentive Dispute', description: 'Submit dispute for commission calculation review', risk: 'low', defaultStaff: true, defaultAdmin: true },
+      { key: 'export_reports', name: 'Export Incentive Reports', description: 'Export monthly incentive sheets, ledger, and payout reports to CSV', risk: 'medium', defaultStaff: false, defaultAdmin: true },
+    ]
+  },
 
   // ─── 5. TEAM & SYSTEM ───
   {
@@ -755,8 +777,8 @@ export const normalizePermissions = (
       if (rawMod && typeof rawMod === 'object' && rawMod.features && typeof rawMod.features[feat.key] === 'boolean') {
         features[feat.key] = rawMod.features[feat.key];
       } else {
-        // Default based on manage flag or defaultStaff
-        features[feat.key] = manage ? true : feat.defaultStaff;
+        // Default based on manage flag or defaultStaff (never default mask_contacts to true)
+        features[feat.key] = feat.key === 'mask_contacts' ? false : (manage ? true : feat.defaultStaff);
       }
     }
 
@@ -822,7 +844,7 @@ export const ROLE_PRESETS: RolePreset[] = [
         perms.leads.features.delete_lead = false;
         perms.leads.features.export_leads = false;
         perms.leads.features.reassign_staff = false;
-        perms.leads.features.mask_contacts = true; // Mask phone
+        perms.leads.features.mask_contacts = false; // Contacts visible for sales calls & WhatsApp
       }
       // Safety locks on Bookings
       if (perms.bookings) {

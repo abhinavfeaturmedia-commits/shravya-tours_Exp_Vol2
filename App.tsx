@@ -86,6 +86,7 @@ const AdminKYCManager = lazy(() => import('./pages/admin/AdminKYCManager').then(
 const TrainingManager = lazy(() => import('./pages/admin/TrainingManager').then(module => ({ default: module.TrainingManager })));
 const StaffTraining = lazy(() => import('./pages/admin/StaffTraining').then(module => ({ default: module.StaffTraining })));
 const Attendance = lazy(() => import('./pages/admin/Attendance').then(module => ({ default: module.Attendance || module.default })));
+const Incentives = lazy(() => import('./pages/admin/Incentives').then(module => ({ default: module.Incentives })));
 
 // Partner Portal Pages
 const PartnerLogin = lazy(() => import('./pages/partner/PartnerLogin').then(m => ({ default: m.PartnerLogin })));
@@ -182,6 +183,8 @@ const App: React.FC = () => {
                   <Route path="itinerary-builder" element={<ItineraryBuilder />} />
                   <Route path="accounts" element={<AdminAccounts />} />
                   <Route path="expenses" element={<AdminExpenses />} />
+                  <Route path="incentives" element={<Incentives />} />
+                  <Route path="my-incentives" element={<Incentives defaultTab="my_incentives" />} />
                   <Route path="finance-verification" element={<FinanceVerification />} />
                   <Route path="proposals" element={<AdminProposals />} />
                   <Route path="proposals/:id" element={<ProposalBuilder />} />

@@ -2070,7 +2070,7 @@ export const StaffManagement: React.FC = () => {
                                                     {/* Critical Security Posture Badges */}
                                                     {(() => {
                                                         const p = selectedMember.permissions as Record<string, any> | undefined;
-                                                        const leadsMasked = p?.leads?.features?.mask_contacts !== false;
+                                                        const leadsMasked = p?.leads?.features?.mask_contacts === true;
                                                         const marginsVisible = p?.bookings?.features?.view_cost_margins === true || p?.leads?.features?.view_profit_margin === true;
                                                         const canApproveFinance = p?.inbox?.features?.approve_payments === true;
                                                         const canDeleteRecords = p?.leads?.features?.delete_lead === true || p?.bookings?.features?.cancel_booking === true;

@@ -48,7 +48,7 @@ export const Leads: React.FC = () => {
     const { addFollowUp, followUps, customers, addCustomer, tasks, updateTask, addTask, deleteTask, updateFollowUp } = useData();
     const { leads, addLead, updateLead, deleteLead, addLeadLog, updateLeadLog, deleteLeadLog, isLoading, refetchLeads } = useLeads();
     const { bookings, addBooking } = useBookings();
-    const { currentUser, staff, hasPermission, canAccess, isContactMasked } = useAuth();
+    const { currentUser, staff, hasPermission, canAccess } = useAuth();
     const { transfers, refetchTransfers } = useTransfers();
     const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
     const navigate = useNavigate();
@@ -61,13 +61,6 @@ export const Leads: React.FC = () => {
             (b.leadId && String(b.leadId) === String(lead.id))
         );
     }, [bookings]);
-
-    const maskPhoneNumber = (phone?: string) => {
-        if (!phone) return '';
-        const clean = phone.trim();
-        if (clean.length <= 5) return '***';
-        return clean.slice(0, 3) + '*****' + clean.slice(-2);
-    };
 
     // UI State
     const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
@@ -2396,18 +2389,10 @@ export const Leads: React.FC = () => {
                             <div className="grid grid-cols-2 gap-y-4 gap-x-4">
                                 <div>
                                     <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Primary Phone</p>
-                                    {isContactMasked('leads') ? (
-                                        <span className="text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5" title="Client phone is masked for data privacy">
-                                            <Phone size={14} className="text-amber-500" />
-                                            <span>{maskPhoneNumber(selectedLead.phone)}</span>
-                                            <span className="text-[9px] font-black uppercase tracking-wider bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 px-1.5 py-0.5 rounded">Masked</span>
-                                        </span>
-                                    ) : (
-                                        <a href={`tel:${selectedLead.phone}`} className="text-sm font-bold text-slate-900 dark:text-white hover:underline hover:text-primary flex items-center gap-1.5">
-                                            <Phone size={14} className="text-primary" />
-                                            {selectedLead.phone}
-                                        </a>
-                                    )}
+                                    <a href={`tel:${selectedLead.phone}`} className="text-sm font-bold text-slate-900 dark:text-white hover:underline hover:text-primary flex items-center gap-1.5" title="Call client">
+                                        <Phone size={14} className="text-primary" />
+                                        <span>{selectedLead.phone}</span>
+                                    </a>
                                 </div>
                                 <div>
                                     <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Email Address</p>
@@ -2419,33 +2404,19 @@ export const Leads: React.FC = () => {
                                 {selectedLead.altPhone && (
                                     <div>
                                         <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Alternate Phone</p>
-                                        {isContactMasked('leads') ? (
-                                            <span className="text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                                                <span className="material-symbols-outlined text-amber-500 text-[14px]">phone_iphone</span>
-                                                {maskPhoneNumber(selectedLead.altPhone)}
-                                            </span>
-                                        ) : (
-                                            <a href={`tel:${selectedLead.altPhone}`} className="text-sm font-bold text-slate-900 dark:text-white hover:underline hover:text-primary flex items-center gap-1.5">
-                                                <span className="material-symbols-outlined text-primary text-[14px]">phone_iphone</span>
-                                                {selectedLead.altPhone}
-                                            </a>
-                                        )}
+                                        <a href={`tel:${selectedLead.altPhone}`} className="text-sm font-bold text-slate-900 dark:text-white hover:underline hover:text-primary flex items-center gap-1.5" title="Call alternate phone">
+                                            <span className="material-symbols-outlined text-primary text-[14px]">phone_iphone</span>
+                                            <span>{selectedLead.altPhone}</span>
+                                        </a>
                                     </div>
                                 )}
                                 {selectedLead.whatsapp && (
                                     <div>
                                         <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">WhatsApp Number</p>
-                                        {isContactMasked('leads') ? (
-                                            <span className="text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                                                <MessageCircle size={14} className="text-amber-500" />
-                                                {maskPhoneNumber(selectedLead.whatsapp)}
-                                            </span>
-                                        ) : (
-                                            <a href={`https://wa.me/${selectedLead.whatsapp.replace(/\D/g, '')}`} target="_blank" className="text-sm font-bold text-green-600 dark:text-green-400 hover:underline flex items-center gap-1.5">
-                                                <MessageCircle size={14} className="text-green-500" />
-                                                {selectedLead.whatsapp}
-                                            </a>
-                                        )}
+                                        <a href={`https://wa.me/${selectedLead.whatsapp.replace(/\D/g, '')}`} target="_blank" rel="noreferrer" className="text-sm font-bold text-green-600 dark:text-green-400 hover:underline flex items-center gap-1.5" title="Message on WhatsApp">
+                                            <MessageCircle size={14} className="text-green-500" />
+                                            <span>{selectedLead.whatsapp}</span>
+                                        </a>
                                     </div>
                                 )}
                             </div>
@@ -2626,42 +2597,32 @@ export const Leads: React.FC = () => {
                         <div className="mb-8">
                             <h3 className="text-xs font-bold text-slate-400 uppercase mb-4 tracking-wider section-heading-accent">Communication</h3>
                             <div className="grid grid-cols-3 gap-3 mb-3">
-                                {isContactMasked('leads') ? (
-                                    <button
-                                        type="button"
-                                        onClick={() => toast.info('Client phone number is masked for data privacy.')}
-                                        className="flex flex-col items-center justify-center p-3 rounded-xl border border-slate-200 dark:border-slate-800 opacity-60 cursor-not-allowed text-slate-400 gap-2"
-                                        title="Phone number masked"
-                                    >
-                                        <div className="h-8 w-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 flex items-center justify-center"><Phone size={16} /></div>
-                                        <span className="text-xs font-bold">Call (Masked)</span>
-                                    </button>
-                                ) : (
-                                    <a href={`tel:${selectedLead.phone}`} className="flex flex-col items-center justify-center p-3 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-primary/50 hover:bg-primary/5 transition-all text-slate-600 dark:text-slate-300 hover:text-primary gap-2">
-                                        <div className="h-8 w-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center"><Phone size={16} /></div>
-                                        <span className="text-xs font-bold">Call</span>
-                                    </a>
-                                )}
-                                <a href={`mailto:${selectedLead.email}`} className="flex flex-col items-center justify-center p-3 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-purple-500/50 hover:bg-purple-50 dark:hover:bg-purple-900/10 transition-all text-slate-600 dark:text-slate-300 hover:text-purple-600 gap-2">
+                                <a 
+                                    href={`tel:${selectedLead.phone}`} 
+                                    className="flex flex-col items-center justify-center p-3 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-primary/50 hover:bg-primary/5 transition-all text-slate-600 dark:text-slate-300 hover:text-primary gap-2"
+                                    title={`Call ${selectedLead.phone || 'Client'}`}
+                                >
+                                    <div className="h-8 w-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center"><Phone size={16} /></div>
+                                    <span className="text-xs font-bold">Call</span>
+                                </a>
+                                <a 
+                                    href={`mailto:${selectedLead.email}`} 
+                                    className="flex flex-col items-center justify-center p-3 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-purple-500/50 hover:bg-purple-50 dark:hover:bg-purple-900/10 transition-all text-slate-600 dark:text-slate-300 hover:text-purple-600 gap-2"
+                                    title={`Email ${selectedLead.email}`}
+                                >
                                     <div className="h-8 w-8 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center"><Mail size={16} /></div>
                                     <span className="text-xs font-bold">Email</span>
                                 </a>
-                                {isContactMasked('leads') ? (
-                                    <button
-                                        type="button"
-                                        onClick={() => toast.info('Client WhatsApp number is masked for data privacy.')}
-                                        className="flex flex-col items-center justify-center p-3 rounded-xl border border-slate-200 dark:border-slate-800 opacity-60 cursor-not-allowed text-slate-400 gap-2"
-                                        title="WhatsApp number masked"
-                                    >
-                                        <div className="h-8 w-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 flex items-center justify-center"><MessageCircle size={16} /></div>
-                                        <span className="text-xs font-bold">WhatsApp</span>
-                                    </button>
-                                ) : (
-                                    <a href={`https://wa.me/${selectedLead.phone?.replace(/\D/g, '')}`} target="_blank" className="flex flex-col items-center justify-center p-3 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-green-500/50 hover:bg-green-50 dark:hover:bg-green-900/10 transition-all text-slate-600 dark:text-slate-300 hover:text-green-600 gap-2">
-                                        <div className="h-8 w-8 rounded-full bg-green-50 text-green-600 flex items-center justify-center"><MessageCircle size={16} /></div>
-                                        <span className="text-xs font-bold">WhatsApp</span>
-                                    </a>
-                                )}
+                                <a 
+                                    href={`https://wa.me/${(selectedLead.whatsapp || selectedLead.phone)?.replace(/\D/g, '')}`} 
+                                    target="_blank" 
+                                    rel="noreferrer"
+                                    className="flex flex-col items-center justify-center p-3 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-green-500/50 hover:bg-green-50 dark:hover:bg-green-900/10 transition-all text-slate-600 dark:text-slate-300 hover:text-green-600 gap-2"
+                                    title="Open WhatsApp Chat"
+                                >
+                                    <div className="h-8 w-8 rounded-full bg-green-50 text-green-600 flex items-center justify-center"><MessageCircle size={16} /></div>
+                                    <span className="text-xs font-bold">WhatsApp</span>
+                                </a>
                             </div>
                             {hasPermission('leads', 'manage') && (
                                 <>

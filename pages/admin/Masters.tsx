@@ -30,7 +30,7 @@ import * as XLSX from 'xlsx';
 import { ImageUpload } from '../../components/ui/ImageUpload';
 import { ActionMenu } from '../../components/ui/ActionMenu';
 
-type MasterTab = 'analytics' | 'locations' | 'hotels' | 'activities' | 'transports' | 'plans' | 'room-types' | 'meal-plans' | 'lead-sources' | 'terms';
+type MasterTab = 'analytics' | 'countries' | 'locations' | 'hotels' | 'activities' | 'transports' | 'plans' | 'room-types' | 'meal-plans' | 'lead-sources' | 'terms';
 type ViewMode = 'grid' | 'list';
 type SortDirection = 'asc' | 'desc';
 
@@ -120,6 +120,27 @@ const POPULAR_ACTIVITY_TAGS = [
     'Family Friendly', 'Beginner Friendly'
 ];
 
+// Presets for Master Countries
+const POPULAR_COUNTRIES = [
+    { name: 'India', code: 'IN', currency: 'INR', region: 'South Asia' },
+    { name: 'United Arab Emirates', code: 'AE', currency: 'AED', region: 'Middle East' },
+    { name: 'Thailand', code: 'TH', currency: 'THB', region: 'Southeast Asia' },
+    { name: 'Singapore', code: 'SG', currency: 'SGD', region: 'Southeast Asia' },
+    { name: 'Maldives', code: 'MV', currency: 'MVR', region: 'Indian Ocean' },
+    { name: 'Vietnam', code: 'VN', currency: 'VND', region: 'Southeast Asia' },
+    { name: 'Switzerland', code: 'CH', currency: 'CHF', region: 'Europe' },
+    { name: 'France', code: 'FR', currency: 'EUR', region: 'Europe' },
+    { name: 'United Kingdom', code: 'GB', currency: 'GBP', region: 'Europe' },
+    { name: 'United States', code: 'US', currency: 'USD', region: 'North America' },
+    { name: 'Indonesia', code: 'ID', currency: 'IDR', region: 'Southeast Asia' },
+    { name: 'Malaysia', code: 'MY', currency: 'MYR', region: 'Southeast Asia' },
+    { name: 'Sri Lanka', code: 'LK', currency: 'LKR', region: 'South Asia' },
+    { name: 'Nepal', code: 'NP', currency: 'NPR', region: 'South Asia' },
+    { name: 'Mauritius', code: 'MU', currency: 'MUR', region: 'Indian Ocean' },
+    { name: 'Japan', code: 'JP', currency: 'JPY', region: 'East Asia' },
+    { name: 'Turkey', code: 'TR', currency: 'TRY', region: 'Middle East / Europe' },
+];
+
 // --- Dependency Detection Engine ---
 interface MasterDependency {
     total: number;
@@ -127,6 +148,7 @@ interface MasterDependency {
     bookings: { id: string; title: string; customerName?: string; status: string }[];
     leads: { id: string; name: string; destination: string }[];
     plans: { id: string; title: string }[];
+    destinations?: { id: string; name: string; type?: string }[];
     details: string;
 }
 
@@ -144,7 +166,7 @@ const calculateMasterDependencies = (
     }
 ): MasterDependency => {
     if (!item) {
-        return { total: 0, packages: [], bookings: [], leads: [], plans: [], details: 'No active dependencies' };
+        return { total: 0, packages: [], bookings: [], leads: [], plans: [], destinations: [], details: 'No active dependencies' };
     }
 
     const id = String(item.id || '');
@@ -154,13 +176,42 @@ const calculateMasterDependencies = (
     const matchedBookings: { id: string; title: string; customerName?: string; status: string }[] = [];
     const matchedLeads: { id: string; name: string; destination: string }[] = [];
     const matchedPlans: { id: string; title: string }[] = [];
+    const matchedDestinations: { id: string; name: string; type?: string }[] = [];
 
     const safePackages = Array.isArray(data.packages) ? data.packages : [];
     const safeBookings = Array.isArray(data.bookings) ? data.bookings : [];
     const safeLeads = Array.isArray(data.leads) ? data.leads : [];
     const safePlans = Array.isArray(data.masterPlans) ? data.masterPlans : [];
 
-    if (tab === 'locations') {
+    if (tab === 'countries' || (tab === 'locations' && item.type === 'Country')) {
+        // Linked cities/states belonging to this country
+        const linkedDestinations = (data.masterLocations || []).filter(l =>
+            l && l.type !== 'Country' && (String(l.country || '').toLowerCase().trim() === name || String(l.id) === id)
+        );
+        linkedDestinations.forEach(d => {
+            matchedDestinations.push({ id: String(d.id), name: d.name, type: d.type });
+        });
+        const linkedDestIds = new Set(linkedDestinations.map(d => String(d.id)));
+
+        // Match packages by country or linked cities
+        safePackages.forEach(p => {
+            if (p && (linkedDestIds.has(String(p.location || '')) || (name && String(p.location || '').toLowerCase().includes(name)))) {
+                matchedPackages.push({ id: String(p.id), title: p.title || 'Tour Package', location: p.location });
+            }
+        });
+        // Match bookings
+        safeBookings.forEach(b => {
+            if (b && (name && (String(b.destination || '').toLowerCase().includes(name) || linkedDestIds.has(String(b.location || ''))))) {
+                matchedBookings.push({ id: String(b.id), title: b.tripTitle || b.packageName || 'Trip', customerName: b.customerName, status: b.status || 'Confirmed' });
+            }
+        });
+        // Match leads
+        safeLeads.forEach(l => {
+            if (l && (name && (String(l.destination || '').toLowerCase().includes(name) || linkedDestIds.has(String(l.location || ''))))) {
+                matchedLeads.push({ id: String(l.id), name: l.name || 'Lead', destination: l.destination || '' });
+            }
+        });
+    } else if (tab === 'locations') {
         // Match packages by location id or name
         safePackages.forEach(p => {
             if (p && (String(p.location || '') === id || (name && String(p.location || '').toLowerCase().trim() === name))) {
@@ -262,8 +313,9 @@ const calculateMasterDependencies = (
         });
     }
 
-    const total = matchedPackages.length + matchedBookings.length + matchedLeads.length + matchedPlans.length;
+    const total = matchedPackages.length + matchedBookings.length + matchedLeads.length + matchedPlans.length + matchedDestinations.length;
     const parts: string[] = [];
+    if (matchedDestinations.length > 0) parts.push(`${matchedDestinations.length} Destinations`);
     if (matchedPackages.length > 0) parts.push(`${matchedPackages.length} Packages`);
     if (matchedBookings.length > 0) parts.push(`${matchedBookings.length} Bookings`);
     if (matchedLeads.length > 0) parts.push(`${matchedLeads.length} Leads`);
@@ -275,6 +327,7 @@ const calculateMasterDependencies = (
         bookings: matchedBookings,
         leads: matchedLeads,
         plans: matchedPlans,
+        destinations: matchedDestinations,
         details: parts.length > 0 ? parts.join(', ') : 'No active dependencies'
     };
 };
@@ -298,11 +351,23 @@ const MasterModal: React.FC<{
         masterLocations, masterRoomTypes, masterMealPlans
     } = useData();
 
+    // Collect all available master countries for selection
+    const availableCountries = useMemo(() => {
+        const set = new Set<string>();
+        (masterLocations || []).forEach(l => {
+            if (l.type === 'Country' && l.name) set.add(l.name.trim());
+            if (l.country) set.add(l.country.trim());
+        });
+        POPULAR_COUNTRIES.forEach(c => set.add(c.name));
+        return Array.from(set).sort();
+    }, [masterLocations]);
+
     // Initialize form state with full defaults
     const [form, setForm] = useState<any>(editingItem ? { ...editingItem } : {
         status: 'Active',
         rating: 4.5,
-        type: activeTab === 'locations' ? 'City' : activeTab === 'transports' ? 'Sedan' : undefined,
+        type: activeTab === 'countries' ? 'Country' : activeTab === 'locations' ? 'City' : activeTab === 'transports' ? 'Sedan' : undefined,
+        country: activeTab === 'countries' ? '' : 'India',
         category: activeTab === 'activities' ? 'Leisure' : activeTab === 'lead-sources' ? 'Organic' : activeTab === 'terms' ? 'Cancellation Policy' : undefined,
         code: activeTab === 'meal-plans' ? 'CP' : undefined,
         amenities: [],
@@ -329,8 +394,8 @@ const MasterModal: React.FC<{
 
     const handleSave = () => {
         // Validation for required fields
-        if (['locations', 'hotels', 'activities', 'transports', 'room-types', 'lead-sources'].includes(activeTab) && !form.name?.trim()) {
-            return toast.error('Name is required');
+        if (['countries', 'locations', 'hotels', 'activities', 'transports', 'room-types', 'lead-sources'].includes(activeTab) && !form.name?.trim()) {
+            return toast.error(activeTab === 'countries' ? 'Country name is required' : 'Name is required');
         }
         if (['plans', 'terms'].includes(activeTab) && !form.title?.trim() && !form.name?.trim()) {
             return toast.error('Title is required');
@@ -339,7 +404,7 @@ const MasterModal: React.FC<{
             return toast.error('Name and Code are required');
         }
 
-        const prefix = activeTab === 'locations' ? 'LOC' :
+        const prefix = (activeTab === 'locations' || activeTab === 'countries') ? 'LOC' :
             activeTab === 'hotels' ? 'HTL' :
                 activeTab === 'activities' ? 'ACT' :
                     activeTab === 'transports' ? 'TRN' :
@@ -358,7 +423,19 @@ const MasterModal: React.FC<{
         }
 
         // Apply defaults
-        if (activeTab === 'locations' && !data.type) data.type = 'City';
+        if (activeTab === 'countries') {
+            data.type = 'Country';
+            data.country = form.name?.trim() || form.country || 'India';
+            data.region = form.region?.trim() || 'Global';
+        }
+        if (activeTab === 'locations') {
+            if (!data.type) data.type = 'City';
+            if (data.type === 'Country') {
+                data.country = form.name?.trim() || form.country || 'India';
+            } else {
+                data.country = form.country?.trim() || 'India';
+            }
+        }
         if (activeTab === 'activities' && !data.category) data.category = 'Leisure';
         if (activeTab === 'transports' && !data.type) data.type = 'Sedan';
         if (activeTab === 'meal-plans' && !data.code) data.code = 'CP';
@@ -380,7 +457,7 @@ const MasterModal: React.FC<{
         }
 
         if (editingItem) {
-            if (activeTab === 'locations') updateMasterLocation(id, data);
+            if (activeTab === 'locations' || activeTab === 'countries') updateMasterLocation(id, data);
             else if (activeTab === 'hotels') updateMasterHotel(id, data);
             else if (activeTab === 'activities') updateMasterActivity(id, data);
             else if (activeTab === 'transports') updateMasterTransport(id, data);
@@ -391,7 +468,7 @@ const MasterModal: React.FC<{
             else if (activeTab === 'terms') updateMasterTermsTemplate(id, data);
             toast.success('Updated successfully');
         } else {
-            if (activeTab === 'locations') addMasterLocation(data);
+            if (activeTab === 'locations' || activeTab === 'countries') addMasterLocation(data);
             else if (activeTab === 'hotels') addMasterHotel(data);
             else if (activeTab === 'activities') addMasterActivity(data);
             else if (activeTab === 'transports') addMasterTransport(data);
@@ -408,7 +485,7 @@ const MasterModal: React.FC<{
     return (
         <div className="space-y-5">
             {/* Cover Image Upload */}
-            {['locations', 'hotels', 'activities', 'transports', 'room-types', 'meal-plans'].includes(activeTab) && (
+            {['countries', 'locations', 'hotels', 'activities', 'transports', 'room-types', 'meal-plans'].includes(activeTab) && (
                 <div className="flex flex-col items-center justify-center p-3 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700">
                     <ImageUpload
                         label="Cover Image"
@@ -423,42 +500,173 @@ const MasterModal: React.FC<{
             {activeTab !== 'plans' && activeTab !== 'terms' ? (
                 <div>
                     <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">
-                        Name <span className="text-red-500">*</span>
+                        {activeTab === 'countries' ? 'Country Name' : activeTab === 'hotels' ? 'Hotel Name' : activeTab === 'locations' ? 'Destination / Location Name' : 'Name'} <span className="text-red-500">*</span>
                     </label>
                     <input
                         value={form.name || ''}
-                        onChange={e => setForm({ ...form, name: e.target.value })}
+                        onChange={e => setForm({
+                            ...form,
+                            name: e.target.value,
+                            country: activeTab === 'countries' ? e.target.value : (form.country || 'India')
+                        })}
                         className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none font-medium transition-all"
-                        placeholder={`e.g., ${activeTab === 'hotels' ? 'Taj Lake Palace' : activeTab === 'locations' ? 'Jaipur' : activeTab === 'activities' ? 'Desert Dune Bashing' : 'Enter name'}`}
+                        placeholder={`e.g., ${activeTab === 'countries' ? 'Switzerland, United Arab Emirates, Thailand' : activeTab === 'hotels' ? 'Taj Lake Palace' : activeTab === 'locations' ? 'Jaipur, Dubai, Zurich' : activeTab === 'activities' ? 'Desert Dune Bashing' : 'Enter name'}`}
                         autoFocus
                     />
+                    {/* Quick Suggestions for Countries */}
+                    {activeTab === 'countries' && (
+                        <div className="mt-2 flex flex-wrap gap-1.5 items-center">
+                            <span className="text-[11px] font-bold text-slate-400 mr-1">Popular Tourism Presets:</span>
+                            {POPULAR_COUNTRIES.slice(0, 9).map(c => (
+                                <button
+                                    key={c.name}
+                                    type="button"
+                                    onClick={() => setForm({
+                                        ...form,
+                                        name: c.name,
+                                        country: c.name,
+                                        region: c.region,
+                                        countryCode: c.code,
+                                        currency: c.currency
+                                    })}
+                                    className="px-2.5 py-1 text-xs font-semibold bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 dark:bg-slate-800 dark:hover:bg-indigo-900/40 rounded-lg text-slate-600 dark:text-slate-300 transition-colors"
+                                >
+                                    {c.name}
+                                </button>
+                            ))}
+                        </div>
+                    )}
                 </div>
             ) : null}
 
+            {/* Country Specific Fields */}
+            {activeTab === 'countries' && (
+                <div className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div>
+                            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">Continent / Region</label>
+                            <input
+                                list="continent-list"
+                                value={form.region || ''}
+                                onChange={e => setForm({ ...form, region: e.target.value })}
+                                className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none font-medium"
+                                placeholder="e.g. Europe, Asia"
+                            />
+                            <datalist id="continent-list">
+                                <option value="Asia" />
+                                <option value="Southeast Asia" />
+                                <option value="Middle East" />
+                                <option value="Europe" />
+                                <option value="Indian Ocean" />
+                                <option value="North America" />
+                                <option value="South America" />
+                                <option value="Africa" />
+                                <option value="Oceania" />
+                            </datalist>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">Country Code (ISO)</label>
+                            <input
+                                value={form.countryCode || ''}
+                                onChange={e => setForm({ ...form, countryCode: e.target.value.toUpperCase() })}
+                                maxLength={3}
+                                className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none font-mono uppercase"
+                                placeholder="e.g. IN, AE, CH, TH"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">Default Currency</label>
+                            <input
+                                value={form.currency || ''}
+                                onChange={e => setForm({ ...form, currency: e.target.value.toUpperCase() })}
+                                maxLength={4}
+                                className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none font-mono uppercase"
+                                placeholder="e.g. INR, AED, CHF"
+                            />
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Location Fields */}
             {activeTab === 'locations' && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                        <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">Location Type</label>
-                        <select
-                            value={form.type || 'City'}
-                            onChange={e => setForm({ ...form, type: e.target.value })}
-                            className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none font-medium"
-                        >
-                            <option value="City">🏙️ City</option>
-                            <option value="State">🗺️ State</option>
-                            <option value="Country">🌐 Country</option>
-                        </select>
+                <div className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">Location Type</label>
+                            <select
+                                value={form.type || 'City'}
+                                onChange={e => {
+                                    const nextType = e.target.value;
+                                    setForm({
+                                        ...form,
+                                        type: nextType,
+                                        country: nextType === 'Country' ? (form.name || form.country || '') : (form.country || 'India')
+                                    });
+                                }}
+                                className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none font-medium"
+                            >
+                                <option value="City">🏙️ City / Destination</option>
+                                <option value="State">🗺️ State / Province</option>
+                                <option value="Country">🌐 Country</option>
+                            </select>
+                        </div>
+
+                        {form.type !== 'Country' ? (
+                            <div>
+                                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">
+                                    Country <span className="text-red-500">*</span>
+                                </label>
+                                <div className="relative">
+                                    <input
+                                        list="country-suggestions"
+                                        value={form.country || ''}
+                                        onChange={e => setForm({ ...form, country: e.target.value })}
+                                        className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none font-medium"
+                                        placeholder="Select or type country (e.g. India, UAE, Thailand)"
+                                    />
+                                    <datalist id="country-suggestions">
+                                        {availableCountries.map(c => (
+                                            <option key={c} value={c} />
+                                        ))}
+                                    </datalist>
+                                </div>
+                            </div>
+                        ) : (
+                            <div>
+                                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">Continent / Region</label>
+                                <input
+                                    value={form.region || ''}
+                                    onChange={e => setForm({ ...form, region: e.target.value })}
+                                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none font-medium"
+                                    placeholder="e.g. Southeast Asia, Europe"
+                                />
+                            </div>
+                        )}
                     </div>
-                    <div>
-                        <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">Region / State</label>
-                        <input
-                            value={form.region || ''}
-                            onChange={e => setForm({ ...form, region: e.target.value })}
-                            className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none font-medium"
-                            placeholder="e.g. Rajasthan, North India"
-                        />
-                    </div>
+
+                    {form.type !== 'Country' && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">State / Province</label>
+                                <input
+                                    value={form.state || ''}
+                                    onChange={e => setForm({ ...form, state: e.target.value })}
+                                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none font-medium"
+                                    placeholder="e.g. Rajasthan, Maharashtra, Dubai"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">Region / Zone</label>
+                                <input
+                                    value={form.region || ''}
+                                    onChange={e => setForm({ ...form, region: e.target.value })}
+                                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none font-medium"
+                                    placeholder="e.g. North India, West Coast"
+                                />
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
 
@@ -944,6 +1152,21 @@ const SafeDeleteModal: React.FC<{
                             </p>
 
                             <div className="p-4 bg-slate-50 dark:bg-slate-800/80 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3 max-h-48 overflow-y-auto">
+                                {dependency.destinations && dependency.destinations.length > 0 && (
+                                    <div>
+                                        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                                            🗺️ Linked Destinations ({dependency.destinations.length}):
+                                        </span>
+                                        <ul className="text-xs space-y-1">
+                                            {dependency.destinations.slice(0, 5).map(d => (
+                                                <li key={d.id} className="text-slate-700 dark:text-slate-300 font-medium truncate">• {d.name} ({d.type || 'City'})</li>
+                                            ))}
+                                            {dependency.destinations.length > 5 && (
+                                                <li className="text-slate-400 text-[11px] font-bold">+ {dependency.destinations.length - 5} more destinations</li>
+                                            )}
+                                        </ul>
+                                    </div>
+                                )}
                                 {dependency.packages.length > 0 && (
                                     <div>
                                         <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
@@ -1044,6 +1267,7 @@ const MasterDetailDrawer: React.FC<{
             <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex items-start justify-between gap-4 bg-slate-50/50 dark:bg-slate-900/50">
                 <div className="flex items-center gap-3">
                     <div className="size-12 rounded-2xl bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+                        {tab === 'countries' && <Globe size={24} />}
                         {tab === 'locations' && <MapPin size={24} />}
                         {tab === 'hotels' && <Building2 size={24} />}
                         {tab === 'activities' && <Bike size={24} />}
@@ -1082,15 +1306,28 @@ const MasterDetailDrawer: React.FC<{
 
                 {/* Core Specifications */}
                 <div className="grid grid-cols-2 gap-3">
+                    {tab === 'countries' && (
+                        <>
+                            <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700">
+                                <span className="text-[11px] font-bold text-slate-400 uppercase">Continent / Region</span>
+                                <p className="text-sm font-black text-slate-800 dark:text-slate-200 mt-0.5">{item.region || 'Global'}</p>
+                            </div>
+                            <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700">
+                                <span className="text-[11px] font-bold text-slate-400 uppercase">ISO Code & Currency</span>
+                                <p className="text-sm font-black text-slate-800 dark:text-slate-200 mt-0.5">{item.countryCode || 'N/A'} • {item.currency || 'USD'}</p>
+                            </div>
+                        </>
+                    )}
+
                     {tab === 'locations' && (
                         <>
                             <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700">
-                                <span className="text-[11px] font-bold text-slate-400 uppercase">Type</span>
-                                <p className="text-sm font-black text-slate-800 dark:text-slate-200 mt-0.5">{item.type || 'City'}</p>
+                                <span className="text-[11px] font-bold text-slate-400 uppercase">Type & Country</span>
+                                <p className="text-sm font-black text-slate-800 dark:text-slate-200 mt-0.5">{item.type || 'City'} • {item.country || 'India'}</p>
                             </div>
                             <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700">
-                                <span className="text-[11px] font-bold text-slate-400 uppercase">Region</span>
-                                <p className="text-sm font-black text-slate-800 dark:text-slate-200 mt-0.5">{item.region || '-'}</p>
+                                <span className="text-[11px] font-bold text-slate-400 uppercase">State & Region</span>
+                                <p className="text-sm font-black text-slate-800 dark:text-slate-200 mt-0.5">{item.state ? `${item.state} (${item.region || ''})` : (item.region || '-')}</p>
                             </div>
                         </>
                     )}
@@ -1202,6 +1439,22 @@ const MasterDetailDrawer: React.FC<{
                                 <span className="text-slate-500">Est. Cost:</span>
                                 <span className="text-indigo-600 dark:text-indigo-400">₹{Number(item.estimatedCost || 0).toLocaleString()}</span>
                             </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Linked Destinations for Country */}
+                {tab === 'countries' && dependency.destinations && dependency.destinations.length > 0 && (
+                    <div className="space-y-3">
+                        <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                            <MapPin size={14} className="text-indigo-500" /> Linked Cities & Destinations ({dependency.destinations.length})
+                        </span>
+                        <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto p-3 bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-slate-200 dark:border-slate-800">
+                            {dependency.destinations.map(d => (
+                                <span key={d.id} className="px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 text-xs font-bold border border-indigo-200 dark:border-indigo-800/40">
+                                    {d.name} <span className="opacity-60 text-[10px]">({d.type || 'City'})</span>
+                                </span>
+                            ))}
                         </div>
                     </div>
                 )}
@@ -1440,6 +1693,7 @@ export const Masters: React.FC = () => {
     const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
     const [subFilter, setSubFilter] = useState<string>('all');
     const [locationFilter, setLocationFilter] = useState<string>('all');
+    const [countryFilter, setCountryFilter] = useState<string>('all');
 
     useEffect(() => {
         const handler = setTimeout(() => {
@@ -1470,6 +1724,7 @@ export const Masters: React.FC = () => {
         setSearchQuery('');
         setSubFilter('all');
         setLocationFilter('all');
+        setCountryFilter('all');
         setSortBy(activeTab === 'plans' || activeTab === 'terms' ? 'title' : activeTab === 'meal-plans' ? 'code' : 'name');
         setSortDir('asc');
         setInspectingItem(null);
@@ -1477,7 +1732,8 @@ export const Masters: React.FC = () => {
 
     const tabs: { id: MasterTab; label: string; icon: React.ReactNode; count?: number }[] = [
         { id: 'analytics', label: 'Analytics', icon: <span className="material-symbols-outlined">monitoring</span> },
-        { id: 'locations', label: 'Locations', icon: <MapPin size={16} />, count: masterLocations.length },
+        { id: 'countries', label: 'Countries', icon: <Globe size={16} />, count: masterLocations.filter(l => l.type === 'Country').length },
+        { id: 'locations', label: 'Destinations', icon: <MapPin size={16} />, count: masterLocations.filter(l => l.type !== 'Country').length },
         { id: 'hotels', label: 'Hotels', icon: <Building2 size={16} />, count: masterHotels.length },
         { id: 'room-types', label: 'Room Types', icon: <BedDouble size={16} />, count: masterRoomTypes.length },
         { id: 'meal-plans', label: 'Meal Plans', icon: <Utensils size={16} />, count: masterMealPlans.length },
@@ -1519,12 +1775,12 @@ export const Masters: React.FC = () => {
     };
 
     const handleDuplicate = (item: any) => {
-        const prefix = activeTab === 'locations' ? 'LOC' : activeTab === 'hotels' ? 'HTL' : activeTab === 'activities' ? 'ACT' : activeTab === 'transports' ? 'TRN' : activeTab === 'plans' ? 'PLN' : activeTab === 'room-types' ? 'RT' : activeTab === 'meal-plans' ? 'MP' : activeTab === 'lead-sources' ? 'LS' : 'TT';
+        const prefix = (activeTab === 'locations' || activeTab === 'countries') ? 'LOC' : activeTab === 'hotels' ? 'HTL' : activeTab === 'activities' ? 'ACT' : activeTab === 'transports' ? 'TRN' : activeTab === 'plans' ? 'PLN' : activeTab === 'room-types' ? 'RT' : activeTab === 'meal-plans' ? 'MP' : activeTab === 'lead-sources' ? 'LS' : 'TT';
         const newItem = { ...item, id: generateId(prefix) };
         if (newItem.name) newItem.name += ' (Copy)';
         else if (newItem.title) newItem.title += ' (Copy)';
 
-        if (activeTab === 'locations') addMasterLocation(newItem);
+        if (activeTab === 'locations' || activeTab === 'countries') addMasterLocation(newItem);
         else if (activeTab === 'hotels') addMasterHotel(newItem);
         else if (activeTab === 'activities') addMasterActivity(newItem);
         else if (activeTab === 'transports') addMasterTransport(newItem);
@@ -1544,6 +1800,7 @@ export const Masters: React.FC = () => {
     const handleConfirmDeactivate = () => {
         if (!deleteTargetItem) return;
         const updateFuncs: Record<string, (id: string, data: any) => void> = {
+            countries: updateMasterLocation,
             locations: updateMasterLocation,
             hotels: updateMasterHotel,
             activities: updateMasterActivity,
@@ -1565,6 +1822,7 @@ export const Masters: React.FC = () => {
     const handleConfirmForceDelete = () => {
         if (!deleteTargetItem) return;
         const deleteFuncs: Record<string, (id: string) => void> = {
+            countries: deleteMasterLocation,
             locations: deleteMasterLocation,
             hotels: deleteMasterHotel,
             activities: deleteMasterActivity,
@@ -1586,6 +1844,7 @@ export const Masters: React.FC = () => {
     // Bulk status update
     const bulkUpdateStatus = (status: 'Active' | 'Inactive') => {
         const updateFuncs: Record<string, (id: string, data: any) => void> = {
+            countries: updateMasterLocation,
             locations: updateMasterLocation,
             hotels: updateMasterHotel,
             activities: updateMasterActivity,
@@ -1658,10 +1917,18 @@ export const Masters: React.FC = () => {
         let filename = `Shrawello_${activeTab}_Template.xlsx`;
 
         switch (activeTab) {
+            case 'countries':
+                headers = [
+                    { 'Country Name*': 'United Arab Emirates', 'Continent / Region*': 'Middle East', 'ISO Code (2-letter)': 'AE', 'Currency (3-letter)': 'AED', 'Status': 'Active' },
+                    { 'Country Name*': 'Switzerland', 'Continent / Region*': 'Western Europe', 'ISO Code (2-letter)': 'CH', 'Currency (3-letter)': 'CHF', 'Status': 'Active' },
+                    { 'Country Name*': 'India', 'Continent / Region*': 'South Asia', 'ISO Code (2-letter)': 'IN', 'Currency (3-letter)': 'INR', 'Status': 'Active' }
+                ];
+                break;
             case 'locations':
                 headers = [
-                    { 'Name*': 'Jaipur', 'Type (City/State/Country)': 'City', 'Region': 'Rajasthan', 'Status': 'Active' },
-                    { 'Name*': 'Goa', 'Type (City/State/Country)': 'State', 'Region': 'West India', 'Status': 'Active' }
+                    { 'Name*': 'Jaipur', 'Type (City/State)': 'City', 'Country*': 'India', 'State / Province': 'Rajasthan', 'Region': 'North India', 'Status': 'Active' },
+                    { 'Name*': 'Dubai', 'Type (City/State)': 'City', 'Country*': 'United Arab Emirates', 'State / Province': 'Dubai Emirate', 'Region': 'Middle East', 'Status': 'Active' },
+                    { 'Name*': 'Goa', 'Type (City/State)': 'State', 'Country*': 'India', 'State / Province': 'Goa', 'Region': 'West India', 'Status': 'Active' }
                 ];
                 break;
             case 'hotels':
@@ -1773,7 +2040,7 @@ export const Masters: React.FC = () => {
                     const name = row['Name*'] || row['Name'] || row['Title*'] || row['Title'] || row['name'] || row['title'];
                     if (!name) return;
 
-                    const prefix = activeTab === 'locations' ? 'LOC' : activeTab === 'hotels' ? 'HTL' : activeTab === 'activities' ? 'ACT' : activeTab === 'transports' ? 'TRN' : activeTab === 'plans' ? 'PLN' : activeTab === 'room-types' ? 'RT' : activeTab === 'meal-plans' ? 'MP' : activeTab === 'lead-sources' ? 'LS' : 'TT';
+                    const prefix = (activeTab === 'locations' || activeTab === 'countries') ? 'LOC' : activeTab === 'hotels' ? 'HTL' : activeTab === 'activities' ? 'ACT' : activeTab === 'transports' ? 'TRN' : activeTab === 'plans' ? 'PLN' : activeTab === 'room-types' ? 'RT' : activeTab === 'meal-plans' ? 'MP' : activeTab === 'lead-sources' ? 'LS' : 'TT';
 
                     const newItem: any = {
                         id: generateId(prefix),
@@ -1789,8 +2056,17 @@ export const Masters: React.FC = () => {
                         if (foundLoc) newItem.locationId = foundLoc.id;
                     }
 
-                    if (activeTab === 'locations') {
-                        newItem.type = row['Type (City/State/Country)'] || row['Type'] || 'City';
+                    if (activeTab === 'countries') {
+                        newItem.type = 'Country';
+                        newItem.country = newItem.name;
+                        newItem.region = row['Continent / Region*'] || row['Continent / Region'] || row['Region'] || 'Global';
+                        newItem.countryCode = row['ISO Code (2-letter)'] || row['ISO Code'] || row['Code'] || '';
+                        newItem.currency = row['Currency (3-letter)'] || row['Currency'] || 'USD';
+                        addMasterLocation(newItem);
+                    } else if (activeTab === 'locations') {
+                        newItem.type = row['Type (City/State)'] || row['Type (City/State/Country)'] || row['Type'] || 'City';
+                        newItem.country = row['Country*'] || row['Country'] || 'India';
+                        newItem.state = row['State / Province'] || row['State'] || '';
                         newItem.region = row['Region'] || '';
                         addMasterLocation(newItem);
                     } else if (activeTab === 'hotels') {
@@ -1846,7 +2122,8 @@ export const Masters: React.FC = () => {
     const getProcessedData = () => {
         let data: any[] = [];
         switch (activeTab) {
-            case 'locations': data = masterLocations; break;
+            case 'countries': data = masterLocations.filter(l => l.type === 'Country'); break;
+            case 'locations': data = masterLocations.filter(l => l.type !== 'Country'); break;
             case 'hotels': data = masterHotels; break;
             case 'activities': data = masterActivities; break;
             case 'transports': data = masterTransports; break;
@@ -1860,10 +2137,11 @@ export const Masters: React.FC = () => {
 
         // Subfilter logic
         if (subFilter !== 'all') {
-            if (activeTab === 'locations') {
-                if (subFilter === 'cities') data = data.filter(d => d.type === 'City');
+            if (activeTab === 'countries') {
+                data = data.filter(d => (d.region || '').toLowerCase().includes(subFilter.toLowerCase()));
+            } else if (activeTab === 'locations') {
+                if (subFilter === 'cities') data = data.filter(d => d.type === 'City' || !d.type);
                 else if (subFilter === 'states') data = data.filter(d => d.type === 'State');
-                else if (subFilter === 'countries') data = data.filter(d => d.type === 'Country');
             } else if (activeTab === 'hotels') {
                 if (subFilter === '5star') data = data.filter(d => d.rating >= 5);
                 else if (subFilter === '4star') data = data.filter(d => d.rating >= 4 && d.rating < 5);
@@ -1883,6 +2161,11 @@ export const Masters: React.FC = () => {
             }
         }
 
+        // Country dropdown filter for locations
+        if (activeTab === 'locations' && countryFilter !== 'all') {
+            data = data.filter(d => (d.country || 'India').toLowerCase().trim() === countryFilter.toLowerCase().trim());
+        }
+
         // Location dropdown filter
         if (locationFilter !== 'all' && (activeTab === 'hotels' || activeTab === 'activities' || activeTab === 'plans')) {
             data = data.filter(d => d.locationId === locationFilter);
@@ -1891,7 +2174,7 @@ export const Masters: React.FC = () => {
         // Search & Status filter
         data = data.filter(item => {
             const searchable = [
-                item.name, item.title, item.region, item.type, item.category, item.code, item.description, item.address
+                item.name, item.title, item.country, item.state, item.countryCode, item.currency, item.region, item.type, item.category, item.code, item.description, item.address
             ].filter(Boolean).map(String).join(' ').toLowerCase();
 
             const matchesSearch = !debouncedSearchQuery || searchable.includes(debouncedSearchQuery.toLowerCase());
@@ -1921,17 +2204,31 @@ export const Masters: React.FC = () => {
     // --- Tab Contextual KPI Metrics Calculation ---
     const tabKPIs = useMemo(() => {
         switch (activeTab) {
-            case 'locations': {
-                const total = masterLocations.length;
-                const active = masterLocations.filter(l => l.status === 'Active').length;
-                const cities = masterLocations.filter(l => l.type === 'City').length;
-                const states = masterLocations.filter(l => l.type === 'State').length;
-                const countries = masterLocations.filter(l => l.type === 'Country').length;
+            case 'countries': {
+                const countryList = masterLocations.filter(l => l.type === 'Country');
+                const total = countryList.length;
+                const active = countryList.filter(c => c.status === 'Active').length;
+                const regions = new Set(countryList.map(c => c.region).filter(Boolean)).size;
+                const linkedDests = masterLocations.filter(l => l.type !== 'Country' && l.country).length;
                 return [
-                    { label: 'Total Destinations', value: total, sub: `${active} Active • ${total - active} Inactive`, icon: 'public', color: 'from-blue-500 to-indigo-600' },
-                    { label: 'Cities Catalog', value: cities, sub: 'Urban destinations', icon: 'location_city', color: 'from-emerald-500 to-teal-600' },
-                    { label: 'States / Regions', value: states, sub: 'Regional territories', icon: 'map', color: 'from-amber-500 to-orange-600' },
-                    { label: 'Countries Available', value: countries, sub: 'International coverage', icon: 'flag', color: 'from-purple-500 to-pink-600' },
+                    { label: 'Total Countries', value: total, sub: `${active} Active • ${total - active} Inactive`, icon: 'public', color: 'from-blue-600 to-indigo-700' },
+                    { label: 'Active Markets', value: active, sub: 'Available for tours', icon: 'verified', color: 'from-emerald-500 to-teal-600' },
+                    { label: 'Regions & Continents', value: regions || 1, sub: 'Global territories', icon: 'travel_explore', color: 'from-amber-500 to-orange-600' },
+                    { label: 'Linked Destinations', value: linkedDests, sub: 'Cities & states mapped', icon: 'share_location', color: 'from-purple-500 to-pink-600' },
+                ];
+            }
+            case 'locations': {
+                const destList = masterLocations.filter(l => l.type !== 'Country');
+                const total = destList.length;
+                const active = destList.filter(l => l.status === 'Active').length;
+                const cities = destList.filter(l => l.type === 'City' || !l.type).length;
+                const states = destList.filter(l => l.type === 'State').length;
+                const countriesCount = masterLocations.filter(l => l.type === 'Country').length;
+                return [
+                    { label: 'Total Destinations', value: total, sub: `${active} Active • ${total - active} Inactive`, icon: 'location_on', color: 'from-blue-500 to-indigo-600' },
+                    { label: 'Cities & Towns', value: cities, sub: 'Urban & resort centers', icon: 'location_city', color: 'from-emerald-500 to-teal-600' },
+                    { label: 'States & Provinces', value: states, sub: 'Regional territories', icon: 'map', color: 'from-amber-500 to-orange-600' },
+                    { label: 'Countries Mapped', value: countriesCount, sub: 'Master country records', icon: 'flag', color: 'from-purple-500 to-pink-600' },
                 ];
             }
             case 'hotels': {
@@ -2040,6 +2337,7 @@ export const Masters: React.FC = () => {
                         onClick={() => {
                             if (confirm(`Are you sure you want to delete ${selectedItems.size} items?`)) {
                                 const deleteFuncs: Record<string, (id: string) => void> = {
+                                    countries: deleteMasterLocation,
                                     locations: deleteMasterLocation,
                                     hotels: deleteMasterHotel,
                                     activities: deleteMasterActivity,
@@ -2206,14 +2504,38 @@ export const Masters: React.FC = () => {
 
     // --- Sub-Filter Pills Generator ---
     const renderSubFilterPills = () => {
-        if (activeTab === 'locations') {
+        if (activeTab === 'countries') {
+            const countryList = masterLocations.filter(l => l.type === 'Country');
             return (
                 <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
                     {[
-                        { id: 'all', label: `All (${masterLocations.length})` },
-                        { id: 'cities', label: `🏙️ Cities (${masterLocations.filter(l => l.type === 'City').length})` },
-                        { id: 'states', label: `🗺️ States (${masterLocations.filter(l => l.type === 'State').length})` },
-                        { id: 'countries', label: `🌐 Countries (${masterLocations.filter(l => l.type === 'Country').length})` },
+                        { id: 'all', label: `All Countries (${countryList.length})` },
+                        { id: 'asia', label: '🌏 Asia' },
+                        { id: 'middle east', label: '🕌 Middle East' },
+                        { id: 'europe', label: '🏰 Europe' },
+                        { id: 'america', label: '🗽 Americas' },
+                        { id: 'africa', label: '🦁 Africa & Oceania' },
+                    ].map(pill => (
+                        <button
+                            key={pill.id}
+                            onClick={() => setSubFilter(pill.id)}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${subFilter === pill.id ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'}`}
+                        >
+                            {pill.label}
+                        </button>
+                    ))}
+                </div>
+            );
+        }
+
+        if (activeTab === 'locations') {
+            const destList = masterLocations.filter(l => l.type !== 'Country');
+            return (
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+                    {[
+                        { id: 'all', label: `All Destinations (${destList.length})` },
+                        { id: 'cities', label: `🏙️ Cities (${destList.filter(l => l.type === 'City' || !l.type).length})` },
+                        { id: 'states', label: `🗺️ States (${destList.filter(l => l.type === 'State').length})` },
                     ].map(pill => (
                         <button
                             key={pill.id}
@@ -2332,9 +2654,12 @@ export const Masters: React.FC = () => {
         let detail = '';
         let priceTag = '';
 
-        if (activeTab === 'locations') {
-            subtitle = item.region || item.type;
-            detail = `${item.type || 'City'}`;
+        if (activeTab === 'countries') {
+            subtitle = item.region || 'International';
+            detail = `${item.countryCode || 'N/A'}${item.currency ? ` • ${item.currency}` : ''}`;
+        } else if (activeTab === 'locations') {
+            subtitle = `${item.state ? `${item.state}, ` : ''}${item.country || 'India'}`;
+            detail = `${item.type || 'City'}${item.region ? ` • ${item.region}` : ''}`;
         } else if (activeTab === 'hotels') {
             subtitle = getLocationNameById(item.locationId);
             detail = `${item.rating || 5}★ Rating`;
@@ -2392,6 +2717,7 @@ export const Masters: React.FC = () => {
                                 e.stopPropagation();
                                 const newStatus = status === 'Active' ? 'Inactive' : 'Active';
                                 const updateFuncs: Record<string, (id: string, data: any) => void> = {
+                                    countries: updateMasterLocation,
                                     locations: updateMasterLocation,
                                     hotels: updateMasterHotel,
                                     activities: updateMasterActivity,
@@ -2534,7 +2860,7 @@ export const Masters: React.FC = () => {
                                                 <img src={item.image} alt="" className="w-full h-full object-cover" />
                                             ) : (
                                                 <span className="material-symbols-outlined text-[20px]">
-                                                    {activeTab === 'locations' ? 'location_on' : activeTab === 'hotels' ? 'hotel' : activeTab === 'activities' ? 'attractions' : 'inventory_2'}
+                                                    {activeTab === 'countries' ? 'public' : activeTab === 'locations' ? 'location_on' : activeTab === 'hotels' ? 'hotel' : activeTab === 'activities' ? 'attractions' : 'inventory_2'}
                                                 </span>
                                             )}
                                         </div>
@@ -2544,7 +2870,12 @@ export const Masters: React.FC = () => {
                                         <p className="text-xs text-slate-400 font-mono mt-0.5">{item.id.slice(0, 16)}</p>
                                     </td>
                                     <td className="px-4 py-4 text-slate-600 dark:text-slate-300 text-xs">
-                                        {activeTab === 'locations' && <span>{item.type} • {item.region || 'No region'}</span>}
+                                        {activeTab === 'countries' && (
+                                            <span>Continent: <strong className="text-slate-800 dark:text-slate-200">{item.region || 'Global'}</strong> • Code: <strong className="font-mono text-indigo-600 dark:text-indigo-400">{item.countryCode || 'N/A'}</strong> • Currency: <strong className="font-mono">{item.currency || 'USD'}</strong></span>
+                                        )}
+                                        {activeTab === 'locations' && (
+                                            <span>{item.type || 'City'} • <strong className="text-slate-800 dark:text-slate-200">{item.country || 'India'}</strong>{item.state ? ` (${item.state})` : ''}{item.region ? ` • ${item.region}` : ''}</span>
+                                        )}
                                         {activeTab === 'hotels' && (
                                             <div>
                                                 <span className="font-bold text-amber-500">{item.rating}★</span> • {getLocationNameById(item.locationId)} • <strong className="text-slate-900 dark:text-white font-mono">₹{Number(item.pricePerNight || 0).toLocaleString()}</strong>
@@ -2587,6 +2918,7 @@ export const Masters: React.FC = () => {
                                                 e.stopPropagation();
                                                 const newStatus = status === 'Active' ? 'Inactive' : 'Active';
                                                 const updateFuncs: Record<string, (id: string, data: any) => void> = {
+                                                    countries: updateMasterLocation,
                                                     locations: updateMasterLocation,
                                                     hotels: updateMasterHotel,
                                                     activities: updateMasterActivity,
@@ -2687,7 +3019,7 @@ export const Masters: React.FC = () => {
                             className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white font-bold rounded-2xl shadow-xl shadow-indigo-500/20 hover:bg-indigo-700 transition-all active:scale-95 btn-glow"
                         >
                             <Plus size={18} />
-                            <span>Add New {tabs.find(t => t.id === activeTab)?.label.replace(' Templates', '').replace('s', '') || 'Item'}</span>
+                            <span>Add New {activeTab === 'countries' ? 'Country' : (tabs.find(t => t.id === activeTab)?.label.replace(' Templates', '').replace(/s$/, '') || 'Item')}</span>
                         </button>
                     </div>
                 </div>
@@ -2770,6 +3102,20 @@ export const Masters: React.FC = () => {
                                         <option value="all">All Locations ({masterLocations.length})</option>
                                         {masterLocations.map(l => (
                                             <option key={l.id} value={l.id}>{l.name}</option>
+                                        ))}
+                                    </select>
+                                )}
+
+                                {/* Country Dropdown Filter for Destinations */}
+                                {activeTab === 'locations' && (
+                                    <select
+                                        value={countryFilter}
+                                        onChange={e => setCountryFilter(e.target.value)}
+                                        className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold outline-none"
+                                    >
+                                        <option value="all">All Countries</option>
+                                        {Array.from(new Set(masterLocations.map(l => l.country || (l.type === 'Country' ? l.name : 'India')).filter(Boolean))).sort().map(c => (
+                                            <option key={c} value={c}>{c}</option>
                                         ))}
                                     </select>
                                 )}
@@ -2880,7 +3226,7 @@ export const Masters: React.FC = () => {
                         <div className="bg-white dark:bg-[#1a2332] rounded-3xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto relative border border-slate-200 dark:border-slate-700" onClick={e => e.stopPropagation()}>
                             <div className="flex items-center justify-between p-6 border-b border-slate-200 dark:border-slate-700 bg-white/70 dark:bg-slate-800/70 sticky top-0 backdrop-blur-md z-10">
                                 <h2 className="text-lg font-black text-slate-900 dark:text-white">
-                                    {editingItem ? 'Edit' : 'Add New'} {tabs.find(t => t.id === activeTab)?.label.replace(' Templates', '').replace('s', '') || 'Item'}
+                                    {editingItem ? 'Edit' : 'Add New'} {activeTab === 'countries' ? 'Country' : (tabs.find(t => t.id === activeTab)?.label.replace(' Templates', '').replace(/s$/, '') || 'Item')}
                                 </h2>
                                 <button onClick={() => setShowModal(false)} className="size-8 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-center transition-colors text-slate-500">
                                     <X size={18} />

@@ -10,3 +10,4 @@
  */
 
 export { createAuthRoutes } from './auth.js';
+export { createIncentiveRoutes } from './incentives.js';

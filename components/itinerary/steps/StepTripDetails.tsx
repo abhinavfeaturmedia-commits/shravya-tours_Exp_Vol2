@@ -18,7 +18,7 @@ export const StepTripDetails: React.FC<Props> = ({ onDone }) => {
     const [isGeneratingIncExc, setIsGeneratingIncExc] = useState(false);
     const [showQuickAddModal, setShowQuickAddModal] = useState(false);
 
-    const handleQuickAddLocation = async (name: string, type: MasterLocationType = 'City', region: string = 'India'): Promise<string | null> => {
+    const handleQuickAddLocation = async (name: string, type: MasterLocationType = 'City', region: string = 'India', country: string = 'India'): Promise<string | null> => {
         if (!name.trim()) return null;
         const id = `LOC-${Date.now()}`;
         const newLoc: MasterLocation = {
@@ -26,6 +26,7 @@ export const StepTripDetails: React.FC<Props> = ({ onDone }) => {
             name: name.trim(),
             type,
             region: region.trim() || 'India',
+            country: type === 'Country' ? name.trim() : (country.trim() || 'India'),
             status: 'Active'
         };
         try {
@@ -821,11 +822,12 @@ const LocationCombobox: React.FC<{
 const QuickAddLocationModal: React.FC<{
     isOpen: boolean;
     onClose: () => void;
-    onAdd: (name: string, type: MasterLocationType, region: string) => Promise<string | null>;
+    onAdd: (name: string, type: MasterLocationType, region: string, country?: string) => Promise<string | null>;
     onSuccessSelect?: (locId: string) => void;
 }> = ({ isOpen, onClose, onAdd, onSuccessSelect }) => {
     const [name, setName] = useState('');
     const [type, setType] = useState<MasterLocationType>('City');
+    const [country, setCountry] = useState('India');
     const [region, setRegion] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -839,12 +841,13 @@ const QuickAddLocationModal: React.FC<{
         }
         setIsSubmitting(true);
         try {
-            const newId = await onAdd(name.trim(), type, region.trim() || 'India');
+            const newId = await onAdd(name.trim(), type, region.trim() || 'India', country.trim() || 'India');
             if (newId) {
                 onSuccessSelect?.(newId);
                 onClose();
                 setName('');
                 setRegion('');
+                setCountry('India');
             }
         } finally {
             setIsSubmitting(false);
@@ -911,6 +914,19 @@ const QuickAddLocationModal: React.FC<{
                             />
                         </div>
                     </div>
+
+                    {type !== 'Country' && (
+                        <div>
+                            <label className="block text-xs font-bold text-stone-700 mb-1">Country</label>
+                            <input
+                                type="text"
+                                placeholder="e.g. India, UAE, France"
+                                value={country}
+                                onChange={e => setCountry(e.target.value)}
+                                className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3.5 py-2.5 text-xs font-bold text-stone-900 focus:ring-2 focus:ring-amber-400 focus:bg-white outline-none"
+                            />
+                        </div>
+                    )}
 
                     <div className="flex items-center justify-end gap-2 pt-2 border-t border-stone-100">
                         <button

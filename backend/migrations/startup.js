@@ -429,6 +429,238 @@ export async function runStartupMigrations(pool) {
 
         console.log('[Migration] Attendance and sessions schema verified/migrated');
 
+        // ─── Incentive Management System Schema ───
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS incentive_plans (
+                    id VARCHAR(64) PRIMARY KEY,
+                    name VARCHAR(255) NOT NULL,
+                    description TEXT,
+                    effective_from DATE NOT NULL,
+                    effective_to DATE,
+                    maximum_booking_percentage DECIMAL(5,2) NOT NULL DEFAULT 7.00,
+                    gp_protection_percentage DECIMAL(5,2) NOT NULL DEFAULT 40.00,
+                    status VARCHAR(50) NOT NULL DEFAULT 'Active',
+                    version VARCHAR(20) NOT NULL DEFAULT '1.0',
+                    created_by VARCHAR(255),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    INDEX idx_plan_status (status),
+                    INDEX idx_plan_dates (effective_from, effective_to)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            `);
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS incentive_rules (
+                    id VARCHAR(64) PRIMARY KEY,
+                    plan_id VARCHAR(64) NOT NULL,
+                    department VARCHAR(100) NOT NULL,
+                    role VARCHAR(100) NOT NULL,
+                    incentive_type VARCHAR(50) NOT NULL DEFAULT 'percentage',
+                    percentage DECIMAL(5,2) NOT NULL DEFAULT 0.00,
+                    fixed_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+                    kpi_dependency TINYINT(1) NOT NULL DEFAULT 0,
+                    target_dependency TINYINT(1) NOT NULL DEFAULT 0,
+                    slabs_json JSON,
+                    kpi_weights_json JSON,
+                    kpi_multipliers_json JSON,
+                    priority INT NOT NULL DEFAULT 1,
+                    status VARCHAR(50) NOT NULL DEFAULT 'Active',
+                    version VARCHAR(20) NOT NULL DEFAULT '1.0',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    INDEX idx_rule_plan (plan_id),
+                    INDEX idx_rule_dept_role (department, role),
+                    INDEX idx_rule_status (status)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            `);
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS incentive_runs (
+                    id VARCHAR(64) PRIMARY KEY,
+                    run_number VARCHAR(64) UNIQUE NOT NULL,
+                    period_start DATE NOT NULL,
+                    period_end DATE NOT NULL,
+                    month_year VARCHAR(20) NOT NULL,
+                    incentive_plan_id VARCHAR(64) NOT NULL,
+                    incentive_plan_version VARCHAR(20) NOT NULL DEFAULT '1.0',
+                    total_bookings INT NOT NULL DEFAULT 0,
+                    eligible_bookings INT NOT NULL DEFAULT 0,
+                    excluded_bookings INT NOT NULL DEFAULT 0,
+                    total_booking_value DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+                    total_gross_profit DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+                    maximum_capacity DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+                    gp_protection_limit DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+                    total_incentive DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+                    status VARCHAR(50) NOT NULL DEFAULT 'DRAFT',
+                    created_by VARCHAR(255),
+                    lead_approved_by VARCHAR(255),
+                    lead_approved_at DATETIME,
+                    finance_approved_by VARCHAR(255),
+                    finance_approved_at DATETIME,
+                    final_approved_by VARCHAR(255),
+                    final_approved_at DATETIME,
+                    notes TEXT,
+                    validation_flags JSON,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    finalized_at DATETIME,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    INDEX idx_run_period (period_start, period_end),
+                    INDEX idx_run_status (status),
+                    INDEX idx_run_month (month_year)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            `);
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS incentive_ledger (
+                    id VARCHAR(64) PRIMARY KEY,
+                    incentive_run_id VARCHAR(64) NOT NULL,
+                    booking_id VARCHAR(64) NOT NULL,
+                    booking_number INT,
+                    employee_id INT NOT NULL,
+                    department VARCHAR(100) NOT NULL,
+                    role VARCHAR(100) NOT NULL,
+                    incentive_type VARCHAR(50) NOT NULL,
+                    booking_value DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+                    eligible_value DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+                    supplier_cost DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+                    gross_profit DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+                    applicable_rate DECIMAL(5,2) NOT NULL DEFAULT 0.00,
+                    gross_incentive DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+                    kpi_score DECIMAL(5,2) NOT NULL DEFAULT 100.00,
+                    kpi_multiplier DECIMAL(5,2) NOT NULL DEFAULT 1.00,
+                    target_achievement DECIMAL(5,2) NOT NULL DEFAULT 100.00,
+                    target_multiplier DECIMAL(5,2) NOT NULL DEFAULT 1.00,
+                    bonus DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+                    deduction DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+                    adjustment DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+                    final_incentive DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+                    incentive_plan_id VARCHAR(64) NOT NULL,
+                    incentive_plan_version VARCHAR(20) NOT NULL DEFAULT '1.0',
+                    rule_id VARCHAR(64) NOT NULL,
+                    rule_version VARCHAR(20) NOT NULL DEFAULT '1.0',
+                    period VARCHAR(20) NOT NULL,
+                    status VARCHAR(50) NOT NULL DEFAULT 'CALCULATED',
+                    calculation_trace JSON,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    UNIQUE KEY uk_run_booking_employee_rule (incentive_run_id, booking_id, employee_id, rule_id),
+                    INDEX idx_ledger_run (incentive_run_id),
+                    INDEX idx_ledger_booking (booking_id),
+                    INDEX idx_ledger_employee (employee_id),
+                    INDEX idx_ledger_period (period),
+                    INDEX idx_ledger_status (status)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            `);
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS incentive_employee_summaries (
+                    id VARCHAR(64) PRIMARY KEY,
+                    incentive_run_id VARCHAR(64) NOT NULL,
+                    employee_id INT NOT NULL,
+                    department VARCHAR(100) NOT NULL,
+                    role VARCHAR(100) NOT NULL,
+                    month_year VARCHAR(20) NOT NULL,
+                    eligible_business DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+                    booking_count INT NOT NULL DEFAULT 0,
+                    monthly_target DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+                    target_achievement_pct DECIMAL(5,2) NOT NULL DEFAULT 0.00,
+                    target_slab_rate DECIMAL(5,2) NOT NULL DEFAULT 0.00,
+                    kpi_score DECIMAL(5,2) NOT NULL DEFAULT 100.00,
+                    kpi_multiplier DECIMAL(5,2) NOT NULL DEFAULT 1.00,
+                    base_incentive DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+                    kpi_adjustment DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+                    target_adjustment DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+                    performance_bonus DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+                    deduction DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+                    manual_adjustment DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+                    reversal DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+                    final_payable DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+                    approval_status VARCHAR(50) NOT NULL DEFAULT 'PENDING',
+                    payment_status VARCHAR(50) NOT NULL DEFAULT 'UNPAID',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    UNIQUE KEY uk_emp_run (incentive_run_id, employee_id),
+                    INDEX idx_summary_run (incentive_run_id),
+                    INDEX idx_summary_employee (employee_id),
+                    INDEX idx_summary_month (month_year),
+                    INDEX idx_summary_status (approval_status, payment_status)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            `);
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS incentive_adjustments (
+                    id VARCHAR(64) PRIMARY KEY,
+                    employee_id INT NOT NULL,
+                    booking_id VARCHAR(64),
+                    incentive_run_id VARCHAR(64),
+                    original_ledger_id VARCHAR(64),
+                    adjustment_type VARCHAR(50) NOT NULL,
+                    amount DECIMAL(10,2) NOT NULL,
+                    reason TEXT NOT NULL,
+                    supporting_document VARCHAR(500),
+                    created_by VARCHAR(255) NOT NULL,
+                    approved_by VARCHAR(255),
+                    status VARCHAR(50) NOT NULL DEFAULT 'PENDING_APPROVAL',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    INDEX idx_adj_employee (employee_id),
+                    INDEX idx_adj_booking (booking_id),
+                    INDEX idx_adj_run (incentive_run_id),
+                    INDEX idx_adj_status (status)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            `);
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS incentive_payouts (
+                    id VARCHAR(64) PRIMARY KEY,
+                    batch_number VARCHAR(64) NOT NULL,
+                    incentive_run_id VARCHAR(64) NOT NULL,
+                    employee_id INT NOT NULL,
+                    amount DECIMAL(12,2) NOT NULL,
+                    payment_status VARCHAR(50) NOT NULL DEFAULT 'PENDING',
+                    payment_reference VARCHAR(100),
+                    payment_date DATE,
+                    payment_method VARCHAR(50) DEFAULT 'Bank Transfer',
+                    processed_by VARCHAR(255),
+                    notes TEXT,
+                    is_locked TINYINT(1) NOT NULL DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    INDEX idx_payout_batch (batch_number),
+                    INDEX idx_payout_run (incentive_run_id),
+                    INDEX idx_payout_employee (employee_id),
+                    INDEX idx_payout_status (payment_status)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            `);
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS incentive_disputes (
+                    id VARCHAR(64) PRIMARY KEY,
+                    employee_id INT NOT NULL,
+                    incentive_run_id VARCHAR(64) NOT NULL,
+                    ledger_id VARCHAR(64),
+                    reason TEXT NOT NULL,
+                    status VARCHAR(50) NOT NULL DEFAULT 'SUBMITTED',
+                    resolution_notes TEXT,
+                    resolved_by VARCHAR(255),
+                    resolved_at DATETIME,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    INDEX idx_dispute_emp (employee_id),
+                    INDEX idx_dispute_run (incentive_run_id),
+                    INDEX idx_dispute_status (status)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            `);
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS incentive_booking_overrides (
+                    id VARCHAR(64) PRIMARY KEY,
+                    booking_id VARCHAR(64) NOT NULL,
+                    reason TEXT NOT NULL,
+                    override_by VARCHAR(255) NOT NULL,
+                    approved_by VARCHAR(255),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_override_booking (booking_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            `);
+            console.log('[Migration] Incentive management system schema verified');
+        } catch (errIncentives) {
+            console.warn('[Migration Incentive Schema Notice]', errIncentives.message);
+        }
+
         console.log('[Migration] All startup migrations completed successfully.');
     } catch (err) {
         console.error('[Migration Error]', err.message);

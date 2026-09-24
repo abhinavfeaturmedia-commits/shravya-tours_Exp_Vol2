@@ -568,12 +568,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
 
     const isContactMasked = useCallback(
-        (module?: string): boolean => {
-            if (!currentUser) return true;
-            if (currentUser.userType === 'Admin') return false;
-            return canAccess(module || 'leads', 'mask_contacts');
+        (_module?: string): boolean => {
+            // In CRM, client phone numbers and contact details are never masked so staff can communicate with leads
+            return false;
         },
-        [currentUser, canAccess]
+        []
     );
 
     const canViewCostMargins = useCallback(

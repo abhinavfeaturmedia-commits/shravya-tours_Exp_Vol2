@@ -36,7 +36,10 @@ export const ALLOWED_TABLES = new Set([
     'booking_daily_deliverables', 'booking_itineraries', 'booking_itinerary_markers',
     'vehicle_categories', 'vehicles', 'drivers', 'car_bookings', 'car_booking_payments', 'car_reviews',
     'report_history', 'trending_destinations', 'offer_banners', 'training_videos', 'training_video_views',
-    'support_canned_replies', 'support_conversation_audit_logs', 'support_settings'
+    'support_canned_replies', 'support_conversation_audit_logs', 'support_settings',
+    'incentive_plans', 'incentive_rules', 'incentive_runs', 'incentive_ledger',
+    'incentive_employee_summaries', 'incentive_adjustments', 'incentive_payouts',
+    'incentive_disputes', 'incentive_booking_overrides'
 ]);
 
 // ═══════════════════════════════════════════
@@ -118,6 +121,15 @@ export const TABLE_TO_MODULE = {
     'support_canned_replies': 'support_inbox',
     'support_conversation_audit_logs': 'support_inbox',
     'support_settings': 'support_inbox',
+    'incentive_plans': 'incentives',
+    'incentive_rules': 'incentives',
+    'incentive_runs': 'incentives',
+    'incentive_ledger': 'incentives',
+    'incentive_employee_summaries': 'incentives',
+    'incentive_adjustments': 'incentives',
+    'incentive_payouts': 'incentives',
+    'incentive_disputes': 'incentives',
+    'incentive_booking_overrides': 'incentives',
 };
 
 // ═══════════════════════════════════════════

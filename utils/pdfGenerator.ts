@@ -257,7 +257,7 @@ export const generateProformaInvoice = async (proposal: Proposal, optionId: stri
         body: [[
             '1',
             `Tour Package: ${proposal.title}\nOption: ${option.name}`,
-            '9985', // Tour Operator Service
+            '998555', // Tour Operator Service
             taxableValue.toFixed(2),
             cgst.toFixed(2),
             sgst.toFixed(2),
@@ -386,7 +386,7 @@ export const generateBookingInvoice = async (booking: any, customer: any) => {
         body: [[
             '1',
             `Booking Ref: ${booking.title}`,
-            '9985',
+            '996601',
             (booking.amount / 1.05).toFixed(2),
             (booking.amount - (booking.amount / 1.05)).toFixed(2),
             booking.amount.toLocaleString('en-IN')
@@ -865,7 +865,7 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
                 return [
                     (idx + 1).toString(),
                     item.description ? cleanText(item.description) : 'Tour Service Operator',
-                    item.hsn_sac || '9985',
+                    item.hsn_sac || finance?.defaultSacCode || '996601',
                     qty.toString(),
                     daysKmStr.toString(),
                     `Rs. ${formatRate(rate)}`,
@@ -905,7 +905,7 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
                 return [
                     (idx + 1).toString(),
                     item.description ? cleanText(item.description) : 'Tour Service Operator',
-                    item.hsn_sac || '9985',
+                    item.hsn_sac || finance?.defaultSacCode || '996601',
                     qty.toString(),
                     daysKmStr.toString(),
                     `Rs. ${formatRate(rate)}`,
