@@ -198,9 +198,15 @@ export const FinanceVerification: React.FC = () => {
                             </select>
                         )}
                         <div className="relative flex-1 lg:w-64 min-w-[200px]">
-                            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">search</span>
+                            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[18px] pointer-events-none">search</span>
                             <input
                                 type="text"
+                                name="finance_search_query"
+                                id="finance_search_query"
+                                autoComplete="off"
+                                autoCorrect="off"
+                                autoCapitalize="off"
+                                spellCheck={false}
                                 placeholder={viewMode === 'payments' ? "Search by ID, Customer..." : "Search by ID, Item, Staff..."}
                                 value={search}
                                 onChange={(e) => { 
@@ -211,8 +217,25 @@ export const FinanceVerification: React.FC = () => {
                                         transferPagination.setCurrentPage(1);
                                     }
                                 }}
-                                className="pl-10 pr-4 py-2.5 bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-700 rounded-xl text-sm w-full focus:ring-2 focus:ring-primary/50 dark:text-white placeholder:text-slate-400 outline-none"
+                                className="pl-10 pr-9 py-2.5 bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-700 rounded-xl text-sm w-full focus:ring-2 focus:ring-primary/50 dark:text-white placeholder:text-slate-400 outline-none transition-all"
                             />
+                            {search && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setSearch('');
+                                        if (viewMode === 'payments') {
+                                            paymentPagination.setCurrentPage(1);
+                                        } else {
+                                            transferPagination.setCurrentPage(1);
+                                        }
+                                    }}
+                                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5"
+                                    title="Clear search"
+                                >
+                                    <span className="material-symbols-outlined text-[16px]">cancel</span>
+                                </button>
+                            )}
                         </div>
                     </div>
                 </div>

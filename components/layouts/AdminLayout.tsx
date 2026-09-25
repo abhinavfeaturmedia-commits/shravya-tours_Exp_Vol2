@@ -10,6 +10,7 @@ import { getPaymentDueBookings } from '../../src/hooks/useSuggestions';
 import { api } from '../../src/lib/api';
 import { InAppNotification } from '../../types';
 import { AttendanceTopWidget } from '../attendance/AttendanceTopWidget';
+import { AdminLiquidFab } from '../../src/components/ui/AdminLiquidFab';
 
 interface NavItem {
   name: string;
@@ -470,10 +471,10 @@ export const AdminLayout: React.FC = () => {
   }, [bookings.length, leads.length]);
 
   const quickActions = useMemo(() => [
-    { name: 'New Booking', icon: 'add_circle', path: '/admin/bookings', color: 'from-blue-500 to-indigo-600', module: 'bookings' },
-    { name: 'Add Lead', icon: 'person_add', path: '/admin/leads', color: 'from-purple-500 to-pink-600', module: 'leads' },
-    { name: 'Create Package', icon: 'travel_explore', path: '/admin/itinerary-builder', color: 'from-emerald-500 to-teal-600', module: 'itinerary' },
-    { name: 'Add Master Data', icon: 'dataset', path: '/admin/masters', color: 'from-orange-500 to-rose-500', module: 'masters' },
+    { name: 'New Booking', icon: 'calendar_add_on', path: '/admin/bookings', color: 'from-blue-500 to-indigo-600', bg: '#2563EB', module: 'bookings' },
+    { name: 'Add Lead', icon: 'person_add', path: '/admin/leads', color: 'from-purple-500 to-pink-600', bg: '#7C3AED', module: 'leads' },
+    { name: 'Create Package', icon: 'travel_explore', path: '/admin/itinerary-builder', color: 'from-emerald-500 to-teal-600', bg: '#059669', module: 'itinerary' },
+    { name: 'Add Master Data', icon: 'dataset', path: '/admin/masters', color: 'from-orange-500 to-rose-500', bg: '#D97706', module: 'masters' },
   ].filter(action => hasPermission(action.module as any, 'manage')), [hasPermission]);
 
   const unifiedItems = useMemo(() => {
@@ -1250,31 +1251,7 @@ export const AdminLayout: React.FC = () => {
       )}
 
       {!location.pathname.startsWith('/admin/inbox') && !location.pathname.startsWith('/admin/attendance') && (
-        <div className="fixed bottom-6 right-4 lg:right-6 z-50">
-          {isFabOpen && (
-            <div className="absolute bottom-16 right-0 mb-2 space-y-2 animate-slide-up">
-              {quickActions.map((action, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => { navigate(action.path); setIsFabOpen(false); }}
-                  className="flex items-center gap-3 px-4 py-3 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-100 dark:border-slate-700 hover:scale-105 transition-all group whitespace-nowrap"
-                  style={{ animationDelay: `${idx * 50}ms` }}
-                >
-                  <div className={`size-10 rounded-xl bg-gradient-to-br ${action.color} flex items-center justify-center text-white shadow-lg`}>
-                    <span className="material-symbols-outlined text-[20px]">{action.icon}</span>
-                  </div>
-                  <span className="font-semibold text-slate-700 dark:text-slate-200 text-sm">{action.name}</span>
-                </button>
-              ))}
-            </div>
-          )}
-          <button
-            onClick={() => setIsFabOpen(!isFabOpen)}
-            className={`size-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-xl shadow-indigo-500/30 flex items-center justify-center transition-all duration-300 hover:shadow-indigo-500/50 hover:scale-105 ${isFabOpen ? 'rotate-45' : ''}`}
-          >
-            <span className="material-symbols-outlined text-[28px]">{isFabOpen ? 'close' : 'add'}</span>
-          </button>
-        </div>
+        <AdminLiquidFab actions={quickActions} />
       )}
 
       {showMorningBriefing && (() => {

@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { Link } from 'react-router-dom';
 import { downloadCouponAsImage, downloadCouponAsPDF } from '../../utils/couponDownloader';
 import { ActionMenu } from '../../components/ui/ActionMenu';
+import { BorderBeam } from 'border-beam';
 
 const safeFormatDate = (dateVal: any, fmtStr: string = 'MMM dd, yyyy', fallback: string = 'No Limit'): string => {
   if (!dateVal) return fallback;
@@ -233,8 +234,12 @@ export const CouponManager: React.FC = () => {
     setEditingId(null);
   };
 
+  const [copiedCode, setCopiedCode] = useState<string | null>(null);
+
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
+    setCopiedCode(text);
+    setTimeout(() => setCopiedCode(null), 2500);
     toast.success(`Copied to clipboard: ${text}`);
   };
 
@@ -1066,10 +1071,27 @@ export const CouponManager: React.FC = () => {
                       <div className="flex items-center gap-3">
                         <span className="material-symbols-outlined text-[20px] text-slate-400 block group-hover:scale-110 transition-transform">confirmation_number</span>
                         <div className="flex flex-col">
-                          <span onClick={() => copyToClipboard(c.code)} className="font-mono text-sm font-black text-slate-900 dark:text-white hover:text-indigo-400 cursor-pointer transition-colors select-all uppercase">
-                            {c.code}
+                          <BorderBeam size="pulse-inner" colorVariant="sunset" active={copiedCode === c.code}>
+                            <button
+                              type="button"
+                              onClick={() => copyToClipboard(c.code)}
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border transition-all text-left ${
+                                copiedCode === c.code
+                                  ? 'bg-amber-500/15 border-amber-500/50 text-amber-500 dark:text-amber-400'
+                                  : 'bg-slate-50 dark:bg-slate-800/80 border-slate-200 dark:border-slate-700/60 hover:border-amber-500/40 text-slate-900 dark:text-white'
+                              }`}
+                            >
+                              <span className="font-mono text-xs font-black uppercase tracking-wider">
+                                {c.code}
+                              </span>
+                              <span className="material-symbols-outlined text-[13px] text-slate-400">
+                                {copiedCode === c.code ? 'check' : 'content_copy'}
+                              </span>
+                            </button>
+                          </BorderBeam>
+                          <span className="text-[9px] text-slate-400 font-medium mt-1">
+                            {copiedCode === c.code ? 'Copied to clipboard!' : 'Click to Copy'}
                           </span>
-                          <span className="text-[9px] text-slate-400 font-medium">Click to Copy</span>
                           {/* List linked bookings */}
                           {(() => {
                             const applied = bookings.filter(b => b.appliedCouponCode?.toUpperCase() === c.code.toUpperCase());

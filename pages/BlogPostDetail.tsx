@@ -4,6 +4,7 @@ import { BLOG_POSTS, DEFAULT_BLOG_FALLBACK_IMAGE, BlogPost } from '../src/data/b
 import { TOUR_PACKAGES, TourPackage } from '../constants/tourCatalog';
 import { LeadCaptureModal } from '../components/ui/LeadCaptureModal';
 import { SEO } from '../components/ui/SEO';
+import { ThinkingOrb } from 'thinking-orbs';
 
 export const BlogPostDetail: React.FC = () => {
   const { slug } = useParams<{ slug: string }>();
@@ -15,6 +16,7 @@ export const BlogPostDetail: React.FC = () => {
   const [scrollProgress, setScrollProgress] = useState<number>(0);
   const [copiedAnswer, setCopiedAnswer] = useState<boolean>(false);
   const [faqHelpful, setFaqHelpful] = useState<Record<number, boolean | null>>({});
+  const [isPlayingAudio, setIsPlayingAudio] = useState<boolean>(false);
 
   const post: BlogPost | undefined = BLOG_POSTS.find((p) => p.slug === slug);
 
@@ -83,6 +85,31 @@ export const BlogPostDetail: React.FC = () => {
     setCopiedAnswer(true);
     setTimeout(() => setCopiedAnswer(false), 2500);
   };
+
+  const handleToggleAudio = () => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    if (isPlayingAudio) {
+      window.speechSynthesis.cancel();
+      setIsPlayingAudio(false);
+    } else {
+      window.speechSynthesis.cancel();
+      const textToRead = `${post.title}. Key highlights: ${post.aeoDirectAnswer || post.metaDescription}`;
+      const utterance = new SpeechSynthesisUtterance(textToRead);
+      utterance.rate = 0.95;
+      utterance.onend = () => setIsPlayingAudio(false);
+      utterance.onerror = () => setIsPlayingAudio(false);
+      window.speechSynthesis.speak(utterance);
+      setIsPlayingAudio(true);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 transition-colors duration-300 relative">
@@ -219,6 +246,40 @@ export const BlogPostDetail: React.FC = () => {
               <span className="material-symbols-outlined text-sm">share</span> Share Guide
             </button>
           </div>
+        </div>
+
+        {/* AI Audio Storytelling Bar with ThinkingOrb breathing state */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-slate-900/10 dark:from-emerald-950/40 dark:via-teal-950/30 dark:to-slate-900/40 rounded-2xl border border-emerald-500/20 backdrop-blur-sm gap-3 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="size-10 rounded-xl bg-emerald-500/20 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0">
+              <ThinkingOrb size={20} state="breathing" theme="auto" />
+            </div>
+            <div>
+              <p className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                <span>AI Story Audio Guide</span>
+                <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-600 dark:text-emerald-400">
+                  {isPlayingAudio ? 'Now Narrating' : 'Smart Audio'}
+                </span>
+              </p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                {isPlayingAudio ? 'Audio overview is actively playing...' : `Listen to key takeaways & audio overview (${post.readTime} listen)`}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={handleToggleAudio}
+            className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-md active:scale-95 transition-all self-start sm:self-auto ${
+              isPlayingAudio
+                ? 'bg-rose-600 hover:bg-rose-700 text-white'
+                : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+            }`}
+            title="Toggle audio guide"
+          >
+            <span className="material-symbols-outlined text-base">
+              {isPlayingAudio ? 'pause' : 'volume_up'}
+            </span>
+            <span>{isPlayingAudio ? 'Stop Audio' : 'Listen Guide'}</span>
+          </button>
         </div>
 
         {/* Featured Hero Image Container with Fallback */}

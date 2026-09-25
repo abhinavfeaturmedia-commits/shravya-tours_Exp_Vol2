@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { BorderBeam } from 'border-beam';
 import { useData } from '../../context/DataContext';
 
 // Curated realistic names (Indian travelers) — not random, cycles deterministically
@@ -83,12 +84,14 @@ export const UrgencyNotification: React.FC = () => {
 
   return (
     <div
-      className="fixed bottom-5 left-5 z-[90] flex items-start gap-3 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm border border-slate-200 dark:border-slate-700 rounded-2xl shadow-lg px-4 py-3 max-w-[280px] animate-in slide-in-from-bottom-3 fade-in duration-300"
+      className="fixed bottom-5 left-5 z-[90] max-w-[290px] animate-in slide-in-from-bottom-3 fade-in duration-300"
       role="status"
       aria-live="polite"
     >
-      {/* Icon */}
-      <div className="shrink-0 mt-0.5 size-8 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+      <BorderBeam size="md" colorVariant="ocean" active={true}>
+        <div className="flex items-start gap-3 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm border border-slate-200 dark:border-slate-700 rounded-2xl shadow-xl px-4 py-3">
+          {/* Icon */}
+          <div className="shrink-0 mt-0.5 size-8 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
         <span className={`material-symbols-outlined text-base ${action.color}`}>
           {action.icon}
         </span>
@@ -114,6 +117,8 @@ export const UrgencyNotification: React.FC = () => {
       >
         <span className="material-symbols-outlined text-sm">close</span>
       </button>
+        </div>
+      </BorderBeam>
     </div>
   );
 };

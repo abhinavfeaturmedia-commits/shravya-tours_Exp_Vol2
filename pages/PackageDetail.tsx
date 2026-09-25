@@ -14,6 +14,9 @@ import { formatPrice, formatPriceCompact, getLocationName, formatTripDuration, g
 import { getEmbedUrl, getVideoThumbnail } from '../utils/videoUtils';
 import { copyToClipboard } from '../utils/clipboard';
 import { useCustomerAuth, CUSTOMER_JWT_KEY } from '../context/CustomerAuthContext';
+import { BorderBeam } from 'border-beam';
+import { MetalBadge } from 'metal-fx';
+import { Liquid } from 'liquid-gooey';
 
 export const PackageDetail: React.FC = () => {
   const { id: rawId } = useParams<{ id: string }>();
@@ -192,6 +195,7 @@ export const PackageDetail: React.FC = () => {
   // Customization State
   const [selectedAddons, setSelectedAddons] = useState<string[]>([]);
   const [selectedOccupancy, setSelectedOccupancy] = useState('double');
+  const [selectedHotelTier, setSelectedHotelTier] = useState<'standard' | 'deluxe' | 'luxury'>('standard');
 
   // Lightbox State
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
@@ -436,6 +440,16 @@ export const PackageDetail: React.FC = () => {
   const activeOccupancy = useMemo(() => {
     return occupancyOptions.find(o => o.id === selectedOccupancy) || occupancyOptions[0];
   }, [occupancyOptions, selectedOccupancy]);
+
+  const HOTEL_TIERS = [
+    { id: 'standard', name: 'Standard', stars: '3★', hotelType: 'Deluxe Cozy Room', multiplier: 1.0 },
+    { id: 'deluxe', name: 'Deluxe', stars: '4★', hotelType: 'Premium View Hotel', multiplier: 1.15 },
+    { id: 'luxury', name: 'Luxury', stars: '5★', hotelType: 'Executive 5★ Resort', multiplier: 1.35 },
+  ];
+
+  const currentHotelTier = useMemo(() => {
+    return HOTEL_TIERS.find(t => t.id === selectedHotelTier) || HOTEL_TIERS[0];
+  }, [selectedHotelTier]);
 
   const ageLimitsList = useMemo(() => {
     if (tour?.builderData?.ageLimits && tour.builderData.ageLimits.length > 0) {
@@ -799,14 +813,15 @@ export const PackageDetail: React.FC = () => {
     const isGroup = !(tour.pricingMode && String(tour.pricingMode).toLowerCase().includes('person'));
     const basePax = getPackageBasePax(tour);
     const totalGuests = adults + children;
+    const effectiveOccPrice = Math.round(activeOccupancy.price * currentHotelTier.multiplier);
 
     if (isGroup) {
       const packageMultiplier = Math.max(1, Math.ceil(totalGuests / (basePax > 0 ? basePax : 2)));
-      const tourBasePrice = activeOccupancy.price * packageMultiplier;
+      const tourBasePrice = effectiveOccPrice * packageMultiplier;
       return Math.round(tourBasePrice + getAddonsTotal());
     } else {
-      const adultCost = adults * activeOccupancy.price;
-      const childCost = children * Math.round(activeOccupancy.price * 0.85);
+      const adultCost = adults * effectiveOccPrice;
+      const childCost = children * Math.round(effectiveOccPrice * 0.85);
       return Math.round(adultCost + childCost + getAddonsTotal());
     }
   };
@@ -818,7 +833,7 @@ export const PackageDetail: React.FC = () => {
     const basePax = getPackageBasePax(tour);
     const totalGuests = adults + children;
     const occupancyRatio = (tour.price && Number(tour.price) > 0) ? (activeOccupancy.price / Number(tour.price)) : 1;
-    const adjustedOriginalRate = Number(tour.originalPrice) * occupancyRatio;
+    const adjustedOriginalRate = Number(tour.originalPrice) * occupancyRatio * currentHotelTier.multiplier;
 
     if (isGroup) {
       const packageMultiplier = Math.max(1, Math.ceil(totalGuests / (basePax > 0 ? basePax : 2)));
@@ -2121,8 +2136,11 @@ export const PackageDetail: React.FC = () => {
                         </span>
                       </div>
                     )}
-                    <div className="text-[11px] font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800/70 border border-slate-200/60 dark:border-slate-700/50 px-3.5 py-1.5 rounded-xl w-fit mt-1 select-none">
-                      Total: {formatPrice(calculateTotal())} for {guests}
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                      <div className="text-[11px] font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800/70 border border-slate-200/60 dark:border-slate-700/50 px-3.5 py-1.5 rounded-xl w-fit select-none">
+                        Total: {formatPrice(calculateTotal())} for {guests}
+                      </div>
+                      <MetalBadge>FLASH DEAL</MetalBadge>
                     </div>
                     {tour.remainingSeats && tour.remainingSeats < 10 && (
                       <div className="inline-flex items-center gap-2 px-3 py-1 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-lg text-xs font-bold mt-3">
@@ -2135,6 +2153,45 @@ export const PackageDetail: React.FC = () => {
                   {/* Controls body */}
                   <div className="p-6 space-y-4 flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-205 hover:scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-800">
                     
+                    {/* Hotel Category Tier Gooey Switcher with liquid-gooey */}
+                    <div>
+                      <div className="flex items-center justify-between mb-2 ml-1">
+                        <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                          Hotel Category Tier
+                        </label>
+                        <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded-full border border-amber-500/20">
+                          {currentHotelTier.stars} {currentHotelTier.hotelType}
+                        </span>
+                      </div>
+                      <div className="p-1 rounded-2xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80">
+                        <Liquid fill="#C9732A" blur={4} contrast={16} shadow="0 4px 12px rgba(201,115,42,0.35)">
+                          <div className="grid grid-cols-3 gap-1">
+                            {HOTEL_TIERS.map((tier) => {
+                              const isSelected = selectedHotelTier === tier.id;
+                              return (
+                                <Liquid.Item key={tier.id} observe effect="morph">
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedHotelTier(tier.id as any)}
+                                    className={`w-full py-2 px-2 rounded-xl text-xs font-bold transition-all text-center flex flex-col items-center justify-center gap-0.5 ${
+                                      isSelected
+                                        ? 'bg-[#C9732A] text-white shadow-md'
+                                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                                    }`}
+                                  >
+                                    <span className="tracking-tight">{tier.name}</span>
+                                    <span className={`text-[10px] font-medium ${isSelected ? 'text-amber-200' : 'text-slate-400'}`}>
+                                      {tier.stars}
+                                    </span>
+                                  </button>
+                                </Liquid.Item>
+                              );
+                            })}
+                          </div>
+                        </Liquid>
+                      </div>
+                    </div>
+
                     {/* Occupancy Selector */}
                     <div>
                       <label htmlFor="occupancy-select" className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2 ml-1">Occupancy Pricing</label>
@@ -2147,7 +2204,7 @@ export const PackageDetail: React.FC = () => {
                         >
                           {occupancyOptions.map(option => (
                             <option key={option.id} value={option.id}>
-                              {option.label} — {formatPrice(option.price)}{(tour?.pricingMode && String(tour.pricingMode).toLowerCase().includes('person')) ? ' / person' : ''}
+                              {option.label} — {formatPrice(Math.round(option.price * currentHotelTier.multiplier))}{(tour?.pricingMode && String(tour.pricingMode).toLowerCase().includes('person')) ? ' / person' : ''}
                             </option>
                           ))}
                         </select>
@@ -2155,7 +2212,7 @@ export const PackageDetail: React.FC = () => {
                       </div>
                       {activeOccupancy && (
                         <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1.5 ml-1 font-medium leading-relaxed">
-                          Hotel: {activeOccupancy.hotel}
+                          Hotel: {activeOccupancy.hotel} ({currentHotelTier.name} {currentHotelTier.stars})
                         </p>
                       )}
                     </div>
@@ -2256,10 +2313,14 @@ export const PackageDetail: React.FC = () => {
                       >
                         <svg viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
                       </a>
-                      <button onClick={() => setBookingModal(true)} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-black py-4 rounded-2xl shadow-xl shadow-indigo-600/15 transition-all active:scale-95 text-base flex items-center justify-center gap-2">
-                        <span className="material-symbols-outlined text-[20px]">send</span>
-                        Send Query
-                      </button>
+                      <div className="flex-1">
+                        <BorderBeam size="pulse-inner" colorVariant="sunset" active={true}>
+                          <button onClick={() => setBookingModal(true)} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-black py-4 rounded-2xl shadow-xl shadow-indigo-600/15 transition-all active:scale-95 text-base flex items-center justify-center gap-2">
+                            <span className="material-symbols-outlined text-[20px]">send</span>
+                            Send Query
+                          </button>
+                        </BorderBeam>
+                      </div>
                     </div>
 
                     <p className="text-[10px] text-center text-slate-400 font-medium">No immediate payment required. Dynamic quotes provided instantly.</p>
@@ -2443,12 +2504,14 @@ export const PackageDetail: React.FC = () => {
               >
                 <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
               </a>
-              <button
-                onClick={() => setBookingModal(true)}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3.5 rounded-xl font-bold shadow-lg shadow-indigo-600/10 active:scale-95 transition-all text-xs uppercase tracking-wider"
-              >
-                Book Now
-              </button>
+              <BorderBeam size="pulse-inner" colorVariant="sunset" active={true}>
+                <button
+                  onClick={() => setBookingModal(true)}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3.5 rounded-xl font-bold shadow-lg shadow-indigo-600/10 active:scale-95 transition-all text-xs uppercase tracking-wider"
+                >
+                  Book Now
+                </button>
+              </BorderBeam>
             </div>
           </div>
         </div>

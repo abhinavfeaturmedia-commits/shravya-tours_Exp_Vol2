@@ -5,6 +5,7 @@ import { SEO } from '../components/ui/SEO';
 import { OptimizedImage } from '../components/ui/OptimizedImage';
 import { getLocationName, formatPriceCompact, getPackagePricingInfo, formatTripDuration } from '../utils/packageUtils';
 import { useCustomerAuth, CUSTOMER_JWT_KEY } from '../context/CustomerAuthContext';
+import { VoiceBeam, useMicrophone } from 'voice-glow';
 
 export const Packages: React.FC = () => {
   const { packages, masterLocations, trendingDestinations } = useData();
@@ -96,6 +97,79 @@ export const Packages: React.FC = () => {
     clearTimeout(debounceTimer.current);
     debounceTimer.current = setTimeout(() => setDebouncedSearch(value), 250);
   };
+
+  // Voice-Activated Search with voice-glow
+  const mic = useMicrophone();
+  const [isVoiceListening, setIsVoiceListening] = useState(false);
+  const speechRecognitionRef = useRef<any>(null);
+
+  const toggleVoiceSearch = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Voice search is not supported in this browser. Please use Chrome, Edge, or Safari.");
+      return;
+    }
+
+    if (isVoiceListening) {
+      try {
+        speechRecognitionRef.current?.stop();
+      } catch (e) {
+        // ignore
+      }
+      mic.stop();
+      setIsVoiceListening(false);
+      return;
+    }
+
+    try {
+      mic.start().catch((err: any) => console.warn("Mic start err:", err));
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'en-IN';
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
+
+      recognition.onstart = () => {
+        setIsVoiceListening(true);
+      };
+
+      recognition.onresult = (event: any) => {
+        const transcript = Array.from(event.results)
+          .map((r: any) => r[0].transcript)
+          .join('');
+        if (transcript) {
+          handleSearchChange(transcript);
+        }
+      };
+
+      recognition.onerror = () => {
+        setIsVoiceListening(false);
+        mic.stop();
+      };
+
+      recognition.onend = () => {
+        setIsVoiceListening(false);
+        mic.stop();
+      };
+
+      speechRecognitionRef.current = recognition;
+      recognition.start();
+    } catch (err) {
+      console.warn("Speech recognition error:", err);
+      setIsVoiceListening(false);
+      mic.stop();
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      try {
+        speechRecognitionRef.current?.stop();
+      } catch (e) {
+        // ignore
+      }
+      mic.stop();
+    };
+  }, []);
 
   const toggleTheme = (theme: string) => {
     if (selectedThemes.includes(theme)) {
@@ -333,18 +407,34 @@ export const Packages: React.FC = () => {
                 </div>
 
                 <div className="lg:sticky lg:top-32 space-y-10 overflow-y-auto lg:overflow-visible flex-1 lg:h-auto pb-20 lg:pb-0 scrollbar-hide">
-                  {/* Search Input */}
+                  {/* Search Input with Voice Activation */}
                   <div className="space-y-3">
-                    <div className="relative group">
-                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 material-symbols-outlined text-[20px] group-focus-within:text-primary transition-colors">search</span>
-                      <input
-                        type="text"
-                        value={searchQuery}
-                        onChange={(e) => handleSearchChange(e.target.value)}
-                        placeholder="Search destinations..."
-                        className="w-full bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-800 rounded-2xl pl-12 pr-4 py-4 text-sm font-bold focus:ring-2 focus:ring-primary/50 focus:border-transparent outline-none shadow-sm transition-all"
-                      />
-                    </div>
+                    <VoiceBeam stream={mic.stream} processing={isVoiceListening}>
+                      <div className="relative group">
+                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 material-symbols-outlined text-[20px] group-focus-within:text-primary transition-colors">search</span>
+                        <input
+                          type="text"
+                          value={searchQuery}
+                          onChange={(e) => handleSearchChange(e.target.value)}
+                          placeholder={isVoiceListening ? "Listening... Speak destination" : "Search destinations..."}
+                          className="w-full bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-800 rounded-2xl pl-12 pr-12 py-4 text-sm font-bold focus:ring-2 focus:ring-primary/50 focus:border-transparent outline-none shadow-sm transition-all"
+                        />
+                        <button
+                          type="button"
+                          onClick={toggleVoiceSearch}
+                          title={isVoiceListening ? "Stop voice listening" : "Search destinations by voice"}
+                          className={`absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-xl transition-all ${
+                            isVoiceListening
+                              ? 'bg-red-500/20 text-red-500 animate-pulse'
+                              : 'text-slate-400 hover:text-primary hover:bg-slate-100 dark:hover:bg-slate-700'
+                          }`}
+                        >
+                          <span className="material-symbols-outlined text-[20px]">
+                            {isVoiceListening ? 'mic' : 'mic_none'}
+                          </span>
+                        </button>
+                      </div>
+                    </VoiceBeam>
                   </div>
 
                   {/* Price Range */}

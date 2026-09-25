@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { BorderBeam } from 'border-beam';
 import { useData } from '../context/DataContext';
 import { SEO } from '../components/ui/SEO';
 import { OptimizedImage } from '../components/ui/OptimizedImage';
@@ -932,7 +933,7 @@ export const Home: React.FC = () => {
           <div className="flex flex-col items-center justify-center text-center pt-36 pb-28 sm:pt-40 sm:pb-32 lg:pt-48 lg:pb-40 lg:min-h-[88vh] max-w-4xl mx-auto">
 
             {/* Eyebrow badge */}
-            <div className="mb-6 reveal">
+            <div className="mb-6 reveal flex items-center justify-center">
               <span className="inline-flex items-center gap-2 px-5 py-2 rounded-full bg-white/10 backdrop-blur-md text-amber-300 text-xs font-black uppercase tracking-[0.25em] border border-white/20 shadow-lg">
                 <span className="size-2 rounded-full bg-amber-400 animate-ping inline-block" />
                 ✦ India's Most Loved Travel Hub
@@ -1084,15 +1085,17 @@ export const Home: React.FC = () => {
           </div>
 
             {/* Form Container */}
-            <div className="bg-white dark:bg-slate-900 rounded-[2rem] shadow-2xl p-4 md:p-6 text-left border border-slate-100 dark:border-white/10 relative overflow-visible transition-all duration-500">
-              <div className="absolute top-0 left-0 w-full h-1 rounded-t-[2rem]" style={{ background: 'linear-gradient(90deg, #C9732A, #f59e0b, #2D6A4F)' }} />
-              {activeTab === 'hotel-booking' && <HotelBookingForm onSubmit={handleHotelSubmit} />}
-              {activeTab === 'tour-packages' && <TourBookingForm onSubmit={handleTourSubmit} />}
-              {activeTab === 'flight-booking' && <FlightBookingForm onSubmit={handleFlightSubmit} />}
-              {activeTab === 'train-booking' && <TrainBookingForm onSubmit={handleTrainSubmit} />}
-              {activeTab === 'car-booking' && <CarBookingForm onSubmit={handleCarSubmit} />}
-              {activeTab === 'bus-booking' && <BusBookingForm onSubmit={handleBusSubmit} />}
-            </div>
+            <BorderBeam size="md" colorVariant="sunset" active={true}>
+              <div className="bg-white dark:bg-slate-900 rounded-[2rem] shadow-2xl p-4 md:p-6 text-left border border-slate-100 dark:border-white/10 relative overflow-visible transition-all duration-500">
+                <div className="absolute top-0 left-0 w-full h-1 rounded-t-[2rem]" style={{ background: 'linear-gradient(90deg, #C9732A, #f59e0b, #2D6A4F)' }} />
+                {activeTab === 'hotel-booking' && <HotelBookingForm onSubmit={handleHotelSubmit} />}
+                {activeTab === 'tour-packages' && <TourBookingForm onSubmit={handleTourSubmit} />}
+                {activeTab === 'flight-booking' && <FlightBookingForm onSubmit={handleFlightSubmit} />}
+                {activeTab === 'train-booking' && <TrainBookingForm onSubmit={handleTrainSubmit} />}
+                {activeTab === 'car-booking' && <CarBookingForm onSubmit={handleCarSubmit} />}
+                {activeTab === 'bus-booking' && <BusBookingForm onSubmit={handleBusSubmit} />}
+              </div>
+            </BorderBeam>
 
             {/* Side Animations - Anchored relative to the booking widget container */}
             <div className="absolute right-full mr-2 2xl:mr-10 top-1/2 -translate-y-1/2 w-28 h-28 2xl:w-48 2xl:h-48 hidden xl:flex items-center justify-center pointer-events-none z-10">
@@ -1470,6 +1473,7 @@ export const Home: React.FC = () => {
                         marginTop: `-${baseHeight / 2}px`,
                       }}
                     >
+                      <BorderBeam size="md" colorVariant="sunset" active={isCenter}>
                       <div className={`relative w-full h-full overflow-hidden transition-all duration-500 ${
                         isCenter
                           ? 'rounded-[2rem] shadow-[0_40px_80px_rgba(0,0,0,0.3)] dark:shadow-[0_40px_80px_rgba(0,0,0,0.65)] ring-1 ring-black/5 dark:ring-white/10'
@@ -1525,6 +1529,7 @@ export const Home: React.FC = () => {
                           )}
                         </div>
                       </div>
+                      </BorderBeam>
                     </div>
                   );
                 })}

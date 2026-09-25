@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, Navigate, useNavigate } from 'react-router-dom';
+import { BorderBeam } from 'border-beam';
+import { BotAvatar } from 'bot-avatars';
+import { MetalBadge } from 'metal-fx';
 import { SEO } from '../components/ui/SEO';
 import { SuggestPopup, isDismissed, isSnoozed } from '../components/ui/SuggestPopup';
 import { formatPrice } from '../utils/packageUtils';
@@ -46,10 +49,13 @@ export const BookingConfirmation: React.FC = () => {
             <div className="min-h-screen bg-gradient-to-br from-green-50 via-white to-emerald-50 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800 pt-20 pb-12 px-4">
                 <div className="max-w-2xl mx-auto">
 
-                    {/* Success Animation */}
+                    {/* Success Animation & Celebrity Mascot */}
                     <div className="text-center mb-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                        <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-gradient-to-br from-green-400 to-emerald-500 shadow-2xl shadow-green-500/30 mb-6 animate-bounce">
-                            <span className="material-symbols-outlined text-5xl text-white">check</span>
+                        <div className="inline-flex items-center justify-center p-3 mb-4 rounded-3xl bg-emerald-500/10 dark:bg-emerald-500/20 border border-emerald-500/30 shadow-2xl shadow-emerald-500/20 backdrop-blur-sm animate-bounce">
+                            <BotAvatar type="star" state="working" size={64} />
+                        </div>
+                        <div className="flex items-center justify-center gap-2 mb-2">
+                            <MetalBadge>VIP INQUIRY CONFIRMED</MetalBadge>
                         </div>
                         <h1 className="text-3xl md:text-4xl font-black text-slate-900 dark:text-white mb-3">
                             Inquiry Submitted! 🎉
@@ -59,21 +65,22 @@ export const BookingConfirmation: React.FC = () => {
                         </p>
                     </div>
 
-                    {/* Reference Card */}
-                    <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 overflow-hidden mb-6 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-150">
+                    {/* Reference Card with Golden VIP BorderBeam */}
+                    <BorderBeam size="md" colorVariant="sunset" active={true}>
+                        <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 overflow-hidden mb-6 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-150">
 
-                        {/* Reference Header */}
-                        <div className="bg-gradient-to-r from-emerald-600 to-green-600 px-6 py-5">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <p className="text-emerald-100 text-xs font-bold uppercase tracking-widest mb-1">Reference Number</p>
-                                    <p className="text-2xl font-black text-white tracking-wide">{referenceId}</p>
-                                </div>
-                                <div className="bg-white/20 backdrop-blur-md rounded-xl p-3">
-                                    <span className="material-symbols-outlined text-white text-3xl">confirmation_number</span>
+                            {/* Reference Header */}
+                            <div className="bg-gradient-to-r from-emerald-600 to-green-600 px-6 py-5">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <p className="text-emerald-100 text-xs font-bold uppercase tracking-widest mb-1">Reference Number</p>
+                                        <p className="text-2xl font-black text-white tracking-wide">{referenceId}</p>
+                                    </div>
+                                    <div className="bg-white/20 backdrop-blur-md rounded-xl p-3">
+                                        <span className="material-symbols-outlined text-white text-3xl">confirmation_number</span>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
 
                         {/* Booking Details */}
                         <div className="p-6 space-y-4">
@@ -128,6 +135,7 @@ export const BookingConfirmation: React.FC = () => {
                             </div>
                         </div>
                     </div>
+                    </BorderBeam>
 
                     {/* What's Next */}
                     <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 p-6 mb-6 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-300">

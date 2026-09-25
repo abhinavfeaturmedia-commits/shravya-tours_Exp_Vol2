@@ -3,6 +3,9 @@ import { useAuth } from '../../context/AuthContext';
 import { api } from '../../src/lib/api';
 import { toast } from 'sonner';
 import { TodayAttendanceResponse, TodayRosterItem, StaffLeave, AttendanceSettings, AttendanceReportResponse } from '../../types';
+import { BotAvatar } from 'bot-avatars';
+import { BorderBeam } from 'border-beam';
+import { StaffBotAvatar } from '../../src/components/ui/StaffBotAvatar';
 
 export const Attendance: React.FC = () => {
     const { currentUser, isAuthenticated, hasPermission, canAccess } = useAuth();
@@ -688,11 +691,12 @@ export const Attendance: React.FC = () => {
             </div>
 
             {/* Current Logged-in Staff Live Punch Hero Card */}
+            <BorderBeam size="md" colorVariant="ocean" active={true}>
             <div className="bg-slate-900 dark:bg-slate-950 text-white rounded-3xl p-5 md:p-6 shadow-xl border border-slate-800 space-y-4">
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                     <div className="flex items-center gap-4">
-                        <div className="size-14 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center shrink-0">
-                            <span className="material-symbols-outlined text-3xl">badge</span>
+                        <div className="size-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center shrink-0 overflow-hidden">
+                            <StaffBotAvatar staff={currentUser} isActive={!!(currentAttendance?.checkInTime && currentAttendance.status !== 'Absent')} size={46} />
                         </div>
                         <div>
                             <div className="flex items-center gap-2.5">
@@ -801,6 +805,7 @@ export const Attendance: React.FC = () => {
                     </div>
                 )}
             </div>
+            </BorderBeam>
 
             {/* Navigation Tabs Header */}
             <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 overflow-x-auto no-scrollbar pb-px">
@@ -1026,8 +1031,8 @@ export const Attendance: React.FC = () => {
                                                     {/* Staff Info */}
                                                     <td className="py-3.5 px-5 sticky left-0 z-10 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/60 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)] transition-colors">
                                                         <div className="flex items-center gap-3">
-                                                            <div className={`size-9 rounded-2xl ${item.color || 'bg-indigo-600'} text-white font-bold flex items-center justify-center text-xs shadow-sm shrink-0`}>
-                                                                {item.initials}
+                                                            <div className="size-9 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-center shadow-xs shrink-0 overflow-hidden">
+                                                                <StaffBotAvatar staff={item} size={30} isActive={!!(item.checkInTime && item.status !== 'Absent')} />
                                                             </div>
                                                             <div>
                                                                 <div className="flex items-center gap-1.5">
@@ -1762,8 +1767,8 @@ export const Attendance: React.FC = () => {
                     <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-5 max-h-[90vh] overflow-y-auto">
                         <div className="flex items-start justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
                             <div className="flex items-center gap-3.5">
-                                <div className={`size-12 rounded-2xl ${inspectingStaffItem.color || 'bg-indigo-600'} text-white font-bold flex items-center justify-center text-sm shadow-md shrink-0`}>
-                                    {inspectingStaffItem.initials}
+                                <div className="size-13 rounded-2xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center shadow-md shrink-0 overflow-hidden">
+                                    <StaffBotAvatar staff={inspectingStaffItem} size={44} isActive={inspectingStaffItem.status === 'Present'} />
                                 </div>
                                 <div>
                                     <div className="flex items-center gap-2">

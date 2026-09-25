@@ -1,6 +1,8 @@
 import React, { useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
+import { ThinkingOrb } from 'thinking-orbs';
+import { BorderBeam } from 'border-beam';
 
 export interface ColumnMapping<T> {
     header: string;
@@ -143,6 +145,7 @@ export const DataImportModal = <T extends Record<string, any>>({
 
     return (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in">
+            <BorderBeam size="md" colorVariant="ocean" active={true}>
             <div className="bg-white dark:bg-[#1A2633] w-full max-w-5xl rounded-[2rem] p-6 shadow-2xl animate-in zoom-in-95 flex flex-col max-h-[90vh]">
                 <div className="flex justify-between items-center mb-6 border-b border-slate-100 dark:border-slate-800 pb-4">
                     <div>
@@ -154,7 +157,13 @@ export const DataImportModal = <T extends Record<string, any>>({
                     </button>
                 </div>
 
-                {previewData.length === 0 ? (
+                {isProcessing ? (
+                    <div className="flex-1 flex flex-col items-center justify-center p-12 text-center animate-in fade-in">
+                        <ThinkingOrb size={64} state="weaving" theme="auto" />
+                        <p className="mt-4 font-bold text-slate-800 dark:text-slate-100 text-sm">Weaving spreadsheet columns & validating records...</p>
+                        <p className="text-xs text-slate-400 mt-1">Checking tariffs, headers, and data integrity</p>
+                    </div>
+                ) : previewData.length === 0 ? (
                     <div className="flex-1 flex flex-col items-center justify-center bg-slate-50 dark:bg-slate-900/50 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl p-10 py-20 text-center relative hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
                         <input
                             type="file"
@@ -240,6 +249,7 @@ export const DataImportModal = <T extends Record<string, any>>({
                     </div>
                 )}
             </div>
+            </BorderBeam>
         </div>
     );
 };

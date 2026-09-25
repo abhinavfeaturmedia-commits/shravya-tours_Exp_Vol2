@@ -24,6 +24,7 @@ import { Plus, X, Edit2, Trash2 } from 'lucide-react';
 import { parsePaxString, formatPaxString } from '../../utils/paxUtils';
 import { StaffMultiSelect } from '../../components/admin/StaffMultiSelect';
 import { EntityAuditTimeline } from '../../components/admin/EntityAuditTimeline';
+import { ThinkingOrb } from 'thinking-orbs';
 
 export const Bookings: React.FC = () => {
     const { packages, customers, leads, refreshData, coupons, applyCoupon, detachCoupon, tasks, updateTask, addTask, deleteTask } = useData();
@@ -65,6 +66,7 @@ export const Bookings: React.FC = () => {
     const handlePrintReceiptInBookings = async (tx: any, booking: Booking) => {
         setPrintingTxId(tx.id);
         const toastId = toast.loading('Generating transaction receipt...');
+        await new Promise(res => setTimeout(res, 350));
         try {
             const customerDetails = customers?.find((c: any) => c.id === booking.customerId || c.email === booking.email) || null;
             
@@ -2176,7 +2178,9 @@ export const Bookings: React.FC = () => {
                                                                     className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-all active:scale-95 disabled:opacity-50"
                                                                 >
                                                                     {printingTxId === t.id ? (
-                                                                        <span className="material-symbols-outlined text-[16px] animate-spin">sync</span>
+                                                                        <span className="flex items-center justify-center size-5">
+                                                                            <ThinkingOrb state="weaving" size={20} />
+                                                                        </span>
                                                                     ) : (
                                                                         <span className="material-symbols-outlined text-[16px]">receipt</span>
                                                                     )}
@@ -2703,14 +2707,30 @@ export const Bookings: React.FC = () => {
 
                     <div className="flex items-center gap-3 w-full lg:w-auto">
                         <div className="relative flex-1 lg:w-64">
-                            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">search</span>
+                            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[18px] pointer-events-none">search</span>
                             <input
                                 type="text"
+                                name="booking_search_query"
+                                id="booking_search_query"
+                                autoComplete="off"
+                                autoCorrect="off"
+                                autoCapitalize="off"
+                                spellCheck={false}
                                 placeholder="Search by ID, Name or Title..."
                                 value={search}
                                 onChange={(e) => setSearch(e.target.value)}
-                                className="pl-10 pr-4 py-2.5 bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-700 rounded-xl text-sm w-full focus:ring-2 focus:ring-primary/50 dark:text-white placeholder:text-slate-400 outline-none"
+                                className="pl-10 pr-9 py-2.5 bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-700 rounded-xl text-sm w-full focus:ring-2 focus:ring-primary/50 dark:text-white placeholder:text-slate-400 outline-none transition-all"
                             />
+                            {search && (
+                                <button
+                                    type="button"
+                                    onClick={() => setSearch('')}
+                                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5"
+                                    title="Clear search"
+                                >
+                                    <X className="h-4 w-4" />
+                                </button>
+                            )}
                         </div>
                         <div className="flex bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-700 rounded-xl p-1 shrink-0">
                             <button

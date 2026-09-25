@@ -7,6 +7,8 @@ import { Lead } from '../../types';
 import { useData } from '../../context/DataContext';
 import { toast } from '../ui/Toast';
 import { TravelerSelector } from '../ui/TravelerSelector';
+import { BorderBeam } from 'border-beam';
+import { ThinkingOrb } from 'thinking-orbs';
 
 const bookingSchema = z.object({
     name: z.string().min(2, 'Name must be at least 2 characters'),
@@ -174,7 +176,8 @@ export const QuickBookingModal: React.FC<QuickBookingModalProps> = ({
 
     const modalContent = (
         <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in">
-            <div className="bg-white dark:bg-[#1A2633] w-full max-w-md rounded-3xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden animate-in zoom-in-95 ring-1 ring-white/10">
+            <BorderBeam size="md" colorVariant="ocean" active={true}>
+                <div className="bg-white dark:bg-[#1A2633] w-full max-w-md rounded-3xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden animate-in zoom-in-95 ring-1 ring-white/10">
                 {/* Fixed Header */}
                 <div className="flex justify-between items-center px-6 py-5 md:px-8 md:py-6 border-b border-slate-100 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-800/20">
                     <h2 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">Request Quote</h2>
@@ -282,13 +285,21 @@ export const QuickBookingModal: React.FC<QuickBookingModalProps> = ({
                         <button
                             type="submit"
                             disabled={isSubmitting}
-                            className="w-full py-4 bg-primary text-white font-bold rounded-xl shadow-xl shadow-primary/20 mt-4 hover:bg-primary-dark transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="w-full py-4 bg-primary text-white font-bold rounded-xl shadow-xl shadow-primary/20 mt-4 hover:bg-primary-dark transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                         >
-                            {isSubmitting ? 'Submitting...' : 'Submit Request'}
+                            {isSubmitting ? (
+                                <>
+                                    <ThinkingOrb size={20} state="connecting" theme="dark" />
+                                    <span>Securing Seat & Reservation...</span>
+                                </>
+                            ) : (
+                                'Submit Request'
+                            )}
                         </button>
                     </form>
                 </div>
             </div>
+            </BorderBeam>
         </div>
     );
 

@@ -14,6 +14,7 @@ import {
     buildAdminPermissions,
     normalizePermissions
 } from '../../src/config/permissionsConfig';
+import { StaffBotAvatar } from '../../src/components/ui/StaffBotAvatar';
 
 // Format last_active ISO timestamp into human-readable relative time
 const formatLastActive = (value: string | null | undefined): string => {
@@ -618,8 +619,8 @@ export const StaffManagement: React.FC = () => {
                         <div className="flex flex-col border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-[#1A2633] shrink-0">
                             <div className="flex justify-between items-center px-6 pt-5 pb-3">
                                 <div className="flex items-center gap-3 min-w-0">
-                                    <div className={`size-11 rounded-xl flex items-center justify-center font-black text-base shadow-sm shrink-0 ${getAvatarStyle(formData.role || 'Tour Consultant')}`}>
-                                        {formData.name ? formData.name.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2) : (isEditing ? 'ED' : 'NW')}
+                                    <div className="size-11 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center shadow-sm shrink-0 overflow-hidden">
+                                        <StaffBotAvatar staff={formData} size={38} />
                                     </div>
                                     <div className="min-w-0">
                                         <div className="flex items-center gap-2 flex-wrap">
@@ -1484,10 +1485,10 @@ export const StaffManagement: React.FC = () => {
                                         {staff.slice(0, 4).map((s, idx) => (
                                             <div
                                                 key={s.id || idx}
-                                                className={`size-7 rounded-lg border-2 border-white dark:border-[#1A2633] flex items-center justify-center text-[10px] font-black ${getAvatarStyle(s.role)} shadow-xs`}
+                                                className="size-7 rounded-lg border-2 border-white dark:border-[#1A2633] flex items-center justify-center bg-slate-100 dark:bg-slate-800 shadow-xs overflow-hidden"
                                                 title={`${s.name} (${s.role})`}
                                             >
-                                                {s.initials}
+                                                <StaffBotAvatar staff={s} size={24} />
                                             </div>
                                         ))}
                                         {staff.length > 4 && (
@@ -1723,8 +1724,8 @@ export const StaffManagement: React.FC = () => {
                                                     {/* Employee Avatar & Details */}
                                                     <div className="flex items-center gap-3.5 flex-1 md:w-5/12 min-w-0 pr-2">
                                                         <div className="relative shrink-0">
-                                                            <div className={`size-10 rounded-xl flex items-center justify-center font-black text-xs ${getAvatarStyle(member.role)} group-hover:scale-105 transition-transform`}>
-                                                                {member.initials}
+                                                            <div className="size-11 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform overflow-hidden">
+                                                                <StaffBotAvatar staff={member} size={38} isOnline={isOnline} />
                                                             </div>
                                                             {isOnline && (
                                                                 <span className="absolute -bottom-0.5 -right-0.5 size-3 rounded-full bg-green-500 border-2 border-white dark:border-slate-900" title="Active now in system" />
@@ -1857,8 +1858,8 @@ export const StaffManagement: React.FC = () => {
                                                 <button onClick={() => setSelectedStaffId(null)} className="lg:hidden text-slate-300 -ml-1 p-1 hover:bg-white/10 rounded-full transition-colors cursor-pointer">
                                                     <span className="material-symbols-outlined">arrow_back</span>
                                                 </button>
-                                                <div className={`size-12 rounded-xl flex items-center justify-center font-black text-lg shadow-lg shrink-0 ${getAvatarStyle(selectedMember.role)}`}>
-                                                    {selectedMember.initials}
+                                                <div className="size-14 rounded-2xl bg-white/10 border border-white/20 backdrop-blur-md flex items-center justify-center shadow-xl shrink-0 overflow-hidden">
+                                                    <StaffBotAvatar staff={selectedMember} size={48} isOnline={isStaffOnlineNow(selectedMember.lastActive)} />
                                                 </div>
                                                 <div className="min-w-0">
                                                     <div className="flex items-center gap-1.5">

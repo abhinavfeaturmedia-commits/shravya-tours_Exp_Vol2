@@ -9,6 +9,8 @@ import { toast } from 'sonner';
 import { Proposal, ProposalOption } from '../../types';
 import { generateProposalPDF, generateProformaInvoice } from '../../utils/pdfGenerator';
 import { Printer } from 'lucide-react';
+import { BorderBeam } from 'border-beam';
+import { ThinkingOrb } from 'thinking-orbs';
 
 export const ProposalBuilder: React.FC = () => {
     const { id } = useParams<{ id: string }>(); // If editing
@@ -29,6 +31,8 @@ export const ProposalBuilder: React.FC = () => {
     ]);
     const [activeOptionId, setActiveOptionId] = useState<string>('opt-1');
     const [isConverting, setIsConverting] = useState(false);
+    const [isWeavingPDF, setIsWeavingPDF] = useState(false);
+    const [isWeavingProforma, setIsWeavingProforma] = useState(false);
 
     // Load if editing
     useEffect(() => {
@@ -111,12 +115,14 @@ export const ProposalBuilder: React.FC = () => {
         updateActiveOption('hotels', updated);
     };
 
-    const handleDownloadProforma = () => {
+    const handleDownloadProforma = async () => {
         if (!activeOption) return;
         if (!leadId) { toast.error("Lead must be selected"); return; }
         const lead = leads.find(l => l.id === leadId);
         if (!lead) { toast.error("Lead not found"); return; }
 
+        setIsWeavingProforma(true);
+        await new Promise(res => setTimeout(res, 400));
         try {
             const proposalData: Proposal = {
                 id: id === 'new' ? `PROP-DRAFT` : id!,
@@ -132,6 +138,8 @@ export const ProposalBuilder: React.FC = () => {
         } catch (e) {
             console.error(e);
             toast.error("Failed to generate Proforma.");
+        } finally {
+            setIsWeavingProforma(false);
         }
     };
 
@@ -206,11 +214,13 @@ export const ProposalBuilder: React.FC = () => {
         }
     };
 
-    const handleDownloadPDF = () => {
+    const handleDownloadPDF = async () => {
         if (!leadId) { toast.error("Lead must be selected to generate PDF"); return; }
         const lead = leads.find(l => l.id === leadId);
         if (!lead) { toast.error("Lead not found"); return; }
 
+        setIsWeavingPDF(true);
+        await new Promise(res => setTimeout(res, 400));
         try {
             const proposalData: Proposal = {
                 id: id === 'new' ? `PROP-DRAFT` : id!,
@@ -226,6 +236,8 @@ export const ProposalBuilder: React.FC = () => {
         } catch (e) {
             console.error(e);
             toast.error("Failed to generate PDF. Make sure all fields are valid.");
+        } finally {
+            setIsWeavingPDF(false);
         }
     };
 
@@ -247,16 +259,38 @@ export const ProposalBuilder: React.FC = () => {
                 <div className="flex gap-3">
                     <button
                         onClick={handleDownloadPDF}
-                        className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 font-bold rounded-xl text-sm px-4 py-2.5 transition-all"
+                        disabled={isWeavingPDF}
+                        className="flex items-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 font-bold rounded-xl text-sm px-4 py-2.5 transition-all shadow-sm"
                     >
-                        <Printer size={18} /> PDF
+                        {isWeavingPDF ? (
+                            <>
+                                <ThinkingOrb state="weaving" size={20} />
+                                <span>Weaving PDF...</span>
+                            </>
+                        ) : (
+                            <>
+                                <Printer size={18} />
+                                <span>PDF</span>
+                            </>
+                        )}
                     </button>
                     <button
                         onClick={handleDownloadProforma}
-                        className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 font-bold rounded-xl text-sm px-4 py-2.5 transition-all"
+                        disabled={isWeavingProforma}
+                        className="flex items-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 font-bold rounded-xl text-sm px-4 py-2.5 transition-all shadow-sm"
                         title="Download Proforma Invoice"
                     >
-                        <FileText size={18} /> Proforma
+                        {isWeavingProforma ? (
+                            <>
+                                <ThinkingOrb state="weaving" size={20} />
+                                <span>Weaving Proforma...</span>
+                            </>
+                        ) : (
+                            <>
+                                <FileText size={18} />
+                                <span>Proforma</span>
+                            </>
+                        )}
                     </button>
                     {id !== 'new' && (
                         <button
@@ -278,12 +312,14 @@ export const ProposalBuilder: React.FC = () => {
                             )}
                         </button>
                     )}
-                    <button
-                        onClick={handleSave}
-                        className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl text-sm px-6 py-2.5 shadow-lg shadow-purple-600/20 active:scale-95 transition-all btn-glow"
-                    >
-                        <Save size={18} /> Save Proposal
-                    </button>
+                    <BorderBeam size="pulse-inner" colorVariant="forest" active={!!title && !!leadId}>
+                        <button
+                            onClick={handleSave}
+                            className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl text-sm px-6 py-2.5 shadow-lg shadow-purple-600/20 active:scale-95 transition-all btn-glow"
+                        >
+                            <Save size={18} /> Save Proposal
+                        </button>
+                    </BorderBeam>
                 </div>
             </div>
 
@@ -381,12 +417,14 @@ export const ProposalBuilder: React.FC = () => {
                                     </div>
                                     <div>
                                         <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Total Price (₹)</label>
-                                        <input
-                                            type="number"
-                                            value={activeOption.price}
-                                            onChange={(e) => updateActiveOption('price', Number(e.target.value))}
-                                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 font-black text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-purple-500"
-                                        />
+                                        <BorderBeam size="sm" colorVariant="gold" active={Number(activeOption.price) >= 100000}>
+                                            <input
+                                                type="number"
+                                                value={activeOption.price}
+                                                onChange={(e) => updateActiveOption('price', Number(e.target.value))}
+                                                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 font-black text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-purple-500"
+                                            />
+                                        </BorderBeam>
                                     </div>
                                 </div>
 

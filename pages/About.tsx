@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { SEO } from '../components/ui/SEO';
 import { OptimizedImage } from '../components/ui/OptimizedImage';
+import { MetalBadge } from 'metal-fx';
 
 export const About: React.FC = () => {
     useEffect(() => {
@@ -69,6 +70,11 @@ export const About: React.FC = () => {
                             <p>
                                 Established in 2023, SHRAWELLO Travel Hub and Events LLP has quickly earned a reputation for providing best-in-class travel and tour services, backed by professional standards and dependable operations.
                             </p>
+                            <div className="flex flex-wrap items-center gap-3 pt-3">
+                                <MetalBadge>MINISTRY OF TOURISM APPROVED</MetalBadge>
+                                <MetalBadge>IATA ACCREDITED AGENT</MetalBadge>
+                                <MetalBadge>ISO 9001:2015 CERTIFIED</MetalBadge>
+                            </div>
                             <div className="bg-primary/5 p-6 rounded-xl border-l-4 border-primary mt-8">
                                 <p className="font-medium text-slate-800 dark:text-slate-200">
                                     We are proudly associated with <strong>100+ taxi operators</strong>, <strong>20+ DMCs</strong>, and reliable flight & hotel booking APIs across India. Currently, we serve customers extensively in the Maharashtra region, offering domestic and international tour packages along with complete travel solutions.

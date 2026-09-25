@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { BorderBeam } from 'border-beam';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -220,11 +221,13 @@ export const SuggestPopup: React.FC<SuggestPopupProps> = ({
   // ── FLOAT variant ───────────────────────────────────────────────────────
   if (variant === 'float') {
     return (
-      <div
-        className={`fixed bottom-24 right-6 z-[99] w-80 bg-white dark:bg-slate-800 rounded-2xl shadow-2xl ${palette.glow} border border-slate-100 dark:border-slate-700 animate-in slide-in-from-bottom-4 duration-500 ${className}`}
-      >
-        {/* Pill header */}
-        <div className={`h-1.5 w-full rounded-t-2xl bg-gradient-to-r ${palette.badge}`} />
+      <div className={`fixed bottom-24 right-6 z-[99] w-80 animate-in slide-in-from-bottom-4 duration-500 ${className}`}>
+        <BorderBeam size="md" colorVariant="colorful" active={true}>
+          <div
+            className={`w-full bg-white dark:bg-slate-800 rounded-2xl shadow-2xl ${palette.glow} border border-slate-100 dark:border-slate-700 overflow-hidden`}
+          >
+            {/* Pill header */}
+            <div className={`h-1.5 w-full rounded-t-2xl bg-gradient-to-r ${palette.badge}`} />
 
         <div className="p-4">
           <div className="flex gap-3 items-start">
@@ -287,7 +290,9 @@ export const SuggestPopup: React.FC<SuggestPopupProps> = ({
           )}
         </div>
       </div>
-    );
+      </BorderBeam>
+    </div>
+  );
   }
 
   // ── MODAL variant ───────────────────────────────────────────────────────

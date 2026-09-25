@@ -609,9 +609,15 @@ export const Customers: React.FC = () => {
 
                         {/* Search Input with Clear Button */}
                         <div className="relative w-full md:w-80 group">
-                            <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors text-[18px]">search</span>
+                            <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors text-[18px] pointer-events-none">search</span>
                             <input
                                 type="text"
+                                name="customer_search_query"
+                                id="customer_search_query"
+                                autoComplete="off"
+                                autoCorrect="off"
+                                autoCapitalize="off"
+                                spellCheck={false}
                                 placeholder="Search name, phone, email, GST, city..."
                                 value={search}
                                 onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
@@ -619,8 +625,10 @@ export const Customers: React.FC = () => {
                             />
                             {search && (
                                 <button
+                                    type="button"
                                     onClick={() => setSearch('')}
                                     className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                                    title="Clear search"
                                 >
                                     <span className="material-symbols-outlined text-[16px]">cancel</span>
                                 </button>

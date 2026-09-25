@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { VEHICLE_CATEGORIES, VEHICLE_MODELS, VehicleCategoryType, VehicleModel } from '../../constants/vehicleCatalog';
 import { VehicleCardImage } from '../ui/VehicleCardImage';
+import { BorderBeam } from 'border-beam';
 
 interface VehicleSelectorModalProps {
   isOpen: boolean;
@@ -167,14 +168,14 @@ export const VehicleSelectorModal: React.FC<VehicleSelectorModalProps> = ({
               const isSelected = selectedModelName === model.name;
 
               return (
-                <div
-                  key={model.id}
-                  className={`group relative bg-white dark:bg-slate-800/90 rounded-2xl border-2 transition-all duration-300 overflow-hidden flex flex-col hover:-translate-y-1 hover:shadow-xl ${
-                    isSelected
-                      ? 'border-primary shadow-lg shadow-primary/20 ring-2 ring-primary/30'
-                      : 'border-slate-200 dark:border-slate-700/80 hover:border-primary/50'
-                  }`}
-                >
+                <BorderBeam key={model.id} size="md" colorVariant="ocean" active={isSelected}>
+                  <div
+                    className={`group relative bg-white dark:bg-slate-800/90 rounded-2xl border-2 transition-all duration-300 overflow-hidden flex flex-col hover:-translate-y-1 hover:shadow-xl ${
+                      isSelected
+                        ? 'border-primary shadow-lg shadow-primary/20 ring-2 ring-primary/30'
+                        : 'border-slate-200 dark:border-slate-700/80 hover:border-primary/50'
+                    }`}
+                  >
                   {/* Model Image with Badge */}
                   <div className="relative h-44 w-full bg-slate-100 dark:bg-slate-900 overflow-hidden">
                     <VehicleCardImage
@@ -271,6 +272,7 @@ export const VehicleSelectorModal: React.FC<VehicleSelectorModalProps> = ({
                     </button>
                   </div>
                 </div>
+                </BorderBeam>
               );
             })}
           </div>

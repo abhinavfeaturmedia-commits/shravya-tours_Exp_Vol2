@@ -31,6 +31,8 @@ import {
   generateVCardString,
   ContactProfile
 } from '../utils/vcard';
+import { BorderBeam } from 'border-beam';
+import { MetalBadge } from 'metal-fx';
 
 export const DigitalCard: React.FC = () => {
   const location = useLocation();
@@ -170,6 +172,7 @@ export const DigitalCard: React.FC = () => {
           <div className="w-full flex flex-col lg:flex-row items-center lg:items-start justify-center gap-8 animate-fade-in pb-20 lg:pb-8">
             
             {/* ── LEFT: The Executive Digital Card ── */}
+            <BorderBeam size="md" colorVariant="sunset" active={true}>
             <div className="w-full max-w-md rounded-[2.5rem] bg-gradient-to-b from-[#111c15] via-[#0d1611] to-[#080e0a] backdrop-blur-2xl border border-amber-500/30 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.9)] overflow-hidden transition-all">
               
               {/* 1. Header Banner (Clean luxury look without overlapping clutter) */}
@@ -181,9 +184,12 @@ export const DigitalCard: React.FC = () => {
 
                 {/* Top Bar inside Banner */}
                 <div className="relative z-10 flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 px-3 py-1 bg-black/40 backdrop-blur-md rounded-full border border-amber-400/30 text-[11px] font-bold tracking-wide text-amber-200 shadow-md">
-                    <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Official Executive Card</span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex items-center gap-1.5 px-3 py-1 bg-black/40 backdrop-blur-md rounded-full border border-amber-400/30 text-[11px] font-bold tracking-wide text-amber-200 shadow-md">
+                      <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Official Executive Card</span>
+                    </div>
+                    <MetalBadge>NFC PROFILE</MetalBadge>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="hidden sm:inline-block text-[10px] uppercase font-bold tracking-widest text-emerald-200/90 bg-black/30 backdrop-blur-md px-2.5 py-1 rounded-full border border-emerald-500/20">
@@ -262,28 +268,30 @@ export const DigitalCard: React.FC = () => {
                 </div>
 
                 {/* 4. PRIMARY HERO CTA: SAVE TO PHONE CONTACTS */}
-                <button
-                  onClick={handleSaveContact}
-                  className={`w-full relative overflow-hidden group py-4 px-5 rounded-2xl font-black text-sm flex items-center justify-center gap-3 transition-all duration-300 shadow-2xl active:scale-[0.98] ${
-                    isSaved
-                      ? 'bg-emerald-600 text-white shadow-emerald-600/50'
-                      : 'bg-gradient-to-r from-amber-500 via-amber-600 to-amber-500 hover:from-amber-400 hover:to-amber-500 text-white shadow-[0_10px_30px_-5px_rgba(201,115,42,0.6)]'
-                  }`}
-                >
-                  <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
-                  {isSaved ? (
-                    <>
-                      <Check className="w-5 h-5 stroke-[3] animate-scale-in" />
-                      <span className="tracking-wide">Contact Saved to Phone!</span>
-                    </>
-                  ) : (
-                    <>
-                      <UserPlus className="w-5 h-5" />
-                      <span className="tracking-wide">Save Contact to Phone</span>
-                      <Download className="w-4 h-4 ml-auto opacity-80" />
-                    </>
-                  )}
-                </button>
+                <BorderBeam size="pulse-inner" colorVariant="sunset" active={!isSaved}>
+                  <button
+                    onClick={handleSaveContact}
+                    className={`w-full relative overflow-hidden group py-4 px-5 rounded-2xl font-black text-sm flex items-center justify-center gap-3 transition-all duration-300 shadow-2xl active:scale-[0.98] ${
+                      isSaved
+                        ? 'bg-emerald-600 text-white shadow-emerald-600/50'
+                        : 'bg-gradient-to-r from-amber-500 via-amber-600 to-amber-500 hover:from-amber-400 hover:to-amber-500 text-white shadow-[0_10px_30px_-5px_rgba(201,115,42,0.6)]'
+                    }`}
+                  >
+                    <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
+                    {isSaved ? (
+                      <>
+                        <Check className="w-5 h-5 stroke-[3] animate-scale-in" />
+                        <span className="tracking-wide">Contact Saved to Phone!</span>
+                      </>
+                    ) : (
+                      <>
+                        <UserPlus className="w-5 h-5" />
+                        <span className="tracking-wide">Save Contact to Phone</span>
+                        <Download className="w-4 h-4 ml-auto opacity-80" />
+                      </>
+                    )}
+                  </button>
+                </BorderBeam>
 
                 {/* 5. Four Quick Action Communication Tiles */}
                 <div className="grid grid-cols-4 gap-2.5 mt-4">
@@ -491,6 +499,7 @@ export const DigitalCard: React.FC = () => {
                 </Link>
               </div>
             </div>
+            </BorderBeam>
 
             {/* ── RIGHT (Desktop Companion Panel: QR Studio + Share Tools) ── */}
             <div className="w-full max-w-md flex flex-col gap-5">

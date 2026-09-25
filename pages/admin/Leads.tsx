@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useData } from '../../context/DataContext';
 import { useLeads } from '../../src/hooks/useLeads';
 import { useBookings } from '../../src/hooks/useBookings';
@@ -14,7 +14,7 @@ import {
     Phone, Mail, MapPin, Calendar, Users, Clock, X, Plus, Search,
     ChevronRight, Sparkles, Edit2, Trash2, ArrowRight, MessageCircle,
     FileText, Bell, CheckCircle2, MoreHorizontal, Filter, Save, CalendarDays,
-    ChevronDown, ChevronUp, Lock, AlertCircle
+    ChevronDown, ChevronUp, Lock, AlertCircle, Mic
 } from 'lucide-react';
 import { TravelerSelector } from '../../components/ui/TravelerSelector';
 import { StaffMultiSelect } from '../../components/admin/StaffMultiSelect';
@@ -25,6 +25,8 @@ import { DataImportModal, ColumnMapping } from '../../src/components/admin/DataI
 import { SendEmailModal } from '../../components/admin/SendEmailModal';
 import { normalisePhone } from '../../utils/phoneUtils';
 import { parsePaxString, formatPaxString } from '../../utils/paxUtils';
+import { BorderBeam } from 'border-beam';
+import { VoiceBeam, useMicrophone } from 'voice-glow';
 // import { BulkImportLeadsModal } from '../../components/admin/BulkImportLeadsModal'; // Commented out unused
 
 // Status Badge Component
@@ -152,6 +154,77 @@ export const Leads: React.FC = () => {
     });
     const [followUpType, setFollowUpType] = useState<FollowUpType>('Call');
     const [followUpPriority, setFollowUpPriority] = useState<'High' | 'Medium' | 'Low'>('Medium');
+
+    // Voice Dictation for Lead Notes using voice-glow
+    const leadMic = useMicrophone();
+    const [isDictating, setIsDictating] = useState(false);
+    const leadRecognitionRef = useRef<any>(null);
+    const baseNoteRef = useRef('');
+
+    const toggleVoiceDictation = () => {
+        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            toast.error("Voice dictation is not supported in this browser. Please use Google Chrome, Microsoft Edge, or Safari.");
+            return;
+        }
+
+        if (isDictating) {
+            try {
+                leadRecognitionRef.current?.stop();
+            } catch (e) {}
+            leadMic.stop();
+            setIsDictating(false);
+            return;
+        }
+
+        try {
+            baseNoteRef.current = noteContent;
+            leadMic.start().catch((err: any) => console.warn("Mic start err:", err));
+            const recognition = new SpeechRecognition();
+            recognition.lang = 'en-IN';
+            recognition.continuous = true;
+            recognition.interimResults = true;
+
+            recognition.onstart = () => {
+                setIsDictating(true);
+            };
+
+            recognition.onresult = (event: any) => {
+                const transcript = Array.from(event.results)
+                    .map((r: any) => r[0].transcript)
+                    .join(' ');
+                if (transcript) {
+                    setNoteContent(baseNoteRef.current ? `${baseNoteRef.current} ${transcript}` : transcript);
+                }
+            };
+
+            recognition.onerror = () => {
+                setIsDictating(false);
+                leadMic.stop();
+            };
+
+            recognition.onend = () => {
+                setIsDictating(false);
+                leadMic.stop();
+            };
+
+            leadRecognitionRef.current = recognition;
+            recognition.start();
+        } catch (err) {
+            console.warn("Speech recognition error:", err);
+            setIsDictating(false);
+            leadMic.stop();
+        }
+    };
+
+    useEffect(() => {
+        return () => {
+            try {
+                leadRecognitionRef.current?.stop();
+            } catch (e) {}
+            leadMic.stop();
+        };
+    }, []);
 
     const selectedLead = leads.find(l => l.id === selectedLeadId);
     const linkedBooking = useMemo(() => getLinkedBooking(selectedLead), [getLinkedBooking, selectedLead]);
@@ -1409,14 +1482,30 @@ export const Leads: React.FC = () => {
                     {/* Search & Actions */}
                     <div className="flex flex-col md:flex-row items-stretch md:items-center gap-4 mb-6">
                         <div className="relative flex-1">
-                            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 h-5 w-5" />
+                            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 h-5 w-5 pointer-events-none" />
                             <input
                                 type="text"
+                                name="lead_search_query"
+                                id="lead_search_query"
+                                autoComplete="off"
+                                autoCorrect="off"
+                                autoCapitalize="off"
+                                spellCheck={false}
                                 placeholder="Search leads by name, email, or destination..."
                                 value={search}
                                 onChange={(e) => setSearch(e.target.value)}
-                                className="w-full pl-12 pr-4 py-3 bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-primary shadow-sm"
+                                className="w-full pl-12 pr-10 py-3 bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary shadow-sm transition-all text-slate-900 dark:text-white placeholder:text-slate-400 text-sm"
                             />
+                            {search && (
+                                <button
+                                    type="button"
+                                    onClick={() => setSearch('')}
+                                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors p-1"
+                                    title="Clear search"
+                                >
+                                    <X className="h-4 w-4" />
+                                </button>
+                            )}
                         </div>
                         <div className="flex items-center gap-3 overflow-x-auto hide-scrollbar pb-2 md:pb-0">
                             {hasPermission('leads', 'manage') && canAccess('leads', 'import_leads') && (
@@ -1493,18 +1582,20 @@ export const Leads: React.FC = () => {
                                 const isFuOverdue = fuDate ? fuDate.getTime() < new Date().getTime() : false;
                                 const isFuToday = fuDate ? fuDate.toDateString() === new Date().toDateString() : false;
 
+                                const isHotLead = (lead.potentialValue || 0) >= 150000 || lead.status === 'Hot' || lead.priority === 'High';
+
                                 return (
-                                    <div
-                                        key={lead.id}
-                                        onClick={() => setSelectedLeadId(lead.id)}
-                                        className={`cursor-pointer border-l-4 transition-colors group ${
-                                            isSelected
-                                                ? 'bg-primary/10 border-primary'
-                                                : isPartner 
-                                                    ? 'bg-violet-500/5 dark:bg-violet-500/10 border-violet-500 hover:bg-violet-500/10 dark:hover:bg-violet-500/20' 
-                                                    : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800'
-                                        } ${selectedLeadId === lead.id ? 'bg-primary/5' : ''}`}
-                                    >
+                                    <BorderBeam key={lead.id} size="pulse-inner" colorVariant="sunset" active={isHotLead}>
+                                        <div
+                                            onClick={() => setSelectedLeadId(lead.id)}
+                                            className={`cursor-pointer border-l-4 transition-colors group ${
+                                                isSelected
+                                                    ? 'bg-primary/10 border-primary'
+                                                    : isPartner 
+                                                        ? 'bg-violet-500/5 dark:bg-violet-500/10 border-violet-500 hover:bg-violet-500/10 dark:hover:bg-violet-500/20' 
+                                                        : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800'
+                                            } ${selectedLeadId === lead.id ? 'bg-primary/5' : ''}`}
+                                        >
                                         {/* Desktop Row */}
                                         <div className="hidden sm:grid grid-cols-12 gap-4 px-6 py-4 items-center">
                                             <div className="col-span-3 flex items-center gap-3 overflow-hidden pr-2">
@@ -1644,6 +1735,7 @@ export const Leads: React.FC = () => {
                                             </div>
                                         </div>
                                     </div>
+                                    </BorderBeam>
                                 );
                             })}
                         </div>
@@ -2669,68 +2761,87 @@ export const Leads: React.FC = () => {
 
                         {/* Follow Up Log */}
                         <div>
-                            <h3 className="text-xs font-bold text-slate-400 uppercase mb-4 tracking-wider">Activity Log</h3>
+                            <div className="flex items-center justify-between mb-4">
+                                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Activity Log</h3>
+                                {hasPermission('leads', 'manage') && (
+                                    <button
+                                        type="button"
+                                        onClick={toggleVoiceDictation}
+                                        title={isDictating ? "Stop voice dictation" : "Dictate call notes with voice"}
+                                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                                            isDictating
+                                                ? 'bg-red-500/20 text-red-500 border border-red-500/30 animate-pulse'
+                                                : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300'
+                                        }`}
+                                    >
+                                        <Mic size={13} className={isDictating ? 'animate-bounce text-red-500' : ''} />
+                                        <span>{isDictating ? 'Listening...' : 'Voice Dictate'}</span>
+                                    </button>
+                                )}
+                            </div>
                             {hasPermission('leads', 'manage') && (
-                                <div className="mb-6 bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm">
-                                    <textarea
-                                        value={noteContent}
-                                        onChange={(e) => setNoteContent(e.target.value)}
-                                        placeholder="Log call notes, internal comments, or meeting outcomes..."
-                                        className="w-full bg-transparent text-sm outline-none resize-none h-20 placeholder:text-slate-400 text-slate-900 dark:text-white"
-                                    />
-                                    <div className="flex flex-col gap-3 mt-3 border-t border-slate-100 dark:border-slate-700 pt-3">
-                                        <div className="flex items-center justify-between gap-2">
-                                            <div className="flex items-center gap-2">
-                                                <input
-                                                    type="checkbox"
-                                                    id="set-reminder"
-                                                    checked={isReminderSet}
-                                                    onChange={(e) => setIsReminderSet(e.target.checked)}
-                                                    className="rounded border-slate-300 text-primary focus:ring-primary h-4 w-4"
-                                                />
-                                                <label htmlFor="set-reminder" className="text-xs font-bold text-slate-600 dark:text-slate-400 cursor-pointer select-none">
-                                                    Schedule Next Follow-up
-                                                </label>
+                                <VoiceBeam stream={leadMic.stream} processing={isDictating}>
+                                    <div className="mb-6 bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm">
+                                        <textarea
+                                            value={noteContent}
+                                            onChange={(e) => setNoteContent(e.target.value)}
+                                            placeholder={isDictating ? "Listening... Speak your client remarks hands-free..." : "Log call notes, internal comments, or meeting outcomes..."}
+                                            className="w-full bg-transparent text-sm outline-none resize-none h-20 placeholder:text-slate-400 text-slate-900 dark:text-white"
+                                        />
+                                        <div className="flex flex-col gap-3 mt-3 border-t border-slate-100 dark:border-slate-700 pt-3">
+                                            <div className="flex items-center justify-between gap-2">
+                                                <div className="flex items-center gap-2">
+                                                    <input
+                                                        type="checkbox"
+                                                        id="set-reminder"
+                                                        checked={isReminderSet}
+                                                        onChange={(e) => setIsReminderSet(e.target.checked)}
+                                                        className="rounded border-slate-300 text-primary focus:ring-primary h-4 w-4"
+                                                    />
+                                                    <label htmlFor="set-reminder" className="text-xs font-bold text-slate-600 dark:text-slate-400 cursor-pointer select-none">
+                                                        Schedule Next Follow-up
+                                                    </label>
+                                                </div>
+                                                {isReminderSet && (
+                                                    <select
+                                                        value={followUpType}
+                                                        onChange={(e) => setFollowUpType(e.target.value as FollowUpType)}
+                                                        className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-[10px] font-bold text-slate-700 dark:text-slate-300 outline-none"
+                                                    >
+                                                        {['Call', 'Email', 'WhatsApp', 'Meeting'].map(t => <option key={t} value={t}>{t}</option>)}
+                                                    </select>
+                                                )}
                                             </div>
                                             {isReminderSet && (
-                                                <select
-                                                    value={followUpType}
-                                                    onChange={(e) => setFollowUpType(e.target.value as FollowUpType)}
-                                                    className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-[10px] font-bold text-slate-700 dark:text-slate-300 outline-none"
-                                                >
-                                                    {['Call', 'Email', 'WhatsApp', 'Meeting'].map(t => <option key={t} value={t}>{t}</option>)}
-                                                </select>
+                                                <div className="flex gap-2 w-full">
+                                                    <input
+                                                        type="datetime-local"
+                                                        value={reminderDate}
+                                                        onChange={(e) => setReminderDate(e.target.value)}
+                                                        className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-300 outline-none flex-1"
+                                                    />
+                                                    <select
+                                                        value={followUpPriority}
+                                                        onChange={(e) => setFollowUpPriority(e.target.value as any)}
+                                                        className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-300 outline-none w-28"
+                                                    >
+                                                        <option value="High">High Priority</option>
+                                                        <option value="Medium">Med Priority</option>
+                                                        <option value="Low">Low Priority</option>
+                                                    </select>
+                                                </div>
                                             )}
-                                        </div>
-                                        {isReminderSet && (
-                                            <div className="flex gap-2 w-full">
-                                                <input
-                                                    type="datetime-local"
-                                                    value={reminderDate}
-                                                    onChange={(e) => setReminderDate(e.target.value)}
-                                                    className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-300 outline-none flex-1"
-                                                />
-                                                <select
-                                                    value={followUpPriority}
-                                                    onChange={(e) => setFollowUpPriority(e.target.value as any)}
-                                                    className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-300 outline-none w-28"
+                                            <div className="flex justify-end">
+                                                <button
+                                                    onClick={handleSaveLog}
+                                                    className="bg-primary text-white px-4 py-2 rounded-lg text-xs font-bold shadow-md hover:bg-primary-dark transition-colors flex items-center gap-2"
                                                 >
-                                                    <option value="High">High Priority</option>
-                                                    <option value="Medium">Med Priority</option>
-                                                    <option value="Low">Low Priority</option>
-                                                </select>
+                                                    <Save size={14} /> Save Log
+                                                </button>
                                             </div>
-                                        )}
-                                        <div className="flex justify-end">
-                                            <button
-                                                onClick={handleSaveLog}
-                                                className="bg-primary text-white px-4 py-2 rounded-lg text-xs font-bold shadow-md hover:bg-primary-dark transition-colors flex items-center gap-2"
-                                            >
-                                                <Save size={14} /> Save Log
-                                            </button>
                                         </div>
                                     </div>
-                                </div>
+                                </VoiceBeam>
                             )}
 
                             {/* Timeline Activity */}

@@ -5,6 +5,9 @@ import {
     Flame, CheckCircle2, ChevronRight, ShieldCheck, RotateCcw, 
     Copy, Check, Calendar, MapPin, Tag, ArrowRight, Clock, Award 
 } from 'lucide-react';
+import { ThinkingOrb } from 'thinking-orbs';
+import { BotAvatar } from 'bot-avatars';
+import { BorderBeam } from 'border-beam';
 import { COMPANY_WHATSAPP } from '../../src/lib/constants';
 
 interface MatchedPackage {
@@ -463,10 +466,10 @@ export const PublicChatbot: React.FC = () => {
                     <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-blue-950 text-white p-3.5 px-4 flex items-center justify-between shadow-md shrink-0 border-b border-white/10">
                         <div className="flex items-center gap-3">
                             <div className="relative">
-                                <div className="size-10 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center border border-white/25 shadow-inner">
-                                    <Bot className="size-5 text-white" />
+                                <div className="size-10 rounded-2xl bg-gradient-to-tr from-slate-950 to-indigo-950 flex items-center justify-center border border-white/20 shadow-inner overflow-hidden">
+                                    <BotAvatar type="ghost" size={38} state={isLoading ? 'working' : 'default'} />
                                 </div>
-                                <span className="absolute -bottom-0.5 -right-0.5 size-3 rounded-full bg-emerald-400 border-2 border-slate-900 animate-pulse"></span>
+                                <span className="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full bg-emerald-400 border-2 border-slate-900 animate-pulse"></span>
                             </div>
                             <div>
                                 <h3 className="font-black text-xs tracking-tight flex items-center gap-1.5 text-white">
@@ -529,8 +532,8 @@ export const PublicChatbot: React.FC = () => {
                                 key={msg.id} 
                                 className={`flex gap-2.5 max-w-[94%] break-words ${msg.sender === 'user' ? 'ml-auto flex-row-reverse' : ''}`}
                             >
-                                <div className={`size-7 rounded-full shrink-0 flex items-center justify-center text-white shadow-xs mt-1 ${msg.sender === 'user' ? 'bg-indigo-600' : 'bg-gradient-to-tr from-slate-900 to-slate-700'}`}>
-                                    {msg.sender === 'user' ? <User className="size-3.5" /> : <Bot className="size-3.5" />}
+                                <div className={`size-7 rounded-full shrink-0 flex items-center justify-center text-white shadow-xs mt-1 overflow-hidden ${msg.sender === 'user' ? 'bg-indigo-600' : 'bg-slate-900'}`}>
+                                    {msg.sender === 'user' ? <User className="size-3.5" /> : <BotAvatar type="ghost" size={26} state="default" />}
                                 </div>
                                 
                                 <div className={`p-3.5 rounded-2xl ${
@@ -621,17 +624,17 @@ export const PublicChatbot: React.FC = () => {
                             </div>
                         ))}
 
-                        {/* Typing Indicator */}
+                        {/* Typing Indicator with ThinkingOrb */}
                         {isLoading && (
-                            <div className="flex gap-2.5 max-w-[85%]">
-                                <div className="size-7 rounded-full bg-slate-800 flex items-center justify-center text-white shrink-0 mt-1">
-                                    <Bot className="size-3.5" />
+                            <div className="flex gap-2.5 max-w-[88%] animate-in fade-in duration-200">
+                                <div className="size-7 rounded-full bg-slate-900 flex items-center justify-center text-white shrink-0 mt-1 overflow-hidden shadow-xs">
+                                    <BotAvatar type="ghost" size={26} state="working" />
                                 </div>
-                                <div className="bg-white dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 p-3 rounded-2xl rounded-tl-none shadow-sm flex items-center gap-2">
-                                    <span className="size-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
-                                    <span className="size-2 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
-                                    <span className="size-2 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
-                                    <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium ml-1">Advisor is preparing your personalized plan...</span>
+                                <div className="bg-white dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 px-3.5 py-2.5 rounded-2xl rounded-tl-none shadow-sm flex items-center gap-2.5">
+                                    <ThinkingOrb size={20} state="composing" theme="auto" />
+                                    <span className="text-[11px] text-slate-600 dark:text-slate-300 font-medium">
+                                        Advisor is assembling your custom VIP itinerary...
+                                    </span>
                                 </div>
                             </div>
                         )}
@@ -671,13 +674,22 @@ export const PublicChatbot: React.FC = () => {
 
                     {/* Listening Wave Overlay (When Mic active) */}
                     {isListening && (
-                        <div className="bg-rose-50 dark:bg-rose-950/40 border-t border-rose-200 dark:border-rose-800/60 p-2 flex items-center justify-center gap-2 text-xs font-bold text-rose-600 dark:text-rose-400 animate-pulse shrink-0">
-                            <Mic className="size-4 animate-bounce" />
-                            <span>Listening to your voice... Speak now</span>
+                        <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-blue-950 text-white border-t border-indigo-500/30 px-3.5 py-2 flex items-center justify-between text-xs font-bold animate-in fade-in duration-200 shrink-0 shadow-inner">
+                            <div className="flex items-center gap-2.5">
+                                <div className="size-6 rounded-full bg-rose-500 flex items-center justify-center animate-pulse">
+                                    <Mic className="size-3 text-white" />
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <ThinkingOrb size={20} state="listening" theme="dark" />
+                                    <span className="text-[11px] font-semibold text-indigo-100">
+                                        Listening to your voice... Speak your dream trip
+                                    </span>
+                                </div>
+                            </div>
                             <button
                                 type="button"
                                 onClick={toggleVoiceInput}
-                                className="ml-2 text-[10px] underline hover:opacity-80"
+                                className="px-2 py-0.5 text-[10px] font-bold rounded-lg bg-white/20 hover:bg-white/30 text-white transition-colors"
                             >
                                 Stop
                             </button>
@@ -728,13 +740,20 @@ export const PublicChatbot: React.FC = () => {
                     <button 
                         type="button"
                         onClick={() => setIsOpen(true)}
-                        className="size-14 rounded-full bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white flex items-center justify-center shadow-2xl hover:scale-110 transition-all duration-300 relative group"
+                        className="size-16 rounded-full bg-gradient-to-r from-slate-900 via-indigo-950 to-blue-950 hover:scale-105 border-2 border-indigo-500/40 text-white flex items-center justify-center shadow-2xl transition-all duration-300 relative group"
                         aria-label="Open AI Travel Advisor"
                     >
-                        <span className="absolute inset-0 rounded-full bg-indigo-500/20 group-hover:animate-ping -z-10"></span>
-                        <MessageSquare className="size-6 text-white animate-pulse" />
+                        <span className="absolute inset-0 rounded-full bg-indigo-500/25 group-hover:animate-ping -z-10"></span>
+                        <div className="size-11 rounded-full flex items-center justify-center overflow-hidden">
+                            <BotAvatar type="ghost" size={44} state="default" />
+                        </div>
                         
-                        <span className="absolute right-16 scale-0 group-hover:scale-100 bg-slate-900 text-white text-[11px] font-bold px-3 py-1.5 rounded-xl shadow-xl border border-slate-800 transition-all origin-right flex items-center gap-1.5 whitespace-nowrap">
+                        <span className="absolute -top-0.5 -right-0.5 flex h-3.5 w-3.5">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-emerald-500 border-2 border-slate-900"></span>
+                        </span>
+
+                        <span className="absolute right-18 scale-0 group-hover:scale-100 bg-slate-900/95 backdrop-blur-md text-white text-[11px] font-bold px-3.5 py-2 rounded-2xl shadow-2xl border border-indigo-500/30 transition-all origin-right flex items-center gap-2 whitespace-nowrap">
                             <Sparkles className="size-3 text-amber-300 animate-pulse" />
                             Ask AI Travel Concierge
                         </span>
