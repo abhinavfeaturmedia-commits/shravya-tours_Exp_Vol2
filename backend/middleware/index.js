@@ -228,7 +228,7 @@ export function createPermissionGuard(pool) {
         }
 
         try {
-            const { permissions, isAdmin, queryScope } = await getStaffPermissionsAndScope(pool, req.user?.email);
+            const { permissions, isAdmin, queryScope, staffId: resolvedStaffId } = await getStaffPermissionsAndScope(pool, req.user);
             if (isAdmin) {
                 return next();
             }
@@ -246,11 +246,20 @@ export function createPermissionGuard(pool) {
                     // Only restrict if staff has restricted query scope (not 'Show All Queries' or 'Global')
                     if (queryScope !== 'Show All Queries' && queryScope !== 'Global') {
                         if ((method === 'PUT' || method === 'DELETE') && req.params.id) {
-                            const [existing] = await pool.query(`SELECT assigned_to FROM \`${table}\` WHERE id = ?`, [req.params.id]);
+                            const [existing] = await pool.query(`SELECT assigned_to, assigned_staff_ids FROM \`${table}\` WHERE id = ?`, [req.params.id]);
                             if (existing.length > 0) {
                                 const owner = String(existing[0].assigned_to || '');
-                                const staffId = String(req.user.staffId || '');
-                                if (owner && owner !== staffId) {
+                                const effectiveStaffId = String(resolvedStaffId || req.user.staffId || '');
+                                let isAssigned = (owner && owner === effectiveStaffId);
+                                if (!isAssigned && existing[0].assigned_staff_ids) {
+                                    try {
+                                        const parsed = typeof existing[0].assigned_staff_ids === 'string' ? JSON.parse(existing[0].assigned_staff_ids) : existing[0].assigned_staff_ids;
+                                        if (Array.isArray(parsed) && parsed.map(String).includes(effectiveStaffId)) {
+                                            isAssigned = true;
+                                        }
+                                    } catch (_) {}
+                                }
+                                if (!isAssigned) {
                                     return res.status(403).json({ error: `Unauthorized: You cannot modify records outside your ownership scope.` });
                                 }
                             }
@@ -340,19 +349,70 @@ function parsePermissionsSafe(raw) {
     return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
 }
 
-export async function getStaffPermissionsAndScope(pool, email) {
-    if (!email) return { permissions: {}, queryScope: 'Show Assigned Query Only', isAdmin: false };
-    const [rows] = await pool.query('SELECT permissions, query_scope, user_type FROM staff_members WHERE email = ?', [email]);
-    if (rows.length === 0) {
-        return { permissions: {}, queryScope: 'Show Assigned Query Only', isAdmin: false };
+export async function getStaffPermissionsAndScope(pool, userOrEmail) {
+    if (!userOrEmail) return { permissions: {}, queryScope: 'Show Assigned Query Only', isAdmin: false, staffId: null, department: null };
+
+    let user = null;
+    let email = null;
+    let staffId = null;
+
+    if (typeof userOrEmail === 'object') {
+        user = userOrEmail;
+        email = (user.email || '').toLowerCase().trim();
+        staffId = user.staffId || null;
+    } else if (typeof userOrEmail === 'string') {
+        email = userOrEmail.toLowerCase().trim();
     }
-    const row = rows[0];
-    const permissions = parsePermissionsSafe(row.permissions);
-    return {
-        permissions,
-        queryScope: row.query_scope || 'Show Assigned Query Only',
-        isAdmin: row.user_type === 'Admin'
-    };
+
+    try {
+        let rows = [];
+
+        // 1. By staffId
+        if (staffId) {
+            [rows] = await pool.query('SELECT * FROM staff_members WHERE id = ?', [staffId]);
+        }
+
+        // 2. By exact email
+        if (rows.length === 0 && email) {
+            [rows] = await pool.query('SELECT * FROM staff_members WHERE LOWER(email) = ?', [email]);
+        }
+
+        // 3. By alternate_emails JSON
+        if (rows.length === 0 && email) {
+            try {
+                [rows] = await pool.query('SELECT * FROM staff_members WHERE alternate_emails LIKE ?', [`%"${email}"%`]);
+            } catch (_) {}
+        }
+
+        // 4. Fuzzy fallback
+        if (rows.length === 0 && email) {
+            const prefix = email.split('@')[0];
+            const cleanPrefix = prefix.replace(/[^a-zA-Z0-9]/g, '');
+            if (cleanPrefix.length >= 3) {
+                [rows] = await pool.query(
+                    'SELECT * FROM staff_members WHERE REPLACE(REPLACE(REPLACE(LOWER(email), ".", ""), "_", ""), "-", "") LIKE ? OR REPLACE(REPLACE(REPLACE(LOWER(name), ".", ""), "_", ""), " ", "") LIKE ?',
+                    [`%${cleanPrefix}%`, `%${cleanPrefix}%`]
+                );
+            }
+        }
+
+        if (rows.length === 0) {
+            return { permissions: {}, queryScope: 'Show Assigned Query Only', isAdmin: false, staffId: null, department: null };
+        }
+
+        const row = rows[0];
+        const permissions = parsePermissionsSafe(row.permissions);
+        return {
+            permissions,
+            queryScope: row.query_scope || 'Show Assigned Query Only',
+            isAdmin: row.user_type === 'Admin',
+            staffId: row.id,
+            department: row.department || null
+        };
+    } catch (err) {
+        console.error('getStaffPermissionsAndScope error:', err.message);
+        return { permissions: {}, queryScope: 'Show Assigned Query Only', isAdmin: false, staffId: null, department: null };
+    }
 }
 
 // ═══════════════════════════════════════════

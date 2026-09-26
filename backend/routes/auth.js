@@ -31,8 +31,18 @@ export function createAuthRoutes(app, pool) {
 
         try {
             const trimmedEmail = email?.trim();
-            const [staff] = await pool.query('SELECT * FROM staff_members WHERE email = ?', [trimmedEmail]);
-            const [users] = await pool.query('SELECT * FROM users WHERE email = ?', [trimmedEmail]);
+            const normEmail = trimmedEmail?.toLowerCase();
+            let [staff] = await pool.query('SELECT * FROM staff_members WHERE LOWER(email) = ?', [normEmail]);
+            if (staff.length === 0 && normEmail) {
+                try {
+                    const [altStaff] = await pool.query(
+                        "SELECT * FROM staff_members WHERE alternate_emails LIKE ? OR JSON_CONTAINS(COALESCE(alternate_emails, '[]'), ?)",
+                        [`%${normEmail}%`, JSON.stringify(normEmail)]
+                    );
+                    if (altStaff.length > 0) staff = altStaff;
+                } catch (_) {}
+            }
+            const [users] = await pool.query('SELECT * FROM users WHERE LOWER(email) = ?', [normEmail]);
 
             if (users.length > 0) {
                 const valid = await bcrypt.compare(password, users[0].password_hash);
@@ -66,7 +76,7 @@ export function createAuthRoutes(app, pool) {
                 const prefix = trimmedEmail.split('@')[0];
                 const [fuzzyStaff] = await pool.query(
                     'SELECT * FROM staff_members WHERE email LIKE ? OR name LIKE ?',
-                    [`${prefix}%`, `%${prefix.replace(/_/g, ' ')}%`]
+                    [`${prefix}%`, `%${prefix.replace(/[_.-]/g, ' ')}%`]
                 );
                 if (fuzzyStaff.length > 0) {
                     staffProfile = fuzzyStaff[0];
@@ -107,12 +117,31 @@ export function createAuthRoutes(app, pool) {
     // GET /api/auth/me — Session restore
     app.get('/api/auth/me', authMiddleware, async (req, res) => {
         try {
-            let [staff] = await pool.query('SELECT * FROM staff_members WHERE email = ?', [req.user.email]);
-            if (staff.length === 0 && req.user.email) {
+            let staff = [];
+            if (req.user?.staffId) {
+                const [byStaffId] = await pool.query('SELECT * FROM staff_members WHERE id = ?', [req.user.staffId]);
+                if (byStaffId.length > 0) staff = byStaffId;
+            }
+            if (staff.length === 0 && req.user?.email) {
+                const normEmail = req.user.email.trim().toLowerCase();
+                const [byEmail] = await pool.query('SELECT * FROM staff_members WHERE LOWER(email) = ?', [normEmail]);
+                if (byEmail.length > 0) staff = byEmail;
+            }
+            if (staff.length === 0 && req.user?.email) {
+                const normEmail = req.user.email.trim().toLowerCase();
+                try {
+                    const [altStaff] = await pool.query(
+                        "SELECT * FROM staff_members WHERE alternate_emails LIKE ? OR JSON_CONTAINS(COALESCE(alternate_emails, '[]'), ?)",
+                        [`%${normEmail}%`, JSON.stringify(normEmail)]
+                    );
+                    if (altStaff.length > 0) staff = altStaff;
+                } catch (_) {}
+            }
+            if (staff.length === 0 && req.user?.email) {
                 const prefix = req.user.email.split('@')[0];
                 const [fuzzyStaff] = await pool.query(
                     'SELECT * FROM staff_members WHERE email LIKE ? OR name LIKE ?',
-                    [`${prefix}%`, `%${prefix.replace(/_/g, ' ')}%`]
+                    [`${prefix}%`, `%${prefix.replace(/[_.-]/g, ' ')}%`]
                 );
                 if (fuzzyStaff.length > 0) staff = fuzzyStaff;
             }

@@ -90,8 +90,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Unified User Loading Logic
     const loadUserProfile = useCallback(async (email: string, isAdminOverride?: boolean) => {
         try {
-            // 1. Try single fetch first
-            const me = await api.getStaffByEmail(email);
+            // 1. Try /api/staff/me first (resolves via token's staffId, alternate_emails, and DB profile directly)
+            let me: StaffMember | null = null;
+            try {
+                me = await api.getStaffMe();
+            } catch (_) {}
+
+            // Fallback to getStaffByEmail if getStaffMe returned null
+            if (!me) {
+                me = await api.getStaffByEmail(email);
+            }
+
             if (me) {
                 const userProfile = { ...me, permissions: mergePermissions(me.permissions, me.userType, me.queryScope) };
                 if (isAdminOverride) {
@@ -103,12 +112,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 }
                 setCurrentUser(userProfile);
                 // Background fetch full list — if staff lacks permission, fall back to own profile only
-                api.getStaff().then(all => setStaff(all.map(s => {
-                    if (s.email.toLowerCase() === email.toLowerCase() && isAdminOverride) {
-                        return { ...s, userType: 'Admin', role: 'Administrator', permissions: ADMIN_PERMISSIONS };
-                    }
-                    return { ...s, permissions: mergePermissions(s.permissions, s.userType, s.queryScope) };
-                }))).catch(async () => {
+                api.getStaff().then(all => {
+                    const normalized = all.map(s => {
+                        if (s.email.toLowerCase() === email.toLowerCase() && isAdminOverride) {
+                            return { ...s, userType: 'Admin' as const, role: 'Administrator', permissions: ADMIN_PERMISSIONS };
+                        }
+                        return { ...s, permissions: mergePermissions(s.permissions, s.userType, s.queryScope) };
+                    });
+                    const exists = normalized.some(s => s.id === userProfile.id);
+                    setStaff(exists ? normalized : [userProfile, ...normalized]);
+                }).catch(async () => {
                     // 403 or network error — show at least the current user's own profile
                     const selfProfile = { ...userProfile };
                     setStaff([selfProfile]);
@@ -116,10 +129,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 return;
             }
 
-            // 2. Fallback: check full staff list
+            // 2. Fallback: check full staff list with alternate_emails support
             console.warn("User profile not found via direct fetch. Checking full list.");
             const allStaff = await api.getStaff();
-            const found = allStaff.find(s => s.email.toLowerCase() === email.toLowerCase());
+            const lowerEmail = email.toLowerCase();
+            const found = allStaff.find(s => {
+                if (s.email.toLowerCase() === lowerEmail) return true;
+                const alternates = (s as any).alternate_emails || (s as any).alternateEmails;
+                if (alternates) {
+                    try {
+                        const parsed = typeof alternates === 'string' ? JSON.parse(alternates) : alternates;
+                        if (Array.isArray(parsed) && parsed.map((e: string) => String(e).toLowerCase()).includes(lowerEmail)) {
+                            return true;
+                        }
+                    } catch (_) {}
+                }
+                return false;
+            });
 
             if (found) {
                 const userProfile = { ...found, permissions: mergePermissions(found.permissions, found.userType, found.queryScope) };
@@ -133,7 +159,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 setCurrentUser(userProfile);
                 setStaff(allStaff.map(s => {
                     if (s.email.toLowerCase() === email.toLowerCase() && isAdminOverride) {
-                        return { ...s, userType: 'Admin', role: 'Administrator', permissions: ADMIN_PERMISSIONS };
+                        return { ...s, userType: 'Admin' as const, role: 'Administrator', permissions: ADMIN_PERMISSIONS };
                     }
                     return { ...s, permissions: mergePermissions(s.permissions, s.userType, s.queryScope) };
                 }));

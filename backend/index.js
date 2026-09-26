@@ -2872,37 +2872,96 @@ function parsePermissionsSafe(raw) {
     return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
 }
 
-async function getStaffPermissionsAndScope(email) {
-    if (!email) return { permissions: {}, queryScope: 'Show Assigned Query Only', isAdmin: false, department: null };
+async function getStaffPermissionsAndScope(userOrEmail) {
+    if (!userOrEmail) return { permissions: {}, queryScope: 'Show Assigned Query Only', isAdmin: false, department: null, staffId: null };
 
-    const normEmail = String(email).toLowerCase();
+    // Support both passing req.user (object) or email (string)
+    const email = typeof userOrEmail === 'string' ? userOrEmail : userOrEmail.email;
+    const staffId = typeof userOrEmail === 'object' ? userOrEmail.staffId : null;
+    const userRole = typeof userOrEmail === 'object' ? userOrEmail.role : null;
+    const normEmail = email ? String(email).trim().toLowerCase() : '';
 
     // Bypass DB for the mock admin bypass account — always full admin
     if (normEmail === 'admin@shravyatours.com') {
-        return { permissions: {}, queryScope: 'Show All Queries', isAdmin: true, department: null };
+        return { permissions: {}, queryScope: 'Show All Queries', isAdmin: true, department: null, staffId: 1 };
     }
 
     // Check cache first
-    const cached = _permissionsCache.get(normEmail);
-    if (cached && cached.expiresAt > Date.now()) {
-        return cached.data;
+    const cacheKey = staffId ? `id:${staffId}` : (normEmail ? `email:${normEmail}` : null);
+    if (cacheKey) {
+        const cached = _permissionsCache.get(cacheKey);
+        if (cached && cached.expiresAt > Date.now()) {
+            return cached.data;
+        }
     }
 
-    const [rows] = await pool.query('SELECT permissions, query_scope, user_type, department FROM staff_members WHERE LOWER(email) = ?', [normEmail]);
+    let rows = [];
+
+    // 1. Primary lookup: By staffId from authenticated token if available
+    if (staffId) {
+        [rows] = await pool.query('SELECT id, email, permissions, query_scope, user_type, department FROM staff_members WHERE id = ?', [staffId]);
+    }
+
+    // 2. Secondary lookup: By exact normalized email
+    if (rows.length === 0 && normEmail) {
+        [rows] = await pool.query('SELECT id, email, permissions, query_scope, user_type, department FROM staff_members WHERE LOWER(email) = ?', [normEmail]);
+    }
+
+    // 3. Tertiary lookup: By alternate_emails column
+    if (rows.length === 0 && normEmail) {
+        try {
+            [rows] = await pool.query(
+                "SELECT id, email, permissions, query_scope, user_type, department FROM staff_members WHERE alternate_emails LIKE ? OR JSON_CONTAINS(COALESCE(alternate_emails, '[]'), ?)",
+                [`%${normEmail}%`, JSON.stringify(normEmail)]
+            );
+        } catch (_) {}
+    }
+
+    // 4. Quaternary lookup: Fuzzy prefix & name matching (matches login fallback logic)
+    if (rows.length === 0 && normEmail) {
+        const prefix = normEmail.split('@')[0];
+        if (prefix && prefix.length >= 3) {
+            [rows] = await pool.query(
+                'SELECT id, email, permissions, query_scope, user_type, department FROM staff_members WHERE email LIKE ? OR name LIKE ?',
+                [`${prefix}%`, `%${prefix.replace(/[_.-]/g, ' ')}%`]
+            );
+        }
+    }
+
     if (rows.length === 0) {
-        const empty = { permissions: {}, queryScope: 'Show Assigned Query Only', isAdmin: false, department: null };
-        _permissionsCache.set(normEmail, { data: empty, expiresAt: Date.now() + 60000 });
+        const isUserAdminRole = userRole === 'admin' || userRole === 'Admin';
+        const empty = {
+            permissions: {},
+            queryScope: isUserAdminRole ? 'Show All Queries' : 'Show Assigned Query Only',
+            isAdmin: isUserAdminRole,
+            department: null,
+            staffId: staffId || null
+        };
+        if (cacheKey) {
+            _permissionsCache.set(cacheKey, { data: empty, expiresAt: Date.now() + 60000 });
+        }
         return empty;
     }
+
     const row = rows[0];
     const permissions = parsePermissionsSafe(row.permissions);
+    const isAdmin = row.user_type === 'Admin' || userRole === 'admin' || userRole === 'Admin';
     const result = {
         permissions,
         queryScope: row.query_scope || 'Show Assigned Query Only',
-        isAdmin: row.user_type === 'Admin',
-        department: row.department || null
+        isAdmin,
+        department: row.department || null,
+        staffId: row.id,
+        canonicalEmail: row.email
     };
-    _permissionsCache.set(normEmail, { data: result, expiresAt: Date.now() + 60000 });
+
+    // Cache under both id and email
+    if (row.id) _permissionsCache.set(`id:${row.id}`, { data: result, expiresAt: Date.now() + 60000 });
+    if (row.email) _permissionsCache.set(`email:${String(row.email).toLowerCase()}`, { data: result, expiresAt: Date.now() + 60000 });
+    if (normEmail && normEmail !== String(row.email).toLowerCase()) {
+        _permissionsCache.set(`email:${normEmail}`, { data: result, expiresAt: Date.now() + 60000 });
+    }
+
     return result;
 }
 
@@ -2943,7 +3002,7 @@ async function permissionGuard(req, res, next) {
     }
 
     try {
-        const { permissions, isAdmin, queryScope, department } = await getStaffPermissionsAndScope(req.user?.email);
+        const { permissions, isAdmin, queryScope, department } = await getStaffPermissionsAndScope(req.user);
         if (isAdmin) {
             return next();
         }
@@ -6550,12 +6609,12 @@ app.post('/api/bulk-fetch', async (req, res) => {
     let userQueryScope = 'Show Assigned Query Only';
     let userDepartment = null;
     if (user) {
-        staffId = user.staffId;
-        const permData = await getStaffPermissionsAndScope(user.email);
+        const permData = await getStaffPermissionsAndScope(user);
         staffPermissions = permData.permissions;
         isAdmin = permData.isAdmin || user.role === 'admin' || user.role === 'Admin';
         userQueryScope = permData.queryScope;
         userDepartment = permData.department;
+        staffId = permData.staffId || user.staffId;
     }
 
     let conn;
@@ -6619,7 +6678,7 @@ app.post('/api/bulk-fetch', async (req, res) => {
                         } else {
                             if (staffId) targetStaffIds.push(Number(staffId));
                             else if (user.email) {
-                                const [sRows] = await pool.query('SELECT id FROM staff_members WHERE LOWER(email) = LOWER(?)', [user.email]);
+                                const [sRows] = await pool.query('SELECT id FROM staff_members WHERE LOWER(email) = LOWER(?) OR alternate_emails LIKE ?', [user.email, `%"${user.email}"%`]);
                                 targetStaffIds = sRows.map(s => s.id);
                             }
                         }
@@ -7432,7 +7491,7 @@ app.get('/api/crud/staff_members', authMiddleware, async (req, res) => {
                             (req.query.eq_id && String(req.query.eq_id) === String(req.user.staffId));
 
         if (!isSelfQuery) {
-            const { permissions, isAdmin } = await getStaffPermissionsAndScope(req.user?.email);
+            const { permissions, isAdmin } = await getStaffPermissionsAndScope(req.user);
             const hasStaffView = isAdmin || 
                                  Boolean(permissions.staff_management?.view) || 
                                  Boolean(permissions.staff?.view) ||
@@ -7468,8 +7527,13 @@ app.get('/api/crud/staff_members', authMiddleware, async (req, res) => {
             eqFilters.forEach(([key, val]) => {
                 const col = key.replace('eq_', '');
                 if (isValidColumn(col)) {
-                    whereClauses.push(`s.\`${col}\` = ?`);
-                    params.push(val);
+                    if (col === 'email') {
+                        whereClauses.push(`(s.\`email\` = ? OR s.\`alternate_emails\` LIKE ?)`);
+                        params.push(val, `%"${val}"%`);
+                    } else {
+                        whereClauses.push(`s.\`${col}\` = ?`);
+                        params.push(val);
+                    }
                 }
             });
         }
@@ -7513,7 +7577,7 @@ app.get('/api/crud/:table', optionalAuthMiddleware, injectPackageStatusFilter, v
         const whereClauses = [];
         
         // --- Strict RBAC Scoping & Ownership Validation ---
-        const { isAdmin, queryScope, department, permissions: staffPerms } = await getStaffPermissionsAndScope(req.user?.email);
+        const { isAdmin, queryScope, department, permissions: staffPerms, staffId: resolvedStaffId } = await getStaffPermissionsAndScope(req.user);
         const targetModules = CO_ACCESS_MODULES[table] || (TABLE_TO_MODULE[table] ? [TABLE_TO_MODULE[table]] : []);
         const primaryMod = targetModules[0];
         const moduleScope = staffPerms?.[primaryMod]?.scope;
@@ -7540,12 +7604,15 @@ app.get('/api/crud/:table', optionalAuthMiddleware, injectPackageStatusFilter, v
                 const [deptStaff] = await pool.query('SELECT id FROM staff_members WHERE department = ?', [department]);
                 staffIds = deptStaff.map(s => s.id);
             } else {
-                if (req.user?.email) {
-                    const [sRows] = await pool.query('SELECT id FROM staff_members WHERE LOWER(email) = LOWER(?)', [req.user.email]);
-                    staffIds = sRows.map(s => s.id);
+                if (resolvedStaffId && !staffIds.includes(Number(resolvedStaffId))) {
+                    staffIds.push(Number(resolvedStaffId));
                 }
                 if (req.user?.staffId && !staffIds.includes(Number(req.user.staffId))) {
                     staffIds.push(Number(req.user.staffId));
+                }
+                if (staffIds.length === 0 && req.user?.email) {
+                    const [sRows] = await pool.query('SELECT id FROM staff_members WHERE LOWER(email) = LOWER(?) OR alternate_emails LIKE ?', [req.user.email, `%"${req.user.email}"%`]);
+                    staffIds = sRows.map(s => s.id);
                 }
             }
 
@@ -7584,8 +7651,13 @@ app.get('/api/crud/:table', optionalAuthMiddleware, injectPackageStatusFilter, v
             eqFilters.forEach(([key, val]) => {
                 const col = key.replace('eq_', '');
                 if (isValidColumn(col)) {
-                    whereClauses.push(`\`${col}\` = ?`);
-                    params.push(val);
+                    if (table === 'staff_members' && col === 'email') {
+                        whereClauses.push(`(LOWER(\`email\`) = LOWER(?) OR alternate_emails LIKE ? OR JSON_CONTAINS(COALESCE(alternate_emails, '[]'), ?))`);
+                        params.push(val, `%${val}%`, JSON.stringify(val));
+                    } else {
+                        whereClauses.push(`\`${col}\` = ?`);
+                        params.push(val);
+                    }
                 }
             });
         }
@@ -7664,37 +7736,40 @@ app.get('/api/crud/:table/:id', optionalAuthMiddleware, validateTable, permissio
         if (rows.length === 0) return res.status(404).json({ error: 'Not found' });
         
         // Ownership check for non-admin users
-        const { isAdmin } = await getStaffPermissionsAndScope(req.user?.email);
+        const { isAdmin, queryScope, staffId: resolvedStaffId } = await getStaffPermissionsAndScope(req.user);
         if (req.user && req.user.role !== 'admin' && req.user.role !== 'Admin' && !isAdmin) {
-            const staffId = req.user.staffId;
-            const myDataTables = ['leads', 'bookings', 'follow_ups', 'tasks'];
-            const checkRecordOwnership = (rec) => {
-                if (!rec) return false;
-                if (String(rec.assigned_to || '') === String(staffId)) return true;
-                if (rec.assigned_staff_ids) {
-                    try {
-                        const parsed = typeof rec.assigned_staff_ids === 'string' ? JSON.parse(rec.assigned_staff_ids) : rec.assigned_staff_ids;
-                        if (Array.isArray(parsed) && parsed.map(String).includes(String(staffId))) return true;
-                    } catch (_) {}
-                }
-                return false;
-            };
+            const hasAllScope = queryScope === 'Show All Queries' || queryScope === 'Global';
+            if (!hasAllScope) {
+                const staffId = resolvedStaffId || req.user.staffId;
+                const myDataTables = ['leads', 'bookings', 'follow_ups', 'tasks'];
+                const checkRecordOwnership = (rec) => {
+                    if (!rec) return false;
+                    if (String(rec.assigned_to || '') === String(staffId)) return true;
+                    if (rec.assigned_staff_ids) {
+                        try {
+                            const parsed = typeof rec.assigned_staff_ids === 'string' ? JSON.parse(rec.assigned_staff_ids) : rec.assigned_staff_ids;
+                            if (Array.isArray(parsed) && parsed.map(String).includes(String(staffId))) return true;
+                        } catch (_) {}
+                    }
+                    return false;
+                };
 
-            if (myDataTables.includes(table)) {
-                if (!checkRecordOwnership(rows[0])) {
-                    return res.status(403).json({ error: 'Unauthorized: You do not own this record.' });
-                }
-            } else if (table === 'proposals' || table === 'lead_logs') {
-                const leadId = rows[0].lead_id;
-                const [leadRows] = await pool.query('SELECT assigned_to, assigned_staff_ids FROM leads WHERE id = ?', [leadId]);
-                if (leadRows.length === 0 || !checkRecordOwnership(leadRows[0])) {
-                    return res.status(403).json({ error: 'Unauthorized: You do not own this record.' });
-                }
-            } else if (table === 'booking_transactions' || table === 'supplier_bookings') {
-                const bookingId = rows[0].booking_id;
-                const [bookingRows] = await pool.query('SELECT assigned_to, assigned_staff_ids FROM bookings WHERE id = ?', [bookingId]);
-                if (bookingRows.length === 0 || !checkRecordOwnership(bookingRows[0])) {
-                    return res.status(403).json({ error: 'Unauthorized: You do not own this record.' });
+                if (myDataTables.includes(table)) {
+                    if (!checkRecordOwnership(rows[0])) {
+                        return res.status(403).json({ error: 'Unauthorized: You do not own this record.' });
+                    }
+                } else if (table === 'proposals' || table === 'lead_logs') {
+                    const leadId = rows[0].lead_id;
+                    const [leadRows] = await pool.query('SELECT assigned_to, assigned_staff_ids FROM leads WHERE id = ?', [leadId]);
+                    if (leadRows.length === 0 || !checkRecordOwnership(leadRows[0])) {
+                        return res.status(403).json({ error: 'Unauthorized: You do not own this record.' });
+                    }
+                } else if (table === 'booking_transactions' || table === 'supplier_bookings') {
+                    const bookingId = rows[0].booking_id;
+                    const [bookingRows] = await pool.query('SELECT assigned_to, assigned_staff_ids FROM bookings WHERE id = ?', [bookingId]);
+                    if (bookingRows.length === 0 || !checkRecordOwnership(bookingRows[0])) {
+                        return res.status(403).json({ error: 'Unauthorized: You do not own this record.' });
+                    }
                 }
             }
         }
@@ -7828,7 +7903,7 @@ app.post('/api/crud/:table', authMiddleware, validateTable, writeGuard, permissi
 
         // Default auto-assignment: If a staff (non-admin) creates a record in assigned data tables without an explicit assignee, assign it to them
         const assignedDataTables = ['leads', 'bookings', 'follow_ups', 'tasks'];
-        const { isAdmin, queryScope, permissions, department } = await getStaffPermissionsAndScope(req.user?.email);
+        const { isAdmin, queryScope, permissions, department, staffId: resolvedStaffId } = await getStaffPermissionsAndScope(req.user);
         if (assignedDataTables.includes(table) && req.user && req.user.role !== 'admin' && req.user.role !== 'Admin' && !isAdmin) {
             // Determine effective scope for this table
             const userScopeStr = String(queryScope || '').toLowerCase();
@@ -7841,7 +7916,7 @@ app.post('/api/crud/:table', authMiddleware, validateTable, writeGuard, permissi
             // Resolve creator's staffId
             let creatorStaffId = req.user.staffId && !isNaN(Number(req.user.staffId)) ? Number(req.user.staffId) : null;
             if (!creatorStaffId && req.user.email) {
-                const [staffRows] = await pool.query('SELECT id FROM staff_members WHERE LOWER(email) = LOWER(?)', [req.user.email]);
+                const [staffRows] = await pool.query('SELECT id FROM staff_members WHERE LOWER(email) = LOWER(?) OR alternate_emails LIKE ?', [req.user.email, `%"${req.user.email}"%`]);
                 if (staffRows.length > 0) creatorStaffId = Number(staffRows[0].id);
             }
 
@@ -9629,7 +9704,7 @@ app.post('/api/sync-customers-from-bookings', authMiddleware, async (req, res) =
 
 app.get('/api/bookings-with-package', authMiddleware, async (req, res) => {
     // Check permission
-    const { permissions, queryScope, isAdmin } = await getStaffPermissionsAndScope(req.user?.email);
+    const { permissions, queryScope, isAdmin, department, staffId: resolvedStaffId } = await getStaffPermissionsAndScope(req.user);
     if (req.user?.role !== 'admin' && req.user?.role !== 'Admin' && !isAdmin) {
         if (!permissions.bookings?.view) {
             return res.status(403).json({ error: 'Unauthorized: Bookings view access required.' });
@@ -9661,7 +9736,6 @@ app.get('/api/bookings-with-package', authMiddleware, async (req, res) => {
             LEFT JOIN partners p ON b.partner_id = p.id
         `;
         const params = [];
-        const { permissions, queryScope, isAdmin, department } = await getStaffPermissionsAndScope(req.user?.email);
         const moduleScope = permissions.bookings?.scope;
         let effectiveScope = 'all';
         if (!isAdmin && req.user?.role !== 'admin' && req.user?.role !== 'Admin') {
@@ -9685,12 +9759,15 @@ app.get('/api/bookings-with-package', authMiddleware, async (req, res) => {
                 const [deptStaff] = await pool.query('SELECT id FROM staff_members WHERE department = ?', [department]);
                 staffIds = deptStaff.map(s => s.id);
             } else {
-                if (req.user?.email) {
-                    const [sRows] = await pool.query('SELECT id FROM staff_members WHERE LOWER(email) = LOWER(?)', [req.user.email]);
-                    staffIds = sRows.map(s => s.id);
+                if (resolvedStaffId && !staffIds.includes(Number(resolvedStaffId))) {
+                    staffIds.push(Number(resolvedStaffId));
                 }
                 if (req.user?.staffId && !staffIds.includes(Number(req.user.staffId))) {
                     staffIds.push(Number(req.user.staffId));
+                }
+                if (staffIds.length === 0 && req.user?.email) {
+                    const [sRows] = await pool.query('SELECT id FROM staff_members WHERE LOWER(email) = LOWER(?) OR alternate_emails LIKE ?', [req.user.email, `%"${req.user.email}"%`]);
+                    staffIds = sRows.map(s => s.id);
                 }
             }
             if (staffIds.length > 0) {
@@ -9770,7 +9847,7 @@ app.get('/api/bookings-with-package', authMiddleware, async (req, res) => {
 // Leads with logs
 app.get('/api/leads-with-logs', authMiddleware, async (req, res) => {
     // Check permission
-    const { permissions, queryScope, isAdmin, department } = await getStaffPermissionsAndScope(req.user?.email);
+    const { permissions, queryScope, isAdmin, department, staffId: resolvedStaffId } = await getStaffPermissionsAndScope(req.user);
     if (req.user?.role !== 'admin' && req.user?.role !== 'Admin' && !isAdmin) {
         if (!permissions.leads?.view) {
             return res.status(403).json({ error: 'Unauthorized: Leads view access required.' });
@@ -9813,12 +9890,15 @@ app.get('/api/leads-with-logs', authMiddleware, async (req, res) => {
                 const [deptStaff] = await pool.query('SELECT id FROM staff_members WHERE department = ?', [department]);
                 staffIds = deptStaff.map(s => s.id);
             } else {
-                if (req.user?.email) {
-                    const [sRows] = await pool.query('SELECT id FROM staff_members WHERE LOWER(email) = LOWER(?)', [req.user.email]);
-                    staffIds = sRows.map(s => s.id);
+                if (resolvedStaffId && !staffIds.includes(Number(resolvedStaffId))) {
+                    staffIds.push(Number(resolvedStaffId));
                 }
                 if (req.user?.staffId && !staffIds.includes(Number(req.user.staffId))) {
                     staffIds.push(Number(req.user.staffId));
+                }
+                if (staffIds.length === 0 && req.user?.email) {
+                    const [sRows] = await pool.query('SELECT id FROM staff_members WHERE LOWER(email) = LOWER(?) OR alternate_emails LIKE ?', [req.user.email, `%"${req.user.email}"%`]);
+                    staffIds = sRows.map(s => s.id);
                 }
             }
             if (staffIds.length > 0) {
@@ -10493,20 +10573,81 @@ app.get('/api/follow-ups-with-lead', authMiddleware, async (req, res) => {
 app.get('/api/staff/me', authMiddleware, async (req, res) => {
     try {
         const email = req.user?.email;
-        if (!email) return res.status(400).json({ error: 'No email in token' });
+        const staffId = req.user?.staffId;
+        if (!email && !staffId) return res.status(400).json({ error: 'No user identity in token' });
 
-        const [rows] = await pool.query(`
-            SELECT
-                s.*,
-                a.status AS attendance_status,
-                a.check_in_time,
-                a.check_out_time,
-                a.location AS current_location
-            FROM \`staff_members\` s
-            LEFT JOIN \`attendance_logs\` a
-                ON s.id = a.staff_id AND a.date = CURRENT_DATE()
-            WHERE s.email = ?
-        `, [email]);
+        let rows = [];
+
+        // 1. Primary lookup: By staffId from authenticated token
+        if (staffId) {
+            [rows] = await pool.query(`
+                SELECT
+                    s.*,
+                    a.status AS attendance_status,
+                    a.check_in_time,
+                    a.check_out_time,
+                    a.location AS current_location
+                FROM \`staff_members\` s
+                LEFT JOIN \`attendance_logs\` a
+                    ON s.id = a.staff_id AND a.date = CURRENT_DATE()
+                WHERE s.id = ?
+            `, [staffId]);
+        }
+
+        // 2. Secondary lookup: By exact normalized email
+        if (rows.length === 0 && email) {
+            const normEmail = String(email).trim().toLowerCase();
+            [rows] = await pool.query(`
+                SELECT
+                    s.*,
+                    a.status AS attendance_status,
+                    a.check_in_time,
+                    a.check_out_time,
+                    a.location AS current_location
+                FROM \`staff_members\` s
+                LEFT JOIN \`attendance_logs\` a
+                    ON s.id = a.staff_id AND a.date = CURRENT_DATE()
+                WHERE LOWER(s.email) = ?
+            `, [normEmail]);
+        }
+
+        // 3. Tertiary lookup: By alternate_emails column
+        if (rows.length === 0 && email) {
+            const normEmail = String(email).trim().toLowerCase();
+            try {
+                [rows] = await pool.query(`
+                    SELECT
+                        s.*,
+                        a.status AS attendance_status,
+                        a.check_in_time,
+                        a.check_out_time,
+                        a.location AS current_location
+                    FROM \`staff_members\` s
+                    LEFT JOIN \`attendance_logs\` a
+                        ON s.id = a.staff_id AND a.date = CURRENT_DATE()
+                    WHERE s.alternate_emails LIKE ? OR JSON_CONTAINS(COALESCE(s.alternate_emails, '[]'), ?)
+                `, [`%${normEmail}%`, JSON.stringify(normEmail)]);
+            } catch (_) {}
+        }
+
+        // 4. Quaternary lookup: Fuzzy prefix & name matching
+        if (rows.length === 0 && email) {
+            const prefix = email.split('@')[0];
+            if (prefix && prefix.length >= 3) {
+                [rows] = await pool.query(`
+                    SELECT
+                        s.*,
+                        a.status AS attendance_status,
+                        a.check_in_time,
+                        a.check_out_time,
+                        a.location AS current_location
+                    FROM \`staff_members\` s
+                    LEFT JOIN \`attendance_logs\` a
+                        ON s.id = a.staff_id AND a.date = CURRENT_DATE()
+                    WHERE s.email LIKE ? OR s.name LIKE ?
+                `, [`${prefix}%`, `%${prefix.replace(/[_.-]/g, ' ')}%`]);
+            }
+        }
 
         if (rows.length === 0) {
             return res.status(404).json({ error: 'Staff profile not found for this account' });
