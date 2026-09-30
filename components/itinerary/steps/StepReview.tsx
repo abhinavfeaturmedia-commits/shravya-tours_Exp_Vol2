@@ -23,9 +23,39 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
         editPackageId, setEditPackageId, currency, taxConfig, dayMeta, subtotal, faqs
     } = useItinerary();
 
-    const { addPackage, updatePackage, masterLocations } = useData();
+    const { addPackage, updatePackage, masterLocations, masterMealPlans, masterRoomTypes } = useData();
     const navigate = useNavigate();
     const [isSaving, setIsSaving] = useState(false);
+
+    const getMealPlanLabel = (codeOrId?: string) => {
+        if (!codeOrId) return 'CP (Continental Plan)';
+        const plan = masterMealPlans?.find(p => p.id === codeOrId || p.code === codeOrId);
+        if (plan) return `${plan.code} (${plan.name})`;
+        if (codeOrId === 'EP') return 'EP (European Plan - Room Only)';
+        if (codeOrId === 'CP') return 'CP (Continental Plan - Breakfast)';
+        if (codeOrId === 'MAP') return 'MAP (Modified American Plan - Breakfast & Dinner)';
+        if (codeOrId === 'AP') return 'AP (American Plan - All Meals)';
+        if (codeOrId === 'AI') return 'AI (All Inclusive)';
+        return codeOrId;
+    };
+
+    const getMealPlanShortName = (codeOrId?: string) => {
+        if (!codeOrId) return 'Breakfast Included';
+        const plan = masterMealPlans?.find(p => p.id === codeOrId || p.code === codeOrId);
+        if (plan) return plan.name;
+        if (codeOrId === 'EP') return 'Room Only';
+        if (codeOrId === 'CP') return 'Breakfast Included';
+        if (codeOrId === 'MAP') return 'Breakfast & Dinner';
+        if (codeOrId === 'AP') return 'All Meals';
+        if (codeOrId === 'AI') return 'All Inclusive';
+        return codeOrId;
+    };
+
+    const getRoomTypeName = (roomTypeId?: string) => {
+        if (!roomTypeId) return 'Deluxe / Standard Room';
+        const rt = masterRoomTypes?.find(r => r.id === roomTypeId);
+        return rt ? rt.name : roomTypeId;
+    };
 
     const guestCount = (tripDetails.adults || 0) + (tripDetails.children || 0);
     const finalPrice = grandTotal;
@@ -584,16 +614,25 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
 
             doc.line(15 + (colW * 3), statsBarY + 2, 15 + (colW * 3), statsBarY + 10);
 
-            // Col 4: Meals
+            // Col 4: Meals & Room Sharing
             drawMealIcon(doc, 15 + (colW * 3) + 4, statsBarY + 3.5);
             doc.setFont('helvetica', 'bold');
-            doc.setFontSize(7.5);
+            doc.setFontSize(7);
             doc.setTextColor(15, 23, 42);
-            doc.text("Breakfast", 15 + (colW * 3) + 11, statsBarY + 6.5);
+            const activeMealCode = tripDetails.mealPlanCode || 'CP';
+            const activeSharing = tripDetails.roomSharing || 'Double';
+            const mealTitle = activeMealCode === 'EP' ? 'Room Only (EP)' :
+                              activeMealCode === 'CP' ? 'Breakfast (CP)' :
+                              activeMealCode === 'MAP' ? 'MAP (Bfast + Din)' :
+                              activeMealCode === 'AP' ? 'All Meals (AP)' :
+                              activeMealCode === 'AI' ? 'All Inclusive (AI)' :
+                              `${activeMealCode} Plan`;
+            doc.text(mealTitle, 15 + (colW * 3) + 11, statsBarY + 6.5);
             doc.setFont('helvetica', 'normal');
             doc.setFontSize(5.5);
             doc.setTextColor(100, 116, 139);
-            doc.text("Meal Plan Included", 15 + (colW * 3) + 11, statsBarY + 9.5);
+            const sharingSubtitle = activeSharing === 'Triple' ? 'Triple Sharing (+Extra Bed)' : `${activeSharing} Sharing Room`;
+            doc.text(sharingSubtitle, 15 + (colW * 3) + 11, statsBarY + 9.5);
 
             // D. Cover Photo Banner (30mm cinematic height)
             let coverImgH = 0;
@@ -855,16 +894,18 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
             // Summary Table 1: Accommodations (concise facts, no harsh ellipsis)
             if (accommodations.length > 0) {
                 const accBody = accommodations.map(acc => {
-                    const rawDesc = cleanText(acc.description || '');
-                    let details = 'Deluxe Room | Daily Breakfast Included';
-                    if (rawDesc) {
-                        if (rawDesc.length <= 65) {
-                            details = rawDesc;
-                        } else {
-                            const firstSentence = rawDesc.split(/[.!?]/)[0];
-                            details = (firstSentence.length >= 10 && firstSentence.length <= 65) 
-                                ? firstSentence 
-                                : 'Deluxe Boutique Room | Daily Breakfast Included';
+                    const rtName = getRoomTypeName(acc.roomTypeId);
+                    const sharing = acc.roomSharing || tripDetails.roomSharing || 'Double';
+                    const mealCode = acc.mealPlanCode || tripDetails.mealPlanCode || 'CP';
+                    const mealName = getMealPlanShortName(acc.mealPlanId || mealCode);
+                    const extraBedInfo = sharing === 'Triple' ? ' (Incl. Rollaway/Extra Bed)' : '';
+                    const roomQty = acc.quantity && acc.quantity > 1 ? `${acc.quantity} Rooms` : '1 Room';
+
+                    let details = `${rtName} | ${sharing} Sharing${extraBedInfo} | Meal: ${mealCode} (${mealName}) | ${roomQty}`;
+                    if (acc.description) {
+                        const cleanDesc = cleanText(acc.description);
+                        if (cleanDesc && cleanDesc.length <= 80) {
+                            details += `\n${cleanDesc}`;
                         }
                     }
                     return [
@@ -879,7 +920,7 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
                     startY: y,
                     margin: { left: 15, right: 15 },
                     theme: 'striped',
-                    head: [['Day', 'Property Name', 'Location', 'Room Details & Meal Plan']],
+                    head: [['Day', 'Property Name', 'Location', 'Room Type, Sharing & Meal Plan']],
                     body: accBody,
                     styles: { fontSize: 6.8, font: 'helvetica', textColor: [51, 65, 85], cellPadding: 2 },
                     headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7 },
@@ -1281,6 +1322,22 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
                                 <span className="flex items-center gap-1"><Users size={12} /> {guestCount} Guests</span>
                                 <span>🗓️ {formatTripDuration({ nights: tripDetails.nights, days: tripDetails.days })}</span>
                             </div>
+                            <div className="flex flex-wrap items-center gap-2 mt-2 pt-2 border-t border-stone-100">
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-amber-900 text-[11px] font-bold">
+                                    👥 {tripDetails.roomSharing || 'Double'} Sharing Room
+                                    {tripDetails.roomSharing === 'Triple' && (
+                                        <span className="text-[9px] bg-amber-200 text-amber-950 px-1 rounded font-extrabold">+ Extra Bed Included</span>
+                                    )}
+                                </span>
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-900 text-[11px] font-bold">
+                                    🍽️ Meal Plan: {getMealPlanLabel(tripDetails.mealPlanId || tripDetails.mealPlanCode)}
+                                </span>
+                                {tripDetails.roomsCount && tripDetails.roomsCount > 0 && (
+                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-blue-50 border border-blue-200 text-blue-900 text-[11px] font-bold">
+                                        🛏️ {tripDetails.roomsCount} {tripDetails.roomsCount === 1 ? 'Room' : 'Rooms'}
+                                    </span>
+                                )}
+                            </div>
                             {validUntilDate && (
                                 <p className="text-[10px] font-bold text-amber-600 mt-1.5 flex items-center gap-1">
                                     <Clock size={10} /> Quote valid until: {validUntilDate}
@@ -1396,25 +1453,68 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
                             {accommodations.length > 0 && (
                                 <div className="mb-6">
                                     <h4 className="text-xs font-bold text-stone-500 mb-3 flex items-center gap-2"><Hotel size={14}/> Hotels / Villas</h4>
-                                    <div className="overflow-hidden rounded-xl border border-stone-200 bg-white">
+                                    <div className="overflow-hidden rounded-xl border border-stone-200 bg-white shadow-xs">
                                         <table className="w-full text-left text-xs">
-                                            <thead className="bg-stone-50 text-stone-500 border-b border-stone-200">
+                                            <thead className="bg-stone-50 text-stone-600 border-b border-stone-200 font-bold">
                                                 <tr>
-                                                    <th className="px-4 py-3 font-bold w-20">Day</th>
-                                                    <th className="px-4 py-3 font-bold">Property</th>
-                                                    <th className="px-4 py-3 font-bold">Details / Room Type</th>
+                                                    <th className="px-4 py-3 w-16">Day</th>
+                                                    <th className="px-4 py-3">Property</th>
+                                                    <th className="px-4 py-3">Room Category</th>
+                                                    <th className="px-4 py-3">Sharing & Occupancy</th>
+                                                    <th className="px-4 py-3">Meal Plan</th>
+                                                    <th className="px-4 py-3">Notes</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-stone-100">
-                                                {accommodations.map(acc => (
-                                                    <tr key={acc.id}>
-                                                        <td className="px-4 py-3 font-bold text-stone-900">Day {acc.day}</td>
-                                                        <td className="px-4 py-3 font-bold text-stone-900">{acc.title}</td>
-                                                        <td className="px-4 py-3 text-stone-500">{acc.description || '-'}</td>
-                                                    </tr>
-                                                ))}
+                                                {accommodations.map(acc => {
+                                                    const sharing = acc.roomSharing || tripDetails.roomSharing || 'Double';
+                                                    const mealCode = acc.mealPlanCode || tripDetails.mealPlanCode || 'CP';
+                                                    const isTriple = sharing === 'Triple';
+                                                    return (
+                                                        <tr key={acc.id} className="hover:bg-stone-50/50 transition-colors">
+                                                            <td className="px-4 py-3 font-bold text-stone-900">Day {acc.day}</td>
+                                                            <td className="px-4 py-3 font-bold text-stone-900">
+                                                                {acc.title}
+                                                                {acc.quantity && acc.quantity > 1 && (
+                                                                    <span className="ml-2 text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
+                                                                        {acc.quantity} Rooms
+                                                                    </span>
+                                                                )}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-stone-700 font-medium">
+                                                                {getRoomTypeName(acc.roomTypeId)}
+                                                            </td>
+                                                            <td className="px-4 py-3">
+                                                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border ${
+                                                                    isTriple
+                                                                        ? 'bg-amber-50 text-amber-900 border-amber-300'
+                                                                        : sharing === 'Single'
+                                                                            ? 'bg-slate-50 text-slate-800 border-slate-200'
+                                                                            : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                                                }`}>
+                                                                    👥 {sharing} Sharing
+                                                                    {isTriple && (
+                                                                        <span className="text-[9px] bg-amber-200 text-amber-950 px-1 rounded font-extrabold">+ Extra Bed</span>
+                                                                    )}
+                                                                </span>
+                                                            </td>
+                                                            <td className="px-4 py-3">
+                                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-indigo-50 text-indigo-800 border border-indigo-200">
+                                                                    🍽️ {mealCode} ({getMealPlanShortName(acc.mealPlanId || mealCode)})
+                                                                </span>
+                                                            </td>
+                                                            <td className="px-4 py-3 text-stone-500 text-[11px]">{acc.description || '-'}</td>
+                                                        </tr>
+                                                    );
+                                                })}
                                             </tbody>
                                         </table>
+                                        {(tripDetails.roomSharing === 'Triple' || accommodations.some(a => a.roomSharing === 'Triple')) && (
+                                            <div className="bg-amber-50/80 border-t border-amber-200/60 px-4 py-2.5 text-[11px] text-amber-900 flex items-center gap-2">
+                                                <span className="font-bold text-amber-800">💡 Triple Sharing Notice:</span>
+                                                <span>Room configuration includes 1 Double Bed + 1 Rollaway or Foldable Extra Bed with mattress as per standard hotel policy.</span>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             )}

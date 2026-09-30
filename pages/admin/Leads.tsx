@@ -1151,7 +1151,7 @@ export const Leads: React.FC = () => {
             <div className={`flex-1 flex flex-col min-w-0 transition-all duration-300 ${selectedLeadId ? 'hidden lg:flex' : ''}`}>
 
                 {/* Header Section */}
-                <div className="px-8 py-6 max-w-[1600px] mx-auto w-full">
+                <div className="px-3 sm:px-6 lg:px-8 py-4 sm:py-6 max-w-[1600px] mx-auto w-full">
                     <h1 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight mb-1"><span className="font-display text-4xl">Lead Tracking</span></h1>
                     <p className="text-slate-500 mb-8">
                         You have <span className="text-primary font-bold">{tasksDueTodayCount}</span> follow-up(s) due today.
@@ -1820,7 +1820,7 @@ export const Leads: React.FC = () => {
                     <div className="bg-white dark:bg-[#1A2633] rounded-t-3xl sm:rounded-2xl w-full h-[95vh] sm:h-auto max-w-4xl shadow-2xl flex flex-col sm:max-h-[90vh] overflow-hidden animate-in slide-in-from-bottom-4 sm:zoom-in-95">
 
                     {/* Panel Header */}
-                    <div className="p-6 border-b border-slate-100 dark:border-slate-800">
+                    <div className="p-4 sm:p-6 border-b border-slate-100 dark:border-slate-800">
                         <div className="flex justify-between items-start mb-4">
                             <div className="flex items-center gap-4">
                                 <div className={`h-12 w-12 rounded-full flex items-center justify-center font-black text-lg ${selectedLead.avatarColor || 'bg-blue-100 text-blue-600'}`}>
@@ -1884,7 +1884,7 @@ export const Leads: React.FC = () => {
                                         </span>
                                     )}
                                 </div>
-                                <div className="flex items-center gap-1.5 overflow-x-auto hide-scrollbar pb-1">
+                                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar scrollbar-none flex-nowrap pb-1">
                                     {(['New', 'Warm', 'Hot', 'Offer Sent', 'Converted', 'Cold'] as const).map((stage, idx) => {
                                         const isActive = selectedLead.status === stage;
                                         const isLockedStage = isLeadLockedToBooking && stage !== 'Converted';

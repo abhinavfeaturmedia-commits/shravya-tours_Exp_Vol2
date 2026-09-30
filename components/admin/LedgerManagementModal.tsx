@@ -27,7 +27,7 @@ export const LedgerManagementModal: React.FC<LedgerManagementModalProps> = ({ is
         try {
             const customerDetails = customers?.find((c: any) => c.id === booking.customerId || c.email === booking.email) || null;
             
-            const transportBooking = booking.supplierBookings?.find((sb: any) => sb.serviceType === 'Transport');
+            const transportBooking = booking.supplierBookings?.find((sb: any) => sb.serviceType === 'Transport' || sb.serviceType?.includes('Transport'));
             const vehicleDetails = transportBooking 
                 ? `${transportBooking.notes || 'AC Transport'} ${transportBooking.vehicleNumber ? `(Vehicle: ${transportBooking.vehicleNumber})` : ''}`.trim()
                 : '13 + 1 Seater AC Tempo Traveller';

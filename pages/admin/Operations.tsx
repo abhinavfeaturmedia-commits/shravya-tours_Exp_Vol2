@@ -454,12 +454,12 @@ export const Operations: React.FC = () => {
                 issues.push({ type: 'issue', label: 'Flagged as Issue by team' });
             }
 
-            const hasTransport = tour.supplierBookings?.some(sb => sb.serviceType === 'Transport');
+            const hasTransport = tour.supplierBookings?.some(sb => sb.serviceType === 'Transport' || sb.serviceType?.includes('Transport'));
             if (!hasTransport) {
                 issues.push({ type: 'no-driver', label: 'No transport / driver assigned' });
             }
 
-            const hasGuide = tour.supplierBookings?.some(sb => sb.serviceType === 'Guide');
+            const hasGuide = tour.supplierBookings?.some(sb => sb.serviceType === 'Guide' || sb.serviceType?.includes('Guide'));
             const pkg = packages.find((p: any) => p.id === tour.packageId || p.title === tour.title);
             const mentionsGuide = pkg?.itinerary?.some((i: any) => i.desc?.toLowerCase().includes('guide'));
             if (mentionsGuide && !hasGuide) {
@@ -491,7 +491,7 @@ export const Operations: React.FC = () => {
         const activeLiveCount = tourStats.live.length;
         const totalLivePax = tourStats.live.reduce((acc, t) => acc + (t.paxCount || 0), 0);
         const attentionNeededCount = faults.length;
-        const unassignedTransportCount = tourStats.live.filter(t => !t.supplierBookings?.some(sb => sb.serviceType === 'Transport')).length;
+        const unassignedTransportCount = tourStats.live.filter(t => !t.supplierBookings?.some(sb => sb.serviceType === 'Transport' || sb.serviceType?.includes('Transport'))).length;
         const upcomingCount = tourStats.upcoming.length;
 
         let totalItems = 0;
@@ -534,7 +534,7 @@ export const Operations: React.FC = () => {
                 return faults.some(f => f.tour.id === t.id);
             }
             if (statusFilter === 'unassigned') {
-                return !t.supplierBookings?.some(sb => sb.serviceType === 'Transport');
+                return !t.supplierBookings?.some(sb => sb.serviceType === 'Transport' || sb.serviceType?.includes('Transport'));
             }
             return true;
         });
@@ -595,8 +595,8 @@ export const Operations: React.FC = () => {
 
     const openPrepModal = (booking: Booking) => {
         setSelectedBookingForPrep(booking);
-        const transport = booking.supplierBookings?.find(sb => sb.serviceType === 'Transport');
-        const guide = booking.supplierBookings?.find(sb => sb.serviceType === 'Guide');
+        const transport = booking.supplierBookings?.find(sb => sb.serviceType === 'Transport' || sb.serviceType?.includes('Transport'));
+        const guide = booking.supplierBookings?.find(sb => sb.serviceType === 'Guide' || sb.serviceType?.includes('Guide'));
 
         setDriverVendorId(transport?.vendorId || '');
         setDriverCost(transport?.cost ? String(transport.cost) : '');
@@ -640,7 +640,7 @@ export const Operations: React.FC = () => {
         const costVal = parseFloat(driverCost) || 0;
         if (costVal < 0) { toast.error('Cost cannot be negative'); return; }
 
-        const existingTransport = selectedBookingForPrep.supplierBookings?.find(sb => sb.serviceType === 'Transport');
+        const existingTransport = selectedBookingForPrep.supplierBookings?.find(sb => sb.serviceType === 'Transport' || sb.serviceType?.includes('Transport'));
         if (existingTransport) {
             await updateSupplierBooking(selectedBookingForPrep.id, existingTransport.id, {
                 vendorId: driverVendorId,
@@ -688,7 +688,7 @@ export const Operations: React.FC = () => {
         if (!selectedBookingForPrep || !guideVendorId) return;
         const costVal = parseFloat(guideCost) || 0;
 
-        const existingGuide = selectedBookingForPrep.supplierBookings?.find(sb => sb.serviceType === 'Guide');
+        const existingGuide = selectedBookingForPrep.supplierBookings?.find(sb => sb.serviceType === 'Guide' || sb.serviceType?.includes('Guide'));
         if (existingGuide) {
             await updateSupplierBooking(selectedBookingForPrep.id, existingGuide.id, {
                 vendorId: guideVendorId,
@@ -932,7 +932,7 @@ export const Operations: React.FC = () => {
                                                     </div>
                                                 </div>
                                                 <div className="flex gap-2 flex-shrink-0 self-end sm:self-center">
-                                                    {!tour.supplierBookings?.some(sb => sb.serviceType === 'Transport') && (
+                                                    {!tour.supplierBookings?.some(sb => sb.serviceType === 'Transport' || sb.serviceType?.includes('Transport')) && (
                                                         <button
                                                             onClick={() => openPrepModal(tour)}
                                                             className="text-xs font-bold px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl shadow-xs transition-colors"
@@ -973,13 +973,13 @@ export const Operations: React.FC = () => {
 
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                                 {filteredLive.map(tour => {
-                                    const assignedTransport = tour.supplierBookings?.find(sb => sb.serviceType === 'Transport');
+                                    const assignedTransport = tour.supplierBookings?.find(sb => sb.serviceType === 'Transport' || sb.serviceType?.includes('Transport'));
                                     const transportVendor = assignedTransport ? vendors.find((v: any) => v.id === assignedTransport.vendorId) : null;
                                     const driverDisplayName = assignedTransport
                                         ? (transportVendor?.name || assignedTransport.driverName || 'Assigned')
                                         : 'Not Assigned';
 
-                                    const assignedGuide = tour.supplierBookings?.find(sb => sb.serviceType === 'Guide');
+                                    const assignedGuide = tour.supplierBookings?.find(sb => sb.serviceType === 'Guide' || sb.serviceType?.includes('Guide'));
                                     const guideVendor = assignedGuide ? vendors.find((v: any) => v.id === assignedGuide.vendorId) : null;
                                     const guideDisplayName = assignedGuide
                                         ? (guideVendor?.name || assignedGuide.driverName || 'Assigned')
@@ -1383,7 +1383,7 @@ export const Operations: React.FC = () => {
                                     </thead>
                                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
                                         {filteredUpcoming.map(tour => {
-                                            const assignedTransport = tour.supplierBookings?.find(sb => sb.serviceType === 'Transport');
+                                            const assignedTransport = tour.supplierBookings?.find(sb => sb.serviceType === 'Transport' || sb.serviceType?.includes('Transport'));
                                             const vendorName = assignedTransport ? vendors.find((v: any) => v.id === assignedTransport.vendorId)?.name : null;
                                             const driverLabel = vendorName || assignedTransport?.driverName || null;
 

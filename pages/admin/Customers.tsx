@@ -580,8 +580,8 @@ export const Customers: React.FC = () => {
                 <div className="bg-white dark:bg-[#151d29] rounded-[2rem] shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col min-h-[600px]">
 
                     {/* Segment Tabs Header */}
-                    <div className="p-3 border-b border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-slate-50/50 dark:bg-slate-800/10">
-                        <div className="flex flex-wrap gap-1.5 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl">
+                    <div className="p-2.5 sm:p-3 border-b border-slate-100 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3 bg-slate-50/50 dark:bg-slate-800/10">
+                        <div className="flex gap-1.5 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl overflow-x-auto no-scrollbar scrollbar-none flex-nowrap">
                             {(['All', 'VIP', 'Repeat', 'New', 'HighValue', 'Corporate'] as const).map(tab => {
                                 const labels: Record<SegmentTab, string> = {
                                     All: 'All Customers',
@@ -595,7 +595,7 @@ export const Customers: React.FC = () => {
                                     <button
                                         key={tab}
                                         onClick={() => { setActiveSegment(tab); setCurrentPage(1); setSelectedIds(new Set()); }}
-                                        className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                        className={`px-3 sm:px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
                                             activeSegment === tab
                                                 ? 'bg-white dark:bg-slate-700 shadow-sm text-slate-900 dark:text-white'
                                                 : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
@@ -763,8 +763,8 @@ export const Customers: React.FC = () => {
                         </div>
                     )}
 
-                    {/* Table */}
-                    <div className="overflow-x-auto flex-1">
+                    {/* Desktop Table (Hidden on mobile) */}
+                    <div className="hidden md:block overflow-x-auto flex-1">
                         <table className="w-full text-left border-collapse">
                             <thead>
                                 <tr className="bg-slate-50/50 dark:bg-slate-800/20 text-[11px] uppercase tracking-wider text-slate-500 dark:text-slate-400 font-extrabold border-b border-slate-100 dark:border-slate-800">
@@ -1107,6 +1107,164 @@ export const Customers: React.FC = () => {
                                 )}
                             </tbody>
                         </table>
+                    </div>
+
+                    {/* Mobile Customer Cards List (Visible only on screens < md) */}
+                    <div className="md:hidden flex-1 p-2.5 sm:p-3 space-y-2.5">
+                        {paginatedCustomers.length === 0 ? (
+                            <div className="py-12 text-center px-4">
+                                <div className="size-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto text-slate-400 mb-2">
+                                    <span className="material-symbols-outlined text-2xl">person_search</span>
+                                </div>
+                                <h4 className="font-bold text-slate-800 dark:text-slate-200 text-sm">No customers found</h4>
+                                <p className="text-xs text-slate-500 mt-1">Try resetting filters to view all customers.</p>
+                            </div>
+                        ) : (
+                            paginatedCustomers.map(customer => {
+                                const stats = liveBookingStats[customer.id] || { count: 0, spent: 0 };
+                                const isReturning = stats.count > 1;
+                                const totalSpent = stats.spent;
+                                const isVIP = customer.type === 'VIP' || totalSpent >= 500000;
+                                const activeMembership = getActiveMembershipForCustomer(customer.id);
+                                const isSelected = selectedIds.has(customer.id);
+
+                                return (
+                                    <div
+                                        key={customer.id}
+                                        onClick={() => setSelectedCustomer(customer)}
+                                        className={`p-3 bg-white dark:bg-[#151d29] rounded-2xl border transition-all cursor-pointer shadow-sm relative ${
+                                            isSelected
+                                                ? 'border-indigo-500 bg-indigo-50/20 dark:bg-indigo-950/20 ring-1 ring-indigo-500/30'
+                                                : 'border-slate-200/80 dark:border-slate-800 hover:border-indigo-500/40'
+                                        }`}
+                                    >
+                                        {/* Card Top: Checkbox, Avatar, Name & Status Badge */}
+                                        <div className="flex items-start justify-between gap-2">
+                                            <div className="flex items-center gap-2.5 min-w-0">
+                                                <div onClick={e => e.stopPropagation()} className="pt-0.5">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isSelected}
+                                                        onChange={e => handleSelectOne(customer.id, e.target.checked)}
+                                                        className="rounded text-primary focus:ring-primary cursor-pointer size-4"
+                                                    />
+                                                </div>
+                                                <div className={`size-10 rounded-full flex items-center justify-center font-black text-sm text-white shadow-sm shrink-0 relative ${
+                                                    activeMembership ? 'ring-2 ring-amber-400' : ''
+                                                } ${
+                                                    isVIP
+                                                        ? 'bg-gradient-to-br from-amber-400 to-orange-600'
+                                                        : isReturning
+                                                            ? 'bg-gradient-to-br from-blue-500 to-indigo-600'
+                                                            : 'bg-gradient-to-br from-slate-400 to-slate-600'
+                                                }`}>
+                                                    {customer.name.charAt(0).toUpperCase()}
+                                                    {activeMembership && (
+                                                        <span className="absolute -top-1 -right-1 size-3.5 bg-amber-400 rounded-full flex items-center justify-center text-[9px] text-white">★</span>
+                                                    )}
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <p className="font-bold text-sm text-slate-900 dark:text-white truncate flex items-center gap-1.5">
+                                                        {customer.prefix ? `${customer.prefix} ` : ''}{customer.name}
+                                                    </p>
+                                                    <p className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1 mt-0.5">
+                                                        <span className="material-symbols-outlined text-[13px] text-slate-400">location_on</span>
+                                                        <span className="truncate">{customer.location || 'Location Not Set'}</span>
+                                                    </p>
+                                                </div>
+                                            </div>
+
+                                            {/* Type/Status Pill */}
+                                            <div className="shrink-0 flex flex-col items-end gap-1">
+                                                {isVIP ? (
+                                                    <span className="text-[10px] uppercase font-bold text-amber-600 bg-amber-50 dark:bg-amber-900/30 px-2 py-0.5 rounded-full border border-amber-200 dark:border-amber-800">
+                                                        VIP
+                                                    </span>
+                                                ) : isReturning ? (
+                                                    <span className="text-[10px] uppercase font-bold text-blue-600 bg-blue-50 dark:bg-blue-900/30 px-2 py-0.5 rounded-full border border-blue-200 dark:border-blue-800">
+                                                        Repeat
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-[10px] uppercase font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
+                                                        New
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {/* Stats Bar: Bookings Count & Total Spend */}
+                                        <div className="grid grid-cols-2 gap-2 mt-2.5 p-2 bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-100 dark:border-slate-800 text-xs">
+                                            <div>
+                                                <p className="text-[10px] uppercase font-bold text-slate-400">Total Bookings</p>
+                                                <p className="font-extrabold text-slate-900 dark:text-white mt-0.5 flex items-center gap-1">
+                                                    <span className="material-symbols-outlined text-[14px] text-indigo-500">airplane_ticket</span>
+                                                    {stats.count} Trip{stats.count === 1 ? '' : 's'}
+                                                </p>
+                                            </div>
+                                            <div>
+                                                <p className="text-[10px] uppercase font-bold text-slate-400">Total Spent (LTV)</p>
+                                                <p className="font-black text-emerald-600 dark:text-emerald-400 mt-0.5">
+                                                    ₹{totalSpent.toLocaleString()}
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        {/* Card Bottom: Quick Touch Actions */}
+                                        <div className="mt-2.5 pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs" onClick={e => e.stopPropagation()}>
+                                            <span className="text-[11px] text-slate-400 font-medium truncate max-w-[150px]">
+                                                {customer.phone || customer.email || 'No contact'}
+                                            </span>
+                                            <div className="flex items-center gap-1.5 shrink-0">
+                                                {customer.phone && (
+                                                    <button
+                                                        onClick={(e) => handleOpenWhatsApp(customer.whatsapp || customer.phone, customer.name, e)}
+                                                        className="size-8 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 flex items-center justify-center hover:bg-emerald-600 hover:text-white transition-colors"
+                                                        title="WhatsApp"
+                                                    >
+                                                        <span className="material-symbols-outlined text-[16px]">chat</span>
+                                                    </button>
+                                                )}
+                                                {customer.phone && (
+                                                    <button
+                                                        onClick={(e) => handleCall(customer.phone, e)}
+                                                        className="size-8 rounded-lg bg-blue-50 dark:bg-blue-950/40 text-blue-600 flex items-center justify-center hover:bg-blue-600 hover:text-white transition-colors"
+                                                        title="Call"
+                                                    >
+                                                        <span className="material-symbols-outlined text-[16px]">call</span>
+                                                    </button>
+                                                )}
+                                                <ActionMenu>
+                                                    <button
+                                                        onClick={() => setSelectedCustomer(customer)}
+                                                        className="w-full text-left px-4 py-2 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60 flex items-center gap-2"
+                                                    >
+                                                        <span className="material-symbols-outlined text-[16px] text-slate-400">visibility</span> View Profile
+                                                    </button>
+                                                    <button
+                                                        onClick={(e) => handleQuickInquiry(customer, e)}
+                                                        className="w-full text-left px-4 py-2 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60 flex items-center gap-2"
+                                                    >
+                                                        <span className="material-symbols-outlined text-[16px] text-primary">add_task</span> New Inquiry
+                                                    </button>
+                                                    <button
+                                                        onClick={(e) => handleQuickInvoice(customer, e)}
+                                                        className="w-full text-left px-4 py-2 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60 flex items-center gap-2"
+                                                    >
+                                                        <span className="material-symbols-outlined text-[16px] text-amber-500">receipt_long</span> Create Invoice
+                                                    </button>
+                                                    <button
+                                                        onClick={() => { setEditingCustomer(customer); setIsAddModalOpen(true); }}
+                                                        className="w-full text-left px-4 py-2 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60 flex items-center gap-2"
+                                                    >
+                                                        <span className="material-symbols-outlined text-[16px] text-slate-400">edit</span> Edit Profile
+                                                    </button>
+                                                </ActionMenu>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })
+                        )}
                     </div>
 
                     {/* Pagination */}
@@ -1466,53 +1624,53 @@ const CustomerDetailsDrawer: React.FC<{
             <div className={`fixed inset-y-0 right-0 w-full max-w-2xl bg-white dark:bg-[#0B1116] shadow-2xl z-[160] transform transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : 'translate-x-full'} flex flex-col`}>
                 
                 {/* ─── Drawer Header ─────────────────────────────────────── */}
-                <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-white dark:bg-[#0B1116] z-10">
-                    <div className="flex items-center gap-4">
-                        <div className={`size-14 rounded-full flex items-center justify-center font-black text-xl text-white shadow-md flex-shrink-0 ${
+                <div className="p-4 sm:p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-white dark:bg-[#0B1116] z-10">
+                    <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+                        <div className={`size-11 sm:size-14 rounded-full flex items-center justify-center font-bold sm:font-black text-base sm:text-xl text-white shadow-md flex-shrink-0 ${
                             customer.type === 'VIP' ? 'bg-gradient-to-br from-amber-400 to-orange-600' : 'bg-gradient-to-br from-slate-500 to-slate-700'
                         }`}>
                             {customer.name.charAt(0).toUpperCase()}
                         </div>
-                        <div>
-                            <h2 className="text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
-                                {customer.prefix ? `${customer.prefix} ` : ''}{customer.name}
+                        <div className="min-w-0">
+                            <h2 className="text-base sm:text-xl font-black text-slate-900 dark:text-white flex items-center gap-2 truncate">
+                                <span className="truncate">{customer.prefix ? `${customer.prefix} ` : ''}{customer.name}</span>
                                 {customer.type === 'VIP' && (
-                                    <span className="text-[10px] uppercase bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 px-2 py-0.5 rounded-full font-bold">
-                                        VIP Client
+                                    <span className="text-[9px] sm:text-[10px] uppercase bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 px-2 py-0.5 rounded-full font-bold shrink-0">
+                                        VIP
                                     </span>
                                 )}
                             </h2>
-                            <p className="text-xs text-slate-500 mt-0.5">
+                            <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5 truncate">
                                 ID: #{customer.id.includes('-') ? customer.id.split('-')[1] : customer.id.slice(-6)} • {customer.location || 'Location Not Set'}
                             </p>
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
                         {customer.phone && (
                             <button
                                 onClick={() => {
                                     const cleanPhone = normalisePhone(customer.whatsapp || customer.phone);
                                     window.open(`https://wa.me/${cleanPhone}`, '_blank');
                                 }}
-                                className="size-9 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 flex items-center justify-center hover:bg-emerald-600 hover:text-white transition-colors"
+                                className="size-8 sm:size-9 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 flex items-center justify-center hover:bg-emerald-600 hover:text-white transition-colors"
                                 title="Chat on WhatsApp"
                             >
-                                <span className="material-symbols-outlined text-[18px]">chat</span>
+                                <span className="material-symbols-outlined text-[17px] sm:text-[18px]">chat</span>
                             </button>
                         )}
                         {customer.phone && (
                             <button
                                 onClick={() => { window.location.href = `tel:${customer.phone}`; }}
-                                className="size-9 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-blue-600 flex items-center justify-center hover:bg-blue-600 hover:text-white transition-colors"
+                                className="size-8 sm:size-9 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-blue-600 flex items-center justify-center hover:bg-blue-600 hover:text-white transition-colors"
                                 title="Call"
                             >
-                                <span className="material-symbols-outlined text-[18px]">call</span>
+                                <span className="material-symbols-outlined text-[17px] sm:text-[18px]">call</span>
                             </button>
                         )}
                         <button
                             onClick={onClose}
-                            className="size-9 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors text-slate-400 flex items-center justify-center"
+                            className="size-8 sm:size-9 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors text-slate-400 flex items-center justify-center"
                         >
                             <span className="material-symbols-outlined">close</span>
                         </button>
@@ -1520,7 +1678,7 @@ const CustomerDetailsDrawer: React.FC<{
                 </div>
 
                 {/* ─── Drawer Tabs ───────────────────────────────────────── */}
-                <div className="flex border-b border-slate-100 dark:border-slate-800 px-6 bg-slate-50/50 dark:bg-slate-900/30 gap-6 text-xs font-bold overflow-x-auto">
+                <div className="flex border-b border-slate-100 dark:border-slate-800 px-3 sm:px-6 bg-slate-50/50 dark:bg-slate-900/30 gap-3 sm:gap-6 text-xs font-bold overflow-x-auto no-scrollbar scrollbar-none flex-nowrap">
                     {[
                         { id: 'overview', label: 'Overview', icon: 'person' },
                         { id: 'preferences', label: 'Preferences', icon: 'flight' },
@@ -2131,11 +2289,11 @@ const AddEditCustomerModal: React.FC<{
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in">
-            <div className="bg-white dark:bg-[#1A2633] w-full max-w-2xl rounded-[2rem] p-8 shadow-2xl animate-in zoom-in-95 ring-1 ring-white/10 max-h-[90vh] overflow-y-auto">
-                <div className="flex justify-between items-center mb-6">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-md animate-in fade-in">
+            <div className="bg-white dark:bg-[#1A2633] w-full max-w-2xl rounded-2xl sm:rounded-[2rem] p-4 sm:p-8 shadow-2xl animate-in zoom-in-95 ring-1 ring-white/10 max-h-[92vh] overflow-y-auto">
+                <div className="flex justify-between items-center mb-4 sm:mb-6">
                     <div>
-                        <h2 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
+                        <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
                             {customer ? 'Edit Customer Profile' : 'New Customer Profile'}
                         </h2>
                         <p className="text-xs text-slate-500 mt-0.5">Manage customer credentials, addresses, and GST numbers.</p>
@@ -2145,10 +2303,10 @@ const AddEditCustomerModal: React.FC<{
                     </button>
                 </div>
 
-                <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-4 text-xs">
+                <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-3.5 sm:space-y-4 text-xs">
                     {/* Prefix and Name */}
-                    <div className="grid grid-cols-4 gap-3">
-                        <div className="col-span-1">
+                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 sm:gap-3">
+                        <div className="sm:col-span-1">
                             <label className="font-bold uppercase text-slate-500 block mb-1">Prefix</label>
                             <select {...register('prefix')} className="w-full rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-2.5 font-bold outline-none focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white">
                                 <option value="">None</option>
@@ -2159,7 +2317,7 @@ const AddEditCustomerModal: React.FC<{
                                 <option value="Prof.">Prof.</option>
                             </select>
                         </div>
-                        <div className="col-span-3">
+                        <div className="sm:col-span-3">
                             <label className="font-bold uppercase text-slate-500 block mb-1">Full Name *</label>
                             <input {...register('name')} placeholder="e.g. Rohit Jadhav" className="w-full rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-2.5 font-bold outline-none focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white" />
                             {errors.name && <p className="text-xs text-red-500 mt-1">{errors.name.message}</p>}
@@ -2167,7 +2325,7 @@ const AddEditCustomerModal: React.FC<{
                     </div>
 
                     {/* Email and DOB */}
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
                         <div>
                             <label className="font-bold uppercase text-slate-500 block mb-1">Email Address</label>
                             <input {...register('email')} placeholder="name@domain.com" className="w-full rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-2.5 font-bold outline-none focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white" />
@@ -2180,7 +2338,7 @@ const AddEditCustomerModal: React.FC<{
                     </div>
 
                     {/* Phone & Alt Phone */}
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
                         <div>
                             <label className="font-bold uppercase text-slate-500 block mb-1">Main Phone Number</label>
                             <input {...register('phone')} placeholder="e.g. 9876543210" className="w-full rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-2.5 font-bold outline-none focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white" />
@@ -2212,7 +2370,7 @@ const AddEditCustomerModal: React.FC<{
                     </div>
 
                     {/* Location, Type & Status */}
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3">
                         <div>
                             <label className="font-bold uppercase text-slate-500 block mb-1">Location / City</label>
                             <input {...register('location')} placeholder="e.g. Mumbai" className="w-full rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-2.5 font-bold outline-none focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white" />
@@ -2235,7 +2393,7 @@ const AddEditCustomerModal: React.FC<{
                     </div>
 
                     {/* Residential & Office Address */}
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
                         <div>
                             <label className="font-bold uppercase text-slate-500 block mb-1">Residential Address</label>
                             <textarea {...register('address')} placeholder="Residential address" className="w-full rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-2.5 font-medium outline-none focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white resize-none h-16" />
@@ -2247,7 +2405,7 @@ const AddEditCustomerModal: React.FC<{
                     </div>
 
                     {/* Billing Address & GSTIN */}
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
                         <div>
                             <label className="font-bold uppercase text-slate-500 block mb-1">Billing Address</label>
                             <textarea {...register('billingAddress')} placeholder="Billing address for GST invoices" className="w-full rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-2.5 font-medium outline-none focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white resize-none h-16" />

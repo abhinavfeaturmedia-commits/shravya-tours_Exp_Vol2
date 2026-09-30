@@ -3770,6 +3770,20 @@ export const api = {
     overrideBookingEligibility: async (bookingId: string, reason: string) => {
         return fetchApi('/api/incentives/override-eligibility', { method: 'POST', body: JSON.stringify({ bookingId, reason }) });
     },
+    getStaffMonthlyTargets: async (params?: { monthYear?: string }) => {
+        const qs = new URLSearchParams();
+        if (params?.monthYear) qs.set('monthYear', params.monthYear);
+        return fetchApi(`/api/incentives/targets${qs.toString() ? `?${qs.toString()}` : ''}`);
+    },
+    saveStaffMonthlyTargets: async (data: { monthYear: string; targets: Array<{ staffId: number; targetAmount: number; targetBookings?: number; notes?: string }> }) => {
+        return fetchApi('/api/incentives/targets', { method: 'POST', body: JSON.stringify(data) });
+    },
+    copyStaffMonthlyTargets: async (data: { sourceMonth: string; targetMonth: string; multiplier?: number }) => {
+        return fetchApi('/api/incentives/targets/copy', { method: 'POST', body: JSON.stringify(data) });
+    },
+    updateIncentiveRule: async (ruleId: string, data: any) => {
+        return fetchApi(`/api/incentives/rules/${encodeURIComponent(ruleId)}`, { method: 'PUT', body: JSON.stringify(data) });
+    },
 
     crud
 };

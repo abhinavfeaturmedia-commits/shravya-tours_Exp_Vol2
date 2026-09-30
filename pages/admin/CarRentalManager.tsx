@@ -474,8 +474,8 @@ export const CarRentalManager: React.FC = () => {
             </div>
 
             {/* Tab Navigation */}
-            <div className="bg-white dark:bg-[#1E293B] px-6 border-b border-slate-200 dark:border-slate-800 sticky top-[77px] z-15 shadow-sm">
-                <div className="flex gap-1 overflow-x-auto">
+            <div className="bg-white dark:bg-[#1E293B] px-4 sm:px-6 border-b border-slate-200 dark:border-slate-800 sticky top-14 sm:top-16 z-15 shadow-sm">
+                <div className="flex gap-1 overflow-x-auto no-scrollbar scrollbar-none flex-nowrap">
                     {[
                         { id: 'trips', label: 'Operations Dashboard', icon: Activity },
                         { id: 'bookings', label: 'Trips & Quotations', icon: FileText },
@@ -505,7 +505,7 @@ export const CarRentalManager: React.FC = () => {
             </div>
 
             {/* Content Panel */}
-            <div className="flex-grow p-6 space-y-6 overflow-y-auto max-w-7xl mx-auto w-full">
+            <div className="flex-grow p-4 sm:p-6 space-y-6 overflow-y-auto max-w-7xl mx-auto w-full">
                 {loading ? (
                     <div className="py-20 text-center flex flex-col items-center justify-center">
                         <div className="w-10 h-10 border-4 border-primary/20 border-t-primary rounded-full animate-spin mb-3" style={{ borderTopColor: '#C9732A' }} />
@@ -1088,16 +1088,16 @@ export const CarRentalManager: React.FC = () => {
 
             {/* 2. Vehicle Modal */}
             {showVehicleModal && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in">
-                    <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95">
-                        <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
+                <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm sm:p-4 animate-in fade-in">
+                    <div className="bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl w-full max-w-lg max-h-[95vh] sm:max-h-[90vh] flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 sm:zoom-in-95">
+                        <div className="px-4 sm:px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
                             <h3 className="font-black text-slate-800 dark:text-white text-sm">{editingVehicle ? 'Edit Vehicle' : 'Register Vehicle'}</h3>
                             <button onClick={() => setShowVehicleModal(false)} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full text-slate-400">
                                 <X size={16} />
                             </button>
                         </div>
-                        <form onSubmit={handleSaveVehicle} className="p-6 space-y-4 overflow-y-auto flex-1 text-left">
-                            <div className="grid grid-cols-2 gap-4">
+                        <form onSubmit={handleSaveVehicle} className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1 text-left">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 mb-1">Vehicle Name *</label>
                                     <input type="text" required value={vehicleForm.name} onChange={e => setVehicleForm({...vehicleForm, name: e.target.value})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs" placeholder="Toyota Innova" />
@@ -1107,7 +1107,7 @@ export const CarRentalManager: React.FC = () => {
                                     <input type="text" required value={vehicleForm.registration_number} onChange={e => setVehicleForm({...vehicleForm, registration_number: e.target.value})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs" placeholder="MH-12-XX-1234" />
                                 </div>
                             </div>
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 mb-1">Category *</label>
                                     <select required value={vehicleForm.category_id} onChange={e => setVehicleForm({...vehicleForm, category_id: e.target.value})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs">
@@ -1132,7 +1132,7 @@ export const CarRentalManager: React.FC = () => {
                                     </select>
                                 </div>
                             )}
-                            <div className="grid grid-cols-3 gap-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 mb-1">Fuel Type</label>
                                     <select value={vehicleForm.fuel_type} onChange={e => setVehicleForm({...vehicleForm, fuel_type: e.target.value})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs">

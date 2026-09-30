@@ -244,7 +244,7 @@ export const ProposalBuilder: React.FC = () => {
     return (
         <div className="flex flex-col h-full bg-slate-50 dark:bg-[#0B1116]">
             {/* Header */}
-            <div className="bg-white dark:bg-[#1A2633] border-b border-slate-200 dark:border-slate-800 px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 sticky top-0 z-10 shadow-sm">
+            <div className="bg-white dark:bg-[#1A2633] border-b border-slate-200 dark:border-slate-800 px-4 sm:px-6 py-3.5 sm:py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 sticky top-0 z-10 shadow-sm">
                 <div className="flex items-center gap-4">
                     <button onClick={() => navigate('/admin/proposals')} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500">
                         <ArrowLeft size={20} />
@@ -256,11 +256,11 @@ export const ProposalBuilder: React.FC = () => {
                         <span className={`text-xs font-bold uppercase px-2 py-0.5 rounded ${status === 'Draft' ? 'bg-slate-100 text-slate-600' : 'bg-blue-100 text-blue-600'}`}>{status}</span>
                     </div>
                 </div>
-                <div className="flex gap-3">
+                <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
                     <button
                         onClick={handleDownloadPDF}
                         disabled={isWeavingPDF}
-                        className="flex items-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 font-bold rounded-xl text-sm px-4 py-2.5 transition-all shadow-sm"
+                        className="flex-1 sm:flex-initial flex items-center justify-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 font-bold rounded-xl text-sm px-4 py-2.5 transition-all shadow-sm"
                     >
                         {isWeavingPDF ? (
                             <>
@@ -277,7 +277,7 @@ export const ProposalBuilder: React.FC = () => {
                     <button
                         onClick={handleDownloadProforma}
                         disabled={isWeavingProforma}
-                        className="flex items-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 font-bold rounded-xl text-sm px-4 py-2.5 transition-all shadow-sm"
+                        className="flex-1 sm:flex-initial flex items-center justify-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 font-bold rounded-xl text-sm px-4 py-2.5 transition-all shadow-sm"
                         title="Download Proforma Invoice"
                     >
                         {isWeavingProforma ? (
@@ -296,7 +296,7 @@ export const ProposalBuilder: React.FC = () => {
                         <button
                             onClick={handleConvertToBooking}
                             disabled={isConverting}
-                            className={`flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm px-6 py-2.5 shadow-lg shadow-emerald-600/20 active:scale-95 transition-all ${
+                            className={`w-full sm:w-auto flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm px-4 sm:px-6 py-2.5 shadow-lg shadow-emerald-600/20 active:scale-95 transition-all ${
                                 isConverting ? 'opacity-70 cursor-wait' : ''
                             }`}
                         >
@@ -315,7 +315,7 @@ export const ProposalBuilder: React.FC = () => {
                     <BorderBeam size="pulse-inner" colorVariant="forest" active={!!title && !!leadId}>
                         <button
                             onClick={handleSave}
-                            className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl text-sm px-6 py-2.5 shadow-lg shadow-purple-600/20 active:scale-95 transition-all btn-glow"
+                            className="w-full sm:w-auto flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl text-sm px-4 sm:px-6 py-2.5 shadow-lg shadow-purple-600/20 active:scale-95 transition-all btn-glow"
                         >
                             <Save size={18} /> Save Proposal
                         </button>
@@ -323,10 +323,10 @@ export const ProposalBuilder: React.FC = () => {
                 </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6">
                 <div className="max-w-5xl mx-auto space-y-6">
                     {/* Basic Info */}
-                    <div className="bg-white dark:bg-[#1A2633] rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="bg-white dark:bg-[#1A2633] rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 p-4 sm:p-6 grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
                         <div>
                             <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Proposal Title</label>
                             <input
@@ -377,12 +377,12 @@ export const ProposalBuilder: React.FC = () => {
 
                     {/* Options Builder */}
                     <div className="bg-white dark:bg-[#1A2633] rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden">
-                        <div className="flex border-b border-slate-200 dark:border-slate-800 overflow-x-auto">
+                        <div className="flex border-b border-slate-200 dark:border-slate-800 overflow-x-auto no-scrollbar scrollbar-none flex-nowrap">
                             {options.map(opt => (
                                 <button
                                     key={opt.id}
                                     onClick={() => setActiveOptionId(opt.id)}
-                                    className={`px-6 py-4 text-sm font-bold border-r border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors whitespace-nowrap flex items-center gap-2
+                                    className={`px-4 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm font-bold border-r border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors whitespace-nowrap flex items-center gap-2 shrink-0
                                         ${activeOptionId === opt.id ? 'bg-slate-50 dark:bg-slate-800 text-purple-600 border-b-2 border-b-purple-600' : 'text-slate-500'}
                                     `}
                                 >
@@ -398,14 +398,14 @@ export const ProposalBuilder: React.FC = () => {
                             ))}
                             <button
                                 onClick={addOption}
-                                className="px-6 py-4 text-sm font-bold text-purple-600 hover:bg-purple-50 flex items-center gap-2"
+                                className="px-4 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm font-bold text-purple-600 hover:bg-purple-50 flex items-center gap-2 shrink-0 whitespace-nowrap"
                             >
                                 <Plus size={16} /> Add Option
                             </button>
                         </div>
 
                         {activeOption && (
-                            <div className="p-6 space-y-6">
+                            <div className="p-4 sm:p-6 space-y-6">
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                     <div>
                                         <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Option Name</label>

@@ -411,7 +411,7 @@ export const useInboxHub = () => {
 
       const departureDate = new Date(b.date).getTime();
       const hoursUntilTrip = (departureDate - now) / (1000 * 3600);
-      const hasDriver = !!(b.supplierBookings?.some(sb => sb.serviceType === 'Transport' && sb.driverName) || b.details?.includes('Driver:'));
+      const hasDriver = !!(b.supplierBookings?.some(sb => (sb.serviceType === 'Transport' || sb.serviceType?.includes('Transport')) && sb.driverName) || b.details?.includes('Driver:'));
       const isImminent = hoursUntilTrip > -24 && hoursUntilTrip <= 48;
 
       if (!hasDriver && isImminent) {

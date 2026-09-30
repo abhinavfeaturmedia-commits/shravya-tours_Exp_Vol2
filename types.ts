@@ -143,7 +143,7 @@ export interface SupplierBooking {
   id: string;
   bookingId: string;
   vendorId: string;
-  serviceType: 'Hotel' | 'Transport' | 'Flight' | 'Activity' | 'Guide' | 'Other';
+  serviceType: 'Hotel' | 'Transport' | 'Flight' | 'Activity' | 'Guide' | 'Other' | string;
   confirmationNumber?: string;
   cost: number;
   paidAmount: number;
@@ -852,6 +852,54 @@ export interface ItineraryPricing {
   taxAmount: number;
   grandTotal: number;
 }
+
+// --- Room Sharing / Occupancy Types ---
+
+export type RoomSharingType = 'Single' | 'Double' | 'Triple' | 'Quad';
+
+export interface RoomSharingOption {
+  id: RoomSharingType;
+  label: string;
+  shortLabel: string;
+  capacity: number;
+  description: string;
+  bedSetup: string;
+}
+
+export const ROOM_SHARING_OPTIONS: RoomSharingOption[] = [
+  {
+    id: 'Double',
+    label: 'Double Sharing (2 Guests / Room)',
+    shortLabel: 'Double Sharing',
+    capacity: 2,
+    description: 'Standard double or twin sharing arrangement',
+    bedSetup: '1 King/Queen Bed or 2 Twin Beds'
+  },
+  {
+    id: 'Triple',
+    label: 'Triple Sharing (3 Guests / Room)',
+    shortLabel: 'Triple Sharing',
+    capacity: 3,
+    description: 'Room shared by 3 guests with an extra bed / mattress included',
+    bedSetup: '1 Double Bed + 1 Extra Bed/Mattress (or 3 Single Beds)'
+  },
+  {
+    id: 'Single',
+    label: 'Single Occupancy (1 Guest / Room)',
+    shortLabel: 'Single Sharing',
+    capacity: 1,
+    description: 'Private room for solo traveler',
+    bedSetup: '1 Double/Single Bed'
+  },
+  {
+    id: 'Quad',
+    label: 'Quad Sharing (4 Guests / Room)',
+    shortLabel: 'Quad Sharing',
+    capacity: 4,
+    description: 'Family room or suite shared by 4 guests',
+    bedSetup: '2 Double Beds or 4 Single Beds'
+  }
+];
 
 // --- Additional Master Data Types ---
 

@@ -6,7 +6,7 @@ import { SEO } from '../components/ui/SEO';
 import {
     MapPin, Calendar, Users, Moon, Sun, Clock, Check, X,
     ShieldCheck, Ticket, Printer, MessageSquare, CheckCircle2,
-    AlertTriangle, ArrowRight, Phone
+    AlertTriangle, ArrowRight, Phone, Hotel
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatPrice, getLocationName, formatTripDuration } from '../utils/packageUtils';
@@ -102,7 +102,7 @@ const ApprovedBanner: React.FC = () => (
 export const InteractiveItinerary: React.FC = () => {
     const { id: rawId } = useParams<{ id: string }>();
     const id = rawId ? rawId.split('?')[0] : '';
-    const { packages, updatePackage, masterLocations, coupons } = useData();
+    const { packages, updatePackage, masterLocations, coupons, masterMealPlans, masterRoomTypes } = useData();
 
     const [showSuccess, setShowSuccess] = useState(false);
     const [showFeedbackModal, setShowFeedbackModal] = useState(false);
@@ -290,7 +290,7 @@ export const InteractiveItinerary: React.FC = () => {
                         Exclusive Proposal
                     </span>
                     <h1 className="text-4xl md:text-5xl font-black text-white tracking-tight leading-tight mb-4">{pkg.title}</h1>
-                    <div className="flex flex-wrap items-center gap-4 text-white/90 text-sm font-medium">
+                    <div className="flex flex-wrap items-center gap-3 text-white/90 text-sm font-medium">
                         <span className="flex items-center gap-1.5"><MapPin size={15} /> {getLocationName(pkg.location, masterLocations)}</span>
                         {tripDetails?.startDate && (
                             <span className="flex items-center gap-1.5">
@@ -300,6 +300,19 @@ export const InteractiveItinerary: React.FC = () => {
                         )}
                         <span className="flex items-center gap-1.5"><Users size={15} /> {guestCount} Guests</span>
                         <span className="flex items-center gap-1.5"><Clock size={15} /> {formatTripDuration({ nights: Math.max(0, pkg.days - 1), days: pkg.days })}</span>
+                        {tripDetails?.roomSharing && (
+                            <span className="inline-flex items-center gap-1.5 bg-amber-400/20 backdrop-blur-md border border-amber-300/40 text-amber-200 text-xs font-bold px-3 py-1 rounded-full">
+                                👥 {tripDetails.roomSharing} Sharing
+                                {tripDetails.roomSharing === 'Triple' && (
+                                    <span className="text-[10px] bg-amber-300/30 px-1.5 py-0.5 rounded font-extrabold">+ Extra Bed</span>
+                                )}
+                            </span>
+                        )}
+                        {tripDetails?.mealPlanCode && (
+                            <span className="inline-flex items-center gap-1.5 bg-emerald-400/20 backdrop-blur-md border border-emerald-300/40 text-emerald-200 text-xs font-bold px-3 py-1 rounded-full">
+                                🍽️ {tripDetails.mealPlanCode} Meal Plan
+                            </span>
+                        )}
                     </div>
                 </div>
             </div>
@@ -392,6 +405,43 @@ export const InteractiveItinerary: React.FC = () => {
                                                                     {item.description && (
                                                                         <p className="text-xs text-stone-500 leading-relaxed">{item.description}</p>
                                                                     )}
+                                                                    {isHotel && (
+                                                                        <div className="flex flex-wrap items-center gap-1.5 mt-2 pt-2 border-t border-rose-100">
+                                                                            {item.roomTypeId && (
+                                                                                <span className="text-[10px] font-bold text-stone-700 bg-white border border-stone-200 px-2 py-0.5 rounded shadow-2xs">
+                                                                                    🛏️ {masterRoomTypes?.find((r: any) => r.id === item.roomTypeId)?.name || 'Deluxe Room'}
+                                                                                </span>
+                                                                            )}
+                                                                            {(() => {
+                                                                                const sharing = item.roomSharing || tripDetails?.roomSharing || 'Double';
+                                                                                const isTriple = sharing === 'Triple';
+                                                                                return (
+                                                                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded border shadow-2xs ${
+                                                                                        isTriple
+                                                                                            ? 'bg-amber-100 text-amber-900 border-amber-300'
+                                                                                            : 'bg-white text-stone-700 border-stone-200'
+                                                                                    }`}>
+                                                                                        👥 {sharing} Sharing
+                                                                                        {isTriple && ' (+Rollaway Extra Bed)'}
+                                                                                    </span>
+                                                                                );
+                                                                            })()}
+                                                                            {(() => {
+                                                                                const mealCode = item.mealPlanCode || tripDetails?.mealPlanCode || 'CP';
+                                                                                const mealName = masterMealPlans?.find((m: any) => m.id === item.mealPlanId || m.code === mealCode)?.name || (mealCode === 'MAP' ? 'Breakfast & Dinner' : 'Breakfast Included');
+                                                                                return (
+                                                                                    <span className="text-[10px] font-bold text-emerald-900 bg-emerald-100/80 border border-emerald-300 px-2 py-0.5 rounded shadow-2xs">
+                                                                                        🍽️ {mealCode} ({mealName})
+                                                                                    </span>
+                                                                                );
+                                                                            })()}
+                                                                            {item.quantity && item.quantity > 1 && (
+                                                                                <span className="text-[10px] font-bold text-blue-900 bg-blue-100/80 border border-blue-300 px-2 py-0.5 rounded shadow-2xs">
+                                                                                    {item.quantity} Rooms
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                    )}
                                                                 </div>
                                                             </div>
                                                         </div>
@@ -421,6 +471,64 @@ export const InteractiveItinerary: React.FC = () => {
                             </div>
                         )}
                     </section>
+
+                    {/* Accommodation & Stay Details */}
+                    {hasBuilderData && items.some((i: any) => i.type === 'hotel') && (
+                        <section>
+                            <h2 className="text-xl font-black text-stone-900 mb-4 flex items-center gap-2">
+                                <Hotel className="text-rose-500" size={20} /> Accommodation & Room Details
+                            </h2>
+                            <div className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-xs">
+                                <div className="divide-y divide-stone-100">
+                                    {items.filter((i: any) => i.type === 'hotel').sort((a: any, b: any) => a.day - b.day).map((hotel: any) => {
+                                        const sharing = hotel.roomSharing || tripDetails?.roomSharing || 'Double';
+                                        const isTriple = sharing === 'Triple';
+                                        const mealCode = hotel.mealPlanCode || tripDetails?.mealPlanCode || 'CP';
+                                        const mealName = masterMealPlans?.find((m: any) => m.id === hotel.mealPlanId || m.code === mealCode)?.name || (mealCode === 'MAP' ? 'Breakfast & Dinner' : 'Breakfast Included');
+                                        const roomType = masterRoomTypes?.find((r: any) => r.id === hotel.roomTypeId)?.name || 'Deluxe Room';
+
+                                        return (
+                                            <div key={hotel.id} className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-stone-50/60 transition-colors">
+                                                <div className="flex items-start gap-3">
+                                                    <div className="size-9 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">
+                                                        D{hotel.day}
+                                                    </div>
+                                                    <div>
+                                                        <h4 className="font-bold text-stone-900 text-sm">{hotel.title}</h4>
+                                                        <p className="text-xs text-stone-500 mt-0.5">{roomType} • Day {hotel.day} Check-in</p>
+                                                    </div>
+                                                </div>
+                                                <div className="flex flex-wrap items-center gap-2 sm:self-center pl-12 sm:pl-0">
+                                                    <span className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border ${
+                                                        isTriple
+                                                            ? 'bg-amber-50 text-amber-900 border-amber-300'
+                                                            : 'bg-stone-50 text-stone-700 border-stone-200'
+                                                    }`}>
+                                                        👥 {sharing} Sharing
+                                                        {isTriple && <span className="ml-1 text-[9px] bg-amber-200 text-amber-950 px-1 py-0.5 rounded font-extrabold">+ Extra Bed</span>}
+                                                    </span>
+                                                    <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-900 border border-emerald-200">
+                                                        🍽️ {mealCode} ({mealName})
+                                                    </span>
+                                                    {hotel.quantity && hotel.quantity > 1 && (
+                                                        <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-blue-50 text-blue-900 border border-blue-200">
+                                                            {hotel.quantity} Rooms
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                                {(tripDetails?.roomSharing === 'Triple' || items.some((i: any) => i.type === 'hotel' && i.roomSharing === 'Triple')) && (
+                                    <div className="bg-amber-50/90 border-t border-amber-200 px-4 py-3 text-xs text-amber-900 flex items-start gap-2">
+                                        <span className="font-bold text-amber-700 shrink-0">💡 Triple Sharing Notice:</span>
+                                        <span className="leading-relaxed">Room is allocated on a triple occupancy basis (accommodating 3 guests) with 1 Double/Twin Bed and 1 Rollaway or Foldable Extra Bed with mattress as per standard hotel policy.</span>
+                                    </div>
+                                )}
+                            </div>
+                        </section>
+                    )}
 
                     {/* Inclusions / Exclusions */}
                     <section>
@@ -482,10 +590,22 @@ export const InteractiveItinerary: React.FC = () => {
                                 { label: 'Duration', value: formatTripDuration({ nights: Math.max(0, pkg.days - 1), days: pkg.days }) },
                                 { label: 'Guests', value: `${guestCount} person${guestCount > 1 ? 's' : ''}` },
                                 { label: 'Destinations', value: `${tripDetails?.destinations?.length || 1} location${(tripDetails?.destinations?.length || 1) > 1 ? 's' : ''}` },
+                                ...(tripDetails?.roomSharing ? [{
+                                    label: 'Room Sharing',
+                                    value: tripDetails.roomSharing === 'Triple' ? 'Triple (3 Pax + Bed)' : `${tripDetails.roomSharing} Sharing`
+                                }] : []),
+                                ...(tripDetails?.mealPlanCode ? [{
+                                    label: 'Meal Plan',
+                                    value: `${tripDetails.mealPlanCode} (${tripDetails.mealPlanCode === 'EP' ? 'Room Only' : tripDetails.mealPlanCode === 'CP' ? 'Breakfast' : tripDetails.mealPlanCode === 'MAP' ? 'Breakfast & Dinner' : tripDetails.mealPlanCode === 'AP' ? 'All Meals' : 'All Inclusive'})`
+                                }] : []),
+                                ...(tripDetails?.roomsCount ? [{
+                                    label: 'Rooms',
+                                    value: `${tripDetails.roomsCount} Room${tripDetails.roomsCount > 1 ? 's' : ''}`
+                                }] : [])
                             ].map(row => (
                                 <div key={row.label} className="flex items-center justify-between text-xs text-stone-500 py-1 border-b border-stone-50">
                                     <span>{row.label}</span>
-                                    <span className="font-bold text-stone-800">{row.value}</span>
+                                    <span className="font-bold text-stone-800 text-right">{row.value}</span>
                                 </div>
                             ))}
                         </div>

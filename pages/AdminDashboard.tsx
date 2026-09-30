@@ -21,11 +21,20 @@ export const AdminDashboard: React.FC = () => {
     const [isProcessingDel, setIsProcessingDel] = useState<string | null>(null);
     const [isAlertsExpanded, setIsAlertsExpanded] = useState(false);
     const [unlinkedTransactions, setUnlinkedTransactions] = useState<any[]>(() => api.getUnlinkedTransactions());
+    const [incentiveSummary, setIncentiveSummary] = useState<any>(null);
     const today = new Date().toISOString().split('T')[0];
 
     useEffect(() => {
         setUnlinkedTransactions(api.getUnlinkedTransactions());
     }, []);
+
+    useEffect(() => {
+        api.getMyIncentiveSummary().then(res => {
+            if (res && res.data) {
+                setIncentiveSummary(res.data);
+            }
+        }).catch(err => console.warn('[AdminDashboard] Failed to fetch incentive summary:', err));
+    }, [currentUser]);
 
     useEffect(() => {
         if (currentUser?.userType === 'Admin') {
@@ -197,7 +206,7 @@ export const AdminDashboard: React.FC = () => {
             if (b.status === 'Cancelled' || b.status === 'Completed') return false;
             const departureDate = new Date(b.date).getTime();
             const hoursUntilTrip = (departureDate - now) / (1000 * 3600);
-            const hasDriver = !!(b.supplierBookings?.some(sb => sb.serviceType === 'Transport' && sb.driverName) || b.details?.includes('Driver:'));
+            const hasDriver = !!(b.supplierBookings?.some(sb => (sb.serviceType === 'Transport' || sb.serviceType?.includes('Transport')) && sb.driverName) || b.details?.includes('Driver:'));
             return !hasDriver && hoursUntilTrip > -24 && hoursUntilTrip <= 48;
         }).length;
     }, [bookings]);
@@ -831,6 +840,112 @@ export const AdminDashboard: React.FC = () => {
                     </div>
                 </div>
             </div>
+
+            {/* ─── Monthly Target & Advance Next Month Quota Cockpit (25th Deadline Protocol) ─── */}
+            {(() => {
+                const currentTarget = incentiveSummary?.targetsInfo?.currentMonth;
+                const nextTarget = incentiveSummary?.targetsInfo?.nextMonth;
+                const latestSummary = incentiveSummary?.summaries?.[0];
+                const targetAchievementPct = latestSummary?.target_achievement_pct || 0;
+                const eligibleAchieved = parseFloat(String(latestSummary?.eligible_business || 0));
+
+                return (
+                    <div className="bg-white dark:bg-[#1A2633] rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-sm">
+                        <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-5">
+                            
+                            {/* Left: Current Month Quota & Pacing */}
+                            <div className="flex-1 space-y-2.5">
+                                <div className="flex items-center justify-between flex-wrap gap-2">
+                                    <div className="flex items-center gap-2">
+                                        <div className="size-8 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold">
+                                            <span className="material-symbols-outlined text-[18px]">target</span>
+                                        </div>
+                                        <div>
+                                            <h4 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
+                                                My Monthly Sales Target ({currentTarget?.monthYear || new Date().toISOString().slice(0, 7)})
+                                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                                    targetAchievementPct >= 100 
+                                                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' 
+                                                        : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                                                }`}>
+                                                    {targetAchievementPct >= 100 ? 'Target Achieved' : `${targetAchievementPct}% Pacing`}
+                                                </span>
+                                            </h4>
+                                            <p className="text-[11px] text-slate-400">Personal performance quota calibrated for monthly incentive slabs</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="text-right">
+                                        <div className="text-xs font-bold text-slate-900 dark:text-white">
+                                            {formatPriceCompact(eligibleAchieved)} <span className="text-slate-400 font-normal">/ {formatPriceCompact(currentTarget?.targetAmount || 500000)}</span>
+                                        </div>
+                                        <div className="text-[11px] text-slate-400">
+                                            {incentiveSummary?.recentBookings?.length || 0} of {currentTarget?.targetBookings || 5} Bookings Closed
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Progress meter */}
+                                <div className="space-y-1">
+                                    <div className="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                                        <div 
+                                            className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full transition-all duration-500" 
+                                            style={{ width: `${Math.min(100, Math.max(2, targetAchievementPct))}%` }}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Middle Divider */}
+                            <div className="hidden lg:block w-px h-16 bg-slate-200 dark:bg-slate-800 shrink-0"></div>
+
+                            {/* Right: Next Month Target (Advance Notification - 25th Deadline Protocol) */}
+                            <div className="flex-1 lg:max-w-md bg-gradient-to-r from-indigo-50/70 to-purple-50/70 dark:from-indigo-950/30 dark:to-purple-950/20 p-3.5 rounded-2xl border border-indigo-100/80 dark:border-indigo-900/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                <div className="space-y-1">
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="material-symbols-outlined text-[16px] text-indigo-500">calendar_month</span>
+                                        <span className="text-xs font-black text-indigo-950 dark:text-indigo-200">
+                                            Next Month Target ({nextTarget?.monthYear || 'Upcoming'})
+                                        </span>
+                                        {nextTarget?.isSet ? (
+                                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                                                Confirmed
+                                            </span>
+                                        ) : nextTarget?.isBeforeDeadline25th ? (
+                                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                                                Deadline: 25th
+                                            </span>
+                                        ) : (
+                                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300">
+                                                Pending Pub
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                                        Quota: <span className="text-indigo-600 dark:text-indigo-400 font-black">{formatPriceCompact(nextTarget?.targetAmount || 500000)}</span> • {nextTarget?.targetBookings || 5} Bookings
+                                    </div>
+                                    <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                                        {nextTarget?.isSet 
+                                            ? 'Set on/before 25th by Super Admin.' 
+                                            : (nextTarget?.isBeforeDeadline25th 
+                                                ? 'Target setting underway. Finalizes on/before 25th.' 
+                                                : 'Awaiting Super Admin target confirmation.')}
+                                    </p>
+                                </div>
+
+                                <button
+                                    onClick={() => navigate('/admin/my-incentives')}
+                                    className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shrink-0 transition-all shadow-sm active:scale-95 flex items-center justify-center gap-1 cursor-pointer"
+                                >
+                                    <span>Incentives</span>
+                                    <span className="material-symbols-outlined text-[14px]">arrow_forward</span>
+                                </button>
+                            </div>
+
+                        </div>
+                    </div>
+                );
+            })()}
 
             {/* ─── 2. Interactive KPI Bento Cards with Progress Visualizers ─── */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, ReactNode, useMemo, useCallback, useEffect } from 'react';
-import { MasterHotel, MasterActivity, MasterTransport, CurrencyCode, TaxConfig, DEFAULT_TAX_CONFIG } from '../../types';
+import { MasterHotel, MasterActivity, MasterTransport, CurrencyCode, TaxConfig, DEFAULT_TAX_CONFIG, RoomSharingType, MealPlanCode } from '../../types';
 
 // --- Types ---
 
@@ -33,6 +33,7 @@ export interface ItineraryItem {
     masterData?: MasterHotel | MasterActivity | MasterTransport | any;
     roomTypeId?: string;
     mealPlanId?: string;
+    roomSharing?: RoomSharingType;
     order?: number;
 
     // Flight specifics
@@ -78,6 +79,11 @@ export interface TripDetails {
     itineraryStatus?: string;     // Draft | Sent | Confirmed
     validityDays?: number;        // Quote validity in days (0 = no expiry)
     termsAndConditions?: string;  // Per-itinerary T&C text
+    roomSharing?: RoomSharingType; // Tour package default room sharing (e.g. 'Triple')
+    mealPlanId?: string;          // Tour package default meal plan ID
+    mealPlanCode?: MealPlanCode;  // Tour package default meal plan code (e.g. 'MAP', 'CP')
+    roomsCount?: number;          // Calculated or custom room count
+    extraBedNotes?: string;       // Extra mattress/bed arrangement notes
 }
 
 // Currency exchange rates (base: INR)
@@ -195,6 +201,10 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
         itineraryStatus: 'Draft',
         validityDays: 7,
         termsAndConditions: '',
+        roomSharing: 'Double',
+        mealPlanCode: 'CP',
+        roomsCount: 1,
+        extraBedNotes: '',
     });
 
     // Auto-save to localStorage
@@ -505,6 +515,10 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
             itineraryStatus: 'Draft',
             validityDays: 7,
             termsAndConditions: '',
+            roomSharing: 'Double',
+            mealPlanCode: 'CP',
+            roomsCount: 1,
+            extraBedNotes: '',
         });
     }, []);
 

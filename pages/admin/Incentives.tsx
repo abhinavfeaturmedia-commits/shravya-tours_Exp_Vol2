@@ -11,7 +11,7 @@ import {
     Clock, ShieldAlert, FileText, ChevronRight, X, Plus, Filter, 
     Search, Download, RefreshCw, Check, ArrowRight, Eye, AlertCircle, 
     Percent, DollarSign, Wallet, Users, Settings, HelpCircle, Lock, 
-    Unlock, FileSpreadsheet, Building2, Send
+    Unlock, FileSpreadsheet, Building2, Send, Target, Copy, Save, Calendar
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -87,6 +87,52 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
     const [showDisputeModal, setShowDisputeModal] = useState<boolean>(false);
     const [disputeReason, setDisputeReason] = useState<string>('');
     const [disputeLedgerId, setDisputeLedgerId] = useState<string>('');
+
+    // ─── Target & Rule Settings State (Super Admin) ───
+    const nextMonthStr = useMemo(() => {
+        const d = new Date();
+        d.setMonth(d.getMonth() + 1);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    }, []);
+
+    const [targetMonth, setTargetMonth] = useState<string>(() => {
+        const todayDay = new Date().getDate();
+        if (todayDay >= 20) {
+            const d = new Date();
+            d.setMonth(d.getMonth() + 1);
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        }
+        const d = new Date();
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    });
+
+    const [targetsList, setTargetsList] = useState<any[]>([]);
+    const [targetsLoading, setTargetsLoading] = useState<boolean>(false);
+    const [savingTargetStaffId, setSavingTargetStaffId] = useState<number | null>(null);
+    const [savingAllTargets, setSavingAllTargets] = useState<boolean>(false);
+    const [targetsMeta, setTargetsMeta] = useState<any>({
+        totalStaff: 0,
+        targetsSet: 0,
+        targetsPending: 0,
+        deadlineDate: '',
+        isPastDeadline: false
+    });
+
+    // Editable Plan & Rules State
+    const [editingPlanForm, setEditingPlanForm] = useState({
+        maximumBookingPercentage: 7.0,
+        gpProtectionPercentage: 40.0,
+        baseRate: 2.0
+    });
+    const [editingSlabs, setEditingSlabs] = useState<any[]>([
+        { min_pct: 0, max_pct: 69.99, rate_pct: 0.0, label: 'Below 70%' },
+        { min_pct: 70, max_pct: 89.99, rate_pct: 1.0, label: '70% – 89%' },
+        { min_pct: 90, max_pct: 99.99, rate_pct: 1.5, label: '90% – 99%' },
+        { min_pct: 100, max_pct: 119.99, rate_pct: 2.0, label: '100% – 119%' },
+        { min_pct: 120, max_pct: 149.99, rate_pct: 2.5, label: '120% – 149%' },
+        { min_pct: 150, max_pct: 999.99, rate_pct: 3.0, label: '150%+' }
+    ]);
+    const [savingRuleParams, setSavingRuleParams] = useState<boolean>(false);
 
     // Check permissions
     const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'Administrator' || currentUser?.userType === 'Admin';
@@ -309,6 +355,141 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
         }
     };
 
+    // ─── Target Matrix Handlers (Super Admin) ───
+    const fetchTargets = useCallback(async (month: string) => {
+        setTargetsLoading(true);
+        try {
+            const res = await api.getStaffMonthlyTargets({ monthYear: month });
+            if (res?.success) {
+                setTargetsList(res.targets || []);
+                setTargetsMeta({
+                    totalStaff: res.totalStaff,
+                    targetsSet: res.targetsSet,
+                    targetsPending: res.targetsPending,
+                    deadlineDate: res.deadlineDate,
+                    isPastDeadline: res.isPastDeadline
+                });
+            }
+        } catch (err: any) {
+            console.error('[Target Fetch Error]:', err);
+        } finally {
+            setTargetsLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (activeTab === 'rules') {
+            fetchTargets(targetMonth);
+        }
+    }, [activeTab, targetMonth, fetchTargets]);
+
+    const handleTargetRowChange = (staffId: number, field: string, val: any) => {
+        setTargetsList(prev => prev.map(t => {
+            if (t.staffId === staffId) {
+                return { ...t, [field]: val };
+            }
+            return t;
+        }));
+    };
+
+    const handleSaveSingleTarget = async (item: any) => {
+        setSavingTargetStaffId(item.staffId);
+        try {
+            const res = await api.saveStaffMonthlyTargets({
+                monthYear: targetMonth,
+                targets: [{
+                    staffId: item.staffId,
+                    targetAmount: parseFloat(String(item.targetAmount || 0)),
+                    targetBookings: parseInt(String(item.targetBookings || 0)),
+                    notes: item.notes || ''
+                }]
+            });
+            if (res?.success) {
+                toast.success(`Target for ${item.name} saved!`);
+                fetchTargets(targetMonth);
+            } else {
+                toast.error(res?.error || 'Failed to save target');
+            }
+        } catch (err: any) {
+            toast.error(err.message || 'Error saving target');
+        } finally {
+            setSavingTargetStaffId(null);
+        }
+    };
+
+    const handleSaveAllTargets = async () => {
+        setSavingAllTargets(true);
+        try {
+            const payload = targetsList.map(t => ({
+                staffId: t.staffId,
+                targetAmount: parseFloat(String(t.targetAmount || 0)),
+                targetBookings: parseInt(String(t.targetBookings || 0)),
+                notes: t.notes || ''
+            }));
+            const res = await api.saveStaffMonthlyTargets({
+                monthYear: targetMonth,
+                targets: payload
+            });
+            if (res?.success) {
+                toast.success(`All ${payload.length} targets saved for ${targetMonth}!`);
+                fetchTargets(targetMonth);
+            } else {
+                toast.error(res?.error || 'Failed to save targets');
+            }
+        } catch (err: any) {
+            toast.error(err.message || 'Error saving targets');
+        } finally {
+            setSavingAllTargets(false);
+        }
+    };
+
+    const handleRollForwardTargets = async (multiplier: number) => {
+        try {
+            const res = await api.copyStaffMonthlyTargets({
+                sourceMonth: currentMonthStr,
+                targetMonth: targetMonth,
+                multiplier
+            });
+            if (res?.success) {
+                toast.success(res.message || `Targets copied with ${multiplier}x multiplier!`);
+                fetchTargets(targetMonth);
+            } else {
+                toast.error(res?.error || 'Failed to copy targets');
+            }
+        } catch (err: any) {
+            toast.error(err.message || 'Error copying targets');
+        }
+    };
+
+    const handleSavePlanSettings = async () => {
+        if (!plans || plans.length === 0) return;
+        const activePlan = plans.find((p: any) => p.status === 'Active') || plans[0];
+        setSavingRuleParams(true);
+        try {
+            const res = await api.updateIncentivePlan(activePlan.id, {
+                maximumBookingPercentage: editingPlanForm.maximumBookingPercentage,
+                gpProtectionPercentage: editingPlanForm.gpProtectionPercentage
+            });
+            if (res?.success) {
+                const salesRule = (activePlan as any).rules?.find((r: any) => r.department?.toLowerCase() === 'sales') || (activePlan as any).rules?.[0];
+                if (salesRule) {
+                    await api.updateIncentiveRule(salesRule.id, {
+                        percentage: editingPlanForm.baseRate,
+                        slabs: editingSlabs
+                    });
+                }
+                toast.success('Incentive calculation parameters & slabs updated successfully!');
+                fetchData();
+            } else {
+                toast.error(res?.error || 'Failed to update plan');
+            }
+        } catch (err: any) {
+            toast.error(err.message || 'Error updating settings');
+        } finally {
+            setSavingRuleParams(false);
+        }
+    };
+
     // Export CSV
     const exportLedgerToCSV = () => {
         if (ledger.length === 0) {
@@ -341,6 +522,17 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
         a.download = `Incentive_Ledger_${selectedMonth}.csv`;
         a.click();
         URL.revokeObjectURL(url);
+    };
+
+    // Trace Parsing Helper
+    const parseTrace = (trace: any) => {
+        if (!trace) return null;
+        if (typeof trace === 'object') return trace;
+        try {
+            return JSON.parse(trace);
+        } catch (_) {
+            return null;
+        }
     };
 
     // Status Badge Helpers
@@ -929,6 +1121,7 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                                     <th className="py-3 px-4">Booking Ref</th>
                                     <th className="py-3 px-4">Customer & Tour</th>
                                     <th className="py-3 px-4">Employee</th>
+                                    <th className="py-3 px-4">Attribution / Split</th>
                                     <th className="py-3 px-4">Eligible Value</th>
                                     <th className="py-3 px-4">Supplier Cost</th>
                                     <th className="py-3 px-4">Gross Profit</th>
@@ -939,43 +1132,79 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-sm">
-                                {(ledger || []).map((item: IncentiveLedgerItem) => (
-                                    <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
-                                        <td className="py-3 px-4 font-bold text-slate-800 dark:text-slate-200">
-                                            BK-{String(item.booking_number || item.booking_id).slice(-4)}
-                                        </td>
-                                        <td className="py-3 px-4">
-                                            <div className="font-semibold text-slate-900 dark:text-white text-xs">{item.customer_name || 'Customer'}</div>
-                                            <div className="text-[11px] text-slate-400 truncate max-w-xs">{item.tour_title || 'Tour Reservation'}</div>
-                                        </td>
-                                        <td className="py-3 px-4">
-                                            <div className="text-xs font-semibold text-slate-900 dark:text-white">{item.employee_name || 'Staff #' + item.employee_id}</div>
-                                            <div className="text-[10px] text-slate-400">{item.department} · {item.role}</div>
-                                        </td>
-                                        <td className="py-3 px-4 font-medium">₹{parseFloat(String(item.eligible_value || 0)).toLocaleString('en-IN')}</td>
-                                        <td className="py-3 px-4 text-slate-500">₹{parseFloat(String(item.supplier_cost || 0)).toLocaleString('en-IN')}</td>
-                                        <td className="py-3 px-4 font-medium text-blue-600">₹{parseFloat(String(item.gross_profit || 0)).toLocaleString('en-IN')}</td>
-                                        <td className="py-3 px-4 font-semibold text-purple-600">{item.applicable_rate}%</td>
-                                        <td className="py-3 px-4 font-bold text-emerald-600 text-base">₹{parseFloat(String(item.final_incentive || 0)).toLocaleString('en-IN')}</td>
-                                        <td className="py-3 px-4">
-                                            <span className="text-[11px] bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded font-mono text-slate-600 dark:text-slate-300">
-                                                v{item.rule_version || '1.0'}
-                                            </span>
-                                        </td>
-                                        <td className="py-3 px-4 text-right">
-                                            <button
-                                                onClick={() => setSelectedLedgerItemForTrace(item)}
-                                                className="p-1.5 text-slate-500 hover:text-emerald-600 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition"
-                                                title="View Exact Calculation Formula"
-                                            >
-                                                <FileText className="size-4" />
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
+                                {(ledger || []).map((item: IncentiveLedgerItem) => {
+                                    const trace = parseTrace(item.calculation_trace);
+                                    return (
+                                        <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
+                                            <td className="py-3 px-4 font-bold text-slate-800 dark:text-slate-200">
+                                                BK-{String(item.booking_number || item.booking_id).slice(-4)}
+                                            </td>
+                                            <td className="py-3 px-4">
+                                                <div className="font-semibold text-slate-900 dark:text-white text-xs">{item.customer_name || 'Customer'}</div>
+                                                <div className="text-[11px] text-slate-400 truncate max-w-xs">{item.tour_title || 'Tour Reservation'}</div>
+                                            </td>
+                                            <td className="py-3 px-4">
+                                                <div className="text-xs font-semibold text-slate-900 dark:text-white">{item.employee_name || 'Staff #' + item.employee_id}</div>
+                                                <div className="text-[10px] text-slate-400">{item.department} · {item.role}</div>
+                                            </td>
+                                            <td className="py-3 px-4">
+                                                {trace?.isSplit ? (
+                                                    trace.splitTag === 'TRANSFER_30_ORIGINATOR' ? (
+                                                        <div className="space-y-0.5">
+                                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                                                                <Users className="size-3" />
+                                                                30% Originator
+                                                            </span>
+                                                            {trace.partnerName && (
+                                                                <div className="text-[10px] text-slate-400 truncate max-w-[130px]" title={`To closer: ${trace.partnerName}`}>
+                                                                    → {trace.partnerName}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    ) : (
+                                                        <div className="space-y-0.5">
+                                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                                                                <Award className="size-3" />
+                                                                70% Closer
+                                                            </span>
+                                                            {trace.partnerName && (
+                                                                <div className="text-[10px] text-slate-400 truncate max-w-[130px]" title={`From originator: ${trace.partnerName}`}>
+                                                                    ← {trace.partnerName}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    )
+                                                ) : (
+                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                                                        100% Solo
+                                                    </span>
+                                                )}
+                                            </td>
+                                            <td className="py-3 px-4 font-medium">₹{parseFloat(String(item.eligible_value || 0)).toLocaleString('en-IN')}</td>
+                                            <td className="py-3 px-4 text-slate-500">₹{parseFloat(String(item.supplier_cost || 0)).toLocaleString('en-IN')}</td>
+                                            <td className="py-3 px-4 font-medium text-blue-600">₹{parseFloat(String(item.gross_profit || 0)).toLocaleString('en-IN')}</td>
+                                            <td className="py-3 px-4 font-semibold text-purple-600">{item.applicable_rate}%</td>
+                                            <td className="py-3 px-4 font-bold text-emerald-600 text-base">₹{parseFloat(String(item.final_incentive || 0)).toLocaleString('en-IN')}</td>
+                                            <td className="py-3 px-4">
+                                                <span className="text-[11px] bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded font-mono text-slate-600 dark:text-slate-300">
+                                                    v{item.rule_version || '1.0'}
+                                                </span>
+                                            </td>
+                                            <td className="py-3 px-4 text-right">
+                                                <button
+                                                    onClick={() => setSelectedLedgerItemForTrace(item)}
+                                                    className="p-1.5 text-slate-500 hover:text-emerald-600 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                                                    title="View Exact Calculation Formula"
+                                                >
+                                                    <FileText className="size-4" />
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
                                 {ledger.length === 0 && (
                                     <tr>
-                                        <td colSpan={10} className="py-8 text-center text-slate-400">
+                                        <td colSpan={11} className="py-8 text-center text-slate-400">
                                             No ledger transactions recorded for this filter.
                                         </td>
                                     </tr>
@@ -987,115 +1216,448 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
             )}
 
             {/* ═══════════════════════════════════════════════════════════════════════
-                TAB 5: RULES & PLANS (Configurable & Versioned)
+                TAB 5: TARGETS & CALCULATION RULES (Super Admin Editable Matrix)
                ═══════════════════════════════════════════════════════════════════════ */}
             {activeTab === 'rules' && (
                 <div className="space-y-6">
-                    {/* Active Plan Overview */}
+                    {/* ─── Super Admin Monthly Target Setting Matrix ─── */}
+                    <div className="bg-white dark:bg-[#1A2633] p-6 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm space-y-6">
+                        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <div className="p-2 bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 rounded-xl">
+                                        <Target className="size-5" />
+                                    </div>
+                                    <h2 className="text-xl font-bold text-slate-900 dark:text-white">
+                                        Staff Monthly Targets Setting Matrix
+                                    </h2>
+                                    <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-400">
+                                        Super Admin Control
+                                    </span>
+                                </div>
+                                <p className="text-sm text-slate-500 mt-1">
+                                    Set individual monthly booking quotas and revenue targets for each staff member. Next month targets must be finalized on or before the 25th of the current month.
+                                </p>
+                            </div>
+
+                            {/* Month Switcher & Quick Tools */}
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <button
+                                    onClick={() => {
+                                        setTargetMonth(currentMonthStr);
+                                        fetchTargets(currentMonthStr);
+                                    }}
+                                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
+                                        targetMonth === currentMonthStr 
+                                            ? 'bg-emerald-600 text-white shadow-sm' 
+                                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+                                    }`}
+                                >
+                                    Current Month ({currentMonthStr})
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setTargetMonth(nextMonthStr);
+                                        fetchTargets(nextMonthStr);
+                                    }}
+                                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 ${
+                                        targetMonth === nextMonthStr 
+                                            ? 'bg-emerald-600 text-white shadow-sm' 
+                                            : 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 border border-indigo-200 dark:border-indigo-800'
+                                    }`}
+                                >
+                                    <Calendar className="size-3.5" />
+                                    <span>Next Month ({nextMonthStr})</span>
+                                </button>
+
+                                {isAdmin && (
+                                    <button
+                                        onClick={handleSaveAllTargets}
+                                        disabled={savingAllTargets || targetsLoading}
+                                        className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-md transition active:scale-95"
+                                    >
+                                        <Save className="size-3.5" />
+                                        <span>{savingAllTargets ? 'Saving...' : 'Save All Targets'}</span>
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* 25th Deadline Status Banner */}
+                        {(() => {
+                            const todayDay = new Date().getDate();
+                            const isViewingNextMonth = targetMonth === nextMonthStr;
+                            const daysLeft = 25 - todayDay;
+
+                            if (isViewingNextMonth) {
+                                if (todayDay <= 25) {
+                                    return (
+                                        <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 flex items-start sm:items-center justify-between gap-3">
+                                            <div className="flex items-center gap-3">
+                                                <div className="p-2 bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 rounded-xl">
+                                                    <Clock className="size-5" />
+                                                </div>
+                                                <div>
+                                                    <h4 className="text-sm font-bold text-amber-900 dark:text-amber-200">
+                                                        Next Month Target Setting Period: Due on or before 25th ({daysLeft} days remaining)
+                                                    </h4>
+                                                    <p className="text-xs text-amber-700 dark:text-amber-300/80 mt-0.5">
+                                                        Setting next month's targets before the 25th ensures staff members can view their upcoming goals on their dashboards and plan their pipelines in advance.
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <span className="shrink-0 px-2.5 py-1 rounded-full text-xs font-black bg-amber-200 dark:bg-amber-800 text-amber-900 dark:text-white">
+                                                {targetsMeta.targetsSet} / {targetsMeta.totalStaff} Configured
+                                            </span>
+                                        </div>
+                                    );
+                                } else {
+                                    return (
+                                        <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/60 flex items-start sm:items-center justify-between gap-3">
+                                            <div className="flex items-center gap-3">
+                                                <div className="p-2 bg-rose-100 dark:bg-rose-900/60 text-rose-800 dark:text-rose-300 rounded-xl">
+                                                    <AlertTriangle className="size-5" />
+                                                </div>
+                                                <div>
+                                                    <h4 className="text-sm font-bold text-rose-900 dark:text-rose-200">
+                                                        Deadline Alert: Next Month Target Setting was due on the 25th
+                                                    </h4>
+                                                    <p className="text-xs text-rose-700 dark:text-rose-300/80 mt-0.5">
+                                                        {targetsMeta.targetsPending > 0 
+                                                            ? `${targetsMeta.targetsPending} staff members still do not have confirmed targets for ${targetMonth}. Please assign them now.` 
+                                                            : `All staff targets for ${targetMonth} are set and locked.`}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <span className="shrink-0 px-2.5 py-1 rounded-full text-xs font-black bg-rose-200 dark:bg-rose-800 text-rose-900 dark:text-white">
+                                                {targetsMeta.targetsPending > 0 ? `${targetsMeta.targetsPending} Pending` : 'All Set'}
+                                            </span>
+                                        </div>
+                                    );
+                                }
+                            }
+                            return null;
+                        })()}
+
+                        {/* 1-Click Roll Forward / Target Auto-Fill Tools (Super Admin) */}
+                        {isAdmin && (
+                            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                <div className="flex items-center gap-2">
+                                    <Copy className="size-4 text-emerald-600" />
+                                    <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                                        Quick 1-Click Roll Forward:
+                                    </span>
+                                    <span className="text-xs text-slate-500">
+                                        Auto-fill targets from current month into {targetMonth}:
+                                    </span>
+                                </div>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                    <button
+                                        onClick={() => handleRollForwardTargets(1.0)}
+                                        className="px-2.5 py-1 bg-white dark:bg-slate-700 hover:bg-slate-100 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-semibold border border-slate-200 dark:border-slate-600 transition"
+                                        title="Copy exact target values"
+                                    >
+                                        Flat Copy (1.0x)
+                                    </button>
+                                    <button
+                                        onClick={() => handleRollForwardTargets(1.05)}
+                                        className="px-2.5 py-1 bg-white dark:bg-slate-700 hover:bg-slate-100 text-emerald-700 dark:text-emerald-300 rounded-lg text-xs font-semibold border border-emerald-200 dark:border-emerald-800 transition"
+                                        title="Increase by 5%"
+                                    >
+                                        +5% Growth
+                                    </button>
+                                    <button
+                                        onClick={() => handleRollForwardTargets(1.10)}
+                                        className="px-2.5 py-1 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 text-emerald-800 dark:text-emerald-200 rounded-lg text-xs font-bold border border-emerald-300 dark:border-emerald-700 transition"
+                                        title="Seasonal +10% increase"
+                                    >
+                                        +10% Growth (Recommended)
+                                    </button>
+                                    <button
+                                        onClick={() => handleRollForwardTargets(1.20)}
+                                        className="px-2.5 py-1 bg-white dark:bg-slate-700 hover:bg-slate-100 text-purple-700 dark:text-purple-300 rounded-lg text-xs font-semibold border border-purple-200 dark:border-purple-800 transition"
+                                        title="Peak season +20% increase"
+                                    >
+                                        +20% High Peak
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Staff Target Matrix Table */}
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left border-collapse">
+                                <thead>
+                                    <tr className="border-b border-slate-100 dark:border-slate-800 text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                                        <th className="py-3 px-4">Staff Member</th>
+                                        <th className="py-3 px-4">Department & Role</th>
+                                        <th className="py-3 px-4">Monthly Target Revenue (₹)</th>
+                                        <th className="py-3 px-4">Target Bookings</th>
+                                        <th className="py-3 px-4">Notes / Focus</th>
+                                        <th className="py-3 px-4">Status</th>
+                                        <th className="py-3 px-4 text-right">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-sm">
+                                    {targetsLoading ? (
+                                        <tr>
+                                            <td colSpan={7} className="py-8 text-center text-slate-400">
+                                                <RefreshCw className="size-5 animate-spin mx-auto mb-2 text-emerald-600" />
+                                                Loading target matrix...
+                                            </td>
+                                        </tr>
+                                    ) : targetsList.map((t: any) => (
+                                        <tr key={t.staffId} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
+                                            <td className="py-3 px-4">
+                                                <div className="flex items-center gap-2.5">
+                                                    <div className="size-8 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 font-bold flex items-center justify-center text-xs">
+                                                        {t.name ? t.name.slice(0, 2).toUpperCase() : 'ST'}
+                                                    </div>
+                                                    <div>
+                                                        <div className="font-semibold text-slate-900 dark:text-white">{t.name}</div>
+                                                        <div className="text-xs text-slate-400">{t.email}</div>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td className="py-3 px-4">
+                                                <div className="text-xs font-medium text-slate-800 dark:text-slate-200">{t.department || 'Sales'}</div>
+                                                <div className="text-[11px] text-slate-400">{t.role || 'Sales Executive'}</div>
+                                            </td>
+                                            <td className="py-3 px-4">
+                                                {isAdmin ? (
+                                                    <div className="relative max-w-[160px]">
+                                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-bold">₹</span>
+                                                        <input
+                                                            type="number"
+                                                            step="10000"
+                                                            value={t.targetAmount || 0}
+                                                            onChange={(e) => handleTargetRowChange(t.staffId, 'targetAmount', Number(e.target.value))}
+                                                            className="w-full pl-7 pr-3 py-1.5 text-xs font-bold text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-1 focus:ring-emerald-500"
+                                                        />
+                                                    </div>
+                                                ) : (
+                                                    <span className="font-bold text-slate-900 dark:text-white">
+                                                        ₹{parseFloat(String(t.targetAmount || 0)).toLocaleString('en-IN')}
+                                                    </span>
+                                                )}
+                                            </td>
+                                            <td className="py-3 px-4">
+                                                {isAdmin ? (
+                                                    <input
+                                                        type="number"
+                                                        min="1"
+                                                        value={t.targetBookings || 5}
+                                                        onChange={(e) => handleTargetRowChange(t.staffId, 'targetBookings', Number(e.target.value))}
+                                                        className="w-20 px-3 py-1.5 text-xs font-bold text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-1 focus:ring-emerald-500"
+                                                    />
+                                                ) : (
+                                                    <span className="font-semibold text-slate-700 dark:text-slate-300">
+                                                        {t.targetBookings || 5} Bookings
+                                                    </span>
+                                                )}
+                                            </td>
+                                            <td className="py-3 px-4">
+                                                {isAdmin ? (
+                                                    <input
+                                                        type="text"
+                                                        placeholder="Add focus or note..."
+                                                        value={t.notes || ''}
+                                                        onChange={(e) => handleTargetRowChange(t.staffId, 'notes', e.target.value)}
+                                                        className="w-full px-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-1 focus:ring-emerald-500"
+                                                    />
+                                                ) : (
+                                                    <span className="text-xs text-slate-400">{t.notes || '—'}</span>
+                                                )}
+                                            </td>
+                                            <td className="py-3 px-4">
+                                                {t.isSet ? (
+                                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                                                        <CheckCircle2 className="size-3" /> Confirmed
+                                                    </span>
+                                                ) : (
+                                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                                                        Default (Pending)
+                                                    </span>
+                                                )}
+                                            </td>
+                                            <td className="py-3 px-4 text-right">
+                                                {isAdmin && (
+                                                    <button
+                                                        onClick={() => handleSaveSingleTarget(t)}
+                                                        disabled={savingTargetStaffId === t.staffId}
+                                                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-semibold transition"
+                                                    >
+                                                        {savingTargetStaffId === t.staffId ? 'Saving...' : 'Save'}
+                                                    </button>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {targetsList.length === 0 && !targetsLoading && (
+                                        <tr>
+                                            <td colSpan={7} className="py-8 text-center text-slate-400">
+                                                No active staff members found to assign targets.
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    {/* ─── Calculation Settings & Safety Caps (Editable by Super Admin) ─── */}
                     <div className="bg-white dark:bg-[#1A2633] p-6 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm space-y-4">
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                             <div>
                                 <div className="flex items-center gap-2">
-                                    <h2 className="text-lg font-bold text-slate-900 dark:text-white">Active Incentive Plan</h2>
+                                    <h2 className="text-lg font-bold text-slate-900 dark:text-white">Active Incentive Plan & Safety Parameters</h2>
                                     <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-400">
-                                        Version 1.0 (Locked & Reproducible)
+                                        Version 1.0 (Audit-Tracked)
                                     </span>
                                 </div>
-                                <p className="text-sm text-slate-500">Historical plans are never overwritten. Edits produce new versions so past payouts remain reproducible.</p>
+                                <p className="text-sm text-slate-500">Super Admins can calibrate safety caps and base percentages. Edits produce version increments to protect historical payroll runs.</p>
                             </div>
+
+                            {isAdmin && (
+                                <button
+                                    onClick={handleSavePlanSettings}
+                                    disabled={savingRuleParams}
+                                    className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md transition"
+                                >
+                                    <Save className="size-3.5" />
+                                    <span>{savingRuleParams ? 'Updating...' : 'Save Calculation Settings'}</span>
+                                </button>
+                            )}
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
-                            <div className="p-4 rounded-2xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/40">
+                            <div className="p-4 rounded-2xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/40 space-y-2">
                                 <span className="text-xs font-semibold text-emerald-800 dark:text-emerald-400">Default Hard Ceiling</span>
-                                <div className="text-2xl font-bold text-emerald-700 dark:text-emerald-300 mt-1">7.00%</div>
-                                <p className="text-xs text-slate-500 mt-0.5">Maximum % of eligible booking revenue allowed for company pool</p>
+                                {isAdmin ? (
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="number"
+                                            step="0.25"
+                                            value={editingPlanForm.maximumBookingPercentage}
+                                            onChange={(e) => setEditingPlanForm(prev => ({ ...prev, maximumBookingPercentage: parseFloat(e.target.value) || 7 }))}
+                                            className="w-24 px-3 py-1.5 text-xl font-bold bg-white dark:bg-slate-900 border border-emerald-300 rounded-xl text-emerald-700 dark:text-emerald-300"
+                                        />
+                                        <span className="text-sm font-bold text-emerald-600">%</span>
+                                    </div>
+                                ) : (
+                                    <div className="text-2xl font-bold text-emerald-700 dark:text-emerald-300 mt-1">7.00%</div>
+                                )}
+                                <p className="text-xs text-slate-500">Maximum % of eligible booking revenue allowed for company pool</p>
                             </div>
 
-                            <div className="p-4 rounded-2xl bg-blue-50/50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/40">
+                            <div className="p-4 rounded-2xl bg-blue-50/50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/40 space-y-2">
                                 <span className="text-xs font-semibold text-blue-800 dark:text-blue-400">Gross Profit (GP) Protection</span>
-                                <div className="text-2xl font-bold text-blue-700 dark:text-blue-300 mt-1">40.00%</div>
-                                <p className="text-xs text-slate-500 mt-0.5">Configurable safety cap on net gross margins</p>
+                                {isAdmin ? (
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="number"
+                                            step="1.0"
+                                            value={editingPlanForm.gpProtectionPercentage}
+                                            onChange={(e) => setEditingPlanForm(prev => ({ ...prev, gpProtectionPercentage: parseFloat(e.target.value) || 40 }))}
+                                            className="w-24 px-3 py-1.5 text-xl font-bold bg-white dark:bg-slate-900 border border-blue-300 rounded-xl text-blue-700 dark:text-blue-300"
+                                        />
+                                        <span className="text-sm font-bold text-blue-600">%</span>
+                                    </div>
+                                ) : (
+                                    <div className="text-2xl font-bold text-blue-700 dark:text-blue-300 mt-1">40.00%</div>
+                                )}
+                                <p className="text-xs text-slate-500">Configurable safety cap on net gross margins</p>
                             </div>
 
-                            <div className="p-4 rounded-2xl bg-purple-50/50 dark:bg-purple-950/20 border border-purple-100 dark:border-purple-900/40">
-                                <span className="text-xs font-semibold text-purple-800 dark:text-purple-400">Effective Period</span>
-                                <div className="text-lg font-bold text-purple-700 dark:text-purple-300 mt-1">FY 2026-27</div>
-                                <p className="text-xs text-slate-500 mt-0.5">01-Apr-2026 to 31-Mar-2027</p>
+                            <div className="p-4 rounded-2xl bg-purple-50/50 dark:bg-purple-950/20 border border-purple-100 dark:border-purple-900/40 space-y-2">
+                                <span className="text-xs font-semibold text-purple-800 dark:text-purple-400">Base Sales Commission Rate</span>
+                                {isAdmin ? (
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="number"
+                                            step="0.1"
+                                            value={editingPlanForm.baseRate}
+                                            onChange={(e) => setEditingPlanForm(prev => ({ ...prev, baseRate: parseFloat(e.target.value) || 2 }))}
+                                            className="w-24 px-3 py-1.5 text-xl font-bold bg-white dark:bg-slate-900 border border-purple-300 rounded-xl text-purple-700 dark:text-purple-300"
+                                        />
+                                        <span className="text-sm font-bold text-purple-600">%</span>
+                                    </div>
+                                ) : (
+                                    <div className="text-2xl font-bold text-purple-700 dark:text-purple-300 mt-1">2.00%</div>
+                                )}
+                                <p className="text-xs text-slate-500">Standard commission rate before target slab multipliers</p>
                             </div>
                         </div>
                     </div>
 
-                    {/* Department / Role Rules Table */}
-                    <div className="bg-white dark:bg-[#1A2633] p-6 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm space-y-4">
-                        <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                            <Settings className="size-4 text-emerald-600" />
-                            Role-Based Configured Rules
-                        </h3>
+                    {/* ─── Lead Transfer Split Policy & Slabs ─── */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* Multiple Salespersons & Transfer Split Policy Card */}
+                        <div className="bg-white dark:bg-[#1A2633] p-6 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm space-y-4">
+                            <div className="flex items-center gap-2">
+                                <Users className="size-5 text-indigo-600" />
+                                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                                    Multi-Salesperson & Lead Transfer Split Logic
+                                </h3>
+                            </div>
+                            <p className="text-xs text-slate-500">
+                                When a lead or booking involves more than one sales rep after an approved transfer, incentive and target quota are divided transparently:
+                            </p>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {/* Sales Slabs Rule Card */}
-                            <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
-                                <div className="flex items-center justify-between">
-                                    <h4 className="font-bold text-slate-900 dark:text-white text-sm">Sales Executive Target Slabs</h4>
-                                    <span className="text-xs font-mono bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded text-emerald-600">Base: 2.00%</span>
+                            <div className="space-y-3">
+                                <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 flex items-center justify-between">
+                                    <div>
+                                        <div className="font-bold text-xs text-amber-900 dark:text-amber-200">1st Employee (Lead Originator)</div>
+                                        <div className="text-[11px] text-amber-700 dark:text-amber-300 mt-0.5">Captures requirements & initiates transfer</div>
+                                    </div>
+                                    <span className="text-xl font-black text-amber-600">30%</span>
                                 </div>
-                                <div className="space-y-1.5 text-xs">
-                                    <div className="flex justify-between p-2 rounded bg-slate-50 dark:bg-slate-800/60">
-                                        <span>Below 70% of target:</span>
-                                        <span className="font-bold text-rose-500">0.00%</span>
+
+                                <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 flex items-center justify-between">
+                                    <div>
+                                        <div className="font-bold text-xs text-emerald-900 dark:text-emerald-200">2nd Employee (Lead Closer / Primary Handler)</div>
+                                        <div className="text-[11px] text-emerald-700 dark:text-emerald-300 mt-0.5">Builds itinerary, handles follow-up & secures booking</div>
                                     </div>
-                                    <div className="flex justify-between p-2 rounded bg-slate-50 dark:bg-slate-800/60">
-                                        <span>70% – 89% achievement:</span>
-                                        <span className="font-bold text-amber-500">1.00%</span>
-                                    </div>
-                                    <div className="flex justify-between p-2 rounded bg-slate-50 dark:bg-slate-800/60">
-                                        <span>90% – 99% achievement:</span>
-                                        <span className="font-bold text-blue-500">1.50%</span>
-                                    </div>
-                                    <div className="flex justify-between p-2 rounded bg-slate-50 dark:bg-slate-800/60">
-                                        <span>100% – 119% achievement:</span>
-                                        <span className="font-bold text-emerald-600">2.00%</span>
-                                    </div>
-                                    <div className="flex justify-between p-2 rounded bg-slate-50 dark:bg-slate-800/60">
-                                        <span>120% – 149% achievement:</span>
-                                        <span className="font-bold text-emerald-600">2.50%</span>
-                                    </div>
-                                    <div className="flex justify-between p-2 rounded bg-slate-50 dark:bg-slate-800/60">
-                                        <span>150%+ achievement:</span>
-                                        <span className="font-bold text-purple-600">3.00%</span>
-                                    </div>
+                                    <span className="text-xl font-black text-emerald-600">70%</span>
                                 </div>
                             </div>
 
-                            {/* Operations KPI Weights Card */}
-                            <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
-                                <div className="flex items-center justify-between">
-                                    <h4 className="font-bold text-slate-900 dark:text-white text-sm">Operations KPI Weights & Multipliers</h4>
-                                    <span className="text-xs font-mono bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded text-blue-600">Rate: 1.25%</span>
-                                </div>
-                                <div className="space-y-1.5 text-xs">
-                                    <div className="flex justify-between p-2 rounded bg-slate-50 dark:bg-slate-800/60">
-                                        <span>Booking Accuracy:</span>
-                                        <span className="font-bold">30% Weight</span>
+                            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 text-xs text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                <span className="font-bold">Example: </span> For a booking of ₹2,00,000 yielding ₹4,000 commission, the 1st employee receives ₹1,200 (credited ₹60k target volume) and the 2nd employee receives ₹2,800 (credited ₹140k target volume).
+                            </div>
+                        </div>
+
+                        {/* Editable Target Slabs Rule Card */}
+                        <div className="bg-white dark:bg-[#1A2633] p-6 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm space-y-4">
+                            <div className="flex items-center justify-between">
+                                <h4 className="font-bold text-slate-900 dark:text-white text-base">Sales Target Achievement Slabs</h4>
+                                <span className="text-xs font-mono bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded-lg border border-emerald-200 dark:border-emerald-800 font-bold">
+                                    Target-Calibrated
+                                </span>
+                            </div>
+                            <div className="space-y-1.5 text-xs">
+                                {editingSlabs.map((s, idx) => (
+                                    <div key={idx} className="flex items-center justify-between p-2 rounded-xl bg-slate-50 dark:bg-slate-800/60">
+                                        <span className="font-medium text-slate-700 dark:text-slate-300">{s.label}:</span>
+                                        {isAdmin ? (
+                                            <div className="flex items-center gap-1">
+                                                <input
+                                                    type="number"
+                                                    step="0.1"
+                                                    value={s.rate_pct}
+                                                    onChange={(e) => {
+                                                        const val = parseFloat(e.target.value) || 0;
+                                                        setEditingSlabs(prev => prev.map((item, i) => i === idx ? { ...item, rate_pct: val } : item));
+                                                    }}
+                                                    className="w-16 px-2 py-0.5 text-right font-bold text-xs bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg outline-none"
+                                                />
+                                                <span className="font-bold text-slate-500">%</span>
+                                            </div>
+                                        ) : (
+                                            <span className="font-bold text-emerald-600">{s.rate_pct}%</span>
+                                        )}
                                     </div>
-                                    <div className="flex justify-between p-2 rounded bg-slate-50 dark:bg-slate-800/60">
-                                        <span>Cost Control & Negotiation:</span>
-                                        <span className="font-bold">25% Weight</span>
-                                    </div>
-                                    <div className="flex justify-between p-2 rounded bg-slate-50 dark:bg-slate-800/60">
-                                        <span>Documents & Vouchers on Time:</span>
-                                        <span className="font-bold">15% Weight</span>
-                                    </div>
-                                    <div className="flex justify-between p-2 rounded bg-slate-50 dark:bg-slate-800/60">
-                                        <span>Avoidable Complaints:</span>
-                                        <span className="font-bold">15% Weight</span>
-                                    </div>
-                                    <div className="flex justify-between p-2 rounded bg-slate-50 dark:bg-slate-800/60">
-                                        <span>Supplier Coordination & CRM:</span>
-                                        <span className="font-bold">15% Weight</span>
-                                    </div>
-                                </div>
+                                ))}
                             </div>
                         </div>
                     </div>
@@ -1263,6 +1825,126 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                         </button>
                     </div>
 
+                    {/* ─── Target & Quota Pacing Cards (Current Month + Advance Next Month Target) ─── */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* Current Month Target Card */}
+                        <div className="bg-gradient-to-br from-emerald-500/10 via-slate-50 to-white dark:from-emerald-950/20 dark:via-slate-900 dark:to-[#1A2633] p-5 rounded-3xl border border-emerald-100 dark:border-emerald-900/40 shadow-xs space-y-3">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <div className="p-2 bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 rounded-xl">
+                                        <Target className="size-4" />
+                                    </div>
+                                    <div>
+                                        <h3 className="font-bold text-slate-900 dark:text-white text-sm">
+                                            Current Month Target ({mySummary?.targetsInfo?.currentMonth?.monthYear || selectedMonth})
+                                        </h3>
+                                        <p className="text-[11px] text-slate-400">Assigned individual monthly revenue & booking quota</p>
+                                    </div>
+                                </div>
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                    (mySummary?.summaries?.[0]?.target_achievement_pct || 0) >= 100
+                                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-400'
+                                        : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-400'
+                                }`}>
+                                    {(mySummary?.summaries?.[0]?.target_achievement_pct || 0) >= 100 ? 'Target Achieved' : 'In Progress'}
+                                </span>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3 pt-1">
+                                <div className="p-3 bg-white dark:bg-slate-800/80 rounded-2xl border border-slate-100 dark:border-slate-800">
+                                    <span className="text-[10px] text-slate-400 font-semibold uppercase">Revenue Quota</span>
+                                    <div className="text-lg font-bold text-slate-900 dark:text-white">
+                                        ₹{(mySummary?.targetsInfo?.currentMonth?.targetAmount || 500000).toLocaleString('en-IN')}
+                                    </div>
+                                    <div className="text-[10px] text-emerald-600 mt-0.5">
+                                        ₹{parseFloat(String(mySummary?.summaries?.[0]?.eligible_business || 0)).toLocaleString('en-IN')} Achieved
+                                    </div>
+                                </div>
+
+                                <div className="p-3 bg-white dark:bg-slate-800/80 rounded-2xl border border-slate-100 dark:border-slate-800">
+                                    <span className="text-[10px] text-slate-400 font-semibold uppercase">Bookings Quota</span>
+                                    <div className="text-lg font-bold text-slate-900 dark:text-white">
+                                        {mySummary?.targetsInfo?.currentMonth?.targetBookings || 5} Bookings
+                                    </div>
+                                    <div className="text-[10px] text-slate-500 mt-0.5">
+                                        {mySummary?.recentBookings?.length || 0} Bookings Closed
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Pacing Progress Bar */}
+                            <div className="space-y-1">
+                                <div className="flex items-center justify-between text-xs font-semibold">
+                                    <span className="text-slate-500">Pacing & Achievement</span>
+                                    <span className="font-bold text-emerald-600">
+                                        {mySummary?.summaries?.[0]?.target_achievement_pct || 0}%
+                                    </span>
+                                </div>
+                                <div className="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                                    <div 
+                                        className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full transition-all" 
+                                        style={{ width: `${Math.min(100, mySummary?.summaries?.[0]?.target_achievement_pct || 0)}%` }}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Upcoming Month Advance Target Card (25th Deadline Protocol) */}
+                        <div className="bg-gradient-to-br from-indigo-500/10 via-slate-50 to-white dark:from-indigo-950/20 dark:via-slate-900 dark:to-[#1A2633] p-5 rounded-3xl border border-indigo-100 dark:border-indigo-900/40 shadow-xs space-y-3">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <div className="p-2 bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded-xl">
+                                        <Calendar className="size-4" />
+                                    </div>
+                                    <div>
+                                        <h3 className="font-bold text-slate-900 dark:text-white text-sm">
+                                            Upcoming Month Target ({mySummary?.targetsInfo?.nextMonth?.monthYear || nextMonthStr})
+                                        </h3>
+                                        <p className="text-[11px] text-slate-400">Advance target visibility (Deadline: 25th of month)</p>
+                                    </div>
+                                </div>
+                                {mySummary?.targetsInfo?.nextMonth?.isSet ? (
+                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 flex items-center gap-1">
+                                        <Check className="size-3" /> Target Confirmed
+                                    </span>
+                                ) : mySummary?.targetsInfo?.nextMonth?.isBeforeDeadline25th ? (
+                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-400 border border-amber-200 dark:border-amber-800 flex items-center gap-1">
+                                        <Clock className="size-3" /> Finalizing by 25th
+                                    </span>
+                                ) : (
+                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-400 border border-rose-200 dark:border-rose-800">
+                                        Pending Publication
+                                    </span>
+                                )}
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3 pt-1">
+                                <div className="p-3 bg-white dark:bg-slate-800/80 rounded-2xl border border-slate-100 dark:border-slate-800">
+                                    <span className="text-[10px] text-slate-400 font-semibold uppercase">Target Revenue</span>
+                                    <div className="text-lg font-bold text-indigo-600 dark:text-indigo-400">
+                                        ₹{(mySummary?.targetsInfo?.nextMonth?.targetAmount || 500000).toLocaleString('en-IN')}
+                                    </div>
+                                    <div className="text-[10px] text-slate-400 mt-0.5">
+                                        {mySummary?.targetsInfo?.nextMonth?.isSet ? 'Confirmed by Admin' : 'Projected Baseline'}
+                                    </div>
+                                </div>
+
+                                <div className="p-3 bg-white dark:bg-slate-800/80 rounded-2xl border border-slate-100 dark:border-slate-800">
+                                    <span className="text-[10px] text-slate-400 font-semibold uppercase">Booking Goal</span>
+                                    <div className="text-lg font-bold text-indigo-600 dark:text-indigo-400">
+                                        {mySummary?.targetsInfo?.nextMonth?.targetBookings || 5} Bookings
+                                    </div>
+                                    <div className="text-[10px] text-slate-400 mt-0.5">Next Month Goal</div>
+                                </div>
+                            </div>
+
+                            <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 text-xs text-slate-600 dark:text-slate-400 border border-slate-200/80 dark:border-slate-700/60 flex items-center gap-2">
+                                <CheckCircle2 className="size-4 text-indigo-500 shrink-0" />
+                                <span>{mySummary?.targetsInfo?.nextMonth?.statusMessage || 'Advance targets ensure seamless planning before month start.'}</span>
+                            </div>
+                        </div>
+                    </div>
+
                     {/* Summary Cards */}
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         <div className="bg-white dark:bg-[#1A2633] p-4 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm space-y-1">
@@ -1307,6 +1989,7 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                                     <tr className="border-b border-slate-100 dark:border-slate-800 text-xs font-semibold text-slate-400 uppercase tracking-wider">
                                         <th className="py-2.5 px-4">Booking Ref</th>
                                         <th className="py-2.5 px-4">Customer & Tour</th>
+                                        <th className="py-2.5 px-4">Attribution</th>
                                         <th className="py-2.5 px-4">Booking Value</th>
                                         <th className="py-2.5 px-4">Applicable Rate</th>
                                         <th className="py-2.5 px-4">Incentive</th>
@@ -1315,23 +1998,59 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-sm">
-                                    {(mySummary?.recentBookings || []).map((b: any) => (
-                                        <tr key={b.id}>
-                                            <td className="py-2.5 px-4 font-bold">BK-{String(b.booking_number || b.booking_id).slice(-4)}</td>
-                                            <td className="py-2.5 px-4">
-                                                <div className="font-semibold text-xs text-slate-900 dark:text-white">{b.customer_name}</div>
-                                                <div className="text-[11px] text-slate-400 truncate max-w-xs">{b.tour_title}</div>
-                                            </td>
-                                            <td className="py-2.5 px-4 font-medium">₹{parseFloat(b.booking_value || 0).toLocaleString('en-IN')}</td>
-                                            <td className="py-2.5 px-4 font-semibold text-purple-600">{b.applicable_rate}%</td>
-                                            <td className="py-2.5 px-4 font-bold text-emerald-600">₹{parseFloat(b.final_incentive || 0).toLocaleString('en-IN')}</td>
-                                            <td className="py-2.5 px-4 text-xs text-slate-400">{b.booking_date}</td>
-                                            <td className="py-2.5 px-4">{getStatusBadge(b.status)}</td>
-                                        </tr>
-                                    ))}
+                                    {(mySummary?.recentBookings || []).map((b: any) => {
+                                        const bTrace = parseTrace(b.calculation_trace);
+                                        return (
+                                            <tr key={b.id}>
+                                                <td className="py-2.5 px-4 font-bold">BK-{String(b.booking_number || b.booking_id).slice(-4)}</td>
+                                                <td className="py-2.5 px-4">
+                                                    <div className="font-semibold text-xs text-slate-900 dark:text-white">{b.customer_name}</div>
+                                                    <div className="text-[11px] text-slate-400 truncate max-w-xs">{b.tour_title}</div>
+                                                </td>
+                                                <td className="py-2.5 px-4">
+                                                    {bTrace?.isSplit ? (
+                                                        bTrace.splitTag === 'TRANSFER_30_ORIGINATOR' ? (
+                                                            <div className="space-y-0.5">
+                                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                                                                    <Users className="size-3" />
+                                                                    30% Originator
+                                                                </span>
+                                                                {bTrace.partnerName && (
+                                                                    <div className="text-[10px] text-slate-400 truncate max-w-[120px]" title={`Transferred to: ${bTrace.partnerName}`}>
+                                                                        → {bTrace.partnerName}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        ) : (
+                                                            <div className="space-y-0.5">
+                                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                                                                    <Award className="size-3" />
+                                                                    70% Closer
+                                                                </span>
+                                                                {bTrace.partnerName && (
+                                                                    <div className="text-[10px] text-slate-400 truncate max-w-[120px]" title={`Handled from: ${bTrace.partnerName}`}>
+                                                                        ← {bTrace.partnerName}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        )
+                                                    ) : (
+                                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                                                            100% Solo
+                                                        </span>
+                                                    )}
+                                                </td>
+                                                <td className="py-2.5 px-4 font-medium">₹{parseFloat(b.booking_value || 0).toLocaleString('en-IN')}</td>
+                                                <td className="py-2.5 px-4 font-semibold text-purple-600">{b.applicable_rate}%</td>
+                                                <td className="py-2.5 px-4 font-bold text-emerald-600">₹{parseFloat(b.final_incentive || 0).toLocaleString('en-IN')}</td>
+                                                <td className="py-2.5 px-4 text-xs text-slate-400">{b.booking_date}</td>
+                                                <td className="py-2.5 px-4">{getStatusBadge(b.status)}</td>
+                                            </tr>
+                                        );
+                                    })}
                                     {(!mySummary?.recentBookings || mySummary.recentBookings.length === 0) && (
                                         <tr>
-                                            <td colSpan={7} className="py-6 text-center text-slate-400">
+                                            <td colSpan={8} className="py-6 text-center text-slate-400">
                                                 No eligible bookings recorded for your profile in recent runs.
                                             </td>
                                         </tr>
@@ -1527,52 +2246,82 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                ═══════════════════════════════════════════════════════════════════════ */}
             {selectedLedgerItemForTrace && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-                    <div className="bg-white dark:bg-[#1A2633] rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-800 w-full max-w-md p-6 space-y-4">
-                        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-                            <h3 className="font-bold text-slate-900 dark:text-white text-base">Booking Calculation Breakdown</h3>
-                            <button onClick={() => setSelectedLedgerItemForTrace(null)} className="p-1 text-slate-400">
-                                <X className="size-4" />
-                            </button>
-                        </div>
+                    {(() => {
+                        const itemTrace = parseTrace(selectedLedgerItemForTrace.calculation_trace);
+                        return (
+                            <div className="bg-white dark:bg-[#1A2633] rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-800 w-full max-w-md p-6 space-y-4">
+                                <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                                    <h3 className="font-bold text-slate-900 dark:text-white text-base">Booking Calculation Breakdown</h3>
+                                    <button onClick={() => setSelectedLedgerItemForTrace(null)} className="p-1 text-slate-400 hover:text-slate-600">
+                                        <X className="size-4" />
+                                    </button>
+                                </div>
 
-                        <div className="space-y-2 text-xs">
-                            <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
-                                <span className="text-slate-400">Booking Ref:</span>
-                                <span className="font-bold">BK-{String(selectedLedgerItemForTrace.booking_number || selectedLedgerItemForTrace.booking_id).slice(-4)}</span>
-                            </div>
-                            <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
-                                <span className="text-slate-400">Eligible Booking Value:</span>
-                                <span className="font-medium">₹{parseFloat(String(selectedLedgerItemForTrace.eligible_value)).toLocaleString('en-IN')}</span>
-                            </div>
-                            <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
-                                <span className="text-slate-400">Direct Vendor Cost:</span>
-                                <span className="font-medium text-rose-500">₹{parseFloat(String(selectedLedgerItemForTrace.supplier_cost)).toLocaleString('en-IN')}</span>
-                            </div>
-                            <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
-                                <span className="text-slate-400">Gross Profit (GP):</span>
-                                <span className="font-bold text-blue-600">₹{parseFloat(String(selectedLedgerItemForTrace.gross_profit)).toLocaleString('en-IN')}</span>
-                            </div>
-                            <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
-                                <span className="text-slate-400">Applicable Rate:</span>
-                                <span className="font-bold text-purple-600">{selectedLedgerItemForTrace.applicable_rate}%</span>
-                            </div>
-                            <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
-                                <span className="text-slate-400">Plan Version:</span>
-                                <span className="font-mono">v{selectedLedgerItemForTrace.incentive_plan_version}</span>
-                            </div>
-                            <div className="flex justify-between py-2 pt-3 text-sm font-bold text-emerald-600">
-                                <span>Final Incentive:</span>
-                                <span>₹{parseFloat(String(selectedLedgerItemForTrace.final_incentive)).toLocaleString('en-IN')}</span>
-                            </div>
-                        </div>
+                                {itemTrace?.isSplit && (
+                                    <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 space-y-1.5">
+                                        <div className="flex items-center justify-between text-xs font-bold text-amber-900 dark:text-amber-200">
+                                            <span className="flex items-center gap-1.5">
+                                                <Users className="size-3.5 text-amber-600" />
+                                                <span>Multi-Salesperson Lead Split</span>
+                                            </span>
+                                            <span className="px-2 py-0.5 rounded-full bg-amber-200 dark:bg-amber-900 text-[11px] font-black">
+                                                {(itemTrace.splitRatio * 100).toFixed(0)}% Share
+                                            </span>
+                                        </div>
+                                        <div className="text-xs text-amber-800 dark:text-amber-300">
+                                            {itemTrace.splitTag === 'TRANSFER_30_ORIGINATOR'
+                                                ? `1st Employee (Originator): Awarded 30% quota & incentive. Lead transferred to ${itemTrace.partnerName || 'Closer'}.`
+                                                : `2nd Employee (Closer): Awarded 70% quota & incentive. Handled closing from ${itemTrace.partnerName || 'Originator'}.`}
+                                        </div>
+                                    </div>
+                                )}
 
-                        <button
-                            onClick={() => setSelectedLedgerItemForTrace(null)}
-                            className="w-full py-2 bg-emerald-600 text-white rounded-xl text-xs font-semibold"
-                        >
-                            Got It
-                        </button>
-                    </div>
+                                <div className="space-y-2 text-xs">
+                                    <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+                                        <span className="text-slate-400">Booking Ref:</span>
+                                        <span className="font-bold">BK-{String(selectedLedgerItemForTrace.booking_number || selectedLedgerItemForTrace.booking_id).slice(-4)}</span>
+                                    </div>
+                                    <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+                                        <span className="text-slate-400">Eligible Booking Value:</span>
+                                        <span className="font-medium">₹{parseFloat(String(selectedLedgerItemForTrace.eligible_value)).toLocaleString('en-IN')}</span>
+                                    </div>
+                                    <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+                                        <span className="text-slate-400">Direct Vendor Cost:</span>
+                                        <span className="font-medium text-rose-500">₹{parseFloat(String(selectedLedgerItemForTrace.supplier_cost)).toLocaleString('en-IN')}</span>
+                                    </div>
+                                    <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+                                        <span className="text-slate-400">Gross Profit (GP):</span>
+                                        <span className="font-bold text-blue-600">₹{parseFloat(String(selectedLedgerItemForTrace.gross_profit)).toLocaleString('en-IN')}</span>
+                                    </div>
+                                    <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+                                        <span className="text-slate-400">Applicable Rate:</span>
+                                        <span className="font-bold text-purple-600">{selectedLedgerItemForTrace.applicable_rate}%</span>
+                                    </div>
+                                    <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+                                        <span className="text-slate-400">Plan Version:</span>
+                                        <span className="font-mono">v{selectedLedgerItemForTrace.incentive_plan_version}</span>
+                                    </div>
+                                    {itemTrace?.formula && (
+                                        <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 font-mono text-[11px] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                            <div className="text-[10px] text-slate-400 font-sans uppercase font-bold mb-1">Formula Trace</div>
+                                            {itemTrace.formula}
+                                        </div>
+                                    )}
+                                    <div className="flex justify-between py-2 pt-2 text-sm font-bold text-emerald-600 border-t border-slate-100 dark:border-slate-800">
+                                        <span>Final Incentive:</span>
+                                        <span>₹{parseFloat(String(selectedLedgerItemForTrace.final_incentive)).toLocaleString('en-IN')}</span>
+                                    </div>
+                                </div>
+
+                                <button
+                                    onClick={() => setSelectedLedgerItemForTrace(null)}
+                                    className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition"
+                                >
+                                    Got It
+                                </button>
+                            </div>
+                        );
+                    })()}
                 </div>
             )}
 

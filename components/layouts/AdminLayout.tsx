@@ -618,23 +618,23 @@ export const AdminLayout: React.FC = () => {
       )}
 
       <header className={`print:hidden sticky ${isMasquerading ? 'top-8' : 'top-0'} z-[110] bg-white/95 dark:bg-[#0F172A]/95 backdrop-blur-xl border-b border-slate-200/80 dark:border-slate-800/80 shadow-sm transition-all`}>
-        <div className="max-w-[1750px] mx-auto h-16 px-3 sm:px-4 lg:px-6 flex items-center justify-between gap-2 xl:gap-3">
-          <div className="flex items-center gap-2.5 shrink-0 pr-2.5 xl:pr-4 border-r border-slate-200/60 dark:border-slate-800/60">
+        <div className="max-w-[1750px] mx-auto h-14 sm:h-16 px-2.5 sm:px-4 lg:px-6 flex items-center justify-between gap-1.5 sm:gap-2 xl:gap-3">
+          <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0 pr-1.5 sm:pr-2.5 xl:pr-4 border-r border-slate-200/60 dark:border-slate-800/60">
             <button
               onClick={() => setIsMobileDrawerOpen(true)}
-              className="lg:hidden p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
+              className="lg:hidden p-1.5 sm:p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors min-h-[36px] min-w-[36px] flex items-center justify-center"
               title="Open Navigation Menu"
             >
-              <span className="material-symbols-outlined text-2xl">menu</span>
+              <span className="material-symbols-outlined text-[22px] sm:text-2xl">menu</span>
             </button>
 
-            <Link to="/admin" className="flex items-center gap-2 group">
-              <div className="h-8 xl:h-9 w-auto flex items-center justify-center transition-transform group-hover:scale-105">
+            <Link to="/admin" className="flex items-center gap-1.5 sm:gap-2 group">
+              <div className="h-7 sm:h-8 xl:h-9 w-auto flex items-center justify-center transition-transform group-hover:scale-105">
                 <img src="/logo.png" alt="SHRAWELLO Logo" className="h-full object-contain drop-shadow-sm" />
               </div>
               <div className="flex flex-col">
-                <span className="font-black text-sm xl:text-base tracking-tight leading-none text-slate-900 dark:text-white">SHRAWELLO</span>
-                <span className="text-[8px] xl:text-[9px] font-bold text-transparent bg-clip-text bg-gradient-to-r from-indigo-500 to-purple-500 uppercase tracking-[0.18em] mt-0.5">Admin Hub</span>
+                <span className="font-black text-xs sm:text-sm xl:text-base tracking-tight leading-none text-slate-900 dark:text-white">SHRAWELLO</span>
+                <span className="hidden xs:inline-block text-[8px] xl:text-[9px] font-bold text-transparent bg-clip-text bg-gradient-to-r from-indigo-500 to-purple-500 uppercase tracking-[0.18em] mt-0.5">Admin Hub</span>
               </div>
             </Link>
           </div>          {/* Desktop Top Primary Categories Navigation Tabs */}
@@ -839,10 +839,10 @@ export const AdminLayout: React.FC = () => {
             {/* Search Bar Input Trigger */}
             <button
               onClick={() => setIsCommandPaletteOpen(true)}
-              className="flex items-center gap-1.5 h-9 lg:h-10 px-2.5 xl:px-3 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-xs font-medium border border-transparent"
+              className="flex items-center justify-center gap-1.5 h-8 sm:h-9 lg:h-10 px-2 sm:px-2.5 xl:px-3 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-xs font-medium border border-transparent min-w-[34px]"
               title="Search System (Cmd/Ctrl + K)"
             >
-              <span className="material-symbols-outlined text-[18px]">search</span>
+              <span className="material-symbols-outlined text-[17px] sm:text-[18px]">search</span>
               <span className="hidden 2xl:inline text-slate-400">Search...</span>
               <span className="hidden 2xl:inline-flex text-[9px] font-bold text-slate-400 bg-white dark:bg-slate-700 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-600">
                 ⌘K
@@ -876,26 +876,26 @@ export const AdminLayout: React.FC = () => {
               <span>Website</span>
             </Link>
 
-            {/* Inbox & Approvals Hub Quick Button */}
+            {/* Inbox & Approvals Hub Quick Button (Hidden on xs mobile to prevent header blowout) */}
             <Link
               to="/admin/inbox"
-              className="relative size-9 lg:size-10 rounded-full text-slate-500 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:text-emerald-600 dark:hover:text-emerald-400 flex items-center justify-center transition-colors border border-transparent"
+              className="hidden sm:flex relative size-8 sm:size-9 lg:size-10 rounded-full text-slate-500 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:text-emerald-600 dark:hover:text-emerald-400 items-center justify-center transition-colors border border-transparent"
               title="Inbox & Approvals Hub"
             >
-              <span className="material-symbols-outlined text-[20px] lg:text-[22px]">all_inbox</span>
+              <span className="material-symbols-outlined text-[18px] sm:text-[20px] lg:text-[22px]">all_inbox</span>
             </Link>
 
             {/* Notification Bell Dropdown */}
             <div className="relative shrink-0">
               <button
                 onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
-                className="relative size-9 lg:size-10 rounded-full text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors border border-transparent"
+                className="relative size-8 sm:size-9 lg:size-10 rounded-full text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors border border-transparent"
                 title="Notifications"
               >
-                <span className="material-symbols-outlined text-[20px] lg:text-[22px]">notifications</span>
+                <span className="material-symbols-outlined text-[18px] sm:text-[20px] lg:text-[22px]">notifications</span>
                 {(followUps.some(f => f.status === 'Pending' && f.reminderEnabled && f.scheduledAt && new Date(f.scheduledAt) <= new Date() && !dismissedIds.has(f.id)) ||
                   inAppNotifications.some(n => !n.isRead)) && (
-                  <span className="absolute top-2 right-2 size-2 bg-red-500 rounded-full border-2 border-white dark:border-[#0F172A] animate-pulse" />
+                  <span className="absolute top-1.5 right-1.5 sm:top-2 sm:right-2 size-2 bg-red-500 rounded-full border-2 border-white dark:border-[#0F172A] animate-pulse" />
                 )}
               </button>
 
@@ -975,7 +975,7 @@ export const AdminLayout: React.FC = () => {
                 className="flex items-center gap-1.5 p-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                 title={`${currentUser.name} (${currentUser.role})`}
               >
-                <div className="size-9 lg:size-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white font-bold flex items-center justify-center text-xs lg:text-sm shadow-md ring-2 ring-indigo-500/20 shrink-0">
+                <div className="size-8 sm:size-9 lg:size-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white font-bold flex items-center justify-center text-xs lg:text-sm shadow-md ring-2 ring-indigo-500/20 shrink-0">
                   {currentUser.initials}
                 </div>
                 <div className="hidden 2xl:flex flex-col text-left leading-tight pr-1">
@@ -1026,11 +1026,11 @@ export const AdminLayout: React.FC = () => {
         </div>
       </header>
       {/* Secondary Horizontal Sub-Navigation Bar */}
-      <div className="print:hidden bg-slate-100/90 dark:bg-[#0B1116] border-b border-slate-200/80 dark:border-slate-800/80 px-4 lg:px-8 py-2 transition-all">
-        <div className="max-w-[1700px] mx-auto flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+      <div className="print:hidden bg-slate-100/90 dark:bg-[#0B1116] border-b border-slate-200/80 dark:border-slate-800/80 px-2 sm:px-4 lg:px-8 py-1.5 sm:py-2 transition-all">
+        <div className="max-w-[1700px] mx-auto flex items-center justify-between gap-2 sm:gap-3 text-xs">
           
-          {/* Breadcrumb Context Path */}
-          <div className="flex items-center gap-2 shrink-0 overflow-x-auto text-slate-500 font-medium py-0.5 scrollbar-none">
+          {/* Breadcrumb Context Path (Hidden on mobile to eliminate vertical screen cannibalization) */}
+          <div className="hidden md:flex items-center gap-2 shrink-0 overflow-x-auto text-slate-500 font-medium py-0.5 scrollbar-none">
             <Link to="/admin" className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors flex items-center gap-1 font-semibold text-slate-600 dark:text-slate-400">
               <span className="material-symbols-outlined text-[16px] text-slate-400">home</span>
               <span>Admin</span>
@@ -1056,7 +1056,7 @@ export const AdminLayout: React.FC = () => {
               <div 
                 data-no-scrollbar="true"
                 style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-                className="flex items-center gap-1 p-1 bg-slate-200/70 dark:bg-slate-800/80 rounded-2xl border border-slate-200/80 dark:border-slate-700/60 overflow-x-auto no-scrollbar scrollbar-none shadow-inner"
+                className="flex items-center gap-1 p-0.5 sm:p-1 bg-slate-200/70 dark:bg-slate-800/80 rounded-xl sm:rounded-2xl border border-slate-200/80 dark:border-slate-700/60 overflow-x-auto no-scrollbar scrollbar-none shadow-inner"
               >
                 {activeCategoryInfo.activeCat.items.map((subItem) => {
                   const isSubActive = subItem.path === '/admin'
@@ -1066,13 +1066,13 @@ export const AdminLayout: React.FC = () => {
                     <Link
                       key={subItem.path}
                       to={subItem.path}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all duration-200 flex items-center gap-1.5 shrink-0 select-none ${
+                      className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg sm:rounded-xl text-[11px] sm:text-xs font-bold transition-all duration-200 flex items-center gap-1 sm:gap-1.5 shrink-0 select-none ${
                         isSubActive
-                          ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-md ring-1 ring-slate-200 dark:ring-slate-700 transform scale-[1.02]'
+                          ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm ring-1 ring-slate-200 dark:ring-slate-700 transform scale-[1.01]'
                           : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-700/50'
                       }`}
                     >
-                      <span className={`material-symbols-outlined text-[15px] transition-colors ${
+                      <span className={`material-symbols-outlined text-[14px] sm:text-[15px] transition-colors ${
                         isSubActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-500'
                       }`}>
                         {subItem.icon}
@@ -1080,7 +1080,7 @@ export const AdminLayout: React.FC = () => {
                       <span className="whitespace-nowrap">{subItem.name}</span>
                       
                       {isSubActive && (
-                        <span className="size-1.5 rounded-full bg-indigo-500 animate-pulse ml-0.5" />
+                        <span className="size-1 sm:size-1.5 rounded-full bg-indigo-500 animate-pulse ml-0.5" />
                       )}
                     </Link>
                   );
@@ -1230,7 +1230,7 @@ export const AdminLayout: React.FC = () => {
         );
       })()}
 
-      <main className="flex-1 max-w-[1700px] w-full mx-auto px-4 lg:px-8 py-6 print:p-0 scroll-smooth overflow-x-hidden min-w-0">
+      <main className="flex-1 max-w-[1700px] w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 pb-24 lg:pb-8 print:p-0 scroll-smooth overflow-x-hidden min-w-0">
         <ErrorBoundary fallbackTitle="Page failed to load">
           <Outlet />
         </ErrorBoundary>
@@ -1450,6 +1450,95 @@ export const AdminLayout: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Mobile Bottom Navigation Bar (Sticky Thumb-Zone) */}
+      <nav 
+        aria-label="Mobile Bottom Navigation Bar"
+        className="print:hidden fixed bottom-0 left-0 right-0 z-[100] lg:hidden bg-white/95 dark:bg-[#0F172A]/95 backdrop-blur-xl border-t border-slate-200/90 dark:border-slate-800/90 shadow-[0_-4px_25px_rgba(0,0,0,0.08)] px-2 py-1 flex items-center justify-around"
+        style={{ paddingBottom: 'max(0.25rem, env(safe-area-inset-bottom))' }}
+      >
+        {/* 1. Dashboard */}
+        <Link
+          to="/admin"
+          className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all select-none min-w-[56px] min-h-[44px] ${
+            location.pathname === '/admin'
+              ? 'text-indigo-600 dark:text-indigo-400 font-bold'
+              : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+          }`}
+        >
+          <span className={`material-symbols-outlined text-[22px] transition-transform ${
+            location.pathname === '/admin' ? 'scale-110' : ''
+          }`}>
+            dashboard
+          </span>
+          <span className="text-[10px] tracking-tight mt-0.5 font-medium">Home</span>
+        </Link>
+
+        {/* 2. Leads */}
+        <Link
+          to="/admin/leads"
+          className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all select-none min-w-[56px] min-h-[44px] relative ${
+            location.pathname.startsWith('/admin/leads')
+              ? 'text-indigo-600 dark:text-indigo-400 font-bold'
+              : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+          }`}
+        >
+          <span className={`material-symbols-outlined text-[22px] transition-transform ${
+            location.pathname.startsWith('/admin/leads') ? 'scale-110' : ''
+          }`}>
+            groups
+          </span>
+          <span className="text-[10px] tracking-tight mt-0.5 font-medium">Leads</span>
+          {leads.filter(l => l.status === 'New').length > 0 && (
+            <span className="absolute top-1 right-2.5 size-2 bg-indigo-500 rounded-full" />
+          )}
+        </Link>
+
+        {/* 3. Bookings */}
+        <Link
+          to="/admin/bookings"
+          className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all select-none min-w-[56px] min-h-[44px] ${
+            location.pathname.startsWith('/admin/bookings')
+              ? 'text-indigo-600 dark:text-indigo-400 font-bold'
+              : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+          }`}
+        >
+          <span className={`material-symbols-outlined text-[22px] transition-transform ${
+            location.pathname.startsWith('/admin/bookings') ? 'scale-110' : ''
+          }`}>
+            airplane_ticket
+          </span>
+          <span className="text-[10px] tracking-tight mt-0.5 font-medium">Bookings</span>
+        </Link>
+
+        {/* 4. Attendance */}
+        <Link
+          to="/admin/attendance"
+          className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all select-none min-w-[56px] min-h-[44px] ${
+            location.pathname.startsWith('/admin/attendance')
+              ? 'text-indigo-600 dark:text-indigo-400 font-bold'
+              : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+          }`}
+        >
+          <span className={`material-symbols-outlined text-[22px] transition-transform ${
+            location.pathname.startsWith('/admin/attendance') ? 'scale-110' : ''
+          }`}>
+            fingerprint
+          </span>
+          <span className="text-[10px] tracking-tight mt-0.5 font-medium">Roster</span>
+        </Link>
+
+        {/* 5. Menu Drawer Trigger */}
+        <button
+          onClick={() => setIsMobileDrawerOpen(true)}
+          className="flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all select-none min-w-[56px] min-h-[44px] text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer"
+        >
+          <span className="material-symbols-outlined text-[22px]">
+            menu_open
+          </span>
+          <span className="text-[10px] tracking-tight mt-0.5 font-medium">Menu</span>
+        </button>
+      </nav>
     </div>
   );
 };

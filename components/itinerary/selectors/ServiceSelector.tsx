@@ -19,7 +19,8 @@ export const ServiceSelector: React.FC<ServiceSelectorProps> = ({ day, onClose, 
     const { addItem, tripDetails, items } = useItinerary();
     const {
         masterHotels, masterActivities, masterTransports, masterLocations,
-        addMasterHotel, addMasterActivity, addMasterTransport
+        addMasterHotel, addMasterActivity, addMasterTransport,
+        masterMealPlans, masterRoomTypes
     } = useData();
 
     const [activeTab, setActiveTab] = useState<ServiceType>(initialTab);
@@ -187,19 +188,31 @@ export const ServiceSelector: React.FC<ServiceSelectorProps> = ({ day, onClose, 
         setLastAddedTitle(item.title);
     };
 
-    const createHotelItem = (hotel: MasterHotel): Omit<ItineraryItem, 'sellPrice'> => ({
-        id: `hotel-${Date.now()}`,
-        type: 'hotel',
-        day,
-        title: hotel.name,
-        description: `${hotel.rating}★ Hotel · ${getLocName(hotel.locationId)}`,
-        netCost: hotel.pricePerNight,
-        baseMarkupPercent: 15,
-        extraMarkupFlat: 0,
-        quantity: 1,
-        masterId: hotel.id,
-        time: '14:00'
-    });
+    const createHotelItem = (hotel: MasterHotel): Omit<ItineraryItem, 'sellPrice'> => {
+        const sharing = tripDetails.roomSharing || 'Double';
+        const mealCode = tripDetails.mealPlanCode || 'CP';
+        const matchedMeal = masterMealPlans?.find(m => m.code === mealCode);
+        const mealId = tripDetails.mealPlanId || matchedMeal?.id || mealCode;
+        const defaultRoomType = masterRoomTypes?.find(r => r.name.toLowerCase().includes('deluxe'))?.id || masterRoomTypes?.[0]?.id || '';
+        const qty = tripDetails.roomsCount || 1;
+
+        return {
+            id: `hotel-${Date.now()}`,
+            type: 'hotel',
+            day,
+            title: hotel.name,
+            description: `${hotel.rating}★ Hotel · ${getLocName(hotel.locationId)} · ${sharing} Sharing`,
+            netCost: hotel.pricePerNight,
+            baseMarkupPercent: 15,
+            extraMarkupFlat: 0,
+            quantity: qty,
+            masterId: hotel.id,
+            roomTypeId: defaultRoomType,
+            mealPlanId: mealId,
+            roomSharing: sharing,
+            time: '14:00'
+        };
+    };
 
     const createActivityItem = (activity: MasterActivity): Omit<ItineraryItem, 'sellPrice'> => ({
         id: `act-${Date.now()}`,
@@ -655,9 +668,19 @@ export const ServiceSelector: React.FC<ServiceSelectorProps> = ({ day, onClose, 
                                                     )}
                                                 </div>
                                                 
-                                                {/* Amenities Chips inline */}
+                                                {/* Inclusions & Sharing Badges */}
                                                 <div className="flex items-center gap-1 mt-1 overflow-hidden max-h-5 flex-wrap">
-                                                    {(hotel.amenities || ['Breakfast Included']).slice(0, 3).map((a, i) => (
+                                                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border truncate ${
+                                                        tripDetails.roomSharing === 'Triple'
+                                                            ? 'text-amber-800 bg-amber-100 border-amber-300 font-black'
+                                                            : 'text-stone-700 bg-stone-100 dark:bg-slate-800 border-stone-200 dark:border-slate-700'
+                                                    }`}>
+                                                        {tripDetails.roomSharing === 'Triple' ? '👥+1 Triple Sharing' : `${tripDetails.roomSharing || 'Double'} Sharing`}
+                                                    </span>
+                                                    <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800 truncate">
+                                                        🍽️ {tripDetails.mealPlanCode || 'CP'} Plan
+                                                    </span>
+                                                    {(hotel.amenities || ['Wifi', 'AC']).slice(0, 2).map((a, i) => (
                                                         <span key={i} className="text-[9px] font-bold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-200/60 dark:border-slate-700/60 truncate">
                                                             {a}
                                                         </span>

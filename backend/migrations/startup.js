@@ -656,7 +656,23 @@ export async function runStartupMigrations(pool) {
                     INDEX idx_override_booking (booking_id)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             `);
-            console.log('[Migration] Incentive management system schema verified');
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS staff_monthly_targets (
+                    id VARCHAR(64) PRIMARY KEY,
+                    staff_id INT NOT NULL,
+                    month_year VARCHAR(20) NOT NULL,
+                    target_amount DECIMAL(12,2) NOT NULL DEFAULT 500000.00,
+                    target_bookings INT NOT NULL DEFAULT 5,
+                    notes VARCHAR(255) DEFAULT NULL,
+                    created_by VARCHAR(255) DEFAULT 'Super Admin',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    UNIQUE KEY uk_staff_month (staff_id, month_year),
+                    INDEX idx_target_month (month_year),
+                    INDEX idx_target_staff (staff_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            `);
+            console.log('[Migration] Incentive management system & staff targets schema verified');
         } catch (errIncentives) {
             console.warn('[Migration Incentive Schema Notice]', errIncentives.message);
         }

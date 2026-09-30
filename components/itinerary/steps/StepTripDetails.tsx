@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useItinerary } from '../ItineraryContext';
 import { useData } from '../../../context/DataContext';
-import { MapPin, Calendar, Users, Globe, Plus, X, ArrowRight, Check, Image, Upload, Sparkles, ChevronDown, Search, Loader2, Compass, CheckCircle2, Sun, Moon } from 'lucide-react';
-import { MasterLocation, MasterLocationType } from '../../../types';
+import { MapPin, Calendar, Users, Globe, Plus, X, ArrowRight, Check, Image, Upload, Sparkles, ChevronDown, Search, Loader2, Compass, CheckCircle2, Sun, Moon, BedDouble, Utensils, Hotel, Coffee } from 'lucide-react';
+import { MasterLocation, MasterLocationType, RoomSharingType, ROOM_SHARING_OPTIONS, MealPlanCode, MEAL_PLAN_DESCRIPTIONS } from '../../../types';
 import { ImageUpload } from '../../ui/ImageUpload';
 import { api } from '../../../src/lib/api';
 import { generateInclusionsExclusions } from '../../../src/lib/gemini';
@@ -14,7 +14,7 @@ interface Props {
 
 export const StepTripDetails: React.FC<Props> = ({ onDone }) => {
     const { tripDetails, updateTripDetails, items } = useItinerary();
-    const { masterLocations, addMasterLocation } = useData();
+    const { masterLocations, addMasterLocation, masterMealPlans } = useData();
     const [isGeneratingIncExc, setIsGeneratingIncExc] = useState(false);
     const [showQuickAddModal, setShowQuickAddModal] = useState(false);
 
@@ -58,13 +58,38 @@ export const StepTripDetails: React.FC<Props> = ({ onDone }) => {
         try {
             const res = await generateInclusionsExclusions(destName, tripDetails.days, items);
             if (res) {
-                if (res.included && Array.isArray(res.included)) {
-                    updateTripDetails({ included: res.included });
+                let inc = res.included && Array.isArray(res.included) ? [...res.included] : [];
+                let exc = res.notIncluded && Array.isArray(res.notIncluded) ? [...res.notIncluded] : [];
+
+                // Align meal plan specification
+                inc = inc.filter(item => !item.toLowerCase().includes('breakfast') && !item.toLowerCase().includes('meal'));
+                const mpCode = tripDetails.mealPlanCode || 'CP';
+                if (mpCode === 'MAP') {
+                    inc.unshift('Daily Breakfast & Dinner at all hotel stays (MAP Plan)');
+                } else if (mpCode === 'CP') {
+                    inc.unshift('Daily Buffet / Continental Breakfast at all hotel stays (CP Plan)');
+                } else if (mpCode === 'AP') {
+                    inc.unshift('All Daily Meals Included: Breakfast, Lunch & Dinner (AP Plan)');
+                } else if (mpCode === 'AI') {
+                    inc.unshift('All-Inclusive Dining: Breakfast, Lunch, Dinner, Snacks & Drinks (AI Plan)');
+                } else if (mpCode === 'EP') {
+                    exc.unshift('Daily meals and restaurant charges (Room-Only EP Plan)');
                 }
-                if (res.notIncluded && Array.isArray(res.notIncluded)) {
-                    updateTripDetails({ notIncluded: res.notIncluded });
+
+                // Align room sharing specification
+                if (tripDetails.roomSharing === 'Triple') {
+                    const extraNote = tripDetails.extraBedNotes || 'Triple sharing with 1 extra bed / rollaway mattress included';
+                    if (!inc.some(i => i.toLowerCase().includes('triple'))) {
+                        inc.unshift(`Accommodation on Triple Sharing basis (${extraNote})`);
+                    }
+                } else if (tripDetails.roomSharing === 'Quad') {
+                    if (!inc.some(i => i.toLowerCase().includes('quad'))) {
+                        inc.unshift('Accommodation on Quad Sharing basis (Family room / 4 guests setup)');
+                    }
                 }
-                toast.success('Inclusions & Exclusions generated successfully!', { id: toastId });
+
+                updateTripDetails({ included: inc, notIncluded: exc });
+                toast.success('Inclusions & Exclusions tailored to your room & meal plan!', { id: toastId });
             }
         } catch (err: any) {
             toast.error(err.message || 'Failed to generate terms', { id: toastId });
@@ -434,13 +459,236 @@ export const StepTripDetails: React.FC<Props> = ({ onDone }) => {
                                 <GuestSelector
                                     adults={tripDetails.adults || 2}
                                     childrenCount={tripDetails.children || 0}
-                                    onChange={(a, c) => updateTripDetails({ adults: a, children: c })}
+                                    onChange={(a, c) => {
+                                        const totalPax = a + c;
+                                        // Auto-adjust room recommendation
+                                        const currentSharing = tripDetails.roomSharing || 'Double';
+                                        const cap = currentSharing === 'Triple' ? 3 : currentSharing === 'Single' ? 1 : currentSharing === 'Quad' ? 4 : 2;
+                                        const recRooms = Math.max(1, Math.ceil(a / cap));
+                                        updateTripDetails({ adults: a, children: c, roomsCount: recRooms });
+                                    }}
                                 />
                             </div>
                         </div>
                     </div>
 
-                    {/* CARD 3: Visual Presentation & Media */}
+                    {/* CARD 3: Accommodation & Meal Plan Configuration */}
+                    <div className="bg-white rounded-2xl p-5 sm:p-6 border border-stone-200 shadow-xs space-y-5">
+                        <div className="flex items-center justify-between border-b border-stone-100 pb-3.5">
+                            <div className="flex items-center gap-2.5">
+                                <div className="size-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center border border-amber-200/60">
+                                    <BedDouble size={17} />
+                                </div>
+                                <div>
+                                    <h3 className="text-sm font-black text-stone-900">Accommodation &amp; Meal Plan Preferences</h3>
+                                    <p className="text-[11px] text-stone-400">Configure room occupancy (e.g., Triple Sharing) and package meal inclusions.</p>
+                                </div>
+                            </div>
+                            {tripDetails.roomSharing === 'Triple' && (
+                                <span className="px-2.5 py-1 bg-amber-100 text-amber-800 text-[10px] font-black rounded-lg uppercase tracking-wider flex items-center gap-1 border border-amber-200">
+                                    👥+1 Triple Sharing Active
+                                </span>
+                            )}
+                        </div>
+
+                        {/* Room Sharing / Occupancy Selection */}
+                        <div className="space-y-2.5">
+                            <div className="flex items-center justify-between">
+                                <label className="text-[10px] font-black uppercase tracking-wider text-stone-500 flex items-center gap-1.5">
+                                    <Users size={12} className="text-amber-500" /> Room Sharing / Occupancy Type *
+                                </label>
+                                <span className="text-[10px] font-semibold text-stone-400">
+                                    Party size: {(tripDetails.adults || 0) + (tripDetails.children || 0)} Guests
+                                </span>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                                {ROOM_SHARING_OPTIONS.map(opt => {
+                                    const isSelected = (tripDetails.roomSharing || 'Double') === opt.id;
+                                    const isTriple = opt.id === 'Triple';
+                                    const totalGuests = (tripDetails.adults || 0) + (tripDetails.children || 0);
+                                    const isRecommendedFor3 = isTriple && (totalGuests === 3 || (totalGuests > 0 && totalGuests % 3 === 0));
+
+                                    return (
+                                        <button
+                                            key={opt.id}
+                                            type="button"
+                                            onClick={() => {
+                                                const guests = (tripDetails.adults || 2);
+                                                const recRooms = Math.max(1, Math.ceil(guests / opt.capacity));
+                                                updateTripDetails({ 
+                                                    roomSharing: opt.id,
+                                                    roomsCount: recRooms,
+                                                    extraBedNotes: isTriple ? '1 Rollaway Bed / Extra Mattress with clean linen for 3rd guest' : ''
+                                                });
+                                            }}
+                                            className={`relative text-left p-3 rounded-xl border transition-all flex flex-col justify-between ${
+                                                isSelected
+                                                    ? 'bg-amber-50/70 border-amber-400 ring-2 ring-amber-400/20 shadow-xs'
+                                                    : 'bg-stone-50/60 border-stone-200 hover:border-amber-300 hover:bg-white'
+                                            }`}
+                                        >
+                                            {isRecommendedFor3 && (
+                                                <span className="absolute -top-2 right-2 px-1.5 py-0.5 bg-amber-500 text-white text-[8px] font-black rounded uppercase tracking-wider shadow-2xs">
+                                                    Recommended
+                                                </span>
+                                            )}
+                                            <div>
+                                                <div className="flex items-center justify-between mb-1">
+                                                    <span className={`text-xs font-black ${isSelected ? 'text-amber-950' : 'text-stone-800'}`}>
+                                                        {opt.shortLabel}
+                                                    </span>
+                                                    <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${
+                                                        isSelected ? 'bg-amber-200 text-amber-900' : 'bg-stone-200/70 text-stone-600'
+                                                    }`}>
+                                                        {opt.capacity} Pax
+                                                    </span>
+                                                </div>
+                                                <p className="text-[10px] text-stone-500 leading-tight">
+                                                    {opt.description}
+                                                </p>
+                                            </div>
+                                            <div className="mt-2 pt-1.5 border-t border-stone-200/60 flex items-center justify-between text-[9px] font-bold text-stone-400">
+                                                <span className="truncate pr-1">{opt.bedSetup}</span>
+                                                {isSelected && <Check size={12} className="text-amber-600 stroke-[3] shrink-0" />}
+                                            </div>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+
+                            {/* Calculated Room Requirement Note */}
+                            <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 bg-stone-50 rounded-xl border border-stone-200/80 text-xs">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-bold text-stone-700">Calculated Accommodation:</span>
+                                    <span className="px-2 py-0.5 rounded-md bg-stone-900 text-white font-black text-[11px]">
+                                        {tripDetails.roomsCount || Math.max(1, Math.ceil((tripDetails.adults || 2) / (tripDetails.roomSharing === 'Triple' ? 3 : tripDetails.roomSharing === 'Single' ? 1 : tripDetails.roomSharing === 'Quad' ? 4 : 2)))} {tripDetails.roomSharing || 'Double'} Room{(tripDetails.roomsCount || 1) > 1 ? 's' : ''}
+                                    </span>
+                                    {tripDetails.roomSharing === 'Triple' && (
+                                        <span className="text-[11px] font-bold text-amber-700 flex items-center gap-1">
+                                            <span>✓</span> Triple Sharing with extra mattress/bed
+                                        </span>
+                                    )}
+                                </div>
+
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                    <span className="text-[10px] font-black uppercase text-stone-400">Total Rooms:</span>
+                                    <button
+                                        type="button"
+                                        onClick={() => updateTripDetails({ roomsCount: Math.max(1, (tripDetails.roomsCount || 1) - 1) })}
+                                        className="size-6 bg-white border border-stone-200 rounded flex items-center justify-center font-bold text-xs hover:bg-stone-100 transition-colors shadow-2xs"
+                                        title="Decrease rooms"
+                                    >
+                                        -
+                                    </button>
+                                    <span className="w-5 text-center font-black text-stone-800 text-xs">
+                                        {tripDetails.roomsCount || 1}
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={() => updateTripDetails({ roomsCount: (tripDetails.roomsCount || 1) + 1 })}
+                                        className="size-6 bg-white border border-stone-200 rounded flex items-center justify-center font-bold text-xs hover:bg-stone-100 transition-colors shadow-2xs"
+                                        title="Increase rooms"
+                                    >
+                                        +
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Extra Bed notes if Triple Sharing is selected */}
+                            {tripDetails.roomSharing === 'Triple' && (
+                                <div className="space-y-1.5 p-3 rounded-xl bg-amber-50/60 border border-amber-200/70">
+                                    <label className="text-[10px] font-black uppercase tracking-wider text-amber-900 flex items-center gap-1">
+                                        <span>🛏️ Triple Sharing Bedding Specification for Records &amp; Invoices</span>
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={tripDetails.extraBedNotes ?? '1 Extra Bed / Rollaway Mattress with clean linen included for 3rd guest'}
+                                        onChange={e => updateTripDetails({ extraBedNotes: e.target.value })}
+                                        placeholder="e.g. 1 Rollaway bed with linen or 3 single beds"
+                                        className="w-full bg-white border border-amber-200 rounded-lg px-3 py-1.5 text-xs font-bold text-amber-950 focus:ring-2 focus:ring-amber-400 outline-none"
+                                    />
+                                    <p className="text-[10px] text-amber-700 font-medium">
+                                        This specification will be recorded in customer vouchers, review summaries, and PDFs to avoid on-arrival room disputes.
+                                    </p>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Package Meal Plan Selection */}
+                        <div className="space-y-2 pt-2 border-t border-stone-100">
+                            <div className="flex items-center justify-between">
+                                <label className="text-[10px] font-black uppercase tracking-wider text-stone-500 flex items-center gap-1.5">
+                                    <Utensils size={12} className="text-amber-500" /> Package Meal Plan *
+                                </label>
+                                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">
+                                    Food Clarity
+                                </span>
+                            </div>
+
+                            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+                                {[
+                                    { code: 'CP', name: 'Continental Plan', sub: 'Breakfast Included', tag: 'Standard' },
+                                    { code: 'MAP', name: 'Modified American', sub: 'Breakfast & Dinner', tag: 'Most Popular' },
+                                    { code: 'AP', name: 'American Plan', sub: 'All 3 Meals Included', tag: 'Full Board' },
+                                    { code: 'EP', name: 'European Plan', sub: 'Room Only (No Food)', tag: 'Budget' },
+                                    { code: 'AI', name: 'All Inclusive', sub: 'All Meals & Drinks', tag: 'Resort' },
+                                ].map(mp => {
+                                    const isSelected = (tripDetails.mealPlanCode || 'CP') === mp.code;
+                                    const matchedMaster = masterMealPlans?.find(m => m.code === mp.code);
+
+                                    return (
+                                        <button
+                                            key={mp.code}
+                                            type="button"
+                                            onClick={() => {
+                                                updateTripDetails({
+                                                    mealPlanCode: mp.code as MealPlanCode,
+                                                    mealPlanId: matchedMaster?.id || mp.code
+                                                });
+                                            }}
+                                            className={`p-2.5 rounded-xl border text-left transition-all flex flex-col justify-between relative ${
+                                                isSelected
+                                                    ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
+                                                    : 'bg-stone-50 border-stone-200 text-stone-700 hover:border-amber-300 hover:bg-white'
+                                            }`}
+                                        >
+                                            {mp.tag === 'Most Popular' && (
+                                                <span className={`text-[8px] font-black px-1.5 py-0.2 rounded w-fit uppercase tracking-wider mb-1 ${
+                                                    isSelected ? 'bg-white text-amber-900' : 'bg-amber-100 text-amber-800'
+                                                }`}>
+                                                    ★ Most Popular
+                                                </span>
+                                            )}
+                                            <div>
+                                                <div className="flex items-center justify-between">
+                                                    <span className={`text-xs font-black ${isSelected ? 'text-white' : 'text-stone-900'}`}>
+                                                        {mp.code}
+                                                    </span>
+                                                    {isSelected && <Check size={12} className="text-white stroke-[3]" />}
+                                                </div>
+                                                <span className={`text-[10px] font-bold block mt-0.5 line-clamp-1 ${
+                                                    isSelected ? 'text-amber-100' : 'text-stone-600'
+                                                }`}>
+                                                    {mp.name}
+                                                </span>
+                                            </div>
+                                            <p className={`text-[9px] mt-1.5 pt-1 border-t leading-tight ${
+                                                isSelected ? 'border-amber-400/60 text-white/90' : 'border-stone-200 text-stone-500'
+                                            }`}>
+                                                {mp.sub}
+                                            </p>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            <p className="text-[10px] text-stone-400">
+                                This meal plan sets the package default and will automatically attach to scheduled hotel stays, quotes, and client PDFs.
+                            </p>
+                        </div>
+                    </div>
+
+                    {/* CARD 4: Visual Presentation & Media */}
                     <div className="bg-white rounded-2xl p-5 sm:p-6 border border-stone-200 shadow-xs space-y-4">
                         <div className="flex items-center justify-between border-b border-stone-100 pb-3.5">
                             <div className="flex items-center gap-2.5">
@@ -575,6 +823,18 @@ export const StepTripDetails: React.FC<Props> = ({ onDone }) => {
                                     <span className="text-[9px] font-black uppercase text-stone-400 block">Travelers</span>
                                     <span className="text-xs font-bold text-stone-800 block">
                                         {(tripDetails.adults || 0) + (tripDetails.children || 0)} Guests
+                                    </span>
+                                </div>
+                                <div className="bg-stone-50 rounded-xl p-2.5 border border-stone-100">
+                                    <span className="text-[9px] font-black uppercase text-stone-400 block">Room Sharing</span>
+                                    <span className={`text-xs font-black truncate block ${tripDetails.roomSharing === 'Triple' ? 'text-amber-700' : 'text-stone-800'}`}>
+                                        {tripDetails.roomSharing === 'Triple' ? '👥+1 Triple Sharing' : `${tripDetails.roomSharing || 'Double'} Sharing`}
+                                    </span>
+                                </div>
+                                <div className="bg-stone-50 rounded-xl p-2.5 border border-stone-100">
+                                    <span className="text-[9px] font-black uppercase text-stone-400 block">Meal Plan</span>
+                                    <span className="text-xs font-black text-amber-700 truncate block">
+                                        🍽️ {tripDetails.mealPlanCode || 'CP'} Plan
                                     </span>
                                 </div>
                             </div>

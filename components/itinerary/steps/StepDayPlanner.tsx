@@ -21,6 +21,7 @@ import {
 } from '../../../src/lib/gemini';
 import { toast } from 'sonner';
 import { api } from '../../../src/lib/api';
+import { RoomSharingType, ROOM_SHARING_OPTIONS, MealPlanCode, MEAL_PLAN_DESCRIPTIONS } from '../../../types';
 
 interface Props {
     onOpenPricing?: () => void;
@@ -2315,10 +2316,15 @@ const ActivityCard: React.FC<{
     onRemove: () => void;
     onUpdate: (id: string, u: any) => void;
 }> = ({ item, index, isFirst, isLast, onRemove, onUpdate }) => {
-    const { moveItem, reorderItems } = useItinerary();
+    const { moveItem, reorderItems, tripDetails } = useItinerary();
     const { masterRoomTypes, masterMealPlans, masterHotels, masterActivities, masterTransports } = useData();
     const [expanded, setExpanded] = useState(false);
     const [isPolishing, setIsPolishing] = useState(false);
+
+    const activeSharing: RoomSharingType = item.roomSharing || tripDetails.roomSharing || 'Double';
+    const activeMealPlan = masterMealPlans.find(mp => mp.id === item.mealPlanId || mp.code === item.mealPlanId)
+        || masterMealPlans.find(mp => mp.code === tripDetails.mealPlanCode);
+    const mealCode = activeMealPlan?.code || tripDetails.mealPlanCode || 'CP';
 
     const style = SERVICE_STYLE[item.type] ?? SERVICE_STYLE.other;
     const Icon = style.Icon;
@@ -2436,6 +2442,20 @@ const ActivityCard: React.FC<{
                                 <span className="text-[9px] font-black text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-md flex items-center gap-1">
                                     <AlertTriangle size={8} /> Not in catalog
                                 </span>
+                            )}
+                            {item.type === 'hotel' && (
+                                <>
+                                    <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-md flex items-center gap-1 border ${
+                                        activeSharing === 'Triple'
+                                            ? 'text-amber-900 bg-amber-100 border-amber-300 ring-1 ring-amber-300/40'
+                                            : 'text-stone-700 bg-stone-100 border-stone-200'
+                                    }`}>
+                                        {activeSharing === 'Triple' ? '👥+1 Triple Sharing' : `${activeSharing} Sharing`}
+                                    </span>
+                                    <span className="text-[9px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-md flex items-center gap-1">
+                                        🍽️ {mealCode} Plan
+                                    </span>
+                                </>
                             )}
                         </div>
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -2562,29 +2582,60 @@ const ActivityCard: React.FC<{
                         </>
                     )}
 
-                    {/* Hotel-specific: room type + meal plan */}
+                    {/* Hotel-specific: room type + room sharing + meal plan */}
                     {item.type === 'hotel' && (
-                        <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-stone-100">
+                        <div className="flex flex-wrap items-center gap-1.5 mt-2 pt-2 border-t border-stone-100">
+                            {/* Room Type */}
                             <select
                                 value={item.roomTypeId || ''}
                                 onChange={e => onUpdate(item.id, { roomTypeId: e.target.value })}
-                                className="text-[10px] font-bold bg-stone-100 border-none rounded-md px-2 py-1 text-stone-600 outline-none hover:bg-stone-200 transition-colors"
+                                className="text-[10px] font-bold bg-stone-100 border-none rounded-md px-2 py-1 text-stone-700 outline-none hover:bg-stone-200 transition-colors"
+                                title="Room Category"
                             >
                                 <option value="">Select Room Type</option>
                                 {masterRoomTypes.filter(r => r.status === 'Active').map(r => (
                                     <option key={r.id} value={r.id}>{r.name}</option>
                                 ))}
                             </select>
+
+                            {/* Room Sharing / Occupancy (Triple Sharing support) */}
                             <select
-                                value={item.mealPlanId || ''}
+                                value={item.roomSharing || tripDetails.roomSharing || 'Double'}
+                                onChange={e => onUpdate(item.id, { roomSharing: e.target.value as RoomSharingType })}
+                                className={`text-[10px] font-black rounded-md px-2 py-1 outline-none transition-colors border ${
+                                    (item.roomSharing || tripDetails.roomSharing) === 'Triple'
+                                        ? 'bg-amber-100 text-amber-900 border-amber-300'
+                                        : 'bg-stone-100 text-stone-700 border-transparent hover:bg-stone-200'
+                                }`}
+                                title="Room Sharing / Occupancy"
+                            >
+                                {ROOM_SHARING_OPTIONS.map(opt => (
+                                    <option key={opt.id} value={opt.id}>
+                                        {opt.id === 'Triple' ? '👥+1 Triple Sharing (3 Pax)' : opt.label}
+                                    </option>
+                                ))}
+                            </select>
+
+                            {/* Meal Plan */}
+                            <select
+                                value={item.mealPlanId || (masterMealPlans.find(m => m.code === tripDetails.mealPlanCode)?.id || tripDetails.mealPlanCode || '')}
                                 onChange={e => onUpdate(item.id, { mealPlanId: e.target.value })}
-                                className="text-[10px] font-bold bg-stone-100 border-none rounded-md px-2 py-1 text-stone-600 outline-none hover:bg-stone-200 transition-colors"
+                                className="text-[10px] font-bold bg-stone-100 border-none rounded-md px-2 py-1 text-stone-700 outline-none hover:bg-stone-200 transition-colors"
+                                title="Meal Plan"
                             >
                                 <option value="">Select Meal Plan</option>
                                 {masterMealPlans.filter(mp => mp.status === 'Active').map(mp => (
                                     <option key={mp.id} value={mp.id}>{mp.code} - {mp.name}</option>
                                 ))}
                             </select>
+
+                            {/* Triple Sharing extra bed specification banner */}
+                            {(item.roomSharing || tripDetails.roomSharing) === 'Triple' && (
+                                <div className="w-full mt-1 px-2 py-1 bg-amber-50 border border-amber-200/80 rounded-md text-[9px] font-bold text-amber-800 flex items-center justify-between">
+                                    <span>🛏️ Triple Sharing: 1 extra bed / mattress setup included</span>
+                                    <span className="text-[8px] bg-amber-200/70 text-amber-900 px-1 py-0.2 rounded font-black uppercase">Voucher Record</span>
+                                </div>
+                            )}
                         </div>
                     )}
 

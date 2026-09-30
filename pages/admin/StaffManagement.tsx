@@ -97,9 +97,9 @@ export const StaffManagement: React.FC = () => {
         refreshStaff();
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Auto-select self or first staff member when list loads
+    // Auto-select self or first staff member on desktop screens when list loads
     useEffect(() => {
-        if (!selectedStaffId && staff.length > 0) {
+        if (window.innerWidth >= 1024 && !selectedStaffId && staff.length > 0) {
             const self = staff.find(s => String(s.id) === String(currentUser?.id) || (s.email && currentUser?.email && s.email.toLowerCase() === currentUser.email.toLowerCase()));
             setSelectedStaffId(self ? self.id : staff[0].id);
         }

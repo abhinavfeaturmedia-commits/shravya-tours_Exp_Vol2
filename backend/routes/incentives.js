@@ -39,6 +39,31 @@ export function createIncentiveRoutes(app, pool) {
         }
     }
 
+    // ─── Ensure staff_monthly_targets Table Exists ───
+    async function ensureStaffTargetsTable() {
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS staff_monthly_targets (
+                    id VARCHAR(64) PRIMARY KEY,
+                    staff_id INT NOT NULL,
+                    month_year VARCHAR(20) NOT NULL,
+                    target_amount DECIMAL(12,2) NOT NULL DEFAULT 500000.00,
+                    target_bookings INT NOT NULL DEFAULT 5,
+                    notes VARCHAR(255) DEFAULT NULL,
+                    created_by VARCHAR(255) DEFAULT 'Super Admin',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    UNIQUE KEY uk_staff_month (staff_id, month_year),
+                    INDEX idx_target_month (month_year),
+                    INDEX idx_target_staff (staff_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            `);
+        } catch (err) {
+            console.warn('[Incentive Targets Table Ensure Notice]:', err.message);
+        }
+    }
+    ensureStaffTargetsTable();
+
     // ═══════════════════════════════════════════════════════════════════════════
     // 1. OVERVIEW & METRICS
     // ═══════════════════════════════════════════════════════════════════════════
@@ -280,6 +305,203 @@ export function createIncentiveRoutes(app, pool) {
         }
     });
 
+    // Update Rule (Base Rate, Slabs, GP Cap, etc.)
+    router.put('/rules/:id', async (req, res) => {
+        try {
+            const user = getUser(req);
+            if (user.role !== 'admin' && user.role !== 'Administrator' && user.userType !== 'Admin') {
+                return res.status(403).json({ error: 'Only Super Admin can update rules' });
+            }
+
+            const { id } = req.params;
+            const { percentage, fixedAmount, slabs, priority } = req.body;
+
+            const [existing] = await pool.query(`SELECT * FROM incentive_rules WHERE id = ?`, [id]);
+            if (existing.length === 0) return res.status(404).json({ error: 'Rule not found' });
+
+            const currentVer = parseFloat(existing[0].version || '1.0');
+            const nextVer = (currentVer + 0.1).toFixed(1);
+
+            await pool.query(`
+                UPDATE incentive_rules SET
+                    percentage = ?,
+                    fixed_amount = ?,
+                    slabs_json = ?,
+                    priority = ?,
+                    version = ?
+                WHERE id = ?
+            `, [
+                percentage !== undefined ? parseFloat(percentage) : existing[0].percentage,
+                fixedAmount !== undefined ? parseFloat(fixedAmount) : existing[0].fixed_amount,
+                slabs ? JSON.stringify(slabs) : existing[0].slabs_json,
+                priority !== undefined ? parseInt(priority) : existing[0].priority,
+                nextVer,
+                id
+            ]);
+
+            await logAudit('RULE_UPDATED', id, `Updated rule ${id} to version ${nextVer}`, user.name);
+            res.json({ success: true, message: `Rule updated to version ${nextVer}` });
+        } catch (err) {
+            res.status(500).json({ error: 'Failed to update rule: ' + err.message });
+        }
+    });
+
+    // ─── Target Management Endpoints (Super Admin Editable Matrix) ───
+    router.get('/targets', async (req, res) => {
+        try {
+            const monthYear = req.query.monthYear || new Date().toISOString().slice(0, 7);
+            await ensureStaffTargetsTable();
+
+            const [staff] = await pool.query(`
+                SELECT s.id as staff_id, s.name, s.email, s.role, s.department, s.status,
+                       t.id as target_id, t.target_amount, t.target_bookings, t.notes, t.updated_at, t.created_by
+                FROM staff_members s
+                LEFT JOIN staff_monthly_targets t ON s.id = t.staff_id AND t.month_year = ?
+                WHERE s.status = 'Active' OR s.status IS NULL
+                ORDER BY s.department, s.name
+            `, [monthYear]);
+
+            const targets = staff.map(s => ({
+                staffId: s.staff_id,
+                name: s.name,
+                email: s.email,
+                role: s.role,
+                department: s.department,
+                targetId: s.target_id,
+                targetAmount: s.target_amount !== null && s.target_amount !== undefined ? parseFloat(s.target_amount) : 500000,
+                targetBookings: s.target_bookings !== null && s.target_bookings !== undefined ? parseInt(s.target_bookings) : 5,
+                isSet: s.target_id !== null,
+                notes: s.notes || '',
+                updatedAt: s.updated_at,
+                createdBy: s.created_by
+            }));
+
+            const totalStaff = targets.length;
+            const targetsSet = targets.filter(t => t.isSet).length;
+            const targetsPending = totalStaff - targetsSet;
+
+            // Target setting deadline calculation:
+            // Targets for Month M must be finalized on or before the 25th of Month M-1 (Current Month)
+            const [yearStr, monthStr] = monthYear.split('-');
+            const targetYear = parseInt(yearStr);
+            const targetMonth = parseInt(monthStr);
+
+            // Month prior to target month:
+            const deadlineMonthDate = new Date(targetYear, targetMonth - 2, 25);
+            const deadlineYear = deadlineMonthDate.getFullYear();
+            const deadlineMonth = String(deadlineMonthDate.getMonth() + 1).padStart(2, '0');
+            const deadlineDateStr = `${deadlineYear}-${deadlineMonth}-25`;
+
+            const currentDate = new Date();
+            const isPastDeadline = currentDate > new Date(deadlineYear, deadlineMonthDate.getMonth(), 25, 23, 59, 59);
+
+            res.json({
+                success: true,
+                monthYear,
+                deadlineDate: deadlineDateStr,
+                isPastDeadline,
+                totalStaff,
+                targetsSet,
+                targetsPending,
+                targets
+            });
+        } catch (err) {
+            res.status(500).json({ error: 'Failed to fetch targets: ' + err.message });
+        }
+    });
+
+    router.post('/targets', async (req, res) => {
+        try {
+            const user = getUser(req);
+            if (user.role !== 'admin' && user.role !== 'Administrator' && user.userType !== 'Admin') {
+                return res.status(403).json({ error: 'Only Super Admin can configure staff targets' });
+            }
+
+            const { monthYear, targets } = req.body;
+            if (!monthYear || !Array.isArray(targets) || targets.length === 0) {
+                return res.status(400).json({ error: 'monthYear and targets array are required' });
+            }
+
+            await ensureStaffTargetsTable();
+
+            for (const t of targets) {
+                const staffId = parseInt(t.staffId);
+                const targetAmount = parseFloat(t.targetAmount || 500000);
+                const targetBookings = parseInt(t.targetBookings || 5);
+                const notes = t.notes || null;
+                const targetId = t.targetId || 'tgt-' + crypto.randomUUID();
+
+                await pool.query(`
+                    INSERT INTO staff_monthly_targets (
+                        id, staff_id, month_year, target_amount, target_bookings, notes, created_by
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON DUPLICATE KEY UPDATE
+                        target_amount = VALUES(target_amount),
+                        target_bookings = VALUES(target_bookings),
+                        notes = VALUES(notes),
+                        created_by = VALUES(created_by),
+                        updated_at = NOW()
+                `, [targetId, staffId, monthYear, targetAmount, targetBookings, notes, user.name]);
+            }
+
+            await logAudit('TARGETS_UPDATED', monthYear, `Updated monthly targets for ${targets.length} staff members for ${monthYear}`, user.name);
+
+            res.json({ success: true, message: `Successfully saved targets for ${targets.length} staff for ${monthYear}` });
+        } catch (err) {
+            res.status(500).json({ error: 'Failed to save targets: ' + err.message });
+        }
+    });
+
+    router.post('/targets/copy', async (req, res) => {
+        try {
+            const user = getUser(req);
+            if (user.role !== 'admin' && user.role !== 'Administrator' && user.userType !== 'Admin') {
+                return res.status(403).json({ error: 'Only Super Admin can copy targets' });
+            }
+
+            const { sourceMonth, targetMonth, multiplier = 1.0 } = req.body;
+            if (!sourceMonth || !targetMonth) {
+                return res.status(400).json({ error: 'sourceMonth and targetMonth are required' });
+            }
+
+            await ensureStaffTargetsTable();
+
+            const [sources] = await pool.query(`
+                SELECT staff_id, target_amount, target_bookings, notes 
+                FROM staff_monthly_targets 
+                WHERE month_year = ?
+            `, [sourceMonth]);
+
+            if (sources.length === 0) {
+                const [allStaff] = await pool.query(`SELECT id FROM staff_members WHERE status = 'Active' OR status IS NULL`);
+                for (const s of allStaff) {
+                    const id = 'tgt-' + crypto.randomUUID();
+                    const amt = Math.round(500000 * multiplier);
+                    await pool.query(`
+                        INSERT INTO staff_monthly_targets (id, staff_id, month_year, target_amount, target_bookings, notes, created_by)
+                        VALUES (?, ?, ?, ?, 5, 'Auto-generated baseline', ?)
+                        ON DUPLICATE KEY UPDATE target_amount = VALUES(target_amount), updated_at = NOW()
+                    `, [id, s.id, targetMonth, amt, user.name]);
+                }
+            } else {
+                for (const s of sources) {
+                    const id = 'tgt-' + crypto.randomUUID();
+                    const newAmt = Math.round(parseFloat(s.target_amount) * multiplier);
+                    await pool.query(`
+                        INSERT INTO staff_monthly_targets (id, staff_id, month_year, target_amount, target_bookings, notes, created_by)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        ON DUPLICATE KEY UPDATE target_amount = VALUES(target_amount), target_bookings = VALUES(target_bookings), notes = VALUES(notes), updated_at = NOW()
+                    `, [id, s.staff_id, targetMonth, newAmt, s.target_bookings, s.notes, user.name]);
+                }
+            }
+
+            await logAudit('TARGETS_COPIED', targetMonth, `Copied targets from ${sourceMonth} to ${targetMonth} with ${multiplier}x multiplier`, user.name);
+            res.json({ success: true, message: `Targets copied to ${targetMonth} with ${multiplier}x multiplier` });
+        } catch (err) {
+            res.status(500).json({ error: 'Failed to copy targets: ' + err.message });
+        }
+    });
+
     // ═══════════════════════════════════════════════════════════════════════════
     // 3. BOOKING ELIGIBILITY CHECK UTILITY
     // ═══════════════════════════════════════════════════════════════════════════
@@ -420,7 +642,7 @@ export function createIncentiveRoutes(app, pool) {
             const [bookings] = await conn.query(`
                 SELECT 
                     id, booking_number, customer_name, total_price, status, payment_status,
-                    assigned_to, assigned_staff_ids, booking_date
+                    assigned_to, assigned_staff_ids, booking_date, lead_id
                 FROM bookings
                 WHERE booking_date >= ? AND booking_date <= ?
             `, [periodStart, periodEnd]);
@@ -459,26 +681,160 @@ export function createIncentiveRoutes(app, pool) {
                 totalBookingValue += evalResult.eligibleValue;
                 totalGrossProfit += evalResult.grossProfit;
 
-                // Identify assigned staff
-                let staffIds = [];
-                if (b.assigned_staff_ids) {
-                    try {
-                        const parsed = typeof b.assigned_staff_ids === 'string' ? JSON.parse(b.assigned_staff_ids) : b.assigned_staff_ids;
-                        if (Array.isArray(parsed)) staffIds = parsed.map(String);
-                    } catch (_) {}
-                }
-                if (staffIds.length === 0 && b.assigned_to) {
-                    staffIds.push(String(b.assigned_to));
+                // ─── Multi-Salesperson & Lead Transfer Split Detection ───
+                // Requirement: 30% to 1st Employee (Originator/Transferor) & 70% to 2nd Employee (Closer/Primary)
+                const transferSplits = [];
+                let hasLeadTransfer = false;
+
+                // Check if the originating lead was transferred
+                if (b.lead_id) {
+                    const [transfers] = await conn.query(`
+                        SELECT from_staff_id, to_staff_id, actioned_at, created_at 
+                        FROM transfer_requests 
+                        WHERE item_type = 'Lead' AND item_id = ? AND status = 'Approved'
+                        ORDER BY created_at ASC
+                    `, [b.lead_id]);
+
+                    if (transfers.length > 0) {
+                        const firstTransfer = transfers[0];
+                        const lastTransfer = transfers[transfers.length - 1];
+                        const originatorId = firstTransfer.from_staff_id ? String(firstTransfer.from_staff_id) : null;
+                        const closerId = lastTransfer.to_staff_id ? String(lastTransfer.to_staff_id) : (b.assigned_to ? String(b.assigned_to) : null);
+
+                        if (originatorId && closerId && originatorId !== closerId) {
+                            hasLeadTransfer = true;
+                            const originatorStaff = staffMap.get(originatorId) || { id: originatorId, name: 'Staff #' + originatorId, role: 'Sales Executive', department: 'Sales' };
+                            const closerStaff = staffMap.get(closerId) || { id: closerId, name: 'Staff #' + closerId, role: 'Sales Executive', department: 'Sales' };
+
+                            transferSplits.push({
+                                staffId: originatorId,
+                                staffMember: originatorStaff,
+                                ratio: 0.30,
+                                roleDescription: 'Sales Executive (1st Employee - 30% Lead Transfer Share)',
+                                isSplit: true,
+                                partnerName: closerStaff.name,
+                                partnerId: closerId,
+                                splitTag: 'TRANSFER_30_ORIGINATOR'
+                            });
+
+                            transferSplits.push({
+                                staffId: closerId,
+                                staffMember: closerStaff,
+                                ratio: 0.70,
+                                roleDescription: 'Sales Executive (2nd Employee - 70% Lead Closer Share)',
+                                isSplit: true,
+                                partnerName: originatorStaff.name,
+                                partnerId: originatorId,
+                                splitTag: 'TRANSFER_70_CLOSER'
+                            });
+                        }
+                    }
                 }
 
-                // If no staff assigned, attribute to Super Admin/System (id 1)
-                if (staffIds.length === 0) {
-                    staffIds.push('1');
+                // If no lead transfer found, check if the booking itself was transferred
+                if (!hasLeadTransfer && b.id) {
+                    const [bkTransfers] = await conn.query(`
+                        SELECT from_staff_id, to_staff_id, actioned_at, created_at 
+                        FROM transfer_requests 
+                        WHERE item_type = 'Booking' AND item_id = ? AND status = 'Approved'
+                        ORDER BY created_at ASC
+                    `, [b.id]);
+
+                    if (bkTransfers.length > 0) {
+                        const firstTransfer = bkTransfers[0];
+                        const lastTransfer = bkTransfers[bkTransfers.length - 1];
+                        const originatorId = firstTransfer.from_staff_id ? String(firstTransfer.from_staff_id) : null;
+                        const closerId = lastTransfer.to_staff_id ? String(lastTransfer.to_staff_id) : (b.assigned_to ? String(b.assigned_to) : null);
+
+                        if (originatorId && closerId && originatorId !== closerId) {
+                            hasLeadTransfer = true;
+                            const originatorStaff = staffMap.get(originatorId) || { id: originatorId, name: 'Staff #' + originatorId, role: 'Sales Executive', department: 'Sales' };
+                            const closerStaff = staffMap.get(closerId) || { id: closerId, name: 'Staff #' + closerId, role: 'Sales Executive', department: 'Sales' };
+
+                            transferSplits.push({
+                                staffId: originatorId,
+                                staffMember: originatorStaff,
+                                ratio: 0.30,
+                                roleDescription: 'Sales Executive (1st Employee - 30% Booking Transfer Share)',
+                                isSplit: true,
+                                partnerName: closerStaff.name,
+                                partnerId: closerId,
+                                splitTag: 'TRANSFER_30_ORIGINATOR'
+                            });
+
+                            transferSplits.push({
+                                staffId: closerId,
+                                staffMember: closerStaff,
+                                ratio: 0.70,
+                                roleDescription: 'Sales Executive (2nd Employee - 70% Booking Closer Share)',
+                                isSplit: true,
+                                partnerName: originatorStaff.name,
+                                partnerId: originatorId,
+                                splitTag: 'TRANSFER_70_CLOSER'
+                            });
+                        }
+                    }
                 }
 
-                // For each assigned staff, match rules
-                for (const staffId of staffIds) {
-                    const staffMember = staffMap.get(staffId) || { id: staffId, name: 'Staff #' + staffId, role: 'Sales Executive', department: 'Sales' };
+                // If not transferred, check directly assigned staff
+                if (!hasLeadTransfer) {
+                    let staffIds = [];
+                    if (b.assigned_staff_ids) {
+                        try {
+                            const parsed = typeof b.assigned_staff_ids === 'string' ? JSON.parse(b.assigned_staff_ids) : b.assigned_staff_ids;
+                            if (Array.isArray(parsed)) staffIds = parsed.map(String);
+                        } catch (_) {}
+                    }
+                    if (staffIds.length === 0 && b.assigned_to) {
+                        staffIds.push(String(b.assigned_to));
+                    }
+                    if (staffIds.length === 0) {
+                        staffIds.push('1');
+                    }
+
+                    if (staffIds.length >= 2 && staffIds[0] !== staffIds[1]) {
+                        // Multi-salesperson assigned on booking: 30% to 1st, 70% to 2nd
+                        const staff1 = staffMap.get(staffIds[0]) || { id: staffIds[0], name: 'Staff #' + staffIds[0], role: 'Sales Executive', department: 'Sales' };
+                        const staff2 = staffMap.get(staffIds[1]) || { id: staffIds[1], name: 'Staff #' + staffIds[1], role: 'Sales Executive', department: 'Sales' };
+                        transferSplits.push({
+                            staffId: staffIds[0],
+                            staffMember: staff1,
+                            ratio: 0.30,
+                            roleDescription: 'Sales Executive (1st Assigned - 30% Share)',
+                            isSplit: true,
+                            partnerName: staff2.name,
+                            partnerId: staffIds[1],
+                            splitTag: 'TRANSFER_30_ORIGINATOR'
+                        });
+                        transferSplits.push({
+                            staffId: staffIds[1],
+                            staffMember: staff2,
+                            ratio: 0.70,
+                            roleDescription: 'Sales Executive (2nd Assigned - 70% Share)',
+                            isSplit: true,
+                            partnerName: staff1.name,
+                            partnerId: staffIds[0],
+                            splitTag: 'TRANSFER_70_CLOSER'
+                        });
+                    } else {
+                        // Single salesperson: 100%
+                        const staffMember = staffMap.get(staffIds[0]) || { id: staffIds[0], name: 'Staff #' + staffIds[0], role: 'Sales Executive', department: 'Sales' };
+                        transferSplits.push({
+                            staffId: staffIds[0],
+                            staffMember: staffMember,
+                            ratio: 1.00,
+                            roleDescription: staffMember.role || 'Sales Executive',
+                            isSplit: false,
+                            partnerName: null,
+                            partnerId: null,
+                            splitTag: 'DIRECT_100'
+                        });
+                    }
+                }
+
+                // Process ledger entries and aggregations for each split recipient
+                for (const split of transferSplits) {
+                    const staffMember = split.staffMember;
                     const staffDept = staffMember.department || 'Sales';
                     const staffRole = staffMember.role || 'Sales Executive';
 
@@ -487,24 +843,21 @@ export function createIncentiveRoutes(app, pool) {
                         r.department.toLowerCase() === staffDept.toLowerCase() && 
                         (r.role.toLowerCase() === staffRole.toLowerCase() || r.role.toLowerCase().includes('executive'))
                     );
-
-                    // Fallback to department rule
                     if (!matchingRule) {
                         matchingRule = rules.find(r => r.department.toLowerCase() === staffDept.toLowerCase());
                     }
-
-                    // Fallback to primary Sales rule
                     if (!matchingRule) {
                         matchingRule = rules[0];
                     }
 
                     // Base rate
-                    let applicableRate = parseFloat(matchingRule.percentage || 0);
+                    const applicableRate = parseFloat(matchingRule.percentage || 0);
 
-                    // If rule has target dependency (Sales), rate will be calibrated at employee monthly level
-                    // For line-item ledger calculation:
-                    const grossIncentive = (evalResult.eligibleValue * applicableRate) / 100;
-                    const finalIncentive = grossIncentive; // further adjusted at summary level
+                    // Proportional values based on split ratio (e.g. 30% or 70%)
+                    const splitEligibleValue = evalResult.eligibleValue * split.ratio;
+                    const splitGrossProfit = evalResult.grossProfit * split.ratio;
+                    const splitGrossIncentive = (splitEligibleValue * applicableRate) / 100;
+                    const finalIncentive = splitGrossIncentive;
 
                     const ledgerId = crypto.randomUUID();
                     ledgerRows.push({
@@ -514,14 +867,14 @@ export function createIncentiveRoutes(app, pool) {
                         booking_number: b.booking_number,
                         employee_id: staffMember.id,
                         department: staffDept,
-                        role: staffRole,
+                        role: split.isSplit ? split.roleDescription : staffRole,
                         incentive_type: matchingRule.incentive_type,
-                        booking_value: parseFloat(b.total_price || 0),
-                        eligible_value: evalResult.eligibleValue,
-                        supplier_cost: evalResult.supplierCost,
-                        gross_profit: evalResult.grossProfit,
+                        booking_value: parseFloat(b.total_price || 0) * split.ratio,
+                        eligible_value: splitEligibleValue,
+                        supplier_cost: evalResult.supplierCost * split.ratio,
+                        gross_profit: splitGrossProfit,
                         applicable_rate: applicableRate,
-                        gross_incentive: grossIncentive,
+                        gross_incentive: splitGrossIncentive,
                         kpi_score: 100.00,
                         kpi_multiplier: 1.00,
                         target_achievement: 100.00,
@@ -537,8 +890,17 @@ export function createIncentiveRoutes(app, pool) {
                         period: monthYear,
                         status: 'CALCULATED',
                         trace: {
-                            formula: `${evalResult.eligibleValue} * ${applicableRate}%`,
-                            ruleName: `${matchingRule.department} - ${matchingRule.role}`
+                            formula: split.isSplit 
+                                ? `₹${Math.round(evalResult.eligibleValue).toLocaleString('en-IN')} * ${(split.ratio * 100).toFixed(0)}% split * ${applicableRate}% = ₹${splitGrossIncentive.toFixed(2)}`
+                                : `${evalResult.eligibleValue} * ${applicableRate}%`,
+                            ruleName: `${matchingRule.department} - ${matchingRule.role}`,
+                            isSplit: split.isSplit,
+                            splitRatio: split.ratio,
+                            splitTag: split.splitTag,
+                            splitRole: split.roleDescription,
+                            partnerName: split.partnerName,
+                            partnerId: split.partnerId,
+                            leadId: b.lead_id
                         }
                     });
 
@@ -556,9 +918,9 @@ export function createIncentiveRoutes(app, pool) {
                     }
 
                     const empAgg = employeeAggregates.get(staffMember.id);
-                    empAgg.eligibleBusiness += evalResult.eligibleValue;
-                    empAgg.bookingCount += 1;
-                    empAgg.baseIncentive += grossIncentive;
+                    empAgg.eligibleBusiness += splitEligibleValue;
+                    empAgg.bookingCount += (split.isSplit ? split.ratio : 1);
+                    empAgg.baseIncentive += splitGrossIncentive;
                 }
             }
 
@@ -571,22 +933,33 @@ export function createIncentiveRoutes(app, pool) {
                 let targetAchievementPct = 100.00;
                 let targetMultiplier = 1.00;
 
+                // Look up monthly target from staff_monthly_targets table
+                const [storedTargets] = await conn.query(`
+                    SELECT target_amount, target_bookings FROM staff_monthly_targets 
+                    WHERE staff_id = ? AND month_year = ?
+                `, [empId, monthYear]);
+
+                let employeeTarget = agg.targetAmount;
+                if (storedTargets.length > 0 && parseFloat(storedTargets[0].target_amount) > 0) {
+                    employeeTarget = parseFloat(storedTargets[0].target_amount);
+                } else {
+                    // Fallback to daily_targets if configured
+                    const [targets] = await conn.query(`
+                        SELECT target_conversions, target_bookings FROM daily_targets 
+                        WHERE staff_id = ? AND date >= ? AND date <= ?
+                    `, [empId, periodStart, periodEnd]);
+
+                    if (targets.length > 0) {
+                        const sumTargetBookings = targets.reduce((sum, t) => sum + (t.target_bookings || 0), 0);
+                        if (sumTargetBookings > 0) employeeTarget = sumTargetBookings * 50000;
+                    }
+                }
+                agg.targetAmount = employeeTarget;
+
                 // Check if target dependency applies (Sales target slabs)
                 if (agg.rule.target_dependency && agg.rule.slabs_json) {
                     try {
                         const slabs = typeof agg.rule.slabs_json === 'string' ? JSON.parse(agg.rule.slabs_json) : agg.rule.slabs_json;
-                        // Fetch stored target for employee if available
-                        const [targets] = await conn.query(`
-                            SELECT target_conversions, target_bookings FROM daily_targets 
-                            WHERE staff_id = ? AND date >= ? AND date <= ?
-                        `, [empId, periodStart, periodEnd]);
-
-                        let employeeTarget = agg.targetAmount;
-                        if (targets.length > 0) {
-                            const sumTargetBookings = targets.reduce((sum, t) => sum + (t.target_bookings || 0), 0);
-                            if (sumTargetBookings > 0) employeeTarget = sumTargetBookings * 50000;
-                        }
-
                         targetAchievementPct = employeeTarget > 0 ? (agg.eligibleBusiness / employeeTarget) * 100 : 100;
 
                         // Find applicable slab
@@ -1149,13 +1522,58 @@ export function createIncentiveRoutes(app, pool) {
                 SELECT * FROM incentive_disputes WHERE employee_id = ? ORDER BY created_at DESC
             `, [empId]);
 
+            // Fetch Current Month and Next Month Targets for Employee Dashboard
+            const now = new Date();
+            const currYear = now.getFullYear();
+            const currMonth = now.getMonth() + 1;
+            const currentMonthStr = `${currYear}-${String(currMonth).padStart(2, '0')}`;
+
+            const nextMonthDate = new Date(currYear, currMonth, 1); // 1st of next month
+            const nextYear = nextMonthDate.getFullYear();
+            const nextM = nextMonthDate.getMonth() + 1;
+            const nextMonthStr = `${nextYear}-${String(nextM).padStart(2, '0')}`;
+
+            const [monthlyTargets] = await pool.query(`
+                SELECT * FROM staff_monthly_targets 
+                WHERE staff_id = ? AND month_year IN (?, ?)
+            `, [empId, currentMonthStr, nextMonthStr]);
+
+            const currentTgt = monthlyTargets.find(t => t.month_year === currentMonthStr);
+            const nextTgt = monthlyTargets.find(t => t.month_year === nextMonthStr);
+
+            const isBeforeDeadline = now.getDate() <= 25;
+            const deadlineDateStr = `${currentMonthStr}-25`;
+
+            const targetsInfo = {
+                currentMonth: {
+                    monthYear: currentMonthStr,
+                    targetAmount: currentTgt ? parseFloat(currentTgt.target_amount) : 500000,
+                    targetBookings: currentTgt ? parseInt(currentTgt.target_bookings) : 5,
+                    isSet: Boolean(currentTgt)
+                },
+                nextMonth: {
+                    monthYear: nextMonthStr,
+                    targetAmount: nextTgt ? parseFloat(nextTgt.target_amount) : 500000,
+                    targetBookings: nextTgt ? parseInt(nextTgt.target_bookings) : 5,
+                    isSet: Boolean(nextTgt),
+                    isBeforeDeadline25th: isBeforeDeadline,
+                    deadlineDate: deadlineDateStr,
+                    statusMessage: nextTgt 
+                        ? `Target Confirmed: ₹${parseFloat(nextTgt.target_amount).toLocaleString('en-IN')}` 
+                        : (isBeforeDeadline 
+                            ? `Setting in progress (Finalizes on or before 25th of current month)`
+                            : `Pending Management Publication`)
+                }
+            };
+
             res.json({
                 success: true,
                 data: {
                     employeeId: empId,
                     summaries,
                     recentBookings: ledger,
-                    disputes
+                    disputes,
+                    targetsInfo
                 }
             });
         } catch (err) {

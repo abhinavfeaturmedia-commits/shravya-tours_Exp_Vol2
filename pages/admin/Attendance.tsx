@@ -983,7 +983,7 @@ export const Attendance: React.FC = () => {
                     </div>
 
                     {/* Table View with Session & Active/Idle Details */}
-                    <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-sm overflow-hidden">
+                    <div className="hidden md:block bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-sm overflow-hidden">
                         <div className="overflow-x-auto">
                             <table className="w-full text-left text-xs">
                                 <thead>
@@ -1152,6 +1152,125 @@ export const Attendance: React.FC = () => {
                                 </tbody>
                             </table>
                         </div>
+                    </div>
+
+                    {/* Mobile Roster Cards (md:hidden) */}
+                    <div className="md:hidden space-y-3">
+                        {loading ? (
+                            <div className="py-12 text-center text-slate-400 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800">
+                                <span className="material-symbols-outlined text-3xl animate-spin text-indigo-500">progress_activity</span>
+                                <p className="font-semibold text-xs mt-2">Loading live staff roster...</p>
+                            </div>
+                        ) : filteredRoster.length === 0 ? (
+                            <div className="py-12 text-center text-slate-400 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800">
+                                <p className="font-bold text-sm">No staff records match the criteria</p>
+                            </div>
+                        ) : (
+                            filteredRoster.map(item => {
+                                const totalActiveMins = item.activeMinutes || 0;
+                                const totalIdleMins = item.idleMinutes || 0;
+                                const activePlusIdle = totalActiveMins + totalIdleMins;
+                                const productivity = activePlusIdle > 0
+                                    ? Math.min(100, Math.round((totalActiveMins / activePlusIdle) * 100))
+                                    : (item.checkInTime ? 100 : 0);
+
+                                return (
+                                    <div key={item.id} className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200/80 dark:border-slate-800 shadow-sm space-y-3">
+                                        <div className="flex items-start justify-between gap-2">
+                                            <div className="flex items-center gap-3">
+                                                <div className="size-10 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-center shrink-0 overflow-hidden">
+                                                    <StaffBotAvatar staff={item} size={34} isActive={!!(item.checkInTime && item.status !== 'Absent')} />
+                                                </div>
+                                                <div>
+                                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                                        <p className="font-bold text-slate-900 dark:text-white text-sm leading-tight">
+                                                            {item.name}
+                                                        </p>
+                                                        {item.autoClockedIn && (
+                                                            <span className="px-1.5 py-0.2 text-[9px] font-bold bg-cyan-50 dark:bg-cyan-950/50 text-cyan-700 dark:text-cyan-300 rounded border border-cyan-200 dark:border-cyan-800">
+                                                                Auto
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <p className="text-[11px] text-slate-400 mt-0.5">
+                                                        {item.department} · {item.role}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <div className="shrink-0">
+                                                {renderStatusBadge(item.status)}
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-2 gap-2 bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded-xl text-xs">
+                                            <div>
+                                                <span className="text-[10px] uppercase font-bold text-slate-400 block">Clock In</span>
+                                                <span className="font-semibold text-slate-700 dark:text-slate-200">{formatClockTime(item.checkInTime)}</span>
+                                            </div>
+                                            <div>
+                                                <span className="text-[10px] uppercase font-bold text-slate-400 block">Clock Out</span>
+                                                <span className="font-semibold text-slate-700 dark:text-slate-200">{formatClockTime(item.checkOutTime)}</span>
+                                            </div>
+                                            <div>
+                                                <span className="text-[10px] uppercase font-bold text-slate-400 block">Worked</span>
+                                                <span className="font-bold text-slate-800 dark:text-slate-100">{formatMinsToDuration(item.workedMinutes)}</span>
+                                            </div>
+                                            <div>
+                                                <span className="text-[10px] uppercase font-bold text-slate-400 block">Productivity</span>
+                                                {item.checkInTime ? (
+                                                    <div className="flex items-center gap-1.5 mt-0.5">
+                                                        <div className="w-10 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                                                            <div
+                                                                className={`h-full rounded-full ${productivity >= 85 ? 'bg-emerald-500' : productivity >= 60 ? 'bg-amber-500' : 'bg-rose-500'}`}
+                                                                style={{ width: `${productivity}%` }}
+                                                            />
+                                                        </div>
+                                                        <span className="font-bold text-[11px] text-slate-700 dark:text-slate-300">{productivity}%</span>
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-slate-400 text-xs">-</span>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800">
+                                            <button
+                                                onClick={() => setInspectingStaffItem(item)}
+                                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition-colors"
+                                            >
+                                                <span className="material-symbols-outlined text-[13px] text-indigo-500">devices</span>
+                                                <span>{item.loginCount || item.sessions?.length || (item.checkInTime ? 1 : 0)} Logins</span>
+                                            </button>
+
+                                            <div className="flex items-center gap-2">
+                                                {item.status === 'Absent' && (
+                                                    <button
+                                                        onClick={() => handleQuickMarkPresent(item.staffId)}
+                                                        className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 transition-all"
+                                                    >
+                                                        Mark Present
+                                                    </button>
+                                                )}
+                                                <button
+                                                    onClick={() => setInspectingStaffItem(item)}
+                                                    className="p-2 rounded-xl text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-slate-800 transition-colors border border-slate-200/60 dark:border-slate-700"
+                                                    title="View Sessions Timeline"
+                                                >
+                                                    <span className="material-symbols-outlined text-[18px]">history</span>
+                                                </button>
+                                                <button
+                                                    onClick={() => handleOpenEdit(item)}
+                                                    className="p-2 rounded-xl text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-slate-800 transition-colors border border-slate-200/60 dark:border-slate-700"
+                                                    title="Edit / Adjust Time"
+                                                >
+                                                    <span className="material-symbols-outlined text-[18px]">edit</span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })
+                        )}
                     </div>
                 </div>
             )}

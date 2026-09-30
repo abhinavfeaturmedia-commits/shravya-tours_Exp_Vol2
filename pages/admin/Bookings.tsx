@@ -70,7 +70,7 @@ export const Bookings: React.FC = () => {
         try {
             const customerDetails = customers?.find((c: any) => c.id === booking.customerId || c.email === booking.email) || null;
             
-            const transportBooking = booking.supplierBookings?.find((sb: any) => sb.serviceType === 'Transport');
+            const transportBooking = booking.supplierBookings?.find((sb: any) => sb.serviceType === 'Transport' || sb.serviceType?.includes('Transport'));
             const vehicleDetails = transportBooking 
                 ? `${transportBooking.notes || 'AC Transport'} ${transportBooking.vehicleNumber ? `(Vehicle: ${transportBooking.vehicleNumber})` : ''}`.trim()
                 : '13 + 1 Seater AC Tempo Traveller';
@@ -1079,7 +1079,7 @@ export const Bookings: React.FC = () => {
                     <div className="bg-white dark:bg-[#1A2633] w-full max-w-2xl rounded-t-3xl sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 sm:zoom-in-95 h-[95vh] sm:h-auto sm:max-h-[92vh]" onClick={e => e.stopPropagation()}>
 
                         {/* ── Header ── */}
-                        <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-start bg-gradient-to-r from-slate-50 to-white dark:from-slate-800/60 dark:to-[#1A2633]">
+                        <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-start bg-gradient-to-r from-slate-50 to-white dark:from-slate-800/60 dark:to-[#1A2633]">
                             <div className="flex items-start gap-3">
                                 <div className="size-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
                                     <span className="material-symbols-outlined text-primary text-[22px]">confirmation_number</span>
@@ -1119,10 +1119,10 @@ export const Bookings: React.FC = () => {
                             </div>
                         </div>
 
-                        <div className="flex gap-4 px-6 mt-1 border-b border-slate-100 dark:border-slate-850 pb-2">
+                        <div className="flex gap-2 sm:gap-4 px-4 sm:px-6 mt-1 border-b border-slate-100 dark:border-slate-850 pb-2 overflow-x-auto no-scrollbar scrollbar-none flex-nowrap shrink-0">
                             <button
                                 onClick={() => setBookingModalTab('info')}
-                                className={`text-xs font-bold pb-1 transition-all ${
+                                className={`text-xs font-bold pb-1 transition-all shrink-0 whitespace-nowrap ${
                                     bookingModalTab === 'info'
                                         ? 'text-primary border-b-2 border-primary'
                                         : 'text-slate-400 hover:text-slate-600'
@@ -1132,7 +1132,7 @@ export const Bookings: React.FC = () => {
                             </button>
                             <button
                                 onClick={() => setBookingModalTab('checklist')}
-                                className={`text-xs font-bold pb-1 transition-all flex items-center gap-1.5 ${
+                                className={`text-xs font-bold pb-1 transition-all shrink-0 whitespace-nowrap flex items-center gap-1.5 ${
                                     bookingModalTab === 'checklist'
                                         ? 'text-primary border-b-2 border-primary'
                                         : 'text-slate-400 hover:text-slate-600'
@@ -1143,7 +1143,7 @@ export const Bookings: React.FC = () => {
                             </button>
                             <button
                                 onClick={() => setBookingModalTab('deliverables')}
-                                className={`text-xs font-bold pb-1 transition-all flex items-center gap-1.5 ${
+                                className={`text-xs font-bold pb-1 transition-all shrink-0 whitespace-nowrap flex items-center gap-1.5 ${
                                     bookingModalTab === 'deliverables'
                                         ? 'text-primary border-b-2 border-primary'
                                         : 'text-slate-400 hover:text-slate-600'
@@ -1155,7 +1155,7 @@ export const Bookings: React.FC = () => {
                             {viewingBooking.partnerId && (
                                 <button
                                     onClick={() => setBookingModalTab('chat')}
-                                    className={`text-xs font-bold pb-1 transition-all flex items-center gap-1.5 ${
+                                    className={`text-xs font-bold pb-1 transition-all shrink-0 whitespace-nowrap flex items-center gap-1.5 ${
                                         bookingModalTab === 'chat'
                                             ? 'text-primary border-b-2 border-primary'
                                             : 'text-slate-400 hover:text-slate-600'
@@ -1167,7 +1167,7 @@ export const Bookings: React.FC = () => {
                             )}
                             <button
                                 onClick={() => setBookingModalTab('audit')}
-                                className={`text-xs font-bold pb-1 transition-all flex items-center gap-1.5 ${
+                                className={`text-xs font-bold pb-1 transition-all shrink-0 whitespace-nowrap flex items-center gap-1.5 ${
                                     bookingModalTab === 'audit'
                                         ? 'text-primary border-b-2 border-primary'
                                         : 'text-slate-400 hover:text-slate-600'
@@ -1179,7 +1179,7 @@ export const Bookings: React.FC = () => {
                         </div>
 
                         {/* ── Quick Stats Bar ── */}
-                        <div className="grid grid-cols-4 divide-x divide-slate-100 dark:divide-slate-700 border-b border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/20">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-slate-100 dark:divide-slate-700 border-b border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/20">
                             <div className="px-4 py-3 text-center">
                                 <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">Type</p>
                                 <div className="flex items-center justify-center gap-1">
@@ -1202,7 +1202,7 @@ export const Bookings: React.FC = () => {
                         </div>
 
                         {/* ── Scrollable Body ── */}
-                        <div className={`p-6 ${bookingModalTab === 'chat' ? 'flex flex-col h-[55vh]' : 'overflow-y-auto space-y-5'}`}>
+                        <div className={`p-4 sm:p-6 ${bookingModalTab === 'chat' ? 'flex flex-col h-[55vh]' : 'overflow-y-auto space-y-5'}`}>
                             {bookingModalTab === 'chat' ? (
                                 (() => {
                                     const relatedLead = leads?.find(l => 
@@ -2403,11 +2403,11 @@ export const Bookings: React.FC = () => {
             {isModalOpen && (
                 <div className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
                     <div className="bg-white dark:bg-[#1A2633] w-full max-w-2xl rounded-t-3xl sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 sm:zoom-in-95 h-[95vh] sm:h-auto sm:max-h-[90vh]">
-                        <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-800/50">
+                        <div className="px-4 sm:px-6 py-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-800/50">
                             <h2 className="text-xl font-bold text-slate-900 dark:text-white">{isEditMode ? 'Edit Booking' : 'Create New Booking'}</h2>
                             <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><span className="material-symbols-outlined">close</span></button>
                         </div>
-                        <form onSubmit={handleSubmit} className="p-6 space-y-6 overflow-y-auto">
+                        <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-6 overflow-y-auto">
                             {/* Customer Details */}
                             <div>
                                 <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-3">Customer Information</h3>
@@ -2678,14 +2678,14 @@ export const Bookings: React.FC = () => {
 
                 {/* Toolbar */}
                 <div className="mt-6 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
-                    <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl w-full sm:w-auto overflow-x-auto hide-scrollbar">
+                    <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl w-full sm:w-auto overflow-x-auto hide-scrollbar touch-pan-x overscroll-contain">
                         {['All', 'Ongoing', BookingStatus.PENDING, BookingStatus.CONFIRMED, BookingStatus.COMPLETED, BookingStatus.CANCELLED, 'Payment Pending'].map((tab) => {
                             const isActive = activeTab === tab || (tab === 'Payment Pending' && (activeTab === 'payment_pending' || activeTab === 'unpaid'));
                             return (
                                 <button
                                     key={tab}
                                     onClick={() => setActiveTab(tab)}
-                                    className={`px-4 py-2 text-xs font-bold uppercase tracking-wider rounded-lg transition-all whitespace-nowrap flex items-center gap-2 ${isActive
+                                    className={`px-3.5 sm:px-4 py-2 text-xs font-bold uppercase tracking-wider rounded-lg transition-all whitespace-nowrap flex items-center gap-1.5 sm:gap-2 shrink-0 ${isActive
                                         ? tab === 'Payment Pending'
                                             ? 'bg-amber-500 text-white shadow-md shadow-amber-500/20'
                                             : 'bg-white dark:bg-[#1A2633] text-primary shadow-sm'
@@ -2694,7 +2694,7 @@ export const Bookings: React.FC = () => {
                                             : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
                                         }`}
                                 >
-                                    <span>{tab === 'All' ? 'All Bookings' : tab === 'Payment Pending' ? 'Payment Pending Bookings' : tab}</span>
+                                    <span>{tab === 'All' ? 'All Bookings' : tab === 'Payment Pending' ? 'Pending Pay' : tab}</span>
                                     {tab === 'Payment Pending' && paymentPendingCount > 0 && (
                                         <span className={`px-2 py-0.5 text-[10px] font-black rounded-full transition-colors ${isActive ? 'bg-white text-amber-700' : 'bg-amber-200 dark:bg-amber-900/80 text-amber-800 dark:text-amber-200'}`}>
                                             {paymentPendingCount}
@@ -2716,7 +2716,7 @@ export const Bookings: React.FC = () => {
                                 autoCorrect="off"
                                 autoCapitalize="off"
                                 spellCheck={false}
-                                placeholder="Search by ID, Name or Title..."
+                                placeholder="Search bookings..."
                                 value={search}
                                 onChange={(e) => setSearch(e.target.value)}
                                 className="pl-10 pr-9 py-2.5 bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-700 rounded-xl text-sm w-full focus:ring-2 focus:ring-primary/50 dark:text-white placeholder:text-slate-400 outline-none transition-all"
@@ -2875,7 +2875,7 @@ export const Bookings: React.FC = () => {
                                                                         {/* Desktop Popover */}
                                                                         {activePaymentPopoverId === booking.id && (
                                                                             <div 
-                                                                                className="payment-popover absolute top-full left-0 mt-1 w-64 p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl z-50 text-left"
+                                                                                className="payment-popover absolute top-full left-0 sm:left-0 -left-12 mt-1 w-64 max-w-[calc(100vw-2.5rem)] p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl z-50 text-left"
                                                                                 onClick={e => e.stopPropagation()}
                                                                             >
                                                                                 <div className="flex justify-between items-center pb-2 mb-2 border-b border-slate-100 dark:border-slate-800">
@@ -3012,7 +3012,7 @@ export const Bookings: React.FC = () => {
                                                                             {/* Desktop Vendor Popover */}
                                                                             {activeVendorPaymentPopoverId === booking.id && (
                                                                                 <div 
-                                                                                    className="vendor-payment-popover absolute top-full left-0 mt-1 w-72 p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl z-50 text-left"
+                                                                                    className="vendor-payment-popover absolute top-full left-0 sm:left-0 -left-20 mt-1 w-72 max-w-[calc(100vw-2.5rem)] p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl z-50 text-left"
                                                                                     onClick={e => e.stopPropagation()}
                                                                                 >
                                                                                     <div className="flex justify-between items-center pb-2 mb-2 border-b border-slate-100 dark:border-slate-800">
@@ -3207,7 +3207,7 @@ export const Bookings: React.FC = () => {
                                                             {/* Mobile Popover */}
                                                             {activePaymentPopoverId === booking.id && (
                                                                 <div 
-                                                                    className="payment-popover absolute top-full right-0 mt-1 w-64 p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl z-[60] text-left"
+                                                                    className="payment-popover absolute top-full right-0 mt-1 w-64 max-w-[calc(100vw-2.5rem)] p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl z-[60] text-left"
                                                                     onClick={e => e.stopPropagation()}
                                                                 >
                                                                     <div className="flex justify-between items-center pb-2 mb-2 border-b border-slate-100 dark:border-slate-800">
@@ -3297,37 +3297,64 @@ export const Bookings: React.FC = () => {
                                                             const totalPaid = activeSBookings.reduce((sum, sb) => sum + (sb.paidAmount || 0), 0);
                                                             const pendingVendorBalance = Math.max(0, totalCost - totalPaid);
                                                             
-                                                            if (activeSBookings.length === 0) return null;
+                                                            if (activeSBookings.length === 0) {
+                                                                return (
+                                                                    <div className="flex items-center gap-1.5 mt-1 justify-end" onClick={e => e.stopPropagation()}>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => setSelectedBookingForSuppliersId(booking.id)}
+                                                                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 transition-colors"
+                                                                            title="No vendor assigned yet — tap to assign"
+                                                                        >
+                                                                            <span className="material-symbols-outlined text-[12px]">inventory</span>
+                                                                            + Assign Vendor
+                                                                        </button>
+                                                                    </div>
+                                                                );
+                                                            }
                                                             
                                                             const liveVendorStatus = totalPaid >= totalCost ? 'Paid' : totalPaid > 0 ? 'Partial' : 'Unpaid';
                                                             const isPendingVendor = liveVendorStatus === 'Unpaid' || liveVendorStatus === 'Partial';
                                                             const dotColor = liveVendorStatus === 'Unpaid' ? 'bg-rose-500' : 'bg-amber-500';
                                                             
                                                             return (
-                                                                <div className="flex items-center gap-1 mt-1 justify-end">
-                                                                    <span className="text-[11px] font-medium text-slate-500">Vendor:</span>
-                                                                    <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">{formatPrice(totalCost)}</span>
-                                                                    <span className={`text-[9px] px-1 py-0.2 rounded font-bold uppercase ${liveVendorStatus === 'Paid' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : liveVendorStatus === 'Partial' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' : 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'}`}>
-                                                                        {liveVendorStatus === 'Partial' ? 'Part' : liveVendorStatus}
-                                                                    </span>
-                                                                    {isPendingVendor && (
-                                                                        <span 
-                                                                            onClick={(e) => {
-                                                                                e.stopPropagation();
-                                                                                setActiveVendorPaymentPopoverId(activeVendorPaymentPopoverId === booking.id ? null : booking.id);
-                                                                            }}
-                                                                            className="vendor-payment-dot-trigger relative flex h-2 w-2 cursor-pointer items-center justify-center shrink-0"
-                                                                            title="Click to view pending vendor payment details"
-                                                                        >
-                                                                            <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${dotColor}`}></span>
-                                                                            <span className={`relative inline-flex rounded-full h-1 w-1 ${dotColor}`}></span>
+                                                                <div className="flex flex-col items-end gap-0.5 mt-1">
+                                                                    <div className="flex items-center gap-1 justify-end">
+                                                                        <span className="text-[11px] font-medium text-slate-500">Vendor:</span>
+                                                                        <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">{formatPrice(totalCost)}</span>
+                                                                        <span className={`text-[9px] px-1 py-0.2 rounded font-bold uppercase ${liveVendorStatus === 'Paid' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : liveVendorStatus === 'Partial' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' : 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'}`}>
+                                                                            {liveVendorStatus === 'Partial' ? 'Part' : liveVendorStatus}
                                                                         </span>
-                                                                    )}
+                                                                        {isPendingVendor && (
+                                                                            <span 
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    setActiveVendorPaymentPopoverId(activeVendorPaymentPopoverId === booking.id ? null : booking.id);
+                                                                                }}
+                                                                                className="vendor-payment-dot-trigger relative flex h-2 w-2 cursor-pointer items-center justify-center shrink-0"
+                                                                                title="Click to view pending vendor payment details"
+                                                                            >
+                                                                                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${dotColor}`}></span>
+                                                                                <span className={`relative inline-flex rounded-full h-1 w-1 ${dotColor}`}></span>
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            setSelectedBookingForSuppliersId(booking.id);
+                                                                        }}
+                                                                        className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-0.5"
+                                                                    >
+                                                                        <span className="material-symbols-outlined text-[11px]">inventory</span>
+                                                                        {activeSBookings.length} {activeSBookings.length === 1 ? 'Vendor' : 'Vendors'} • Manage
+                                                                    </button>
 
                                                                     {/* Mobile Vendor Popover */}
                                                                     {activeVendorPaymentPopoverId === booking.id && (
                                                                         <div 
-                                                                            className="vendor-payment-popover absolute top-full right-0 mt-1 w-64 p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl z-[60] text-left"
+                                                                            className="vendor-payment-popover absolute top-full right-0 mt-1 w-64 max-w-[calc(100vw-2.5rem)] p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl z-[60] text-left"
                                                                             onClick={e => e.stopPropagation()}
                                                                         >
                                                                             <div className="flex justify-between items-center pb-2 mb-2 border-b border-slate-100 dark:border-slate-800">
@@ -3414,24 +3441,96 @@ export const Bookings: React.FC = () => {
                                                     </div>
                                                 </div>
 
-                                                <div className="flex items-center justify-between text-xs text-slate-500 pt-1">
-                                                    <div className="flex items-center gap-1.5">
-                                                        <span className="material-symbols-outlined text-[14px]">calendar_today</span>
-                                                        <span>{new Date(booking.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
-                                                    </div>
-                                                    <ActionMenu>
-                                                        <button onClick={(e) => { e.stopPropagation(); handleGenerateInvoice(booking); }} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 flex items-center gap-2">
-                                                            <span className="material-symbols-outlined text-[18px] text-blue-500">receipt_long</span> Invoice
-                                                        </button>
-                                                        <button onClick={(e) => { e.stopPropagation(); setBookingForLedgerId(booking.id); }} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 flex items-center gap-2">
-                                                            <span className="material-symbols-outlined text-[18px] text-indigo-500">account_balance_wallet</span> Billing Ledger
-                                                        </button>
-                                                        {hasPermission('bookings', 'manage') && (
-                                                            <button onClick={(e) => { e.stopPropagation(); openEditModal(booking); }} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 flex items-center gap-2">
-                                                                <span className="material-symbols-outlined text-[18px] text-primary">edit</span> Edit
-                                                            </button>
+                                                <div className="flex items-center justify-between text-xs text-slate-500 pt-1.5 border-t border-slate-100 dark:border-slate-800/80">
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        <div className="flex items-center gap-1">
+                                                            <span className="material-symbols-outlined text-[14px]">calendar_today</span>
+                                                            <span>{new Date(booking.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+                                                        </div>
+                                                        {booking.phone && (
+                                                            <div className="flex items-center gap-1 ml-1" onClick={e => e.stopPropagation()}>
+                                                                <a 
+                                                                    href={`https://wa.me/${(booking.phone || '').replace(/\D/g, '')}?text=${encodeURIComponent(
+                                                                        `Hi ${booking.customer}, regarding your booking with Shrawello Travel Hub:`
+                                                                    )}`}
+                                                                    target="_blank"
+                                                                    rel="noreferrer"
+                                                                    className="p-1 rounded-md bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 hover:bg-emerald-100 transition-colors"
+                                                                    title="Chat on WhatsApp"
+                                                                >
+                                                                    <span className="material-symbols-outlined text-[13px]">chat</span>
+                                                                </a>
+                                                                <a 
+                                                                    href={`tel:${booking.phone}`}
+                                                                    className="p-1 rounded-md bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400 hover:bg-blue-100 transition-colors"
+                                                                    title="Call Customer"
+                                                                >
+                                                                    <span className="material-symbols-outlined text-[13px]">call</span>
+                                                                </a>
+                                                            </div>
                                                         )}
-                                                    </ActionMenu>
+                                                    </div>
+                                                    <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
+                                                        <button 
+                                                            type="button"
+                                                            onClick={() => setSelectedBookingForSuppliersId(booking.id)}
+                                                            className="px-2 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 font-bold text-[10px] border border-indigo-200/60 dark:border-indigo-800/50 flex items-center gap-1 hover:bg-indigo-100 transition-colors"
+                                                            title="Assign & Manage Vendors"
+                                                        >
+                                                            <span className="material-symbols-outlined text-[13px]">inventory</span>
+                                                            Vendors
+                                                        </button>
+                                                        <ActionMenu>
+                                                            <button onClick={() => handleGenerateInvoice(booking)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors">
+                                                                <span className="material-symbols-outlined text-[18px] text-blue-500">receipt_long</span> Invoice
+                                                            </button>
+                                                            <button onClick={() => setBookingForLedgerId(booking.id)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors">
+                                                                <span className="material-symbols-outlined text-[18px] text-indigo-500">account_balance_wallet</span> Billing Ledger
+                                                            </button>
+                                                            <button onClick={() => setSelectedBookingForSuppliersId(booking.id)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors">
+                                                                <span className="material-symbols-outlined text-[18px] text-emerald-500">inventory</span> Assign / Manage Suppliers
+                                                            </button>
+                                                            {hasPermission('bookings', 'manage') && (
+                                                                <button onClick={() => openEditModal(booking)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors">
+                                                                    <span className="material-symbols-outlined text-[18px] text-primary">edit</span> Edit
+                                                                </button>
+                                                            )}
+
+                                                            {/* Logic for Refund Button */}
+                                                            {hasPermission('bookings', 'manage') && booking.status === BookingStatus.CANCELLED && (booking.payment === 'Paid' || booking.payment === 'Deposit') && (
+                                                                <button onClick={() => handleProcessRefund(booking.id)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors">
+                                                                    <span className="material-symbols-outlined text-[18px] text-purple-500">currency_exchange</span> Refund
+                                                                </button>
+                                                            )}
+
+                                                            {/* Logic for Cancel Button */}
+                                                            {hasPermission('bookings', 'manage') && (booking.status === BookingStatus.PENDING || booking.status === BookingStatus.CONFIRMED) && (
+                                                                <button onClick={() => handleCancelBooking(booking.id)} className="w-full text-left px-4 py-2 text-sm text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20 flex items-center gap-2 transition-colors border-t border-slate-100 dark:border-slate-800">
+                                                                    <span className="material-symbols-outlined text-[18px]">cancel</span> Cancel Booking
+                                                                </button>
+                                                            )}
+
+                                                            {hasPermission('bookings', 'manage') && (
+                                                                <button onClick={() => {
+                                                                    if (confirm("Are you sure you want to permanently delete this booking? This action cannot be undone.")) {
+                                                                        const toastId = toast.loading('Deleting booking...');
+                                                                        deleteBooking(booking.id)
+                                                                            .then(() => {
+                                                                                toast.dismiss(toastId);
+                                                                                toast.success('Booking deleted successfully');
+                                                                            })
+                                                                            .catch((err: any) => {
+                                                                                toast.dismiss(toastId);
+                                                                                toast.error(`Delete failed: ${err?.message || 'Unknown error'}`);
+                                                                                console.error('[Delete Booking Error]', err);
+                                                                            });
+                                                                    }
+                                                                }} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-2 transition-colors border-t border-slate-100 dark:border-slate-800">
+                                                                    <span className="material-symbols-outlined text-[18px]">delete</span> Delete
+                                                                </button>
+                                                            )}
+                                                        </ActionMenu>
+                                                    </div>
                                                 </div>
                                             </div>
                                         );

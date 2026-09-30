@@ -154,6 +154,7 @@ export const AttendanceTopWidget: React.FC = () => {
         if (isClockedOut) {
             return {
                 label: 'Clocked Out',
+                shortLabel: 'Out',
                 dotColor: 'bg-red-500',
                 bgColor: 'bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-300 border-red-200/60 dark:border-red-900/40',
                 isClockedIn: false,
@@ -164,6 +165,7 @@ export const AttendanceTopWidget: React.FC = () => {
         if (currentAttendance.status === 'On Break') {
             return {
                 label: 'On Break',
+                shortLabel: 'Break',
                 dotColor: 'bg-amber-500 animate-pulse',
                 bgColor: 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 border-amber-200/60 dark:border-amber-900/40',
                 isClockedIn: true,
@@ -174,6 +176,7 @@ export const AttendanceTopWidget: React.FC = () => {
         if (currentAttendance.status === 'On Leave') {
             return {
                 label: 'On Leave',
+                shortLabel: 'Leave',
                 dotColor: 'bg-blue-500',
                 bgColor: 'bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 border-blue-200/60 dark:border-blue-900/40',
                 isClockedIn: false,
@@ -188,6 +191,7 @@ export const AttendanceTopWidget: React.FC = () => {
             const idleMins = Math.floor(idleSecs / 60);
             return {
                 label: idleMins > 0 ? `Idle ${idleMins}m` : 'Idle',
+                shortLabel: 'Idle',
                 dotColor: 'bg-amber-400 animate-ping',
                 bgColor: 'bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 border-amber-200/80 dark:border-amber-800/40',
                 isClockedIn: true,
@@ -219,6 +223,7 @@ export const AttendanceTopWidget: React.FC = () => {
         if (isLatePunch) {
             return {
                 label: `Late ${formatTimeStr(currentAttendance.checkInTime)}`,
+                shortLabel: 'Late',
                 dotColor: 'bg-amber-500',
                 bgColor: 'bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 border-amber-200/80 dark:border-amber-800/40',
                 isClockedIn: true,
@@ -228,6 +233,7 @@ export const AttendanceTopWidget: React.FC = () => {
         }
         return {
             label: `In ${formatTimeStr(currentAttendance.checkInTime)}`,
+            shortLabel: 'In',
             dotColor: 'bg-emerald-500',
             bgColor: 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300 border-emerald-200/80 dark:border-emerald-800/40',
             isClockedIn: true,
@@ -308,11 +314,12 @@ export const AttendanceTopWidget: React.FC = () => {
             {/* Topbar Attendance Pill Button */}
             <button
                 onClick={() => setIsOpen(prev => !prev)}
-                className={`flex items-center gap-2 h-9 px-3 rounded-full text-xs font-semibold border transition-all duration-200 shadow-sm hover:scale-[1.02] cursor-pointer ${pillDetails.bgColor}`}
+                className={`flex items-center gap-1.5 sm:gap-2 h-9 px-2.5 sm:px-3 rounded-full text-xs font-semibold border transition-all duration-200 shadow-sm hover:scale-[1.02] cursor-pointer ${pillDetails.bgColor}`}
                 title="Click to manage attendance & sessions"
             >
-                <span className={`size-2 rounded-full ${pillDetails.dotColor}`} />
-                <span className="whitespace-nowrap tracking-tight">{pillDetails.label}</span>
+                <span className={`size-2 rounded-full shrink-0 ${pillDetails.dotColor}`} />
+                <span className="hidden sm:inline whitespace-nowrap tracking-tight">{pillDetails.label}</span>
+                <span className="sm:hidden font-bold tracking-tight text-[11px]">{pillDetails.shortLabel}</span>
             </button>
 
             {/* Floating Dropdown Card Popover */}

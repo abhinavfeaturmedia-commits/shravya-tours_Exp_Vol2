@@ -87,7 +87,7 @@ export const AdminLiquidFab: React.FC<AdminLiquidFabProps> = ({ actions }) => {
   return (
     <div
       ref={fabRef}
-      className="fixed bottom-6 right-4 lg:right-6 z-50 select-none pointer-events-none"
+      className="fixed bottom-20 lg:bottom-6 right-3 lg:right-6 z-50 select-none pointer-events-none"
       aria-label="Admin Quick Actions Menu"
     >
       <div className="relative" style={{ width: 210, height: 210 }}>
@@ -102,7 +102,7 @@ export const AdminLiquidFab: React.FC<AdminLiquidFabProps> = ({ actions }) => {
         )}
 
         {/* Liquid Gooey Morphing Container */}
-        <div className="pointer-events-auto">
+        <div className={isOpen ? 'pointer-events-auto' : 'pointer-events-none'}>
           <Liquid
             fill="#6366F1"
             blur={6}
@@ -114,7 +114,7 @@ export const AdminLiquidFab: React.FC<AdminLiquidFabProps> = ({ actions }) => {
             {mappedActions.map((action, index) => (
               <Liquid.Item
                 key={action.name}
-                style={{ position: 'absolute', left: 147, top: 147 }}
+                style={{ position: 'absolute', left: 148, top: 148 }}
                 x={isOpen ? action.x : 0}
                 y={isOpen ? action.y : 0}
                 transition="bouncy"
@@ -132,10 +132,11 @@ export const AdminLiquidFab: React.FC<AdminLiquidFabProps> = ({ actions }) => {
                   aria-label={action.name}
                   title={action.name}
                   tabIndex={isOpen ? 0 : -1}
-                  className="w-11 h-11 rounded-full flex items-center justify-center text-white shadow-lg transition-transform active:scale-90 hover:scale-115 focus:outline-none"
+                  className={`w-11 h-11 rounded-full flex items-center justify-center text-white shadow-lg transition-all duration-200 active:scale-90 hover:scale-115 focus:outline-none ${
+                    isOpen ? 'opacity-100 scale-100 pointer-events-auto' : 'opacity-0 scale-0 pointer-events-none'
+                  }`}
                   style={{
                     backgroundColor: action.bg,
-                    pointerEvents: isOpen ? 'auto' : 'none',
                   }}
                 >
                   <span className="material-symbols-outlined text-[20px] select-none pointer-events-none">
@@ -156,7 +157,7 @@ export const AdminLiquidFab: React.FC<AdminLiquidFabProps> = ({ actions }) => {
                 aria-expanded={isOpen}
                 aria-label={isOpen ? 'Close Quick Actions' : 'Open Quick Actions'}
                 title="Admin Quick Actions"
-                className="w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white flex items-center justify-center shadow-xl shadow-indigo-500/30 transition-all duration-300 hover:shadow-indigo-500/50 hover:scale-105 active:scale-95 group focus:outline-none"
+                className="w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white flex items-center justify-center shadow-xl shadow-indigo-500/30 transition-all duration-300 hover:shadow-indigo-500/50 hover:scale-105 active:scale-95 group focus:outline-none pointer-events-auto"
               >
                 <span
                   className={`material-symbols-outlined text-[28px] transition-transform duration-300 ${
