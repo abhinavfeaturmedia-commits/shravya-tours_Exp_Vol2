@@ -282,7 +282,8 @@ export function createPermissionGuard(pool) {
 
 const PUBLIC_READ_TABLES = new Set([
     'packages', 'cms_banners', 'cms_testimonials', 'cms_gallery_images',
-    'cms_posts', 'master_locations', 'master_hotels', 'master_activities'
+    'cms_posts', 'master_locations', 'master_hotels', 'master_activities',
+    'membership_plans'
 ]);
 
 export function optionalAuthMiddleware(req, res, next) {

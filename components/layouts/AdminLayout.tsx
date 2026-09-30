@@ -174,6 +174,9 @@ export const AdminLayout: React.FC = () => {
   const { settings } = useSettings();
   
   const [activeMegaCategory, setActiveMegaCategory] = useState<string | null>(null);
+  const [isMegaMenuPinned, setIsMegaMenuPinned] = useState(false);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const [mobileExpandedCat, setMobileExpandedCat] = useState<string | null>(null);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
@@ -198,6 +201,65 @@ export const AdminLayout: React.FC = () => {
   const profileMenuRef = useRef<HTMLDivElement>(null);
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const [dropdownPos, setDropdownPos] = useState<{ left: number; arrowLeft: number } | null>(null);
+
+  const closeMegaMenu = useCallback(() => {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+    setActiveMegaCategory(null);
+    setIsMegaMenuPinned(false);
+  }, []);
+
+  const handleTabClick = (categoryKey: string) => {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+    if (activeMegaCategory === categoryKey && isMegaMenuPinned) {
+      closeMegaMenu();
+    } else {
+      setActiveMegaCategory(categoryKey);
+      setIsMegaMenuPinned(true);
+    }
+  };
+
+  const handleTabMouseEnter = (categoryKey: string) => {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+    setActiveMegaCategory(categoryKey);
+  };
+
+  const handleNavMouseLeave = () => {
+    if (isMegaMenuPinned) return;
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+    }
+    closeTimerRef.current = setTimeout(() => {
+      setActiveMegaCategory(null);
+      setIsMegaMenuPinned(false);
+    }, 250);
+  };
+
+  const handleDropdownMouseEnter = () => {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  };
+
+  const handleDropdownMouseLeave = () => {
+    if (isMegaMenuPinned) return;
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+    }
+    closeTimerRef.current = setTimeout(() => {
+      setActiveMegaCategory(null);
+      setIsMegaMenuPinned(false);
+    }, 250);
+  };
 
   useEffect(() => {
     if (!activeMegaCategory) {
@@ -237,22 +299,32 @@ export const AdminLayout: React.FC = () => {
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (megaMenuRef.current && !megaMenuRef.current.contains(event.target as Node)) {
-        setActiveMegaCategory(null);
+        closeMegaMenu();
       }
       if (profileMenuRef.current && !profileMenuRef.current.contains(event.target as Node)) {
         setIsProfileMenuOpen(false);
       }
     };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        closeMegaMenu();
+        setIsProfileMenuOpen(false);
+      }
+    };
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [closeMegaMenu]);
 
   useEffect(() => {
-    setActiveMegaCategory(null);
+    closeMegaMenu();
     setIsMobileDrawerOpen(false);
     setIsProfileMenuOpen(false);
     setIsNotificationsOpen(false);
-  }, [location.pathname]);
+  }, [location.pathname, closeMegaMenu]);
 
   const fetchNotifications = useCallback(async () => {
     if (!currentUser?.staffId) return;
@@ -569,7 +641,7 @@ export const AdminLayout: React.FC = () => {
           <nav 
             ref={megaMenuRef} 
             className="hidden lg:flex items-center gap-1 xl:gap-1.5 relative h-full shrink-0"
-            onMouseLeave={() => setActiveMegaCategory(null)}
+            onMouseLeave={handleNavMouseLeave}
           >
             {visibleCategories.map((category) => {
               const isCategoryActive = category.items.some(item =>
@@ -584,11 +656,11 @@ export const AdminLayout: React.FC = () => {
                 <div
                   key={category.key}
                   className="h-full flex items-center shrink-0"
-                  onMouseEnter={() => setActiveMegaCategory(category.key)}
+                  onMouseEnter={() => handleTabMouseEnter(category.key)}
                 >
                   <button
                     ref={el => { tabRefs.current[category.key] = el; }}
-                    onClick={() => setActiveMegaCategory(isOpen ? null : category.key)}
+                    onClick={() => handleTabClick(category.key)}
                     className={`group flex items-center gap-1.5 xl:gap-2 px-2.5 xl:px-3.5 py-1.5 xl:py-2 rounded-xl xl:rounded-2xl text-xs font-bold transition-all duration-200 cursor-pointer ${
                       isCategoryActive || isOpen
                         ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-md ring-2 ring-indigo-500/30 scale-[1.02]'
@@ -631,9 +703,9 @@ export const AdminLayout: React.FC = () => {
 
               return (
                 <div
-                  onMouseEnter={() => setActiveMegaCategory(activeCategory.key)}
-                  onMouseLeave={() => setActiveMegaCategory(null)}
-                  className="absolute top-full mt-2 w-[740px] max-w-[calc(100vw-2rem)] bg-white dark:bg-[#0F172A] rounded-3xl shadow-2xl shadow-slate-950/20 dark:shadow-black/70 border border-slate-200/90 dark:border-slate-800 z-[150] animate-in fade-in-0 zoom-in-95 duration-150 overflow-hidden flex transition-[left] duration-150 ease-out before:absolute before:-top-3 before:left-0 before:right-0 before:h-4 before:content-['']"
+                  onMouseEnter={handleDropdownMouseEnter}
+                  onMouseLeave={handleDropdownMouseLeave}
+                  className="absolute top-full mt-2 w-[740px] max-w-[calc(100vw-2rem)] bg-white dark:bg-[#0F172A] rounded-3xl shadow-2xl shadow-slate-950/20 dark:shadow-black/70 border border-slate-200/90 dark:border-slate-800 z-[150] animate-in fade-in-0 zoom-in-95 duration-150 overflow-hidden flex transition-[left] duration-150 ease-out before:absolute before:-top-4 before:left-0 before:right-0 before:h-5 before:content-['']"
                   style={{
                     left: `${dropdownPos?.left ?? 0}px`
                   }}
@@ -679,7 +751,7 @@ export const AdminLayout: React.FC = () => {
                         <button
                           onClick={() => {
                             navigate(activeCategory.quickAction.path);
-                            setActiveMegaCategory(null);
+                            closeMegaMenu();
                           }}
                           className={`w-full flex items-center justify-center gap-2 py-2.5 px-3 bg-gradient-to-r ${themeStyles.btn} text-white text-xs font-bold rounded-xl shadow-md hover:opacity-95 active:scale-95 transition-all cursor-pointer`}
                         >
@@ -717,7 +789,7 @@ export const AdminLayout: React.FC = () => {
                             <Link
                               key={item.path}
                               to={item.path}
-                              onClick={() => setActiveMegaCategory(null)}
+                              onClick={closeMegaMenu}
                               className={`flex items-start gap-3 p-2.5 rounded-2xl transition-all duration-150 group text-left ${
                                 isItemActive
                                   ? 'bg-indigo-50/90 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800/80 shadow-sm'

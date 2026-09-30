@@ -245,6 +245,103 @@ const INITIAL_TERMS_TEMPLATES: MasterTermsTemplate[] = [
 const INITIAL_FOLLOWUPS: FollowUp[] = [];
 const INITIAL_PROPOSALS: Proposal[] = [];
 
+const INITIAL_MEMBERSHIP_PLANS: MembershipPlan[] = [
+  {
+    id: "374ab5c9-4a3f-404a-bc1d-671a373bf9ec",
+    name: "🌱 SHRAWELLO Explore",
+    tier: "Bronze",
+    pricePerMonth: 199,
+    pricePerQuarter: 537,
+    pricePerHalfYear: 1051,
+    pricePerYear: 2030,
+    discountType: "Percentage",
+    discountPercent: 0,
+    discountFlat: 0,
+    hotelDiscount: 2,
+    tourDiscount: 5,
+    flightDiscount: 1,
+    cabDiscount: 3,
+    perks: [
+      "Tour package discount on first 2 Tours (5% - Max up to  ₹2000)",
+      "Flat 3% discount on 3 no. of outstation cab bookings (Max up to ₹200)",
+      "Flat 2% OFF on Bus & Train Tickets invoice value (Max up to ₹200)",
+      "Flat 1% OFF on Flight Bookings invoice value (Max up to ₹200)",
+      "Priority WhatsApp support",
+      "Birthday special 1 travel coupon (Worth ₹300)",
+      "Member-only travel deals",
+      "Free travel consultation & itinerary planning yearly 2 times",
+      "Referral reward (₹100 travel credit per successful referral)",
+      "Bulk / 3rd party booking not allowed"
+    ],
+    color: "#CD7F32",
+    isActive: true,
+    showOnHomepage: true
+  },
+  {
+    id: "17c3d808-9000-4a55-9e7d-354fc8743758",
+    name: "🌍 SHRAWELLO Prime",
+    tier: "Silver",
+    pricePerMonth: 699,
+    pricePerQuarter: 1887,
+    pricePerHalfYear: 4982,
+    pricePerYear: 7130,
+    discountType: "Percentage",
+    discountPercent: 1,
+    discountFlat: 0,
+    hotelDiscount: 2,
+    tourDiscount: 8,
+    flightDiscount: 1,
+    cabDiscount: 3,
+    perks: [
+      "Higher tour discount on first 3 tours (7.5%) - Max up to ₹4500",
+      "Free airport/railway pickup (once a year, Max up to ₹900 limit)",
+      "Exclusive festival & long-weekend offers",
+      "Anniversary travel voucher (Worth ₹500)",
+      "Priority booking during peak seasons",
+      "Dedicated travel advisor",
+      "Referral reward (₹200 travel credit)",
+      "Add 3 more Family members Free / 3rd party booking not allowed",
+      "Flat Discount benefits from Explore Member are carryover",
+      "Special welcome gift on annual renewal"
+    ],
+    color: "#9E9E9E",
+    isActive: true,
+    showOnHomepage: true
+  },
+  {
+    id: "a82b7ce8-8a0b-4c7e-941e-2ded89527209",
+    name: "👑 SHRAWELLO Royale",
+    tier: "Gold",
+    pricePerMonth: 1399,
+    pricePerQuarter: 3777,
+    pricePerHalfYear: 9972,
+    pricePerYear: 14270,
+    discountType: "Percentage",
+    discountPercent: 2,
+    discountFlat: 0,
+    hotelDiscount: 2,
+    tourDiscount: 10,
+    flightDiscount: 1,
+    cabDiscount: 3,
+    perks: [
+      "Highest tour discount on first 4 tours (10%) - Max up to ₹8000",
+      "Free airport/railway pickup (Twice a year, Max up to ₹900 limit)",
+      "Early access to new tour launches & flash sales",
+      "Complimentary travel kit (luggage tags, neck pillow, passport holder)",
+      "Free visa documentation assistance (service only; government/visa fees extra)",
+      "Dedicated relationship manager",
+      "Referral reward (₹300 travel credit)",
+      "Add 5 more Family members for Free / 3rd party booking not allowed",
+      "Flat Discount benefits + Birthday credit points from Explore Member are carryover",
+      "Special welcome gift on annual renewal"
+    ],
+    color: "#edca02",
+    isActive: true,
+    showOnHomepage: true
+  }
+];
+
+
 
 interface DataContextType {
   packages: Package[];
@@ -509,7 +606,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [assignmentRules, setAssignmentRules] = useState<AssignmentRule[]>(() => loadFromStorage(`${STORAGE_KEY}_assignment_rules`, []));
 
   // Memberships
-  const [membershipPlans, setMembershipPlans] = useState<MembershipPlan[]>([]);
+  const [membershipPlans, setMembershipPlans] = useState<MembershipPlan[]>(() => loadFromStorage(`${STORAGE_KEY}_membership_plans`, INITIAL_MEMBERSHIP_PLANS));
   const [customerMemberships, setCustomerMemberships] = useState<CustomerMembership[]>([]);
 
   // Coupons
@@ -593,7 +690,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (bulkRes.cms_testimonials) setCmsTestimonials(bulkRes.cms_testimonials.length > 0 ? bulkRes.cms_testimonials.map(api.mapCMSTestimonial) : cmsTestimonials);
       if (bulkRes.cms_gallery_images) setCmsGallery(bulkRes.cms_gallery_images.length > 0 ? bulkRes.cms_gallery_images.map(api.mapCMSGalleryImage) : cmsGallery);
       if (bulkRes.cms_posts) setCmsPosts(bulkRes.cms_posts.length > 0 ? bulkRes.cms_posts.map(api.mapCMSPost) : cmsPosts);
-      if (bulkRes.membership_plans) setMembershipPlans(bulkRes.membership_plans.map(api.mapMembershipPlan));
+      if (bulkRes.membership_plans && bulkRes.membership_plans.length > 0) {
+        setMembershipPlans(bulkRes.membership_plans.map(api.mapMembershipPlan));
+      } else {
+        api.getPublicMembershipPlans().then(plans => {
+          if (plans.length > 0) setMembershipPlans(plans);
+        }).catch(() => {});
+      }
 
       // 2. Populate Authenticated State
       if (hasToken) {
@@ -1868,6 +1971,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => saveToStorage(`${STORAGE_KEY}_cms_testimonials`, cmsTestimonials), [cmsTestimonials]);
   useEffect(() => saveToStorage(`${STORAGE_KEY}_cms_gallery`, cmsGallery), [cmsGallery]);
   useEffect(() => saveToStorage(`${STORAGE_KEY}_cms_posts`, cmsPosts), [cmsPosts]);
+  useEffect(() => {
+    if (membershipPlans.length > 0) saveToStorage(`${STORAGE_KEY}_membership_plans`, membershipPlans);
+  }, [membershipPlans]);
 
   // One-time migration: replace old Google-hosted hero image with new premium Unsplash URL
   useEffect(() => {

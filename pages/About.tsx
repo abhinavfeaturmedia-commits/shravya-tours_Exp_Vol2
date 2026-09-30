@@ -147,7 +147,7 @@ export const About: React.FC = () => {
                                 { role: 'IT & Marketing Head', name: 'Abhinav Gaikwad', icon: 'campaign' },
                                 { role: 'Ticketing Manager', name: 'Omkar Bhosale', icon: 'local_activity' },
                                 { role: 'Fleet Manager', name: 'Dipak Pathade', icon: 'directions_car' },
-                                { role: 'Sales Executive', name: 'Vacant', icon: 'person_add' },
+                                { role: 'Sales Executive', name: 'Vaishnavi Vernekar', icon: 'support_agent' },
                                 { role: 'Operations Manager', name: 'Vacant', icon: 'person_add' },
                             ].map((member, i) => (
                                 <div key={i} className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 text-center hover:shadow-md transition-shadow">

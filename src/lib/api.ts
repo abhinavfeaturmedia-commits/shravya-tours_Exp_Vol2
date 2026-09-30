@@ -2676,6 +2676,16 @@ export const api = {
             }))
         ),
 
+    getPublicMembershipPlans: async (): Promise<any[]> => {
+        try {
+            const res = await fetchApi('/api/public/membership-plans');
+            if (Array.isArray(res)) return res.map(api.mapMembershipPlan);
+            return [];
+        } catch {
+            return [];
+        }
+    },
+
     createMembershipPlan: (plan: any) =>
         crud.create('membership_plans', {
             id: plan.id,

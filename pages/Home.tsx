@@ -1450,7 +1450,7 @@ export const Home: React.FC = () => {
                   const scale = isCenter ? 1 : absOffset === 1 ? 0.84 : 0.68;
                   const zIndex = total - absOffset;
                   const opacity = absOffset === 0 ? 1 : absOffset === 1 ? 0.9 : 0.55;
-                  const verticalOffset = isCenter ? 0 : absOffset === 1 ? 30 : 55;
+                  const verticalOffset = 0;
                   return (
                     <div
                       key={dest.id}
@@ -1473,62 +1473,74 @@ export const Home: React.FC = () => {
                         marginTop: `-${baseHeight / 2}px`,
                       }}
                     >
-                      <BorderBeam size="md" colorVariant="sunset" active={isCenter}>
-                      <div className={`relative w-full h-full overflow-hidden transition-all duration-500 ${
-                        isCenter
-                          ? 'rounded-[2rem] shadow-[0_40px_80px_rgba(0,0,0,0.3)] dark:shadow-[0_40px_80px_rgba(0,0,0,0.65)] ring-1 ring-black/5 dark:ring-white/10'
-                          : 'rounded-[1.5rem] shadow-[0_15px_45px_rgba(0,0,0,0.15)] dark:shadow-[0_15px_45px_rgba(0,0,0,0.45)] border border-black/5 dark:border-white/5'
-                      }`}>
-                        <img
-                          src={dest.imageUrl}
-                          alt={dest.name}
-                          className={`w-full h-full object-cover transition-transform duration-[2000ms] ${isCenter ? 'group-hover:scale-110' : ''}`}
-                        />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
-                        {dest.badge && (
-                          <div
-                            className="absolute top-4 left-4 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest text-white flex items-center gap-1.5"
-                            style={{ backgroundColor: dest.badgeColor || '#ef4444', boxShadow: `0 0 18px ${dest.badgeColor || '#ef4444'}70` }}
-                          >
-                            <span className="size-1.5 bg-white rounded-full animate-ping shrink-0" />
-                            {dest.badge}
+                      <BorderBeam
+                        size="md"
+                        colorVariant="sunset"
+                        active={isCenter}
+                        borderRadius={isCenter ? 32 : 24}
+                        className="w-full h-full block"
+                        style={{ width: '100%', height: '100%' }}
+                      >
+                        <div
+                          className={`relative w-full h-full overflow-hidden transition-all duration-500 ${
+                            isCenter
+                              ? 'rounded-[2rem] shadow-[0_40px_80px_rgba(0,0,0,0.3)] dark:shadow-[0_40px_80px_rgba(0,0,0,0.65)] ring-1 ring-black/5 dark:ring-white/10'
+                              : 'rounded-[1.5rem] shadow-[0_15px_45px_rgba(0,0,0,0.15)] dark:shadow-[0_15px_45px_rgba(0,0,0,0.45)] border border-black/5 dark:border-white/5'
+                          }`}
+                          style={{ width: '100%', height: '100%' }}
+                        >
+                          <img
+                            src={dest.imageUrl}
+                            alt={dest.name}
+                            className={`absolute inset-0 w-full h-full object-cover object-center transition-transform duration-[2000ms] ${
+                              isCenter ? 'group-hover:scale-110' : ''
+                            }`}
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent pointer-events-none" />
+                          {dest.badge && (
+                            <div
+                              className="absolute top-4 left-4 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest text-white flex items-center gap-1.5"
+                              style={{ backgroundColor: dest.badgeColor || '#ef4444', boxShadow: `0 0 18px ${dest.badgeColor || '#ef4444'}70` }}
+                            >
+                              <span className="size-1.5 bg-white rounded-full animate-ping shrink-0" />
+                              {dest.badge}
+                            </div>
+                          )}
+                          <div className={`absolute bottom-4 right-4 rounded-full bg-white/15 backdrop-blur-md border border-white/25 flex items-center justify-center text-white transition-transform duration-300 group-hover:scale-110 ${isCenter ? 'size-10' : 'size-8'}`}>
+                            <span className={`material-symbols-outlined ${isCenter ? 'text-[18px]' : 'text-[14px]'}`}>
+                              {i % 2 === 0 ? 'play_arrow' : 'photo_camera'}
+                            </span>
                           </div>
-                        )}
-                        <div className={`absolute bottom-4 right-4 rounded-full bg-white/15 backdrop-blur-md border border-white/25 flex items-center justify-center text-white transition-transform duration-300 group-hover:scale-110 ${isCenter ? 'size-10' : 'size-8'}`}>
-                          <span className={`material-symbols-outlined ${isCenter ? 'text-[18px]' : 'text-[14px]'}`}>
-                            {i % 2 === 0 ? 'play_arrow' : 'photo_camera'}
-                          </span>
-                        </div>
-                        <div className="absolute bottom-0 left-0 right-0 p-4 pr-14 z-10">
-                          <h3 className={`font-black text-white leading-tight drop-shadow ${isCenter ? 'text-xl md:text-2xl' : 'text-sm'}`}>
-                            {dest.name}
-                          </h3>
-                          {isCenter && dest.country && (
-                            <p className="text-slate-300 text-xs mt-1 flex items-center gap-1 font-light">
-                              <span className="material-symbols-outlined text-[13px] text-primary">location_on</span>
-                              {dest.country}
-                            </p>
-                          )}
-                          {isCenter && (
-                            <>
-                              <div className="flex items-center gap-2 mt-3 pt-3 border-t border-white/10">
-                                <div className="flex -space-x-2">
-                                  <img className="size-6 rounded-full ring-2 ring-black object-cover" src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=80&fit=crop&crop=faces&q=80" alt="t1" />
-                                  <img className="size-6 rounded-full ring-2 ring-black object-cover" src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=80&fit=crop&crop=faces&q=80" alt="t2" />
-                                  <img className="size-6 rounded-full ring-2 ring-black object-cover" src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=80&fit=crop&crop=faces&q=80" alt="t3" />
+                          <div className="absolute bottom-0 left-0 right-0 p-4 pr-14 z-10">
+                            <h3 className={`font-black text-white leading-tight drop-shadow ${isCenter ? 'text-xl md:text-2xl' : 'text-sm'}`}>
+                              {dest.name}
+                            </h3>
+                            {isCenter && dest.country && (
+                              <p className="text-slate-300 text-xs mt-1 flex items-center gap-1 font-light">
+                                <span className="material-symbols-outlined text-[13px] text-primary">location_on</span>
+                                {dest.country}
+                              </p>
+                            )}
+                            {isCenter && (
+                              <>
+                                <div className="flex items-center gap-2 mt-3 pt-3 border-t border-white/10">
+                                  <div className="flex -space-x-2">
+                                    <img className="size-6 rounded-full ring-2 ring-black object-cover" src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=80&fit=crop&crop=faces&q=80" alt="t1" />
+                                    <img className="size-6 rounded-full ring-2 ring-black object-cover" src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=80&fit=crop&crop=faces&q=80" alt="t2" />
+                                    <img className="size-6 rounded-full ring-2 ring-black object-cover" src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=80&fit=crop&crop=faces&q=80" alt="t3" />
+                                  </div>
+                                  <span className="text-amber-300 text-[11px] font-bold tracking-wide">
+                                    {dest.statLabel || `${(dest.packageCount || 0) + 100}+ travelers visited`}
+                                  </span>
                                 </div>
-                                <span className="text-amber-300 text-[11px] font-bold tracking-wide">
-                                  {dest.statLabel || `${(dest.packageCount || 0) + 100}+ travelers visited`}
-                                </span>
-                              </div>
-                              <div className="mt-3 flex items-center gap-1.5 text-white/75 text-xs font-semibold group-hover:text-primary transition-colors">
-                                <span>Explore packages</span>
-                                <span className="material-symbols-outlined text-[13px] transition-transform group-hover:translate-x-1 duration-300">arrow_forward</span>
-                              </div>
-                            </>
-                          )}
+                                <div className="mt-3 flex items-center gap-1.5 text-white/75 text-xs font-semibold group-hover:text-primary transition-colors">
+                                  <span>Explore packages</span>
+                                  <span className="material-symbols-outlined text-[13px] transition-transform group-hover:translate-x-1 duration-300">arrow_forward</span>
+                                </div>
+                              </>
+                            )}
+                          </div>
                         </div>
-                      </div>
                       </BorderBeam>
                     </div>
                   );

@@ -6550,7 +6550,7 @@ app.post('/api/admin/memberships/:id/reject', authMiddleware, async (req, res) =
 const PUBLIC_READ_TABLES = new Set([
     'packages', 'cms_banners', 'cms_testimonials', 'cms_gallery_images', 
     'cms_posts', 'master_locations', 'master_hotels', 'master_activities',
-    'training_videos'
+    'training_videos', 'membership_plans'
 ]);
 
 const TABLE_SORT_COLUMNS = {

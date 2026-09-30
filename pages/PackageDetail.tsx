@@ -15,8 +15,6 @@ import { getEmbedUrl, getVideoThumbnail } from '../utils/videoUtils';
 import { copyToClipboard } from '../utils/clipboard';
 import { useCustomerAuth, CUSTOMER_JWT_KEY } from '../context/CustomerAuthContext';
 import { BorderBeam } from 'border-beam';
-import { MetalBadge } from 'metal-fx';
-import { Liquid } from 'liquid-gooey';
 
 export const PackageDetail: React.FC = () => {
   const { id: rawId } = useParams<{ id: string }>();
@@ -2140,7 +2138,10 @@ export const PackageDetail: React.FC = () => {
                       <div className="text-[11px] font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800/70 border border-slate-200/60 dark:border-slate-700/50 px-3.5 py-1.5 rounded-xl w-fit select-none">
                         Total: {formatPrice(calculateTotal())} for {guests}
                       </div>
-                      <MetalBadge>FLASH DEAL</MetalBadge>
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-gradient-to-r from-amber-500 via-rose-500 to-indigo-600 text-white shadow-sm shadow-rose-500/25 select-none animate-in fade-in">
+                        <span className="material-symbols-outlined text-[13px] text-amber-200 animate-pulse">local_fire_department</span>
+                        FLASH DEAL
+                      </span>
                     </div>
                     {tour.remainingSeats && tour.remainingSeats < 10 && (
                       <div className="inline-flex items-center gap-2 px-3 py-1 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-lg text-xs font-bold mt-3">
@@ -2153,42 +2154,41 @@ export const PackageDetail: React.FC = () => {
                   {/* Controls body */}
                   <div className="p-6 space-y-4 flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-205 hover:scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-800">
                     
-                    {/* Hotel Category Tier Gooey Switcher with liquid-gooey */}
+                    {/* Hotel Category Tier Selector */}
                     <div>
                       <div className="flex items-center justify-between mb-2 ml-1">
-                        <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                        <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500 flex items-center gap-1.5">
+                          <span className="material-symbols-outlined text-[14px] text-primary">hotel</span>
                           Hotel Category Tier
                         </label>
-                        <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded-full border border-amber-500/20">
-                          {currentHotelTier.stars} {currentHotelTier.hotelType}
+                        <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-50/80 dark:bg-amber-950/40 px-2.5 py-0.5 rounded-full border border-amber-500/25 shadow-xs flex items-center gap-1">
+                          <span className="text-amber-500 font-black">{currentHotelTier.stars}</span>
+                          <span>{currentHotelTier.hotelType}</span>
                         </span>
                       </div>
-                      <div className="p-1 rounded-2xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80">
-                        <Liquid fill="#C9732A" blur={4} contrast={16} shadow="0 4px 12px rgba(201,115,42,0.35)">
-                          <div className="grid grid-cols-3 gap-1">
-                            {HOTEL_TIERS.map((tier) => {
-                              const isSelected = selectedHotelTier === tier.id;
-                              return (
-                                <Liquid.Item key={tier.id} observe effect="morph">
-                                  <button
-                                    type="button"
-                                    onClick={() => setSelectedHotelTier(tier.id as any)}
-                                    className={`w-full py-2 px-2 rounded-xl text-xs font-bold transition-all text-center flex flex-col items-center justify-center gap-0.5 ${
-                                      isSelected
-                                        ? 'bg-[#C9732A] text-white shadow-md'
-                                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                                    }`}
-                                  >
-                                    <span className="tracking-tight">{tier.name}</span>
-                                    <span className={`text-[10px] font-medium ${isSelected ? 'text-amber-200' : 'text-slate-400'}`}>
-                                      {tier.stars}
-                                    </span>
-                                  </button>
-                                </Liquid.Item>
-                              );
-                            })}
-                          </div>
-                        </Liquid>
+                      <div className="p-1 rounded-2xl bg-slate-100 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700/80 grid grid-cols-3 gap-1.5">
+                        {HOTEL_TIERS.map((tier) => {
+                          const isSelected = selectedHotelTier === tier.id;
+                          return (
+                            <button
+                              key={tier.id}
+                              type="button"
+                              onClick={() => setSelectedHotelTier(tier.id as any)}
+                              className={`relative group py-2.5 px-2 rounded-xl text-xs transition-all duration-200 text-center flex flex-col items-center justify-center gap-0.5 cursor-pointer outline-none active:scale-[0.98] ${
+                                isSelected
+                                  ? 'bg-white dark:bg-[#1e293b] text-slate-900 dark:text-white shadow-md shadow-slate-900/5 dark:shadow-black/40 ring-2 ring-primary/40 border border-slate-200/70 dark:border-slate-700/60'
+                                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-700/40 border border-transparent'
+                              }`}
+                            >
+                              <span className={`tracking-tight transition-colors ${isSelected ? 'text-primary dark:text-indigo-400 font-black' : 'font-bold'}`}>
+                                {tier.name}
+                              </span>
+                              <span className={`text-[10px] font-black flex items-center gap-0.5 transition-colors ${isSelected ? 'text-amber-500' : 'text-slate-400 dark:text-slate-500 group-hover:text-amber-500/70'}`}>
+                                {tier.stars}
+                              </span>
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
 
