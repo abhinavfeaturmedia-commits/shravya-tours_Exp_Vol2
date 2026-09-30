@@ -348,7 +348,7 @@ const BookingSideAnimations: React.FC<{ activeTab: string; side: 'left' | 'right
 
 export const Home: React.FC = () => {
   const { packages, cmsBanners, cmsTestimonials, cmsGallery, trendingDestinations, membershipPlans, offerBanners } = useData();
-  const [activeTab, setActiveTab] = useState('tour-packages');
+  const [activeTab, setActiveTab] = useState('hotel-booking');
   const [isLeadModalOpen, setIsLeadModalOpen] = useState(false);
   const navigate = useNavigate();
 

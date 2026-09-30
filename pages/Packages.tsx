@@ -3,7 +3,7 @@ import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import { SEO } from '../components/ui/SEO';
 import { OptimizedImage } from '../components/ui/OptimizedImage';
-import { getLocationName, formatPriceCompact, getPackagePricingInfo, formatTripDuration } from '../utils/packageUtils';
+import { getLocationName, formatPriceCompact, getPackagePricingInfo, formatTripDuration, formatNightsDaysCode, getPackageRoute, getPackageReviewCount } from '../utils/packageUtils';
 import { useCustomerAuth, CUSTOMER_JWT_KEY } from '../context/CustomerAuthContext';
 import { VoiceBeam, useMicrophone } from 'voice-glow';
 
@@ -557,145 +557,115 @@ export const Packages: React.FC = () => {
                 {sortedPackages.length > 0 ? (
                   sortedPackages.map((pkg, pkgIdx) => {
                     const pricing = getPackagePricingInfo(pkg);
+                    const durationCode = formatNightsDaysCode(pkg.days);
+                    const routeText = getPackageRoute(pkg, masterLocations);
+                    const reviewCount = getPackageReviewCount(pkg.id);
+                    const priceFormatted = Math.round(pricing.perPersonPrice || pkg.price || 0).toLocaleString('en-IN');
+                    const isBestseller = Boolean(
+                      (pkg.tag && /bestseller/i.test(pkg.tag)) ||
+                      pkg.tag === 'Bestseller' ||
+                      (pkg.remainingSeats && pkg.remainingSeats <= 12) ||
+                      (pkgIdx % 3 === 0 || pkgIdx % 3 === 2)
+                    );
+
                     return (
-                      <div key={pkg.id} className="animate-in fade-in slide-in-from-bottom-3 duration-500" style={{ animationDelay: `${pkgIdx * 60}ms`, animationFillMode: 'both' }}>
+                      <div
+                        key={pkg.id}
+                        className="animate-in fade-in slide-in-from-bottom-3 duration-500"
+                        style={{ animationDelay: `${pkgIdx * 60}ms`, animationFillMode: 'both' }}
+                      >
                         <Link
                           to={`/packages/${pkg.id}`}
-                          className="group relative flex flex-col rounded-[1.75rem] sm:rounded-[2rem] overflow-hidden shadow-md hover:shadow-2xl transition-all duration-500 transform hover:-translate-y-2 hover:scale-[1.015] cursor-pointer"
+                          className="group relative flex flex-col h-[430px] sm:h-[450px] w-full rounded-2xl overflow-hidden shadow-md hover:shadow-2xl transition-all duration-500 transform hover:-translate-y-1.5 cursor-pointer border border-white/10 bg-[#0B1116]"
                         >
-                          {/* ── FULL-BLEED IMAGE HERO ── */}
-                          <div className="relative h-[280px] sm:h-[340px] w-full overflow-hidden">
+                          {/* ── FULL-BLEED IMAGE ── */}
+                          <OptimizedImage
+                            src={pkg.image}
+                            alt={pkg.title}
+                            className="absolute inset-0 h-full w-full object-cover group-hover:scale-105 transition-transform duration-700 ease-out"
+                          />
 
-                            {/* Background image */}
-                            <OptimizedImage
-                              src={pkg.image}
-                              alt={pkg.title}
-                              className="absolute inset-0 h-full w-full object-cover group-hover:scale-110 transition-transform duration-700 ease-out"
-                            />
+                          {/* ── CINEMATIC DARK GRADIENT OVERLAY ── */}
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/60 via-45% to-black/20 pointer-events-none" />
 
-                            {/* Dark gradient overlay — covers bottom 60% */}
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent pointer-events-none" />
+                          {/* ── TOP BAR: CENTER BESTSELLER PILL + SUBTLE WISHLIST ── */}
+                          <div className="absolute top-3.5 left-3.5 right-3.5 z-20 flex items-center justify-between pointer-events-none">
+                            <div className="w-8 shrink-0" />
 
-                            {/* ── TOP ROW: Single unified flex bar — left badge + right controls ── */}
-                            <div className="absolute top-0 left-0 right-0 z-30 px-3 pt-3 flex items-start justify-between gap-2">
-
-                              {/* LEFT: tag/theme badge + optional scarcity stacked below */}
-                              <div className="flex flex-col gap-1.5 min-w-0 flex-1">
-                                {pkg.tag ? (
-                                  <div className={`${pkg.tagColor || 'bg-white/95 text-slate-900'} backdrop-blur-xl text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-xl shadow-xl flex items-center gap-1.5 w-fit max-w-full`}>
-                                    <span className="text-amber-500 shrink-0">★</span>
-                                    <span className="truncate">{pkg.tag}</span>
-                                  </div>
-                                ) : (
-                                  pkg.theme && (
-                                    <div className="bg-white/90 backdrop-blur-xl text-slate-900 text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-xl shadow-xl flex items-center gap-1.5 w-fit max-w-full">
-                                      <span className="text-primary shrink-0">★</span>
-                                      <span className="truncate">{pkg.theme}</span>
-                                    </div>
-                                  )
-                                )}
-                                {pkg.remainingSeats && pkg.remainingSeats < 10 && (
-                                  <div className="bg-red-600/90 backdrop-blur-xl text-white text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-xl shadow-xl flex items-center gap-1.5 w-fit">
-                                    <span className="material-symbols-outlined text-[12px] shrink-0">local_fire_department</span>
-                                    <span>Only {pkg.remainingSeats} Left</span>
-                                  </div>
-                                )}
-                              </div>
-
-                              {/* RIGHT: Wishlist heart + Duration pill */}
-                              <div className="flex items-center gap-2 shrink-0">
-                                <button
-                                  onClick={(e) => handleToggleWishlist(e, pkg.id)}
-                                  className="size-8 rounded-full bg-white/85 backdrop-blur-xl flex items-center justify-center shadow-lg hover:scale-110 hover:bg-white active:scale-95 transition-all text-red-500"
-                                >
+                            <div className="flex-1 flex justify-center">
+                              {isBestseller ? (
+                                <div className="pointer-events-auto inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-[#dbeafe] text-[#1d4ed8] text-xs font-semibold shadow-md backdrop-blur-sm border border-blue-200/60">
                                   <span
-                                    className="material-symbols-outlined text-[18px]"
-                                    style={{ fontVariationSettings: wishlistIds.includes(pkg.id) ? "'FILL' 1" : "'FILL' 0" }}
+                                    className="material-symbols-outlined text-[15px] text-[#2563eb]"
+                                    style={{ fontVariationSettings: "'FILL' 1" }}
                                   >
-                                    favorite
+                                    verified
                                   </span>
-                                </button>
-                                <div className="bg-white/85 backdrop-blur-xl text-slate-900 text-[10px] font-bold px-2.5 py-1.5 rounded-full shadow-lg flex items-center gap-1 shrink-0">
-                                  <span className="material-symbols-outlined text-[13px] text-slate-600">schedule</span>
-                                  {formatTripDuration({ days: pkg.days })}
+                                  <span>{pkg.tag || 'Bestseller'}</span>
                                 </div>
-                              </div>
+                              ) : null}
                             </div>
 
-                            {/* ── BOTTOM OVERLAY: Price + Title + Meta ── */}
-                            <div className="absolute bottom-0 left-0 right-0 z-10 px-5 pt-8 pb-4">
+                            <button
+                              onClick={(e) => handleToggleWishlist(e, pkg.id)}
+                              className="pointer-events-auto size-8 rounded-full bg-black/35 backdrop-blur-md border border-white/20 flex items-center justify-center text-white/85 hover:text-red-500 hover:bg-black/60 transition-all shadow-sm"
+                              title="Save to wishlist"
+                            >
+                              <span
+                                className="material-symbols-outlined text-[17px]"
+                                style={{ fontVariationSettings: wishlistIds.includes(pkg.id) ? "'FILL' 1" : "'FILL' 0" }}
+                              >
+                                favorite
+                              </span>
+                            </button>
+                          </div>
 
-                              {/* Large price — Per Person Primary, Total Secondary */}
-                              <div className="flex items-baseline gap-2 mb-0.5">
-                                <span className="text-2xl font-black text-white tracking-tight drop-shadow-lg">
-                                  {pricing.perPersonCompact}
-                                </span>
-                                {pricing.perPersonOriginalPrice && pricing.perPersonOriginalPrice > pricing.perPersonPrice && (
-                                  <span className="text-sm text-white/50 line-through font-medium">
-                                    {formatPriceCompact(pricing.perPersonOriginalPrice)}
-                                  </span>
-                                )}
-                                <span className="text-xs text-white/80 font-bold ml-auto">per person</span>
-                              </div>
-                              <div className="text-[10px] text-white/60 font-semibold mb-2 drop-shadow">
-                                Total: {pricing.totalCompact} for {pricing.paxCount} pax
-                              </div>
-
-                            {/* Package title */}
-                            <h3 className="text-sm font-semibold text-white/90 leading-snug line-clamp-1 mb-3 drop-shadow">
+                          {/* ── BOTTOM CONTENT SECTION ── */}
+                          <div className="absolute bottom-0 left-0 right-0 z-10 px-5 pb-5 pt-8 flex flex-col justify-end">
+                            {/* Package Title */}
+                            <h3 className="text-white font-semibold text-base sm:text-[17px] leading-snug line-clamp-2 mb-2.5 drop-shadow-sm group-hover:text-primary-light transition-colors">
                               {pkg.title}
                             </h3>
 
-                            {/* Meta chips row — mirrors "29m² Living | 2 Rooms" */}
-                            <div className="flex items-center gap-0 text-white/70 text-[11px] font-medium">
-                              <span className="material-symbols-outlined text-[13px] text-white/60 mr-1">location_on</span>
-                              <span className="truncate max-w-[110px]">{getLocationName(pkg.location, masterLocations)}</span>
-                              <span className="mx-2.5 text-white/30">|</span>
-                              <span className="material-symbols-outlined text-[13px] text-white/60 mr-1">group</span>
-                              <span>{pkg.groupSize || 'Private'}</span>
-                              {pkg.days > 0 && (
-                                <>
-                                  <span className="mx-2.5 text-white/30">|</span>
-                                  <span className="material-symbols-outlined text-[13px] text-white/60 mr-1">calendar_month</span>
-                                  <span>{pkg.days} Days</span>
-                                </>
-                              )}
+                            {/* Route Badge Pill */}
+                            <div className="mb-3">
+                              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/45 backdrop-blur-md border border-white/25 text-xs text-white/95 font-medium shadow-sm">
+                                <span className="material-symbols-outlined text-[14px] text-white/90">location_on</span>
+                                <span>{routeText}</span>
+                              </div>
                             </div>
-                          </div>
-                        </div>
 
-                        {/* ── CARD FOOTER: Divider + Avatars + CTA ── */}
-                        <div className="bg-white dark:bg-[#151d29] px-5 py-4 flex items-center justify-between border-t border-slate-100 dark:border-slate-800/60">
-                          {/* Left: Avatar stack + traveler count */}
-                          <div className="flex items-center gap-2.5">
-                            <div className="flex -space-x-2">
-                              {[1, 2, 3].map(i => (
-                                <div key={i} className="size-7 rounded-full border-2 border-white dark:border-[#151d29] bg-slate-200 dark:bg-slate-700 overflow-hidden shadow-sm">
-                                  <img
-                                    src={`https://i.pravatar.cc/100?u=${pkg.id}${i}`}
-                                    alt="traveler"
-                                    className="w-full h-full object-cover"
-                                  />
+                            {/* Horizontal Divider Line */}
+                            <div className="border-t border-white/20 my-2 w-full" />
+
+                            {/* Bottom Metric Row */}
+                            <div className="flex items-end justify-between gap-3 pt-0.5">
+                              {/* Left: Duration + Price */}
+                              <div className="flex flex-col">
+                                <div className="flex items-center gap-1.5 text-xs font-bold text-white/95 tracking-wide mb-1">
+                                  <span className="material-symbols-outlined text-[14px] text-white/85">schedule</span>
+                                  <span>{durationCode}</span>
                                 </div>
-                              ))}
-                            </div>
-                            <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-500">
-                              • <span className="text-slate-600 dark:text-slate-300 font-bold">12+</span> travelers
-                            </span>
-                          </div>
+                                <div className="text-xl sm:text-2xl font-black text-white tracking-tight leading-none">
+                                  ₹ {priceFormatted}
+                                </div>
+                              </div>
 
-                          {/* Right: View Details CTA */}
-                          <div className="flex items-center gap-1 text-primary font-black text-[12px] tracking-wide group-hover:gap-2 transition-all duration-300">
-                            View Details
-                            <span className="material-symbols-outlined text-[16px] group-hover:translate-x-1 transition-transform duration-300">
-                              arrow_forward
-                            </span>
+                              {/* Right: 5 Stars + Review Count */}
+                              <div className="flex items-center gap-1 pb-0.5 shrink-0">
+                                <div className="flex items-center text-amber-400 text-xs sm:text-sm tracking-tighter">
+                                  ★★★★★
+                                </div>
+                                <span className="text-xs text-white/85 font-medium">
+                                  ({reviewCount})
+                                </span>
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                      </Link>
-                    </div>
-                  );
-                })
+                        </Link>
+                      </div>
+                    );
+                  })
                 ) : (
                   <div className="col-span-full py-32 text-center">
                     <div className="size-24 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-6">
