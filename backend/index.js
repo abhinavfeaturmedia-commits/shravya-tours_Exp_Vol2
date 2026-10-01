@@ -30,12 +30,31 @@ import { createAttendanceRoutes, autoCloseOrphanSessions } from './routes/attend
 import { createIncentiveRoutes } from './routes/incentives.js';
 import { runStartupMigrations } from './migrations/startup.js';
 
+import {
+    configureCors,
+    configureHelmet,
+    authLimiter,
+    otpLimiter,
+    chatbotLimiter,
+    publicLeadLimiter,
+    generalApiLimiter,
+    JWT_SECRET,
+    getJwtSecret
+} from './middleware/security.js';
+import { eventBus } from './utils/index.js';
+
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+
+// Trust reverse proxy (Hostinger / Nginx / Cloudflare) for accurate client IPs in rate limiters
+app.set('trust proxy', 1);
+
+// HTTP Security Headers (Clickjacking, MIME-sniffing, HSTS)
+app.use(configureHelmet());
 
 // Redirect shrawello.com to shravyatours.com
 app.use((req, res, next) => {
@@ -46,10 +65,18 @@ app.use((req, res, next) => {
     next();
 });
 
-app.use(cors());
+// Restricted origin CORS
+app.use(configureCors());
 app.use(compression({ threshold: 1024 })); // Gzip responses > 1KB — reduces JSON payloads by 70-90%
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
+
+// ─── Rate Limiting Guards ───
+app.use('/api/', generalApiLimiter);
+app.use(['/api/auth/login', '/api/customer/auth/login', '/api/partner/auth/login'], authLimiter);
+app.use(['/api/otp/request', '/api/auth/forgot-password', '/api/customer/auth/forgot-password', '/api/partner/auth/forgot-password'], otpLimiter);
+app.use('/api/public/chatbot', chatbotLimiter);
+app.use('/api/public/leads', publicLeadLimiter);
 
 
 // ─── File Upload Setup (Multer) ───
@@ -98,340 +125,8 @@ setInterval(() => {
     autoCloseOrphanSessions(pool).catch(e => console.debug('[Attendance Cron Error]:', e.message));
 }, 60 * 1000);
 
-// ─── DB Migration: Add new task columns if not present ───
-async function runMigration() {
-    try {
-        await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS source VARCHAR(20) NOT NULL DEFAULT 'playbook'`);
-        await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS completed_by VARCHAR(100) DEFAULT NULL`);
-        await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS completion_note TEXT DEFAULT NULL`);
-        // Back-fill existing manual-style tasks (those with a description of 'Manually added checklist task')
-        await pool.query(`UPDATE tasks SET source = 'manual' WHERE description = 'Manually added checklist task' AND source = 'playbook'`);
-        console.log('[Migration] tasks table columns verified/added: source, completed_by, completion_note');
+// Note: Startup schema migrations are consolidated and executed via runStartupMigrations(pool) above.
 
-        // ─── Membership Plans: homepage visibility ───
-        await pool.query(`ALTER TABLE membership_plans ADD COLUMN IF NOT EXISTS show_on_homepage TINYINT(1) NOT NULL DEFAULT 0`);
-        console.log('[Migration] membership_plans.show_on_homepage column verified/added');
-
-        // ─── Car Rental Bookings: days column ───
-        await pool.query(`ALTER TABLE car_bookings ADD COLUMN IF NOT EXISTS days INT NOT NULL DEFAULT 1`);
-        console.log('[Migration] car_bookings.days column verified/added');
-
-        // ─── Car Rental Bookings: lead_id column ───
-        await pool.query(`ALTER TABLE car_bookings ADD COLUMN IF NOT EXISTS lead_id VARCHAR(64) DEFAULT NULL`);
-        console.log('[Migration] car_bookings.lead_id column verified/added');
-
-        // ─── GST Invoicing: document_sequences table ───
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS document_sequences (
-                id VARCHAR(64) PRIMARY KEY,
-                doc_type VARCHAR(50) NOT NULL,
-                financial_year VARCHAR(10) NOT NULL,
-                prefix VARCHAR(20) NOT NULL,
-                current_number INT NOT NULL DEFAULT 0,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                UNIQUE KEY uq_type_fy (doc_type, financial_year)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        `);
-        console.log('[Migration] document_sequences table verified/created');
-
-        // ─── GST Invoicing: invoices table columns ───
-        const gstInvoiceCols = [
-            "ADD COLUMN IF NOT EXISTS invoice_no VARCHAR(50) DEFAULT NULL",
-            "ADD COLUMN IF NOT EXISTS financial_year VARCHAR(10) DEFAULT NULL",
-            "ADD COLUMN IF NOT EXISTS sequence_number INT DEFAULT NULL",
-            "ADD COLUMN IF NOT EXISTS is_locked TINYINT DEFAULT 0",
-            "ADD COLUMN IF NOT EXISTS place_of_supply VARCHAR(100) DEFAULT 'Maharashtra'",
-            "ADD COLUMN IF NOT EXISTS place_of_supply_code VARCHAR(10) DEFAULT '27'",
-            "ADD COLUMN IF NOT EXISTS reverse_charge VARCHAR(10) DEFAULT 'No'",
-            "ADD COLUMN IF NOT EXISTS original_invoice_id VARCHAR(255) DEFAULT NULL",
-            "ADD COLUMN IF NOT EXISTS original_invoice_no VARCHAR(50) DEFAULT NULL",
-            "ADD COLUMN IF NOT EXISTS credit_reason TEXT DEFAULT NULL",
-            "ADD COLUMN IF NOT EXISTS copy_type VARCHAR(50) DEFAULT 'ORIGINAL FOR RECIPIENT'",
-            "ADD COLUMN IF NOT EXISTS is_gst TINYINT DEFAULT 1",
-            "ADD COLUMN IF NOT EXISTS client_gst VARCHAR(50) DEFAULT NULL",
-            "ADD COLUMN IF NOT EXISTS gst_type VARCHAR(20) DEFAULT 'CGST_SGST'",
-            "ADD COLUMN IF NOT EXISTS field_labels TEXT DEFAULT NULL"
-        ];
-        for (const colDef of gstInvoiceCols) {
-            try { await pool.query(`ALTER TABLE invoices ${colDef}`); } catch (e) { /* ignore duplicate */ }
-        }
-        try { await pool.query("ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS hsn_sac VARCHAR(20) DEFAULT '996601'"); } catch(e) { /* ignore */ }
-        try { await pool.query("ALTER TABLE invoice_items ALTER COLUMN hsn_sac SET DEFAULT '996601'"); } catch(e) { /* ignore */ }
-        console.log('[Migration] invoices GST columns verified/added');
-
-        // Create table for customer packing checklists
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS customer_packing_checklists (
-                id VARCHAR(64) PRIMARY KEY,
-                booking_id VARCHAR(64) NOT NULL,
-                customer_email VARCHAR(255) NOT NULL,
-                items LONGTEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-            )
-        `);
-        console.log('[Migration] customer_packing_checklists table verified/created');
-
-        // Create table for purchased booking add-ons
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS booking_purchased_addons (
-                id VARCHAR(64) PRIMARY KEY,
-                booking_id VARCHAR(64) NOT NULL,
-                addon_id VARCHAR(64) NOT NULL,
-                label VARCHAR(255) NOT NULL,
-                price DECIMAL(10, 2) NOT NULL,
-                status VARCHAR(50) NOT NULL DEFAULT 'Pending Payment',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        `);
-        console.log('[Migration] booking_purchased_addons table verified/created');
-
-        // Create table for daywise tour deliverables
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS booking_daily_deliverables (
-                id VARCHAR(64) PRIMARY KEY,
-                booking_id VARCHAR(64) NOT NULL,
-                day_number INT NOT NULL,
-                item_name VARCHAR(255) NOT NULL,
-                item_type VARCHAR(50) NOT NULL DEFAULT 'other',
-                scheduled_time VARCHAR(50) DEFAULT NULL,
-                status VARCHAR(50) NOT NULL DEFAULT 'Pending',
-                notes TEXT DEFAULT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                INDEX idx_booking_day (booking_id, day_number)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        `);
-        console.log('[Migration] booking_daily_deliverables table verified/created');
-
-        // ─── OTP Tokens table for forgot-password ───
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS otp_tokens (
-                id VARCHAR(64) PRIMARY KEY,
-                email VARCHAR(255) NOT NULL,
-                portal ENUM('admin','partner','customer') NOT NULL,
-                otp_hash VARCHAR(255) NOT NULL,
-                reset_session_token VARCHAR(128) DEFAULT NULL,
-                session_token_expires DATETIME DEFAULT NULL,
-                expires_at DATETIME NOT NULL,
-                used TINYINT(1) DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                INDEX idx_otp_email_portal (email, portal),
-                INDEX idx_otp_session_token (reset_session_token)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        `);
-        console.log('[Migration] otp_tokens table verified/created');
-
-        // ─── Car Rental Master tables ───
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS vehicle_categories (
-                id VARCHAR(64) PRIMARY KEY,
-                name VARCHAR(100) UNIQUE NOT NULL,
-                rate_per_km DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
-                min_km INT NOT NULL DEFAULT 0,
-                driver_allowance DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
-                night_charge DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
-                extra_km_rate DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
-                extra_hour_rate DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
-                waiting_charges DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
-                airport_fee DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
-                permit_charges DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
-                gst_percent DECIMAL(5, 2) NOT NULL DEFAULT 5.00,
-                passenger_capacity INT NOT NULL DEFAULT 4,
-                luggage_capacity INT NOT NULL DEFAULT 2,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        `);
-
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS vehicles (
-                id VARCHAR(64) PRIMARY KEY,
-                name VARCHAR(255) NOT NULL,
-                registration_number VARCHAR(50) UNIQUE NOT NULL,
-                category_id VARCHAR(64) NOT NULL,
-                ownership VARCHAR(20) NOT NULL DEFAULT 'Owned',
-                vendor_id VARCHAR(64) DEFAULT NULL,
-                model_year INT DEFAULT NULL,
-                fuel_type VARCHAR(20) DEFAULT NULL,
-                transmission VARCHAR(20) DEFAULT NULL,
-                fastag_number VARCHAR(50) DEFAULT NULL,
-                current_odometer INT NOT NULL DEFAULT 0,
-                status VARCHAR(20) NOT NULL DEFAULT 'Available',
-                notes TEXT DEFAULT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        `);
-
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS drivers (
-                id VARCHAR(64) PRIMARY KEY,
-                name VARCHAR(255) NOT NULL,
-                mobile VARCHAR(50) UNIQUE NOT NULL,
-                license_number VARCHAR(50) NOT NULL,
-                license_expiry DATE NOT NULL,
-                badge_number VARCHAR(50) DEFAULT NULL,
-                police_verification VARCHAR(50) DEFAULT 'Pending',
-                languages VARCHAR(255) DEFAULT NULL,
-                assigned_vehicle_id VARCHAR(64) DEFAULT NULL,
-                status VARCHAR(20) NOT NULL DEFAULT 'Available',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        `);
-
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS car_bookings (
-                id VARCHAR(64) PRIMARY KEY,
-                customer_id VARCHAR(255) NOT NULL,
-                customer_name VARCHAR(255) NOT NULL,
-                customer_email VARCHAR(255) NOT NULL,
-                customer_mobile VARCHAR(50) NOT NULL,
-                pickup_location VARCHAR(255) NOT NULL,
-                drop_location VARCHAR(255) NOT NULL,
-                pickup_date DATE NOT NULL,
-                pickup_time TIME NOT NULL,
-                trip_type VARCHAR(50) NOT NULL,
-                vehicle_category_id VARCHAR(64) NOT NULL,
-                status VARCHAR(50) NOT NULL DEFAULT 'Confirmed',
-                assigned_vehicle_id VARCHAR(64) DEFAULT NULL,
-                assigned_driver_id VARCHAR(64) DEFAULT NULL,
-                assigned_vendor_id VARCHAR(64) DEFAULT NULL,
-                base_fare DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
-                estimated_km INT NOT NULL DEFAULT 0,
-                days INT NOT NULL DEFAULT 1,
-                lead_id VARCHAR(64) DEFAULT NULL,
-                driver_allowance DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
-                night_charges DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
-                toll_charges DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
-                parking_charges DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
-                permit_charges DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
-                gst_amount DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
-                total_amount DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
-                vendor_cost DECIMAL(10, 2) DEFAULT 0.00,
-                notes TEXT DEFAULT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        `);
-
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS car_booking_payments (
-                id VARCHAR(64) PRIMARY KEY,
-                booking_id VARCHAR(64) NOT NULL,
-                amount DECIMAL(10, 2) NOT NULL,
-                payment_date DATE NOT NULL,
-                payment_method VARCHAR(50) NOT NULL,
-                transaction_reference VARCHAR(100) DEFAULT NULL,
-                type VARCHAR(20) NOT NULL DEFAULT 'Payment',
-                status VARCHAR(20) NOT NULL DEFAULT 'Verified',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        `);
-
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS car_reviews (
-                id VARCHAR(64) PRIMARY KEY,
-                booking_id VARCHAR(64) NOT NULL,
-                driver_rating INT NOT NULL DEFAULT 5,
-                vehicle_rating INT NOT NULL DEFAULT 5,
-                cleanliness_rating INT NOT NULL DEFAULT 5,
-                overall_rating INT NOT NULL DEFAULT 5,
-                comments TEXT DEFAULT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        `);
-        console.log('[Migration] Car rental management tables verified/created');
-
-        // Create table for inventory availability and stop-sell slots
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS inventory_slots (
-                id VARCHAR(128) PRIMARY KEY,
-                date VARCHAR(20) NOT NULL,
-                asset_id VARCHAR(64) NOT NULL DEFAULT 'all',
-                asset_type VARCHAR(20) NOT NULL DEFAULT 'Tour',
-                is_blocked TINYINT(1) NOT NULL DEFAULT 0,
-                price DECIMAL(10, 2) NOT NULL DEFAULT 0,
-                capacity INT NOT NULL DEFAULT 0,
-                booked INT NOT NULL DEFAULT 0,
-                notes TEXT DEFAULT NULL,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                INDEX idx_date_asset (date, asset_id)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        `);
-        console.log('[Migration] inventory_slots table verified/created');
-
-        // ─── Expenses Table ───
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS expenses (
-                id VARCHAR(64) PRIMARY KEY,
-                title VARCHAR(255) NOT NULL,
-                category VARCHAR(100) NOT NULL DEFAULT 'Other',
-                amount DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
-                date DATE NOT NULL,
-                paymentMethod VARCHAR(50) NOT NULL DEFAULT 'UPI',
-                status VARCHAR(20) NOT NULL DEFAULT 'Pending',
-                notes TEXT DEFAULT NULL,
-                receiptUrl TEXT DEFAULT NULL,
-                created_by VARCHAR(255) DEFAULT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        `);
-        console.log('[Migration] expenses table verified/created');
-
-        // ─── Report History Table (Persistent Export History) ───
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS report_history (
-                id VARCHAR(64) PRIMARY KEY,
-                report_type VARCHAR(100) NOT NULL,
-                file_name VARCHAR(255) NOT NULL,
-                file_format VARCHAR(20) NOT NULL DEFAULT 'csv',
-                record_count INT NOT NULL DEFAULT 0,
-                file_size_kb DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
-                generated_by VARCHAR(255) NOT NULL DEFAULT 'Admin',
-                filters_applied LONGTEXT DEFAULT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                INDEX idx_report_type (report_type),
-                INDEX idx_created_at (created_at)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        `);
-        console.log('[Migration] report_history table verified/created');
-
-        // ─── Offer Banners Table ───
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS offer_banners (
-                id VARCHAR(255) PRIMARY KEY,
-                title VARCHAR(255) NOT NULL,
-                subtitle VARCHAR(500),
-                imageUrl LONGTEXT NOT NULL,
-                linkUrl VARCHAR(500) DEFAULT '/packages',
-                badgeText VARCHAR(100),
-                tagList VARCHAR(255),
-                sortOrder INT DEFAULT 0,
-                isActive TINYINT(1) DEFAULT 1,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        `);
-        console.log('[Migration] offer_banners table verified/created');
-
-        // Seed initial default offer banners if empty
-        const [existingBanners] = await pool.query('SELECT COUNT(*) as count FROM offer_banners');
-        if (existingBanners[0]?.count === 0) {
-            await pool.query(`
-                INSERT INTO offer_banners (id, title, subtitle, imageUrl, linkUrl, badgeText, tagList, sortOrder, isActive)
-                VALUES 
-                ('banner_1', 'INTERNATIONAL TOUR PACKAGES', 'Value Add-ons Up to ₹5000* | Visa & Flight Assistance, Complimentary Upgrades', 'https://images.unsplash.com/photo-1537996194471-e657df975ab4?w=1600&auto=format&fit=crop&q=80', '/packages?category=International', 'BUCKET LIST SALE', 'BALI | THAILAND | VIETNAM | SINGAPORE | MALAYSIA | MALDIVES | BHUTAN', 1, 1),
-                ('banner_2', 'FLAT 25% OFF ON HIMALAYAN EXPEDITIONS', 'Book Your Adventure Early | Expert Guides, Premium Stays, All Meals Included', 'https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=1600&auto=format&fit=crop&q=80', '/packages?search=Himalaya', 'EARLY BIRD OFFER', 'MANALI | KASOL | LEH LADAKH | SPITI VALLEY | MEGHALAYA', 2, 1)
-            `);
-            console.log('[Migration] Seeded initial offer_banners data');
-        }
-
-        // Clean up expired OTPs
-        await pool.query(`DELETE FROM otp_tokens WHERE expires_at < NOW() - INTERVAL 1 HOUR`).catch(() => {});
-    } catch (err) {
-        console.error('[Migration Error]', err.message);
-    }
-}
 
 // ─── Inventory API Endpoints ───
 app.get('/api/inventory', async (req, res) => {
@@ -657,42 +352,53 @@ async function syncLocalUploadsToDb() {
     }
 }
 
-// Helper to restore all files from database back to local disk cache on startup
+// Helper to restore missing files from database back to local disk cache on startup
 async function syncDbUploadsToLocal() {
     try {
-        const [rows] = await pool.query('SELECT filename, mime_type, data FROM uploaded_files');
-        console.log(`[Uploads Restore] Found ${rows.length} files in database.`);
-        
         if (!fs.existsSync(uploadsDir)) {
             fs.mkdirSync(uploadsDir, { recursive: true });
         }
+
+        // Lightweight check: Query ONLY filenames, NOT the heavy binary data column!
+        const [rows] = await pool.query('SELECT filename FROM uploaded_files');
+        console.log(`[Uploads Restore] Checking ${rows.length} files in database against local disk...`);
         
         let restoredCount = 0;
         for (const row of rows) {
             const isKyc = row.filename.startsWith('kyc-');
             const targetDir = isKyc ? path.join(uploadsDir, 'kyc') : uploadsDir;
-            
-            if (!fs.existsSync(targetDir)) {
-                fs.mkdirSync(targetDir, { recursive: true });
-            }
-
             const filePath = path.join(targetDir, row.filename);
+
+            // Only fetch binary BLOB if the file is physically missing on disk!
             if (!fs.existsSync(filePath)) {
-                fs.writeFileSync(filePath, row.data);
-                restoredCount++;
+                try {
+                    const [fileRows] = await pool.query(
+                        'SELECT mime_type, data FROM uploaded_files WHERE filename = ? LIMIT 1',
+                        [row.filename]
+                    );
+                    if (fileRows.length > 0 && fileRows[0].data) {
+                        if (!fs.existsSync(targetDir)) {
+                            fs.mkdirSync(targetDir, { recursive: true });
+                        }
+                        fs.writeFileSync(filePath, fileRows[0].data);
+                        restoredCount++;
+                    }
+                } catch (singleErr) {
+                    console.warn(`[Uploads Restore] Failed to restore single file ${row.filename}:`, singleErr.message);
+                }
             }
         }
         if (restoredCount > 0) {
-            console.log(`[Uploads Restore] Successfully restored ${restoredCount} files from database to disk.`);
+            console.log(`[Uploads Restore] Successfully restored ${restoredCount} missing files from database to disk.`);
         } else {
-            console.log('[Uploads Restore] All database files are already present on disk.');
+            console.log('[Uploads Restore] All database files are already present on disk (0 memory transfer overhead).');
         }
     } catch (err) {
         console.error('[Uploads Restore Error]', err.message);
     }
 }
 
-const JWT_SECRET = process.env.JWT_SECRET || 'change-me';
+// JWT_SECRET is unified and imported from ./middleware/security.js
 
 // Ensure the users table exists (for auth)
 async function ensureUsersTable() {
@@ -3146,6 +2852,18 @@ async function auditLog(action, table, details, performedBy, extra = {}) {
                 new Date().toISOString()
             ]
         );
+
+        // Broadcast to real-time SSE stream
+        eventBus.emitActivity({
+            action,
+            module: table,
+            details,
+            severity,
+            performed_by: performedBy || staffName || 'System',
+            entity_type: entityType,
+            entity_id: entityId,
+            timestamp: new Date().toISOString()
+        });
     } catch (e) {
         console.error('Audit log write failed:', e.message);
     }
@@ -3190,9 +2908,45 @@ async function findMatchingCustomer(normPhone) {
     }
 }
 
-// ─── Health Check ───
-app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', message: 'Backend is running' });
+// ─── Production Health & Observability Check ───
+app.get('/api/health', async (req, res) => {
+    const startTime = Date.now();
+    let dbStatus = 'disconnected';
+    let dbLatencyMs = null;
+    
+    try {
+        const [rows] = await Promise.race([
+            pool.query('SELECT 1 AS ping'),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('DB health query timeout')), 3000))
+        ]);
+        if (rows && rows[0]?.ping === 1) {
+            dbStatus = 'connected';
+            dbLatencyMs = Date.now() - startTime;
+        }
+    } catch (err) {
+        dbStatus = `error: ${err.message}`;
+    }
+
+    const mem = process.memoryUsage();
+    const memoryMb = {
+        rss: Math.round(mem.rss / 1024 / 1024),
+        heapUsed: Math.round(mem.heapUsed / 1024 / 1024),
+        heapTotal: Math.round(mem.heapTotal / 1024 / 1024)
+    };
+
+    const isHealthy = dbStatus === 'connected';
+    const statusCode = isHealthy ? 200 : 503;
+
+    res.status(statusCode).json({
+        status: isHealthy ? 'healthy' : 'degraded',
+        uptimeSeconds: Math.floor(process.uptime()),
+        timestamp: new Date().toISOString(),
+        database: {
+            status: dbStatus,
+            latencyMs: dbLatencyMs
+        },
+        memoryMb
+    });
 });
 
 app.get('/api/db-test', async (req, res) => {
@@ -3203,6 +2957,61 @@ app.get('/api/db-test', async (req, res) => {
         console.error('Database connection failed:', error);
         res.status(500).json({ status: 'error', message: 'Database connection failed' });
     }
+});
+
+// ─── Real-Time Server-Sent Events (SSE) Stream ───
+app.get('/api/stream/events', (req, res) => {
+    const token = req.query.token || req.headers.authorization?.replace(/^Bearer\s+/i, '');
+    if (!token) {
+        return res.status(401).json({ error: 'Token required for real-time event stream' });
+    }
+
+    let user;
+    try {
+        user = jwt.verify(token, JWT_SECRET);
+    } catch (err) {
+        return res.status(403).json({ error: 'Invalid or expired stream token' });
+    }
+
+    // Set standard SSE response headers
+    res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no' // Important for reverse proxies (Nginx / Hostinger)
+    });
+
+    res.write(`data: ${JSON.stringify({ type: 'stream:connected', user: user.email || user.id, timestamp: new Date().toISOString() })}\n\n`);
+
+    // Keep-alive heartbeat every 25 seconds to prevent proxy disconnect
+    const heartbeat = setInterval(() => {
+        res.write(': keep-alive\n\n');
+    }, 25000);
+
+    const handleNotification = (data) => {
+        if (data.targetRole && data.targetRole !== user.role && user.role !== 'admin') return;
+        if (data.targetUserId && data.targetUserId !== user.id) return;
+        res.write(`data: ${JSON.stringify({ type: 'notification', data })}\n\n`);
+    };
+
+    const handleChat = (data) => {
+        res.write(`data: ${JSON.stringify({ type: 'chat', data })}\n\n`);
+    };
+
+    const handleActivity = (data) => {
+        res.write(`data: ${JSON.stringify({ type: 'activity', data })}\n\n`);
+    };
+
+    eventBus.on('app-notification', handleNotification);
+    eventBus.on('app-chat', handleChat);
+    eventBus.on('app-activity', handleActivity);
+
+    req.on('close', () => {
+        clearInterval(heartbeat);
+        eventBus.off('app-notification', handleNotification);
+        eventBus.off('app-chat', handleChat);
+        eventBus.off('app-activity', handleActivity);
+    });
 });
 
 // ─── GET /api/audit-trail ───
@@ -6574,6 +6383,15 @@ const TABLE_SORT_COLUMNS = {
     'invoice_custom_fields': 'id'
 };
 
+const BULK_FETCH_LIMITS = {
+    'audit_logs': 200,
+    'user_activities': 200,
+    'attendance_logs': 200,
+    'time_sessions': 200,
+    'lead_logs': 500,
+    'customer_memberships': 300
+};
+
 app.post('/api/bulk-fetch', async (req, res) => {
     const { tables } = req.body || {};
     if (!Array.isArray(tables) || tables.length === 0) {
@@ -6727,6 +6545,12 @@ app.post('/api/bulk-fetch', async (req, res) => {
                 const sortCol = TABLE_SORT_COLUMNS[table] || 'created_at';
                 query += ` ORDER BY \`${sortCol}\` DESC`;
 
+                // Safe limit for high-volume historical log tables to prevent memory exhaustion
+                const maxRows = BULK_FETCH_LIMITS[table];
+                if (maxRows) {
+                    query += ` LIMIT ${maxRows}`;
+                }
+
                 const [rows] = await conn.query(query, params);
                 response[table] = rows;
             } catch (err) {
@@ -6758,6 +6582,11 @@ app.post('/api/bulk-fetch', async (req, res) => {
 
                         if (whereClauses.length > 0) {
                             fallbackQuery += ' WHERE ' + whereClauses.join(' AND ');
+                        }
+
+                        const maxRows = BULK_FETCH_LIMITS[table];
+                        if (maxRows) {
+                            fallbackQuery += ` LIMIT ${maxRows}`;
                         }
 
                         const [rows] = await conn.query(fallbackQuery, params);
@@ -8025,14 +7854,55 @@ app.post('/api/crud/:table', authMiddleware, validateTable, writeGuard, permissi
         const placeholders = columns.map(() => '?').join(', ');
         const colNames = columns.map(c => `\`${c}\``).join(', ');
 
-        const [result] = await pool.query(
-            `INSERT INTO \`${table}\` (${colNames}) VALUES (${placeholders})`,
-            values
-        );
+        let result;
+        let fetchedId;
+        let inserted;
 
-        // Fetch the inserted row using the provided id or the auto-increment insertId
-        const fetchedId = body.id || result.insertId;
-        const [inserted] = await pool.query(`SELECT * FROM \`${table}\` WHERE id = ?`, [fetchedId]);
+        // Atomic ACID transaction when creating a booking converted from a lead
+        if (table === 'bookings' && body.lead_id) {
+            const conn = await pool.getConnection();
+            try {
+                await conn.beginTransaction();
+
+                const [insResult] = await conn.query(
+                    `INSERT INTO \`${table}\` (${colNames}) VALUES (${placeholders})`,
+                    values
+                );
+                result = insResult;
+                fetchedId = body.id || insResult.insertId;
+
+                await conn.query(
+                    "UPDATE leads SET status = 'Converted', converted_booking_id = ? WHERE id = ?",
+                    [fetchedId, body.lead_id]
+                );
+                await conn.query(
+                    "INSERT INTO lead_logs (lead_id, type, content, timestamp, sender) VALUES (?, 'System', ?, NOW(), 'System')",
+                    [body.lead_id, `Lead converted to Booking ${fetchedId}.`]
+                ).catch((e) => console.warn('[Lead Logs] Auto-log warning:', e.message));
+
+                const [rows] = await conn.query(`SELECT * FROM \`${table}\` WHERE id = ?`, [fetchedId]);
+                inserted = rows;
+
+                await conn.commit();
+                console.log(`[Lead Conversion TX] Atomically committed booking ${fetchedId} and linked lead ${body.lead_id}`);
+            } catch (txErr) {
+                await conn.rollback();
+                console.error(`[Lead Conversion TX Error] Rolled back booking creation for lead ${body.lead_id}:`, txErr);
+                throw txErr;
+            } finally {
+                conn.release();
+            }
+        } else {
+            const [insResult] = await pool.query(
+                `INSERT INTO \`${table}\` (${colNames}) VALUES (${placeholders})`,
+                values
+            );
+            result = insResult;
+            fetchedId = body.id || insResult.insertId;
+            const [rows] = await pool.query(`SELECT * FROM \`${table}\` WHERE id = ?`, [fetchedId]);
+            inserted = rows;
+        }
+
         if (table === 'staff_members') {
             clearPermissionsCache();
         }
@@ -8052,24 +7922,6 @@ app.post('/api/crud/:table', authMiddleware, validateTable, writeGuard, permissi
                 details: `Created new ${table.slice(0, -1)}: ${body.name || body.customer_name || body.title || ''}`
             }
         );
-
-        // ── Atomic Lead Linkage & Status Update for Converted Bookings ──
-        if (table === 'bookings' && body.lead_id) {
-            try {
-                await pool.query(
-                    "UPDATE leads SET status = 'Converted', converted_booking_id = ? WHERE id = ?",
-                    [fetchedId, body.lead_id]
-                );
-                await pool.query(
-                    "INSERT INTO lead_logs (lead_id, type, content, timestamp, sender) VALUES (?, 'System', ?, NOW(), 'System')",
-                    [body.lead_id, `Lead converted to Booking ${fetchedId}.`]
-                ).catch((e) => console.warn('[Lead Logs] Auto-log warning:', e.message));
-                console.log(`[Lead Conversion] Atomically linked lead ${body.lead_id} -> booking ${fetchedId}`);
-            } catch (leadSyncErr) {
-                console.warn(`[Lead Conversion] Failed to sync lead ${body.lead_id}:`, leadSyncErr.message);
-            }
-        }
-        // ────────────────────────────────────────────────────────────────
 
         // Transactional Email & Commission Triggers on Creation
         if (table === 'leads' && body.assigned_to) {
@@ -8612,44 +8464,77 @@ app.delete('/api/crud/:table/:id', authMiddleware, validateTable, permissionGuar
     console.log(`[Delete] ${req.user?.email} is deleting record ${id} from ${table}`);
 
     try {
-        // Handle cascading deletes manually to prevent foreign key constraint errors
+        // Handle cascading deletes inside atomic database transactions to prevent orphaned data
         if (table === 'bookings') {
-            // ── Lead Conversion Lock: read lead_id BEFORE deleting so we can unlock the lead ──
+            const conn = await pool.getConnection();
             try {
-                const [[bookingRow]] = await pool.query('SELECT lead_id FROM bookings WHERE id = ?', [id]);
+                await conn.beginTransaction();
+
+                // 1. Lead Conversion Lock: read lead_id BEFORE deleting so we can unlock the lead atomically
+                const [[bookingRow]] = await conn.query('SELECT lead_id FROM bookings WHERE id = ?', [id]);
                 if (bookingRow?.lead_id) {
-                    await pool.query(
+                    await conn.query(
                         "UPDATE leads SET converted_booking_id = NULL, status = 'Warm' WHERE id = ? AND converted_booking_id = ?",
                         [bookingRow.lead_id, id]
                     );
-                    console.log(`[Delete] Unlocked lead ${bookingRow.lead_id} — booking ${id} was deleted.`);
+                    console.log(`[Delete TX] Unlocked lead ${bookingRow.lead_id} — booking ${id} was deleted.`);
                 }
-            } catch (unlockErr) {
-                // Non-fatal: log and continue with the delete
-                console.warn('[Delete] Lead unlock failed (non-fatal):', unlockErr.message);
-            }
-            // ────────────────────────────────────────────────────────────────────────────────
-            await pool.query(`DELETE FROM booking_transactions WHERE booking_id = ?`, [id]);
-            await pool.query(`DELETE FROM supplier_bookings WHERE booking_id = ?`, [id]);
-            console.log(`[Delete] Cleared transactions and supplier bookings for booking ${id}`);
-        } else if (table === 'leads') {
-            await pool.query(`DELETE FROM lead_logs WHERE lead_id = ?`, [id]);
-            await pool.query(`DELETE FROM follow_ups WHERE lead_id = ?`, [id]);
-            console.log(`[Delete] Cleared logs and follow-ups for lead ${id}`);
-        } else if (table === 'packages') {
-            // Nullify packageId references in bookings and leads to prevent broken links
-            await pool.query(`UPDATE bookings SET package_id = NULL WHERE package_id = ?`, [id]).catch(() => {});
-            await pool.query(`UPDATE leads SET package_id = NULL WHERE package_id = ?`, [id]).catch(() => {});
-            console.log(`[Delete] Nullified packageId references for package ${id}`);
-        }
 
-        const [result] = await pool.query(`DELETE FROM \`${table}\` WHERE id = ?`, [id]);
-        if (table === 'staff_members') {
-            clearPermissionsCache();
-        }
-        
-        if (result.affectedRows === 0) {
-            return res.status(404).json({ error: 'Record not found' });
+                // 2. Cascade delete dependent child records
+                await conn.query(`DELETE FROM booking_transactions WHERE booking_id = ?`, [id]);
+                await conn.query(`DELETE FROM supplier_bookings WHERE booking_id = ?`, [id]);
+
+                // 3. Delete the booking itself
+                const [result] = await conn.query('DELETE FROM bookings WHERE id = ?', [id]);
+                await conn.commit();
+                console.log(`[Delete TX] Atomically deleted booking ${id} and associated transactions/supplier bookings.`);
+
+                if (result.affectedRows === 0) {
+                    return res.status(404).json({ error: 'Record not found' });
+                }
+            } catch (txErr) {
+                await conn.rollback();
+                console.error(`[Delete TX Error] Rolled back atomic delete for booking ${id}:`, txErr);
+                throw txErr;
+            } finally {
+                conn.release();
+            }
+        } else if (table === 'leads') {
+            const conn = await pool.getConnection();
+            try {
+                await conn.beginTransaction();
+                await conn.query(`DELETE FROM lead_logs WHERE lead_id = ?`, [id]);
+                await conn.query(`DELETE FROM follow_ups WHERE lead_id = ?`, [id]);
+                const [result] = await conn.query('DELETE FROM leads WHERE id = ?', [id]);
+                await conn.commit();
+                console.log(`[Delete TX] Atomically deleted lead ${id} and associated logs/follow-ups.`);
+
+                if (result.affectedRows === 0) {
+                    return res.status(404).json({ error: 'Record not found' });
+                }
+            } catch (txErr) {
+                await conn.rollback();
+                console.error(`[Delete TX Error] Rolled back atomic delete for lead ${id}:`, txErr);
+                throw txErr;
+            } finally {
+                conn.release();
+            }
+        } else {
+            if (table === 'packages') {
+                // Nullify packageId references in bookings and leads to prevent broken links
+                await pool.query(`UPDATE bookings SET package_id = NULL WHERE package_id = ?`, [id]).catch(() => {});
+                await pool.query(`UPDATE leads SET package_id = NULL WHERE package_id = ?`, [id]).catch(() => {});
+                console.log(`[Delete] Nullified packageId references for package ${id}`);
+            }
+
+            const [result] = await pool.query(`DELETE FROM \`${table}\` WHERE id = ?`, [id]);
+            if (table === 'staff_members') {
+                clearPermissionsCache();
+            }
+            
+            if (result.affectedRows === 0) {
+                return res.status(404).json({ error: 'Record not found' });
+            }
         }
 
         // Server-side audit log with staff attribution
@@ -8783,20 +8668,34 @@ app.post('/api/deletion-requests/:id/approve', authMiddleware, async (req, res) 
             return res.status(400).json({ error: 'Invalid table requested' });
         }
 
-        // 1. Handle cascading deletes manually
-        if (request.table_name === 'bookings') {
-            await pool.query(`DELETE FROM booking_transactions WHERE booking_id = ?`, [request.record_id]);
-            await pool.query(`DELETE FROM supplier_bookings WHERE booking_id = ?`, [request.record_id]);
-        } else if (request.table_name === 'leads') {
-            await pool.query(`DELETE FROM lead_logs WHERE lead_id = ?`, [request.record_id]);
-            await pool.query(`DELETE FROM follow_ups WHERE lead_id = ?`, [request.record_id]);
-        }
+        // Handle cascading deletes and status update atomically in a transaction
+        const conn = await pool.getConnection();
+        try {
+            await conn.beginTransaction();
 
-        // 2. Perform actual hard delete
-        await pool.query(`DELETE FROM \`${request.table_name}\` WHERE id = ?`, [request.record_id]);
-        
-        // 2. Mark request as approved
-        await pool.query('UPDATE deletion_requests SET status = "approved" WHERE id = ?', [id]);
+            if (request.table_name === 'bookings') {
+                await conn.query(`DELETE FROM booking_transactions WHERE booking_id = ?`, [request.record_id]);
+                await conn.query(`DELETE FROM supplier_bookings WHERE booking_id = ?`, [request.record_id]);
+            } else if (request.table_name === 'leads') {
+                await conn.query(`DELETE FROM lead_logs WHERE lead_id = ?`, [request.record_id]);
+                await conn.query(`DELETE FROM follow_ups WHERE lead_id = ?`, [request.record_id]);
+            }
+
+            // Perform actual hard delete
+            await conn.query(`DELETE FROM \`${request.table_name}\` WHERE id = ?`, [request.record_id]);
+            
+            // Mark request as approved
+            await conn.query('UPDATE deletion_requests SET status = "approved" WHERE id = ?', [id]);
+
+            await conn.commit();
+            console.log(`[Approve Delete TX] Atomically approved deletion request ${id} for ${request.table_name} #${request.record_id}`);
+        } catch (txErr) {
+            await conn.rollback();
+            console.error(`[Approve Delete TX Error] Rolled back deletion approval for ${id}:`, txErr);
+            throw txErr;
+        } finally {
+            conn.release();
+        }
         
         // 3. Audit log
         auditLog('Delete Approved', request.table_name, `Approved deletion of ${request.record_id} requested by ${request.requested_by}`, req.user?.email);
@@ -13005,18 +12904,35 @@ app.post('/api/customer/membership/razorpay/verify-payment', customerAuthMiddlew
     }
 });
 
-// Catch-all: send React's index.html for any non-API route (SPA routing)
-app.get('*', (req, res) => {
-    if (!req.path.startsWith('/api/')) {
-        res.sendFile(path.join(__dirname, 'public', 'index.html'));
-    }
+// Catch-all: API 404 guard (prevents unmatched /api/* requests from hanging indefinitely)
+app.all('/api/*', (req, res) => {
+    res.status(404).json({ error: `API route not found: ${req.method} ${req.originalUrl}` });
 });
 
+// Catch-all: send React's index.html for non-API route (SPA routing)
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Global Express error handler
+app.use((err, req, res, next) => {
+    console.error('[Global Error Handler]', err.message || err);
+    if (res.headersSent) {
+        return next(err);
+    }
+    if (err.message && err.message.includes('CORS policy')) {
+        return res.status(403).json({ error: err.message });
+    }
+    const statusCode = err.status || err.statusCode || 500;
+    res.status(statusCode).json({
+        error: process.env.NODE_ENV === 'production' && statusCode === 500
+            ? 'An internal server error occurred.'
+            : (err.message || 'Internal Server Error')
+    });
+});
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, '0.0.0.0', async () => {
     console.log(`Server running on port ${PORT}`);
-    // Run DB migration on startup to add new task columns
-    await runMigration();
     syncLocalUploadsToDb();
 });

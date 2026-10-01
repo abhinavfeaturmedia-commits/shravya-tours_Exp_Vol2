@@ -677,7 +677,151 @@ export async function runStartupMigrations(pool) {
             console.warn('[Migration Incentive Schema Notice]', errIncentives.message);
         }
 
-        console.log('[Migration] All startup migrations completed successfully.');
+        // ─── GST Invoicing: document_sequences table & invoice columns ───
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS document_sequences (
+                    id VARCHAR(64) PRIMARY KEY,
+                    doc_type VARCHAR(50) NOT NULL,
+                    financial_year VARCHAR(10) NOT NULL,
+                    prefix VARCHAR(20) NOT NULL,
+                    current_number INT NOT NULL DEFAULT 0,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    UNIQUE KEY uq_type_fy (doc_type, financial_year)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            `);
+
+            const gstInvoiceCols = [
+                "ADD COLUMN IF NOT EXISTS invoice_no VARCHAR(50) DEFAULT NULL",
+                "ADD COLUMN IF NOT EXISTS financial_year VARCHAR(10) DEFAULT NULL",
+                "ADD COLUMN IF NOT EXISTS sequence_number INT DEFAULT NULL",
+                "ADD COLUMN IF NOT EXISTS is_locked TINYINT DEFAULT 0",
+                "ADD COLUMN IF NOT EXISTS place_of_supply VARCHAR(100) DEFAULT 'Maharashtra'",
+                "ADD COLUMN IF NOT EXISTS place_of_supply_code VARCHAR(10) DEFAULT '27'",
+                "ADD COLUMN IF NOT EXISTS reverse_charge VARCHAR(10) DEFAULT 'No'",
+                "ADD COLUMN IF NOT EXISTS original_invoice_id VARCHAR(255) DEFAULT NULL",
+                "ADD COLUMN IF NOT EXISTS original_invoice_no VARCHAR(50) DEFAULT NULL",
+                "ADD COLUMN IF NOT EXISTS credit_reason TEXT DEFAULT NULL",
+                "ADD COLUMN IF NOT EXISTS copy_type VARCHAR(50) DEFAULT 'ORIGINAL FOR RECIPIENT'",
+                "ADD COLUMN IF NOT EXISTS is_gst TINYINT DEFAULT 1",
+                "ADD COLUMN IF NOT EXISTS client_gst VARCHAR(50) DEFAULT NULL",
+                "ADD COLUMN IF NOT EXISTS gst_type VARCHAR(20) DEFAULT 'CGST_SGST'",
+                "ADD COLUMN IF NOT EXISTS field_labels TEXT DEFAULT NULL"
+            ];
+            for (const colDef of gstInvoiceCols) {
+                try { await pool.query(`ALTER TABLE invoices ${colDef}`); } catch (e) { /* ignore duplicate */ }
+            }
+            try { await pool.query("ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS hsn_sac VARCHAR(20) DEFAULT '996601'"); } catch(e) { /* ignore */ }
+            try { await pool.query("ALTER TABLE invoice_items ALTER COLUMN hsn_sac SET DEFAULT '996601'"); } catch(e) { /* ignore */ }
+            console.log('[Migration] Invoicing GST schema & sequences verified');
+        } catch (errInvoices) {
+            console.warn('[Migration Invoicing Notice]', errInvoices.message);
+        }
+
+        // ─── Car Rental Payments & Reviews ───
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS car_booking_payments (
+                    id VARCHAR(64) PRIMARY KEY,
+                    booking_id VARCHAR(64) NOT NULL,
+                    amount DECIMAL(10, 2) NOT NULL,
+                    payment_date DATE NOT NULL,
+                    payment_method VARCHAR(50) NOT NULL,
+                    transaction_reference VARCHAR(100) DEFAULT NULL,
+                    type VARCHAR(20) NOT NULL DEFAULT 'Payment',
+                    status VARCHAR(20) NOT NULL DEFAULT 'Verified',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            `);
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS car_reviews (
+                    id VARCHAR(64) PRIMARY KEY,
+                    booking_id VARCHAR(64) NOT NULL,
+                    driver_rating INT NOT NULL DEFAULT 5,
+                    vehicle_rating INT NOT NULL DEFAULT 5,
+                    cleanliness_rating INT NOT NULL DEFAULT 5,
+                    overall_rating INT NOT NULL DEFAULT 5,
+                    comments TEXT DEFAULT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            `);
+            console.log('[Migration] Car rental payments and reviews verified');
+        } catch (errCar) {
+            console.warn('[Migration Car Rental Notice]', errCar.message);
+        }
+
+        // ─── Inventory Slots, Expenses, Report History & Offer Banners ───
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS inventory_slots (
+                    id VARCHAR(128) PRIMARY KEY,
+                    date VARCHAR(20) NOT NULL,
+                    asset_id VARCHAR(64) NOT NULL DEFAULT 'all',
+                    asset_type VARCHAR(20) NOT NULL DEFAULT 'Tour',
+                    is_blocked TINYINT(1) NOT NULL DEFAULT 0,
+                    price DECIMAL(10, 2) NOT NULL DEFAULT 0,
+                    capacity INT NOT NULL DEFAULT 0,
+                    booked INT NOT NULL DEFAULT 0,
+                    notes TEXT DEFAULT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    INDEX idx_date_asset (date, asset_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            `);
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS expenses (
+                    id VARCHAR(64) PRIMARY KEY,
+                    title VARCHAR(255) NOT NULL,
+                    category VARCHAR(100) NOT NULL DEFAULT 'Other',
+                    amount DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+                    date DATE NOT NULL,
+                    paymentMethod VARCHAR(50) NOT NULL DEFAULT 'UPI',
+                    status VARCHAR(20) NOT NULL DEFAULT 'Pending',
+                    notes TEXT DEFAULT NULL,
+                    receiptUrl TEXT DEFAULT NULL,
+                    created_by VARCHAR(255) DEFAULT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            `);
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS report_history (
+                    id VARCHAR(64) PRIMARY KEY,
+                    report_type VARCHAR(100) NOT NULL,
+                    file_name VARCHAR(255) NOT NULL,
+                    file_format VARCHAR(20) NOT NULL DEFAULT 'csv',
+                    record_count INT NOT NULL DEFAULT 0,
+                    file_size_kb DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+                    generated_by VARCHAR(255) NOT NULL DEFAULT 'Admin',
+                    filters_applied LONGTEXT DEFAULT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    INDEX idx_report_type (report_type),
+                    INDEX idx_created_at (created_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            `);
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS offer_banners (
+                    id VARCHAR(255) PRIMARY KEY,
+                    title VARCHAR(255) NOT NULL,
+                    subtitle VARCHAR(500),
+                    imageUrl LONGTEXT NOT NULL,
+                    linkUrl VARCHAR(500) DEFAULT '/packages',
+                    badgeText VARCHAR(100),
+                    tagList VARCHAR(255),
+                    sortOrder INT DEFAULT 0,
+                    isActive TINYINT(1) DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            `);
+            // Clean up expired OTPs older than 1 hour
+            await pool.query(`DELETE FROM otp_tokens WHERE expires_at < NOW() - INTERVAL 1 HOUR`).catch(() => {});
+            console.log('[Migration] Inventory, expenses, reports & offer banners schema verified');
+        } catch (errMisc) {
+            console.warn('[Migration Misc Notice]', errMisc.message);
+        }
+
+        console.log('[Migration] All consolidated startup migrations completed successfully.');
     } catch (err) {
         console.error('[Migration Error]', err.message);
     }

@@ -177,8 +177,24 @@ export const SupportInbox: React.FC = () => {
   useEffect(() => {
     fetchConversations();
     fetchCannedReplies();
-    const interval = setInterval(fetchConversations, 8000);
-    return () => clearInterval(interval);
+
+    const interval = setInterval(() => {
+      // Pause background polling when tab is hidden or blurred to protect server resources
+      if (document.hidden) return;
+      fetchConversations();
+    }, 8000);
+
+    const onVisible = () => {
+      if (!document.hidden) {
+        fetchConversations();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [fetchConversations, fetchCannedReplies]);
 
   useEffect(() => {

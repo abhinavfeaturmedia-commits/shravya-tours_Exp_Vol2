@@ -141,9 +141,9 @@ export const About: React.FC = () => {
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
                             {[
-                                { role: 'Designated Partner, Director & Sales Head', name: 'Manali Sankpal', icon: 'stars' },
-                                { role: 'Designated Partner, Managing Director', name: 'Rohit Sankpal', icon: 'manage_accounts' },
-                                { role: 'Operations Head', name: 'Ajinkya Joshi', icon: 'engineering' },
+                                { role: 'Founder Director & Head – Business Development', name: 'Rohit Sankpal', icon: 'manage_accounts' },
+                                { role: 'Founder & CEO – Operations', name: 'Manali Sankpal', icon: 'stars' },
+                                { role: 'Travel Operations Manager', name: 'Ajinkya', icon: 'engineering' },
                                 { role: 'IT & Marketing Head', name: 'Abhinav Gaikwad', icon: 'campaign' },
                                 { role: 'Ticketing Manager', name: 'Omkar Bhosale', icon: 'local_activity' },
                                 { role: 'Fleet Manager', name: 'Dipak Pathade', icon: 'directions_car' },

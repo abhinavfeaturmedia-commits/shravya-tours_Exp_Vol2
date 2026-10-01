@@ -6,8 +6,8 @@
  */
 
 import jwt from 'jsonwebtoken';
-
-const getJwtSecret = () => process.env.JWT_SECRET || 'super_secret_jwt_key_please_change';
+export { getJwtSecret, JWT_SECRET, configureCors, configureHelmet, authLimiter, otpLimiter, chatbotLimiter, publicLeadLimiter, generalApiLimiter } from './security.js';
+import { getJwtSecret } from './security.js';
 
 // ═══════════════════════════════════════════
 // ALLOWED TABLES WHITELIST

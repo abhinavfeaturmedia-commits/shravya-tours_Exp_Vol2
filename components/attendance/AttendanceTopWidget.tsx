@@ -48,8 +48,23 @@ export const AttendanceTopWidget: React.FC = () => {
 
     useEffect(() => {
         fetchAttendance();
-        const poll = setInterval(fetchAttendance, 45000); // refresh every 45s
-        return () => clearInterval(poll);
+
+        const poll = setInterval(() => {
+            if (document.hidden) return;
+            fetchAttendance();
+        }, 45000); // refresh every 45s only when tab is active
+
+        const onVisible = () => {
+            if (!document.hidden) {
+                fetchAttendance();
+            }
+        };
+        document.addEventListener('visibilitychange', onVisible);
+
+        return () => {
+            clearInterval(poll);
+            document.removeEventListener('visibilitychange', onVisible);
+        };
     }, [isAuthenticated]);
 
     // Cross-component synchronizer: listen for attendance updates from any page

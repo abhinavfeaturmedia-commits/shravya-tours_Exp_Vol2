@@ -349,8 +349,23 @@ export const AdminLayout: React.FC = () => {
   useEffect(() => {
     if (!isAuthenticated) return;
     fetchNotifications();
-    const interval = setInterval(fetchNotifications, 30000);
-    return () => clearInterval(interval);
+
+    const interval = setInterval(() => {
+      if (document.hidden) return;
+      fetchNotifications();
+    }, 30000);
+
+    const onVisible = () => {
+      if (!document.hidden) {
+        fetchNotifications();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [isAuthenticated, fetchNotifications]);
 
   useEffect(() => {

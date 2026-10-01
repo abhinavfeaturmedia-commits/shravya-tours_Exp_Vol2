@@ -135,11 +135,25 @@ export const Attendance: React.FC = () => {
     useEffect(() => {
         fetchTodayRoster();
         fetchPendingRegs();
+
         const poll = setInterval(() => {
+            if (document.hidden) return;
             fetchTodayRoster(false);
             fetchPendingRegs();
         }, 60000);
-        return () => clearInterval(poll);
+
+        const onVisible = () => {
+            if (!document.hidden) {
+                fetchTodayRoster(false);
+                fetchPendingRegs();
+            }
+        };
+        document.addEventListener('visibilitychange', onVisible);
+
+        return () => {
+            clearInterval(poll);
+            document.removeEventListener('visibilitychange', onVisible);
+        };
     }, [isAuthenticated]);
 
     // Handle URL search parameter ?staffId=...

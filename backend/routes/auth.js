@@ -13,8 +13,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { authMiddleware } from '../middleware/index.js';
 import { recordStaffLoginAndAutoClockIn } from './attendance.js';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'change-me';
+import { JWT_SECRET } from '../middleware/security.js';
 
 export function createAuthRoutes(app, pool) {
 
