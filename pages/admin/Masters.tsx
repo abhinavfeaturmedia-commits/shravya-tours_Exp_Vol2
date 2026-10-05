@@ -29,8 +29,9 @@ import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 import { ImageUpload } from '../../components/ui/ImageUpload';
 import { ActionMenu } from '../../components/ui/ActionMenu';
+import { OrganizationMastersTab } from '../../components/admin/masters/OrganizationMastersTab';
 
-type MasterTab = 'analytics' | 'countries' | 'locations' | 'hotels' | 'activities' | 'transports' | 'plans' | 'room-types' | 'meal-plans' | 'lead-sources' | 'terms';
+type MasterTab = 'analytics' | 'countries' | 'locations' | 'hotels' | 'activities' | 'transports' | 'plans' | 'room-types' | 'meal-plans' | 'lead-sources' | 'terms' | 'organization';
 type ViewMode = 'grid' | 'list';
 type SortDirection = 'asc' | 'desc';
 
@@ -1742,6 +1743,7 @@ export const Masters: React.FC = () => {
         { id: 'lead-sources', label: 'Lead Sources', icon: <Globe size={16} />, count: masterLeadSources.length },
         { id: 'terms', label: 'Terms & Conditions', icon: <FileText size={16} />, count: masterTermsTemplates.length },
         { id: 'plans', label: 'Plan Templates', icon: <Calendar size={16} />, count: masterPlans.length },
+        { id: 'organization', label: 'Organization & Hierarchy', icon: <Users size={16} /> },
     ];
 
     const getLocationNameById = (id: string) => masterLocations.find(l => l.id === id)?.name || 'Unknown';
@@ -3001,7 +3003,7 @@ export const Masters: React.FC = () => {
                     </div>
 
                     <div className="flex items-center gap-2 flex-wrap">
-                        {activeTab !== 'analytics' && (
+                        {activeTab !== 'analytics' && activeTab !== 'organization' && (
                             <button
                                 onClick={downloadSampleTemplate}
                                 className="flex items-center gap-1.5 px-4 py-2.5 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs hover:bg-slate-50 dark:hover:bg-slate-700 transition-all shadow-sm"
@@ -3067,6 +3069,8 @@ export const Masters: React.FC = () => {
                 {/* Controls & Sub-Filters */}
                 {activeTab === 'analytics' ? (
                     <AnalyticsView />
+                ) : activeTab === 'organization' ? (
+                    <OrganizationMastersTab />
                 ) : (
                     <div className="space-y-4">
                         {/* Sub Filter Category Pills */}

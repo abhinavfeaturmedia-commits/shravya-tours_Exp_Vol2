@@ -1,5 +1,5 @@
 import imageCompression from 'browser-image-compression';
-import { Package, Booking, Lead, LeadLog, BookingStatus, BookingType, StaffMember, Customer, MasterRoomType, MasterMealPlan, MasterActivity, MasterTransport, MasterPlan, MasterLeadSource, MasterTermsTemplate, CMSBanner, CMSTestimonial, CMSGalleryImage, CMSPost, FollowUp, Proposal, DailyTarget, TimeSession, AssignmentRule, UserActivity, Campaign, MasterHotel, Task, AuditLog, Expense, AttendanceLog, StaffLeave, AttendanceSettings, TodayAttendanceResponse, AttendanceReportResponse, Coupon, DailyMarketingLog, MarketingTarget, LogComment, LogReaction, InAppNotification, BookingDailyDeliverable, DailySlot, MembershipPlan, Account, AccountTransaction, ReportHistoryItem } from '../../types';
+import { Package, Booking, Lead, LeadLog, BookingStatus, BookingType, StaffMember, Customer, Department, Designation, Branch, HierarchyManager, HierarchyChainItem, HierarchyDownline, MyReportingResponse, ApproverResolution, HRGrievance, MasterRoomType, MasterMealPlan, MasterActivity, MasterTransport, MasterPlan, MasterLeadSource, MasterTermsTemplate, CMSBanner, CMSTestimonial, CMSGalleryImage, CMSPost, FollowUp, Proposal, DailyTarget, TimeSession, AssignmentRule, UserActivity, Campaign, MasterHotel, Task, AuditLog, Expense, AttendanceLog, StaffLeave, AttendanceSettings, TodayAttendanceResponse, AttendanceReportResponse, Coupon, DailyMarketingLog, MarketingTarget, LogComment, LogReaction, InAppNotification, BookingDailyDeliverable, DailySlot, MembershipPlan, Account, AccountTransaction, ReportHistoryItem } from '../../types';
 import { normalisePhone } from '../../utils/phoneUtils';
 import { parsePaxString, formatPaxString } from '../../utils/paxUtils';
 
@@ -217,6 +217,72 @@ const mapPackage = (row: any): Package => {
 };
 
 export const api = {
+    // --- ORGANIZATION MASTERS (Departments, Designations, Branches) ---
+    getDepartments: async (): Promise<Department[]> => {
+        const { data } = await crud.getAll('departments', { order: 'name', asc: true });
+        return data || [];
+    },
+    createDepartment: async (dept: Partial<Department>): Promise<Department> => {
+        const { data } = await crud.create('departments', dept);
+        return data;
+    },
+    updateDepartment: async (id: string, updates: Partial<Department>): Promise<Department> => {
+        const { data } = await crud.update('departments', id, updates);
+        return data;
+    },
+    deleteDepartment: async (id: string): Promise<void> => {
+        await crud.remove('departments', id);
+    },
+
+    getDesignations: async (): Promise<Designation[]> => {
+        const { data } = await crud.getAll('designations', { order: 'grade_level', asc: true });
+        return data || [];
+    },
+    createDesignation: async (desig: Partial<Designation>): Promise<Designation> => {
+        const { data } = await crud.create('designations', desig);
+        return data;
+    },
+    updateDesignation: async (id: string, updates: Partial<Designation>): Promise<Designation> => {
+        const { data } = await crud.update('designations', id, updates);
+        return data;
+    },
+    deleteDesignation: async (id: string): Promise<void> => {
+        await crud.remove('designations', id);
+    },
+
+    getBranches: async (): Promise<Branch[]> => {
+        const { data } = await crud.getAll('branches', { order: 'name', asc: true });
+        return data || [];
+    },
+    createBranch: async (branch: Partial<Branch>): Promise<Branch> => {
+        const { data } = await crud.create('branches', branch);
+        return data;
+    },
+    updateBranch: async (id: string, updates: Partial<Branch>): Promise<Branch> => {
+        const { data } = await crud.update('branches', id, updates);
+        return data;
+    },
+    deleteBranch: async (id: string): Promise<void> => {
+        await crud.remove('branches', id);
+    },
+
+    // --- HIERARCHY & REPORTING ---
+    getMyReporting: async (): Promise<MyReportingResponse> => {
+        return fetchApi('/api/hierarchy/my-reporting');
+    },
+    getStaffChain: async (staffId: number): Promise<{ staff_id: number; chain_length: number; chain: HierarchyChainItem[] }> => {
+        return fetchApi(`/api/hierarchy/staff/${staffId}/chain`);
+    },
+    getStaffDownline: async (staffId: number): Promise<HierarchyDownline> => {
+        return fetchApi(`/api/hierarchy/staff/${staffId}/downline`);
+    },
+    resolveApprover: async (params: { staff_id?: number; approval_type: 'discount' | 'expense' | 'leave'; required_value: number }): Promise<ApproverResolution> => {
+        return fetchApi('/api/hierarchy/resolve-approver', {
+            method: 'POST',
+            body: JSON.stringify(params)
+        });
+    },
+
     // --- BULK FETCH (Performance: replaces 35+ calls with 1-2) ---
     bulkFetch: async (tables: string[]): Promise<Record<string, any[]>> => {
         return fetchApi('/api/bulk-fetch', {
@@ -1402,12 +1468,33 @@ export const api = {
         const { data } = await crud.getAll('staff_members', { order: 'created_at', asc: false });
         return (data || []).map((s: any) => ({
             id: s.id,
+            employeeCode: s.employee_code || undefined,
+            employee_code: s.employee_code || undefined,
             name: s.name || 'Unknown',
             email: s.email || '',
             role: s.role || 'Agent',
             userType: s.user_type || 'Staff',
             department: s.department || 'General',
-            // Fix: use null/undefined check only — don't coerce 'Inactive' to 'Active'
+            designationId: s.designation_id || undefined,
+            designation_id: s.designation_id || undefined,
+            designationName: s.designation_name || undefined,
+            designation_name: s.designation_name || undefined,
+            gradeLevel: s.grade_level || 'L8',
+            grade_level: s.grade_level || 'L8',
+            reportingToId: s.reporting_to_id ? Number(s.reporting_to_id) : null,
+            reporting_to_id: s.reporting_to_id ? Number(s.reporting_to_id) : null,
+            managerName: s.manager_name || undefined,
+            manager_name: s.manager_name || undefined,
+            managerEmail: s.manager_email || undefined,
+            manager_email: s.manager_email || undefined,
+            managerCode: s.manager_code || undefined,
+            manager_code: s.manager_code || undefined,
+            branchId: s.branch_id || undefined,
+            branch_id: s.branch_id || undefined,
+            branchName: s.branch_name || undefined,
+            branch_name: s.branch_name || undefined,
+            employmentStatus: s.employment_status || 'Active',
+            employment_status: s.employment_status || 'Active',
             status: s.status != null ? s.status : 'Active',
             initials: s.initials || (s.name ? s.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().substring(0, 2) : 'XX'),
             color: s.color || 'slate',
@@ -1505,7 +1592,13 @@ export const api = {
                 permissions: safePerms,
                 query_scope: staff.queryScope,
                 whatsapp_scope: staff.whatsappScope,
-                phone: (staff as any).phone
+                phone: (staff as any).phone,
+                employee_code: staff.employeeCode || (staff as any).employee_code,
+                designation_id: staff.designationId || (staff as any).designation_id,
+                grade_level: staff.gradeLevel || (staff as any).grade_level,
+                reporting_to_id: staff.reportingToId !== undefined ? staff.reportingToId : (staff as any).reporting_to_id,
+                branch_id: staff.branchId || (staff as any).branch_id,
+                employment_status: staff.employmentStatus || (staff as any).employment_status
             };
             const { data } = await fetchApi('/api/staff/create', {
                 method: 'POST',
@@ -1524,7 +1617,14 @@ export const api = {
                 permissions: parsePermissionsSafe(data.permissions),
                 queryScope: data.query_scope,
                 whatsappScope: data.whatsapp_scope,
-                lastActive: data.last_active
+                lastActive: data.last_active,
+                employeeCode: data.employee_code || undefined,
+                employee_code: data.employee_code || undefined,
+                designationId: data.designation_id || undefined,
+                gradeLevel: data.grade_level || undefined,
+                reportingToId: data.reporting_to_id !== null && data.reporting_to_id !== undefined ? Number(data.reporting_to_id) : undefined,
+                branchId: data.branch_id || undefined,
+                employmentStatus: data.employment_status || 'Active'
             };
         }
 
@@ -1540,7 +1640,13 @@ export const api = {
             color: staff.color,
             permissions: safePerms,
             query_scope: staff.queryScope,
-            whatsapp_scope: staff.whatsappScope
+            whatsapp_scope: staff.whatsappScope,
+            employee_code: staff.employeeCode || (staff as any).employee_code,
+            designation_id: staff.designationId || (staff as any).designation_id,
+            grade_level: staff.gradeLevel || (staff as any).grade_level,
+            reporting_to_id: staff.reportingToId !== undefined ? staff.reportingToId : (staff as any).reporting_to_id,
+            branch_id: staff.branchId || (staff as any).branch_id,
+            employment_status: staff.employmentStatus || (staff as any).employment_status
         };
 
         const { data } = await crud.create('staff_members', staffPayload);
@@ -1558,7 +1664,14 @@ export const api = {
             permissions: parsePermissionsSafe(data.permissions),
             queryScope: data.query_scope,
             whatsappScope: data.whatsapp_scope,
-            lastActive: data.last_active
+            lastActive: data.last_active,
+            employeeCode: data.employee_code || undefined,
+            employee_code: data.employee_code || undefined,
+            designationId: data.designation_id || undefined,
+            gradeLevel: data.grade_level || undefined,
+            reportingToId: data.reporting_to_id !== null && data.reporting_to_id !== undefined ? Number(data.reporting_to_id) : undefined,
+            branchId: data.branch_id || undefined,
+            employmentStatus: data.employment_status || 'Active'
         };
     },
 
@@ -1580,6 +1693,12 @@ export const api = {
         if (updates.whatsappScope !== undefined) dbUpdates.whatsapp_scope = updates.whatsappScope;
         if ((updates as any).phone !== undefined) dbUpdates.phone = (updates as any).phone;
         if (updates.permissions !== undefined) dbUpdates.permissions = parsePermissionsSafe(updates.permissions);
+        if (updates.employeeCode !== undefined || (updates as any).employee_code !== undefined) dbUpdates.employee_code = updates.employeeCode || (updates as any).employee_code;
+        if (updates.designationId !== undefined || (updates as any).designation_id !== undefined) dbUpdates.designation_id = updates.designationId || (updates as any).designation_id;
+        if (updates.gradeLevel !== undefined || (updates as any).grade_level !== undefined) dbUpdates.grade_level = updates.gradeLevel || (updates as any).grade_level;
+        if (updates.reportingToId !== undefined || (updates as any).reporting_to_id !== undefined) dbUpdates.reporting_to_id = updates.reportingToId !== undefined ? updates.reportingToId : (updates as any).reporting_to_id;
+        if (updates.branchId !== undefined || (updates as any).branch_id !== undefined) dbUpdates.branch_id = updates.branchId || (updates as any).branch_id;
+        if (updates.employmentStatus !== undefined || (updates as any).employment_status !== undefined) dbUpdates.employment_status = updates.employmentStatus || (updates as any).employment_status;
         await crud.update('staff_members', id, dbUpdates);
     },
 
@@ -3783,6 +3902,19 @@ export const api = {
     },
     updateIncentiveRule: async (ruleId: string, data: any) => {
         return fetchApi(`/api/incentives/rules/${encodeURIComponent(ruleId)}`, { method: 'PUT', body: JSON.stringify(data) });
+    },
+
+    // ─── CONFIDENTIAL HR ESCALATION / GRIEVANCES ───
+    submitGrievance: async (data: { category: string; subject: string; description: string; isAnonymous?: boolean }): Promise<{ success: boolean; grievanceId: string }> => {
+        return fetchApi('/api/hierarchy/grievances', { method: 'POST', body: JSON.stringify(data) });
+    },
+    getGrievances: async (params?: { status?: string }): Promise<HRGrievance[]> => {
+        const qs = new URLSearchParams();
+        if (params?.status) qs.set('status', params.status);
+        return fetchApi(`/api/hierarchy/grievances${qs.toString() ? `?${qs.toString()}` : ''}`);
+    },
+    updateGrievanceStatus: async (id: string, data: { status: string; resolutionNotes?: string }): Promise<{ success: boolean }> => {
+        return fetchApi(`/api/hierarchy/grievances/${encodeURIComponent(id)}/status`, { method: 'PATCH', body: JSON.stringify(data) });
     },
 
     crud

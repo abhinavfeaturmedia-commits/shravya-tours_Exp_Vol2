@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { formatPrice } from '../../utils/packageUtils';
 import { toast } from 'sonner';
+import { api } from '../../src/lib/api';
 
 export const InboxApprovalsHub: React.FC = () => {
   const navigate = useNavigate();
@@ -52,6 +53,16 @@ export const InboxApprovalsHub: React.FC = () => {
   // New Request Modal State
   const [showNewRequestModal, setShowNewRequestModal] = useState(false);
   const [newTaskForm, setNewTaskForm] = useState({ title: '', description: '', priority: 'Medium', dueDate: '' });
+
+  // Confidential HR Grievance / Escalation Modal State
+  const [showGrievanceModal, setShowGrievanceModal] = useState(false);
+  const [isSubmittingGrievance, setIsSubmittingGrievance] = useState(false);
+  const [grievanceForm, setGrievanceForm] = useState({
+    category: 'Manager Misconduct',
+    subject: '',
+    description: '',
+    isAnonymous: false
+  });
 
   // Transport vendors for quick selection
   const transportVendors = useMemo(() => {
@@ -112,6 +123,9 @@ export const InboxApprovalsHub: React.FC = () => {
       case 'operations':
         return ['Driver & Cab Assigned', 'Vendor Confirmed', 'Customer Informed', 'Driver Pending'];
       case 'hr':
+        if (activeItem.metadata?.isGrievance) {
+          return ['Addressed with HR', 'Investigation Initiated', 'Policy Action Taken', 'Closed after Review'];
+        }
         return ['Approved per Policy', 'Backup Assigned', 'Low Leave Balance', 'Please Reschedule'];
       case 'tasks':
         return ['Completed & Output Verified', 'Work Approved', 'Revision Required', 'Forwarded to Manager'];
@@ -389,6 +403,36 @@ export const InboxApprovalsHub: React.FC = () => {
     setNewTaskForm({ title: '', description: '', priority: 'Medium', dueDate: '' });
   };
 
+  const handleSubmitGrievance = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!grievanceForm.subject.trim() || !grievanceForm.description.trim()) {
+      toast.error('Please enter both subject and description for the grievance');
+      return;
+    }
+    setIsSubmittingGrievance(true);
+    try {
+      await api.submitGrievance({
+        category: grievanceForm.category,
+        subject: grievanceForm.subject.trim(),
+        description: grievanceForm.description.trim(),
+        isAnonymous: grievanceForm.isAnonymous
+      });
+      toast.success('Confidential grievance submitted directly to HR & Executive leadership.');
+      setShowGrievanceModal(false);
+      setGrievanceForm({
+        category: 'Manager Misconduct',
+        subject: '',
+        description: '',
+        isAnonymous: false
+      });
+      await refetchAll();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to submit grievance');
+    } finally {
+      setIsSubmittingGrievance(false);
+    }
+  };
+
   return (
     <div className="flex flex-col font-sans h-[calc(100vh-135px)] overflow-hidden">
       
@@ -450,13 +494,25 @@ export const InboxApprovalsHub: React.FC = () => {
         <div className="col-span-12 lg:col-span-3 xl:col-span-2.5 flex flex-col gap-3 overflow-y-auto pr-1">
           
           {/* Elevated New Request Button with Tactile Press Feedback */}
-          <button
-            onClick={() => setShowNewRequestModal(true)}
-            className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold text-xs shadow-md shadow-emerald-600/25 transition-all cursor-pointer shrink-0 active:scale-[0.98]"
-          >
-            <span className="material-symbols-outlined text-[18px]">add_circle</span>
-            <span>New Request / Task</span>
-          </button>
+          <div className="flex flex-col gap-2 shrink-0">
+            <button
+              onClick={() => setShowNewRequestModal(true)}
+              className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold text-xs shadow-md shadow-emerald-600/25 transition-all cursor-pointer shrink-0 active:scale-[0.98]"
+            >
+              <span className="material-symbols-outlined text-[18px]">add_circle</span>
+              <span>New Request / Task</span>
+            </button>
+
+            {/* Confidential HR Escalation Button */}
+            <button
+              onClick={() => setShowGrievanceModal(true)}
+              className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 font-bold text-xs shadow-xs transition-all cursor-pointer shrink-0 active:scale-[0.98]"
+              title="Submit a confidential grievance directly to HR/Founder bypassing immediate supervisor"
+            >
+              <span className="material-symbols-outlined text-[17px] text-rose-600">shield_person</span>
+              <span>Confidential HR Escalation</span>
+            </button>
+          </div>
 
           {/* Main Queues / Folders */}
           <div className="bg-white dark:bg-slate-900 rounded-2xl p-2.5 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col gap-1 shrink-0">
@@ -1147,9 +1203,16 @@ export const InboxApprovalsHub: React.FC = () => {
                     <div className="grid grid-cols-2 gap-2 text-xs bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-pink-100 dark:border-pink-900/40">
                       <div>
                         <span className="text-[9px] text-slate-400 font-black uppercase block">Employee</span>
-                        <span className="font-extrabold text-slate-900 dark:text-white">
-                          {activeItem.requesterName}
-                        </span>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <span className="font-extrabold text-slate-900 dark:text-white">
+                            {activeItem.requesterName}
+                          </span>
+                          {activeItem.metadata.gradeLevel && (
+                            <span className="px-1.5 py-0.2 rounded text-[9px] font-black bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300">
+                              {activeItem.metadata.gradeLevel}
+                            </span>
+                          )}
+                        </div>
                         <span className="text-[10px] text-slate-400 block font-medium">
                           {activeItem.metadata.department || 'Operations'} · {activeItem.metadata.role || 'Staff'}
                         </span>
@@ -1162,12 +1225,64 @@ export const InboxApprovalsHub: React.FC = () => {
                       </div>
                     </div>
 
+                    {/* Reporting Manager & Approval Routing Verification */}
+                    <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2">
+                        <span className="size-7 rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 flex items-center justify-center text-xs">
+                          <span className="material-symbols-outlined text-[15px]">account_tree</span>
+                        </span>
+                        <div>
+                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block">
+                            Assigned Reporting Manager
+                          </span>
+                          <span className="font-bold text-slate-800 dark:text-slate-200">
+                            {activeItem.metadata.assignedManagerName || 'Primary Manager / Founder'}
+                          </span>
+                        </div>
+                      </div>
+                      <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                        {activeItem.metadata.assignedManagerName ? 'DOA Route: Active Manager' : 'DOA Route: Founder / L1'}
+                      </span>
+                    </div>
+
                     {activeItem.metadata.reason && (
                       <div className="text-xs text-slate-700 dark:text-slate-300 bg-white/80 dark:bg-slate-900/80 p-2 rounded-xl border border-pink-100 dark:border-pink-900/40 font-medium">
                         <span className="font-black text-slate-500 block text-[9px] uppercase">Reason for Leave:</span>
                         <p className="mt-0.5">{activeItem.metadata.reason}</p>
                       </div>
                     )}
+                  </div>
+                )}
+
+                {/* 5. HR Confidential Escalation Card */}
+                {activeItem.metadata?.isGrievance && (
+                  <div className="p-3.5 rounded-xl bg-rose-50/60 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/60 flex flex-col gap-2.5 shadow-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black text-rose-900 dark:text-rose-200 flex items-center gap-1.5">
+                        <span className="material-symbols-outlined text-[17px] text-rose-600">shield_person</span>
+                        <span>Confidential Escalation (Supervisor Bypass)</span>
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-100 dark:bg-rose-900/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+                        {activeItem.metadata.category || 'Policy Violation'}
+                      </span>
+                    </div>
+
+                    <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-rose-100 dark:border-rose-900/40 text-xs">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[10px] font-bold text-slate-500">Complainant / Submitter:</span>
+                        <span className="px-2 py-0.2 rounded text-[10px] font-black bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                          {activeItem.metadata.isAnonymous ? '🔒 Anonymous Protection' : `${activeItem.metadata.staffName || 'Staff'} (${activeItem.metadata.gradeLevel || 'Staff'})`}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-800 dark:text-slate-200 font-medium leading-relaxed mt-2 whitespace-pre-wrap">
+                        {activeItem.metadata.description}
+                      </p>
+                    </div>
+
+                    <div className="p-2 rounded-lg bg-rose-100/60 dark:bg-rose-900/20 text-[11px] text-rose-800 dark:text-rose-300 flex items-center gap-1.5">
+                      <span className="material-symbols-outlined text-[15px]">lock</span>
+                      <span>This grievance is confidential and visible only to HR Executive and Founder / MD.</span>
+                    </div>
                   </div>
                 )}
 
@@ -1374,6 +1489,110 @@ export const InboxApprovalsHub: React.FC = () => {
                 Create Task
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Modal for Confidential HR Grievance Escalation ─── */}
+      {showGrievanceModal && (
+        <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 max-w-lg w-full border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col gap-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <span className="size-8 rounded-xl bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300 flex items-center justify-center">
+                  <span className="material-symbols-outlined text-[18px]">shield_person</span>
+                </span>
+                <div>
+                  <h3 className="font-black text-slate-900 dark:text-white text-base">
+                    Confidential HR Escalation
+                  </h3>
+                  <span className="text-[10px] text-slate-400 font-medium">Direct reporting channel bypassing immediate manager</span>
+                </div>
+              </div>
+              <button onClick={() => setShowGrievanceModal(false)} className="text-slate-400 hover:text-slate-600">
+                <span className="material-symbols-outlined text-[20px]">close</span>
+              </button>
+            </div>
+
+            <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/60 text-xs text-rose-800 dark:text-rose-200 flex items-start gap-2">
+              <span className="material-symbols-outlined text-[18px] text-rose-600 shrink-0">verified_user</span>
+              <p className="leading-relaxed">
+                <strong>Whistleblower & Grievance Protection:</strong> Your report is submitted directly to Executive Leadership & Founder. Your immediate reporting manager cannot see or intercept this ticket.
+              </p>
+            </div>
+
+            <form onSubmit={handleSubmitGrievance} className="flex flex-col gap-3">
+              <div>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Escalation Category</label>
+                <select
+                  value={grievanceForm.category}
+                  onChange={e => setGrievanceForm({ ...grievanceForm, category: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-medium cursor-pointer"
+                >
+                  <option value="Manager Misconduct">Manager Misconduct / Unfair Treatment</option>
+                  <option value="Harassment">Workplace Harassment / Bullying</option>
+                  <option value="Policy Violation">Company Policy or Safety Violation</option>
+                  <option value="Compensation">Compensation / Incentive Discrepancy</option>
+                  <option value="Work Environment">Work Environment / Ethics Issue</option>
+                  <option value="Other">Other Confidential Matter</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Subject</label>
+                <input
+                  type="text"
+                  placeholder="Summary of your concern..."
+                  value={grievanceForm.subject}
+                  onChange={e => setGrievanceForm({ ...grievanceForm, subject: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-medium"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Detailed Explanation & Timeline</label>
+                <textarea
+                  rows={4}
+                  placeholder="Please describe what happened, dates, individuals involved, and any relevant context..."
+                  value={grievanceForm.description}
+                  onChange={e => setGrievanceForm({ ...grievanceForm, description: e.target.value })}
+                  className="w-full p-3 rounded-xl text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-medium"
+                  required
+                />
+              </div>
+
+              <div className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
+                <input
+                  type="checkbox"
+                  id="anonymousCheckbox"
+                  checked={grievanceForm.isAnonymous}
+                  onChange={e => setGrievanceForm({ ...grievanceForm, isAnonymous: e.target.checked })}
+                  className="rounded text-rose-600 focus:ring-rose-500 cursor-pointer"
+                />
+                <label htmlFor="anonymousCheckbox" className="text-xs text-slate-700 dark:text-slate-300 font-medium cursor-pointer select-none">
+                  <strong>Submit Anonymously</strong> (Do not display my name or contact info on this report)
+                </label>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowGrievanceModal(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 active:scale-95"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingGrievance}
+                  className="px-5 py-2 rounded-xl text-xs font-black bg-rose-600 hover:bg-rose-700 text-white shadow-md shadow-rose-600/20 active:scale-95 disabled:opacity-60 flex items-center gap-1.5"
+                >
+                  <span className="material-symbols-outlined text-[16px]">send</span>
+                  <span>{isSubmittingGrievance ? 'Submitting...' : 'Submit Confidential Escalation'}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

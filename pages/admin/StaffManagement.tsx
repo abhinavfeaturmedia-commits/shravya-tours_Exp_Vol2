@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth, DEFAULT_PERMISSIONS } from '../../context/AuthContext';
 import { toast } from '../../components/ui/Toast';
-import { StaffMember, StaffPermissions } from '../../types';
+import { StaffMember, StaffPermissions, Department, Designation, Branch } from '../../types';
 import { api } from '../../src/lib/api';
 import {
     PERMISSION_CATEGORIES,
@@ -38,6 +38,23 @@ const formatLastActive = (value: string | null | undefined): string => {
     }
 };
 
+
+export const GRADE_LEVELS: { grade: 'L1' | 'L2' | 'L3' | 'L4' | 'L5' | 'L6' | 'L7' | 'L8'; label: string; desc: string; badge: string }[] = [
+    { grade: 'L1', label: 'Founder / Managing Director', desc: 'Apex Authority (Unlimited DOA)', badge: 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-700' },
+    { grade: 'L2', label: 'Director / C-Level Executive', desc: 'Strategic Leadership', badge: 'bg-purple-100 text-purple-800 border-purple-300 dark:bg-purple-950/60 dark:text-purple-300 dark:border-purple-700' },
+    { grade: 'L3', label: 'Head of Department (HOD)', desc: 'Full Department DOA', badge: 'bg-indigo-100 text-indigo-800 border-indigo-300 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-700' },
+    { grade: 'L4', label: 'Branch Head / Senior Manager', desc: 'Branch-level Operations', badge: 'bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-950/60 dark:text-blue-300 dark:border-blue-700' },
+    { grade: 'L5', label: 'Team Lead / Manager', desc: 'Team & Shift Operations', badge: 'bg-teal-100 text-teal-800 border-teal-300 dark:bg-teal-950/60 dark:text-teal-300 dark:border-teal-700' },
+    { grade: 'L6', label: 'Senior Executive / Specialist', desc: 'Complex Bookings & Operations', badge: 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-700' },
+    { grade: 'L7', label: 'Executive / Officer', desc: 'Standard Direct Customer Support', badge: 'bg-sky-100 text-sky-800 border-sky-300 dark:bg-sky-950/60 dark:text-sky-300 dark:border-sky-700' },
+    { grade: 'L8', label: 'Junior Executive / Trainee', desc: 'Entry-level / Baseline Ops', badge: 'bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700' },
+];
+
+export const getGradeBadgeStyle = (grade?: string) => {
+    const found = GRADE_LEVELS.find(g => g.grade === grade);
+    return found ? found.badge : 'bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700';
+};
+
 export const StaffManagement: React.FC = () => {
     const { staff, addStaff, updateStaff, deleteStaff, currentUser, masqueradeAs, refreshStaff, hasPermission, canAccess } = useAuth();
     const [search, setSearch] = useState('');
@@ -59,6 +76,11 @@ export const StaffManagement: React.FC = () => {
     const [resetConfirmPassword, setResetConfirmPassword] = useState('');
     const [isResettingPassword, setIsResettingPassword] = useState(false);
 
+    // Organization Hierarchy Masters
+    const [departmentsList, setDepartmentsList] = useState<Department[]>([]);
+    const [designationsList, setDesignationsList] = useState<Designation[]>([]);
+    const [branchesList, setBranchesList] = useState<Branch[]>([]);
+
     // Permissions & Sub-Features State
     const [modalTab, setModalTab] = useState<'profile' | 'permissions'>('profile');
     const [permCategoryTab, setPermCategoryTab] = useState<'all' | 'overview' | 'crm' | 'operations' | 'finance' | 'system'>('all');
@@ -74,6 +96,12 @@ export const StaffManagement: React.FC = () => {
         userType: 'Staff' | 'Admin';
         department: string;
         status: string;
+        employeeCode?: string;
+        designationId?: number;
+        gradeLevel: 'L1' | 'L2' | 'L3' | 'L4' | 'L5' | 'L6' | 'L7' | 'L8';
+        reportingToId?: number;
+        branchId?: number;
+        employmentStatus: 'Active' | 'Notice Period' | 'Probation' | 'Suspended' | 'Resigned' | 'Terminated';
         queryScope: 'Show Assigned Query Only' | 'Show Department Queries' | 'Show All Queries';
         whatsappScope: 'Assigned Queries Messages' | 'Department Messages' | 'All Messages';
         permissions: Record<string, any>;
@@ -85,6 +113,12 @@ export const StaffManagement: React.FC = () => {
         userType: 'Staff',
         department: 'Sales',
         status: 'Active',
+        employeeCode: '',
+        designationId: undefined,
+        gradeLevel: 'L8',
+        reportingToId: undefined,
+        branchId: undefined,
+        employmentStatus: 'Active',
         queryScope: 'Show Assigned Query Only',
         whatsappScope: 'Assigned Queries Messages',
         permissions: normalizePermissions(null, 'Staff')
@@ -95,6 +129,9 @@ export const StaffManagement: React.FC = () => {
     // Refresh staff list on page mount so last_active values are always current from DB
     useEffect(() => {
         refreshStaff();
+        api.getDepartments().then(setDepartmentsList).catch(console.warn);
+        api.getDesignations().then(setDesignationsList).catch(console.warn);
+        api.getBranches().then(setBranchesList).catch(console.warn);
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Auto-select self or first staff member on desktop screens when list loads
@@ -141,6 +178,12 @@ export const StaffManagement: React.FC = () => {
             userType: 'Staff',
             department: 'Sales',
             status: 'Active',
+            employeeCode: '',
+            designationId: undefined,
+            gradeLevel: 'L8',
+            reportingToId: undefined,
+            branchId: branchesList[0]?.id || undefined,
+            employmentStatus: 'Active',
             queryScope: 'Show Assigned Query Only',
             whatsappScope: 'Assigned Queries Messages',
             permissions: normalizePermissions(null, 'Staff')
@@ -168,6 +211,12 @@ export const StaffManagement: React.FC = () => {
             userType: member.userType || 'Staff',
             department: member.department,
             status: member.status,
+            employeeCode: member.employeeCode || (member as any).employee_code || '',
+            designationId: member.designationId || (member as any).designation_id || undefined,
+            gradeLevel: (member.gradeLevel || (member as any).grade_level || 'L8') as any,
+            reportingToId: member.reportingToId !== undefined ? member.reportingToId : ((member as any).reporting_to_id !== undefined ? (member as any).reporting_to_id : undefined),
+            branchId: member.branchId || (member as any).branch_id || undefined,
+            employmentStatus: (member.employmentStatus || (member as any).employment_status || 'Active') as any,
             queryScope: member.queryScope || 'Show Assigned Query Only',
             whatsappScope: member.whatsappScope || 'Assigned Queries Messages',
             permissions: normalizePermissions(member.permissions, member.userType || 'Staff', member.queryScope)
@@ -441,6 +490,12 @@ export const StaffManagement: React.FC = () => {
             userType: derivedUserType,
             department: formData.department as any,
             status: formData.status as any,
+            employeeCode: formData.employeeCode ? formData.employeeCode.trim() : undefined,
+            designationId: formData.designationId ? Number(formData.designationId) : undefined,
+            gradeLevel: formData.gradeLevel || 'L8',
+            reportingToId: formData.reportingToId ? Number(formData.reportingToId) : null,
+            branchId: formData.branchId ? Number(formData.branchId) : undefined,
+            employmentStatus: formData.employmentStatus || 'Active',
             queryScope: derivedUserType === 'Admin' ? 'Show All Queries' : formData.queryScope, // Admins see all
             whatsappScope: derivedUserType === 'Admin' ? 'All Messages' : formData.whatsappScope, // Admins see all
             permissions: finalPermissions,
@@ -752,6 +807,154 @@ export const StaffManagement: React.FC = () => {
                                                         className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none"
                                                         placeholder="+91 98765 43210"
                                                     />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <hr className="border-slate-100 dark:border-slate-800" />
+
+                                        {/* Corporate Hierarchy & Chain of Command */}
+                                        <div className="bg-gradient-to-br from-indigo-50/50 via-slate-50 to-purple-50/30 dark:from-indigo-950/20 dark:via-slate-900/40 dark:to-purple-950/20 p-4 rounded-2xl border border-indigo-100 dark:border-indigo-900/50 space-y-4">
+                                            <div className="flex items-center justify-between">
+                                                <h3 className="text-xs font-black uppercase tracking-wider text-indigo-700 dark:text-indigo-400 flex items-center gap-1.5">
+                                                    <span className="material-symbols-outlined text-[16px]">account_tree</span>
+                                                    Corporate Hierarchy & Reporting Structure
+                                                </h3>
+                                                <span className="text-[10px] font-bold text-slate-500 bg-white/80 dark:bg-slate-800 px-2 py-0.5 rounded-full border border-slate-200 dark:border-slate-700">
+                                                    Chain of Command
+                                                </span>
+                                            </div>
+
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                                {/* Designation from Masters */}
+                                                <div>
+                                                    <label className="text-xs font-bold uppercase text-slate-600 dark:text-slate-400 mb-1.5 flex items-center justify-between">
+                                                        <span>Official Designation (from Masters)</span>
+                                                        <Link to="/admin/masters" target="_blank" className="text-[10px] text-indigo-600 dark:text-indigo-400 hover:underline normal-case font-medium">Manage Masters</Link>
+                                                    </label>
+                                                    <select
+                                                        value={formData.designationId || ''}
+                                                        onChange={e => {
+                                                            const id = e.target.value ? Number(e.target.value) : undefined;
+                                                            const found = designationsList.find(d => d.id === id);
+                                                            if (found) {
+                                                                setFormData(prev => ({
+                                                                    ...prev,
+                                                                    designationId: found.id,
+                                                                    role: found.name,
+                                                                    gradeLevel: (found.grade_level || 'L8') as any,
+                                                                    department: found.department_name ? found.department_name : prev.department
+                                                                }));
+                                                            } else {
+                                                                setFormData(prev => ({ ...prev, designationId: undefined }));
+                                                            }
+                                                        }}
+                                                        className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none cursor-pointer"
+                                                    >
+                                                        <option value="">-- Custom Designation (or choose from Masters) --</option>
+                                                        {designationsList.map(desig => (
+                                                            <option key={desig.id} value={desig.id}>
+                                                                [{desig.grade_level}] {desig.name} {desig.department_name ? `(${desig.department_name})` : ''}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                    <p className="text-[10px] text-slate-400 mt-1">Selecting automatically sets the official Role & Grade Level.</p>
+                                                </div>
+
+                                                {/* Grade Level (L1 to L8) */}
+                                                <div>
+                                                    <label className="text-xs font-bold uppercase text-slate-600 dark:text-slate-400 mb-1.5 block">Corporate Grade Level</label>
+                                                    <select
+                                                        value={formData.gradeLevel}
+                                                        onChange={e => setFormData({ ...formData, gradeLevel: e.target.value as any })}
+                                                        className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none cursor-pointer font-medium"
+                                                    >
+                                                        {GRADE_LEVELS.map(g => (
+                                                            <option key={g.grade} value={g.grade}>
+                                                                [{g.grade}] {g.label}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                    <p className="text-[10px] text-slate-400 mt-1">
+                                                        {GRADE_LEVELS.find(g => g.grade === formData.gradeLevel)?.desc}
+                                                    </p>
+                                                </div>
+
+                                                {/* Primary Reporting Manager */}
+                                                <div>
+                                                    <label className="text-xs font-bold uppercase text-slate-600 dark:text-slate-400 mb-1.5 block">
+                                                        Primary Reporting Manager *
+                                                    </label>
+                                                    <select
+                                                        value={formData.reportingToId || ''}
+                                                        onChange={e => setFormData({ ...formData, reportingToId: e.target.value ? Number(e.target.value) : undefined })}
+                                                        className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none cursor-pointer"
+                                                    >
+                                                        <option value="">-- No Direct Manager (Reports Directly to MD / Apex) --</option>
+                                                        {staff
+                                                            .filter(s => s.id !== editingId && s.status === 'Active')
+                                                            .sort((a, b) => {
+                                                                const gradeA = a.gradeLevel || (a as any).grade_level || 'L8';
+                                                                const gradeB = b.gradeLevel || (b as any).grade_level || 'L8';
+                                                                return gradeA.localeCompare(gradeB);
+                                                            })
+                                                            .map(m => (
+                                                                <option key={m.id} value={m.id}>
+                                                                    [{m.gradeLevel || (m as any).grade_level || 'L8'}] {m.name} ({m.role} - {m.department})
+                                                                </option>
+                                                            ))}
+                                                    </select>
+                                                    <p className="text-[10px] text-indigo-600 dark:text-indigo-400 mt-1 flex items-center gap-1">
+                                                        <span className="material-symbols-outlined text-[12px]">info</span>
+                                                        Self-healing vacancy: If manager is absent, requests escalate to next senior.
+                                                    </p>
+                                                </div>
+
+                                                {/* Branch / Location */}
+                                                <div>
+                                                    <label className="text-xs font-bold uppercase text-slate-600 dark:text-slate-400 mb-1.5 block">Office Branch / Location</label>
+                                                    <select
+                                                        value={formData.branchId || ''}
+                                                        onChange={e => setFormData({ ...formData, branchId: e.target.value ? Number(e.target.value) : undefined })}
+                                                        className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none cursor-pointer"
+                                                    >
+                                                        <option value="">-- Select Office Branch --</option>
+                                                        {branchesList.map(b => (
+                                                            <option key={b.id} value={b.id}>
+                                                                {b.name} ({b.city}{b.state ? `, ${b.state}` : ''})
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+
+                                                {/* Employee Code */}
+                                                <div>
+                                                    <label className="text-xs font-bold uppercase text-slate-600 dark:text-slate-400 mb-1.5 block">Employee Code / ID</label>
+                                                    <input
+                                                        type="text"
+                                                        value={formData.employeeCode || ''}
+                                                        onChange={e => setFormData({ ...formData, employeeCode: e.target.value })}
+                                                        placeholder="Auto-generated e.g. EMP-0012"
+                                                        className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none uppercase font-mono"
+                                                    />
+                                                    <p className="text-[10px] text-slate-400 mt-1">Leave empty to automatically generate.</p>
+                                                </div>
+
+                                                {/* Employment Status */}
+                                                <div>
+                                                    <label className="text-xs font-bold uppercase text-slate-600 dark:text-slate-400 mb-1.5 block">Employment Lifecycle Status</label>
+                                                    <select
+                                                        value={formData.employmentStatus || 'Active'}
+                                                        onChange={e => setFormData({ ...formData, employmentStatus: e.target.value as any })}
+                                                        className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none cursor-pointer"
+                                                    >
+                                                        <option value="Active">Active (Full Regular)</option>
+                                                        <option value="Probation">Probation Period</option>
+                                                        <option value="Notice Period">Notice Period</option>
+                                                        <option value="Suspended">Suspended</option>
+                                                        <option value="Resigned">Resigned</option>
+                                                        <option value="Terminated">Terminated</option>
+                                                    </select>
                                                 </div>
                                             </div>
                                         </div>
@@ -1745,15 +1948,33 @@ export const StaffManagement: React.FC = () => {
                                                                     <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-slate-200/80 dark:bg-slate-700 text-slate-600 dark:text-slate-300 shrink-0">You</span>
                                                                 )}
                                                             </div>
-                                                            <p className="text-xs text-slate-400 dark:text-slate-500 truncate mt-0.5">{member.email}</p>
+                                                            <p className="text-xs text-slate-400 dark:text-slate-500 truncate mt-0.5 flex items-center gap-1.5">
+                                                                {member.employeeCode && (
+                                                                    <span className="font-mono text-[10px] font-bold text-slate-600 dark:text-slate-300 bg-slate-200/70 dark:bg-slate-800 px-1.5 py-0.2 rounded">{member.employeeCode}</span>
+                                                                )}
+                                                                <span className="truncate">{member.email}</span>
+                                                            </p>
                                                         </div>
                                                     </div>
 
-                                                    {/* Role */}
+                                                    {/* Role & Grade Level */}
                                                     <div className="hidden md:block w-2/12 pr-2">
-                                                        <span className={`text-[10px] font-bold px-2.5 py-1 rounded-lg inline-block truncate max-w-full ${getRoleBadge(member.role)}`}>
-                                                            {member.role}
-                                                        </span>
+                                                        <div className="flex flex-col gap-1 items-start">
+                                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                                                <span className={`text-[9px] font-black px-1.5 py-0.5 rounded border uppercase ${getGradeBadgeStyle(member.gradeLevel)}`}>
+                                                                    {member.gradeLevel || 'L8'}
+                                                                </span>
+                                                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg inline-block truncate max-w-full ${getRoleBadge(member.role)}`}>
+                                                                    {member.role}
+                                                                </span>
+                                                            </div>
+                                                            {member.managerName && (
+                                                                <p className="text-[10px] text-slate-400 truncate max-w-full flex items-center gap-0.5" title={`Reports to: ${member.managerName}`}>
+                                                                    <span className="material-symbols-outlined text-[12px] text-indigo-400 shrink-0">subdirectory_arrow_right</span>
+                                                                    <span className="truncate">{member.managerName}</span>
+                                                                </p>
+                                                            )}
+                                                        </div>
                                                     </div>
 
                                                     {/* Department */}
@@ -1935,6 +2156,64 @@ export const StaffManagement: React.FC = () => {
                                                     selectedMember.status === 'Active' ? 'translate-x-6' : 'translate-x-1'
                                                 }`} />
                                             </button>
+                                        </div>
+
+                                        {/* Corporate Hierarchy & Reporting Card */}
+                                        <div className="p-4 bg-gradient-to-br from-indigo-50/70 via-white to-purple-50/50 dark:from-indigo-950/30 dark:via-slate-900/60 dark:to-purple-950/30 rounded-2xl border border-indigo-100 dark:border-indigo-900/50 space-y-3">
+                                            <div className="flex items-center justify-between">
+                                                <h3 className="text-[10px] font-black uppercase tracking-wider text-indigo-700 dark:text-indigo-400 flex items-center gap-1.5">
+                                                    <span className="material-symbols-outlined text-[15px]">account_tree</span>
+                                                    Hierarchy & Reporting
+                                                </h3>
+                                                <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border uppercase ${getGradeBadgeStyle(selectedMember.gradeLevel)}`}>
+                                                    {selectedMember.gradeLevel || 'L8'} Grade
+                                                </span>
+                                            </div>
+
+                                            <div className="grid grid-cols-2 gap-2 text-xs">
+                                                <div className="bg-white/90 dark:bg-slate-800/80 p-2.5 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
+                                                    <p className="text-[9px] font-bold text-slate-400 uppercase">Employee Code</p>
+                                                    <p className="font-mono font-bold text-slate-900 dark:text-white mt-0.5">{selectedMember.employeeCode || 'Not Assigned'}</p>
+                                                </div>
+                                                <div className="bg-white/90 dark:bg-slate-800/80 p-2.5 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
+                                                    <p className="text-[9px] font-bold text-slate-400 uppercase">Employment Status</p>
+                                                    <p className="font-bold text-slate-900 dark:text-white mt-0.5">{selectedMember.employmentStatus || 'Active'}</p>
+                                                </div>
+                                            </div>
+
+                                            <div className="bg-white/90 dark:bg-slate-800/80 p-2.5 rounded-xl border border-slate-200/60 dark:border-slate-700/60 space-y-1">
+                                                <p className="text-[9px] font-bold text-slate-400 uppercase flex items-center justify-between">
+                                                    <span>Primary Reporting Manager</span>
+                                                    <span className="text-[8px] text-indigo-500 font-semibold">1:1 Direct Chain</span>
+                                                </p>
+                                                {selectedMember.managerName ? (
+                                                    <div className="flex items-center gap-2 pt-0.5">
+                                                        <div className="size-7 rounded-lg bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 font-black text-xs flex items-center justify-center shrink-0">
+                                                            {selectedMember.managerName.substring(0, 2).toUpperCase()}
+                                                        </div>
+                                                        <div className="min-w-0 flex-1">
+                                                            <p className="font-bold text-xs text-slate-900 dark:text-white truncate">{selectedMember.managerName}</p>
+                                                            {selectedMember.managerEmail && (
+                                                                <p className="text-[10px] text-slate-400 truncate">{selectedMember.managerEmail}</p>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <p className="text-xs font-semibold text-slate-500 italic pt-0.5">
+                                                        Reports Directly to Board / Founder (Apex)
+                                                    </p>
+                                                )}
+                                            </div>
+
+                                            {selectedMember.branchName && (
+                                                <div className="flex items-center gap-2 bg-white/90 dark:bg-slate-800/80 p-2.5 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
+                                                    <span className="material-symbols-outlined text-[16px] text-indigo-500">store</span>
+                                                    <div className="min-w-0 flex-1">
+                                                        <p className="text-[9px] font-bold text-slate-400 uppercase">Assigned Branch</p>
+                                                        <p className="font-bold text-xs text-slate-900 dark:text-white truncate">{selectedMember.branchName}</p>
+                                                    </div>
+                                                </div>
+                                            )}
                                         </div>
 
                                         {/* Contact & Presence Information */}

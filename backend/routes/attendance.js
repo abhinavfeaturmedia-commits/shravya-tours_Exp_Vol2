@@ -15,6 +15,7 @@
 
 import crypto from 'crypto';
 import { authMiddleware } from '../middleware/index.js';
+import { findNearestActiveManager, isStaffInDownline, getStaffDownline } from '../utils/hierarchyResolver.js';
 
 // Helper to get local date string YYYY-MM-DD in IST (+05:30)
 function getTodayISTDate() {
@@ -1474,12 +1475,16 @@ export function createAttendanceRoutes(app, pool) {
                        s.phone as staff_phone,
                        COALESCE(s.department, 'Operations') as department, 
                        COALESCE(s.role, 'Staff') as role, 
+                       s.grade_level,
                        s.initials, 
                        s.color,
-                       approver.name as approved_by_name
+                       approver.name as approved_by_name,
+                       mgr.name as assigned_manager_name,
+                       mgr.email as assigned_manager_email
                 FROM staff_leaves l
                 LEFT JOIN staff_members s ON l.staff_id = s.id
                 LEFT JOIN staff_members approver ON l.approved_by = approver.id
+                LEFT JOIN staff_members mgr ON l.assigned_manager_id = mgr.id
                 ORDER BY l.created_at DESC
             `);
 
@@ -1511,6 +1516,7 @@ export function createAttendanceRoutes(app, pool) {
                     staffPhone: l.staff_phone || '',
                     department: l.department || 'Operations',
                     role: l.role || 'Staff',
+                    gradeLevel: l.grade_level || 'L8',
                     initials: initials,
                     color: l.color || 'bg-indigo-600',
                     leaveType: l.leave_type || 'Casual',
@@ -1521,6 +1527,9 @@ export function createAttendanceRoutes(app, pool) {
                     status: l.status || 'Pending',
                     approvedBy: l.approved_by || null,
                     approvedByName: l.approved_by_name || null,
+                    assignedManagerId: l.assigned_manager_id || null,
+                    assignedManagerName: l.assigned_manager_name || null,
+                    assignedManagerEmail: l.assigned_manager_email || null,
                     rejectionReason: l.rejection_reason || null,
                     createdAt: l.created_at,
                     updatedAt: l.updated_at,
@@ -1530,12 +1539,16 @@ export function createAttendanceRoutes(app, pool) {
                     staff_name: sName,
                     staff_email: l.staff_email || '',
                     staff_phone: l.staff_phone || '',
+                    grade_level: l.grade_level || 'L8',
                     leave_type: l.leave_type || 'Casual',
                     start_date: startDate,
                     end_date: endDate,
                     days_count: daysCount,
                     approved_by: l.approved_by || null,
                     approved_by_name: l.approved_by_name || null,
+                    assigned_manager_id: l.assigned_manager_id || null,
+                    assigned_manager_name: l.assigned_manager_name || null,
+                    assigned_manager_email: l.assigned_manager_email || null,
                     rejection_reason: l.rejection_reason || null
                 };
             });
@@ -1561,14 +1574,28 @@ export function createAttendanceRoutes(app, pool) {
             const cleanEndDate = String(endDate).split('T')[0];
             const numericDays = Number(daysCount) || 1.0;
 
+            // Corporate Hierarchy Integration: Auto-route to nearest active reporting manager
+            let assignedManagerId = null;
+            try {
+                const activeMgr = await findNearestActiveManager(pool, targetStaffId);
+                if (activeMgr?.id) assignedManagerId = Number(activeMgr.id);
+            } catch (hErr) {
+                console.warn('[Leaves Apply] Failed to resolve manager:', hErr.message);
+            }
+
             const leaveId = crypto.randomBytes(16).toString('hex');
             await pool.query(`
                 INSERT INTO staff_leaves (
-                    id, staff_id, leave_type, start_date, end_date, days_count, reason, status, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'Pending', NOW(), NOW())
-            `, [leaveId, targetStaffId, leaveType, cleanStartDate, cleanEndDate, numericDays, reason]);
+                    id, staff_id, leave_type, start_date, end_date, days_count, reason, status, assigned_manager_id, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'Pending', ?, NOW(), NOW())
+            `, [leaveId, targetStaffId, leaveType, cleanStartDate, cleanEndDate, numericDays, reason, assignedManagerId]);
 
-            res.json({ success: true, message: 'Leave application submitted successfully', leaveId });
+            res.json({ 
+                success: true, 
+                message: 'Leave application submitted successfully', 
+                leaveId,
+                assignedManagerId 
+            });
         } catch (err) {
             console.error('[Apply Leave Error]:', err);
             res.status(500).json({ error: err.message });
@@ -1660,6 +1687,10 @@ export function createAttendanceRoutes(app, pool) {
 
     app.put('/api/attendance/settings', authMiddleware, async (req, res) => {
         try {
+            const userRole = (req.user?.role || '').toLowerCase();
+            if (userRole !== 'admin') {
+                return res.status(403).json({ error: 'Forbidden: Only administrators can update attendance and shift settings.' });
+            }
             const {
                 shift_start = '09:30',
                 shift_end = '18:30',

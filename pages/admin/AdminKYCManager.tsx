@@ -233,7 +233,9 @@ export const AdminKYCManager: React.FC = () => {
     setToast({ msg: `Downloading ${docs.length} document file(s)...`, type: 'success' });
     for (const doc of docs) {
       try {
-        const response = await fetch(doc.url);
+        const response = await fetch(doc.url, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
         const blob = await response.blob();
         const blobUrl = window.URL.createObjectURL(blob);
         const link = document.createElement('a');
@@ -246,7 +248,8 @@ export const AdminKYCManager: React.FC = () => {
         window.URL.revokeObjectURL(blobUrl);
         await new Promise(r => setTimeout(r, 400));
       } catch {
-        window.open(doc.url, '_blank');
+        const authFallbackUrl = token ? (doc.url.includes('?') ? `${doc.url}&token=${encodeURIComponent(token)}` : `${doc.url}?token=${encodeURIComponent(token)}`) : doc.url;
+        window.open(authFallbackUrl, '_blank');
       }
     }
   };
@@ -260,12 +263,13 @@ export const AdminKYCManager: React.FC = () => {
         <p className="text-slate-400 dark:text-slate-550 text-xs font-medium">{label} — Not uploaded</p>
       </div>
     );
+    const authUrl = token ? (url.includes('?') ? `${url}&token=${encodeURIComponent(token)}` : `${url}?token=${encodeURIComponent(token)}`) : url;
     const isPdf = url.endsWith('.pdf');
     return (
       <div className="flex flex-col gap-1.5 w-full">
         <p className="text-xs text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">{label}</p>
         {isPdf ? (
-          <a href={url} target="_blank" rel="noreferrer" className="flex items-center justify-between p-3 bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl transition-all text-violet-600 dark:text-violet-400 text-xs font-bold">
+          <a href={authUrl} target="_blank" rel="noreferrer" className="flex items-center justify-between p-3 bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl transition-all text-violet-600 dark:text-violet-400 text-xs font-bold">
             <span className="flex items-center gap-2">
               <span className="material-symbols-outlined text-lg">picture_as_pdf</span>
               Open PDF Document
@@ -273,8 +277,8 @@ export const AdminKYCManager: React.FC = () => {
             <span className="material-symbols-outlined text-sm">open_in_new</span>
           </a>
         ) : (
-          <div className="relative group overflow-hidden rounded-xl border border-slate-200 dark:border-slate-850 h-28 w-full bg-slate-100 dark:bg-slate-900 cursor-zoom-in" onClick={() => setLightbox(url)}>
-            <img src={url} alt={label} className="w-full h-full object-cover transition-all duration-300 group-hover:scale-105" />
+          <div className="relative group overflow-hidden rounded-xl border border-slate-200 dark:border-slate-850 h-28 w-full bg-slate-100 dark:bg-slate-900 cursor-zoom-in" onClick={() => setLightbox(authUrl)}>
+            <img src={authUrl} alt={label} className="w-full h-full object-cover transition-all duration-300 group-hover:scale-105" />
             <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all duration-200">
               <span className="material-symbols-outlined text-white text-lg">zoom_in</span>
             </div>

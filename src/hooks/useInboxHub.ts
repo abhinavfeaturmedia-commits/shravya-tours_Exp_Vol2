@@ -7,7 +7,7 @@ import { useData } from '../../context/DataContext';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../lib/api';
 import { toast } from 'sonner';
-import { Booking, Lead, FollowUp, Task, StaffLeave } from '../../types';
+import { Booking, Lead, FollowUp, Task, StaffLeave, HRGrievance } from '../../types';
 
 export type InboxItemCategory = 
   | 'finance' 
@@ -212,6 +212,13 @@ export const useInboxHub = () => {
     refetchInterval: 30000,
   });
 
+  // Fetch HR Grievances / Confidential Escalations (Bypassing direct supervisors)
+  const { data: grievances = [], refetch: refetchGrievances } = useQuery<HRGrievance[]>({
+    queryKey: ['hr-grievances'],
+    queryFn: () => api.getGrievances().catch(() => []),
+    refetchInterval: 30000,
+  });
+
   // Combine and normalize all pending items
   const allItems = useMemo<UnifiedInboxItem[]>(() => {
     const items: UnifiedInboxItem[] = [];
@@ -350,6 +357,10 @@ export const useInboxHub = () => {
           daysCount,
           department,
           role,
+          gradeLevel: raw.grade_level || raw.gradeLevel || 'L8',
+          assignedManagerId: raw.assigned_manager_id || raw.assignedManagerId,
+          assignedManagerName: raw.assigned_manager_name || raw.assignedManagerName,
+          assignedManagerEmail: raw.assigned_manager_email || raw.assignedManagerEmail,
           reason
         },
         actions: {
@@ -401,6 +412,51 @@ export const useInboxHub = () => {
           canApprove: true,
           canReject: true,
           canSendBack: true
+        }
+      });
+    });
+
+    // 3c. 🛡️ HR: Confidential Escalations & Grievances (Direct Founder/HR channel)
+    grievances.forEach(gr => {
+      const isPending = gr.status === 'Submitted' || gr.status === 'Under Review';
+      const isResolved = gr.status === 'Resolved';
+      const isStarred = starredIds.includes(`gr_${gr.id}`);
+      const requester = gr.isAnonymous ? 'Confidential (Anonymous)' : (gr.staffName || `Staff #${gr.staffId}`);
+
+      items.push({
+        id: `gr_${gr.id}`,
+        originalId: gr.id,
+        category: 'hr',
+        categoryLabel: 'Confidential Escalation',
+        type: `HR Escalation: ${gr.category}`,
+        title: `${gr.subject}`,
+        subtitle: `${gr.isAnonymous ? 'Anonymous Employee' : `${gr.staffName || 'Staff'} (${gr.gradeLevel || 'Staff'}, ${gr.department || 'Operations'})`} • Status: ${gr.status}`,
+        requesterName: requester,
+        requesterEmail: gr.isAnonymous ? undefined : gr.staffEmail,
+        requesterInitials: gr.isAnonymous ? '??' : getInitials(gr.staffName || 'ST'),
+        avatarColor: gr.isAnonymous ? 'bg-purple-700' : getAvatarColor(gr.staffName || 'ST'),
+        activityIcon: 'shield_person',
+        iconBgColor: 'bg-rose-600 text-white',
+        referenceCode: `ESC-${gr.id.substring(0, 6).toUpperCase()}`,
+        priority: 'Urgent',
+        status: isPending ? 'Pending' : isResolved ? 'Approved' : 'Rejected',
+        createdAt: gr.createdAt || new Date().toISOString(),
+        timeAgo: formatRelativeTime(gr.createdAt),
+        starred: isStarred,
+        deepLinkUrl: '/admin/inbox',
+        metadata: {
+          ...gr,
+          isGrievance: true,
+          category: gr.category,
+          description: gr.description,
+          isAnonymous: gr.isAnonymous,
+          gradeLevel: gr.gradeLevel
+        },
+        actions: {
+          canApprove: isPending,
+          canReject: isPending,
+          canSendBack: false,
+          customActionLabel: 'Mark Resolved'
         }
       });
     });
@@ -746,7 +802,7 @@ export const useInboxHub = () => {
       if (pDiff !== 0) return pDiff;
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
-  }, [transactions, transfers, leaves, regularizations, bookings, followUps, leads, partners, kycRecords, tasks, starredIds]);
+  }, [transactions, transfers, leaves, regularizations, grievances, bookings, followUps, leads, partners, kycRecords, tasks, starredIds]);
 
   // Folder Counts
   const counts = useMemo(() => {
@@ -785,6 +841,10 @@ export const useInboxHub = () => {
         await api.updateStaffLeaveStatus(item.originalId, { status: 'Approved' });
         await refetchLeaves();
         toast.success(`Leave request approved!`);
+      } else if (item.metadata?.isGrievance || item.type.includes('HR Escalation')) {
+        await api.updateGrievanceStatus(item.originalId, { status: 'Resolved', resolutionNotes: decisionNote });
+        await refetchGrievances();
+        toast.success(`Grievance marked as resolved!`);
       } else if (item.category === 'hr' && item.type.includes('Regularization')) {
         await api.updateRegularizationStatus(item.originalId, { status: 'Approved' });
         await refetchRegularizations();
@@ -940,6 +1000,10 @@ export const useInboxHub = () => {
         await api.updateStaffLeaveStatus(item.originalId, { status: 'Rejected', rejectionReason });
         await refetchLeaves();
         toast.success(`Leave request rejected`);
+      } else if (item.metadata?.isGrievance || item.type.includes('HR Escalation')) {
+        await api.updateGrievanceStatus(item.originalId, { status: 'Dismissed', resolutionNotes: rejectionReason });
+        await refetchGrievances();
+        toast.success(`Grievance marked as dismissed`);
       } else if (item.category === 'hr' && item.type.includes('Regularization')) {
         await api.updateRegularizationStatus(item.originalId, { status: 'Rejected', rejectionReason });
         await refetchRegularizations();
@@ -1104,6 +1168,7 @@ export const useInboxHub = () => {
         queryClient.invalidateQueries({ queryKey: ['transfer-requests'] }),
         queryClient.invalidateQueries({ queryKey: ['staff-leaves'] }),
         queryClient.invalidateQueries({ queryKey: ['staff-regularizations'] }),
+        queryClient.invalidateQueries({ queryKey: ['hr-grievances'] }),
         queryClient.invalidateQueries({ queryKey: ['admin-kyc-records'] }),
         queryClient.invalidateQueries({ queryKey: ['admin-partners-list'] })
       ]);

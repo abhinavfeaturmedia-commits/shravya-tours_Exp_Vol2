@@ -86,8 +86,12 @@ export function createTrainingRoutes(app, pool) {
 
   // ─── POST /api/training-videos ───
   // Add new training video (Admin)
-  app.post('/api/training-videos', async (req, res) => {
+  app.post('/api/training-videos', authMiddleware, async (req, res) => {
     try {
+      const userRole = (req.user?.role || '').toLowerCase();
+      if (userRole !== 'admin' && userRole !== 'manager') {
+        return res.status(403).json({ error: 'Forbidden: Only administrators or managers can create training videos.' });
+      }
       const {
         title,
         description = '',
@@ -142,8 +146,12 @@ export function createTrainingRoutes(app, pool) {
 
   // ─── PUT /api/training-videos/:id ───
   // Update video details (Admin)
-  app.put('/api/training-videos/:id', async (req, res) => {
+  app.put('/api/training-videos/:id', authMiddleware, async (req, res) => {
     try {
+      const userRole = (req.user?.role || '').toLowerCase();
+      if (userRole !== 'admin' && userRole !== 'manager') {
+        return res.status(403).json({ error: 'Forbidden: Only administrators or managers can update training videos.' });
+      }
       const { id } = req.params;
       const {
         title,
@@ -201,8 +209,12 @@ export function createTrainingRoutes(app, pool) {
 
   // ─── DELETE /api/training-videos/:id ───
   // Delete training video (Admin)
-  app.delete('/api/training-videos/:id', async (req, res) => {
+  app.delete('/api/training-videos/:id', authMiddleware, async (req, res) => {
     try {
+      const userRole = (req.user?.role || '').toLowerCase();
+      if (userRole !== 'admin' && userRole !== 'manager') {
+        return res.status(403).json({ error: 'Forbidden: Only administrators or managers can delete training videos.' });
+      }
       const { id } = req.params;
       await pool.query('DELETE FROM training_videos WHERE id = ?', [id]);
       res.json({ message: 'Training video deleted successfully' });

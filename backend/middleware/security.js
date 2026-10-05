@@ -5,7 +5,18 @@ import rateLimit from 'express-rate-limit';
 // ═══════════════════════════════════════════
 // UNIFIED JWT SECRET
 // ═══════════════════════════════════════════
-export const getJwtSecret = () => process.env.JWT_SECRET || 'super_secret_jwt_key_please_change';
+const INSECURE_DEFAULT_SECRET = 'super_secret_jwt_key_please_change';
+
+export const getJwtSecret = () => {
+    const secret = process.env.JWT_SECRET;
+    if (!secret || secret === INSECURE_DEFAULT_SECRET) {
+        if (process.env.NODE_ENV === 'production') {
+            throw new Error('FATAL SECURITY ERROR: process.env.JWT_SECRET must be configured with a strong cryptographically random string (min 32 characters) and cannot use default placeholders.');
+        }
+        console.warn('⚠️ [SECURITY WARNING]: Using weak or default JWT_SECRET placeholder. Set a strong JWT_SECRET in .env.');
+    }
+    return secret || INSECURE_DEFAULT_SECRET;
+};
 export const JWT_SECRET = getJwtSecret();
 
 // ═══════════════════════════════════════════

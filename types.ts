@@ -242,6 +242,10 @@ export interface StaffLeave {
   daysCount: number;
   reason: string;
   status: 'Pending' | 'Approved' | 'Rejected' | 'Cancelled';
+  gradeLevel?: string;
+  assignedManagerId?: number | null;
+  assignedManagerName?: string | null;
+  assignedManagerEmail?: string | null;
   approvedBy?: number | null;
   approvedByName?: string | null;
   approvedAt?: string | null;
@@ -519,14 +523,68 @@ export interface StaffPermissions {
   [key: string]: StaffModulePermissions | undefined;
 }
 
+// ─── Organization & Hierarchy Masters ───
+export interface Department {
+  id: string;
+  name: string;
+  code: string;
+  description?: string;
+  status: 'Active' | 'Inactive';
+  created_at?: string;
+}
+
+export interface Designation {
+  id: string;
+  department_id?: string;
+  name: string;
+  grade_level: 'L1' | 'L2' | 'L3' | 'L4' | 'L5' | 'L6' | 'L7' | 'L8';
+  default_discount_limit?: number;
+  default_expense_limit?: number;
+  status: 'Active' | 'Inactive';
+  created_at?: string;
+}
+
+export interface Branch {
+  id: string;
+  name: string;
+  code: string;
+  city?: string;
+  state?: string;
+  address?: string;
+  status: 'Active' | 'Inactive';
+  created_at?: string;
+}
+
 export interface StaffMember {
   id: number;
+  employeeCode?: string;
+  employee_code?: string;
   name: string;
   email: string;
   phone?: string;
   role: string;
   userType: 'Staff' | 'Admin';
   department: string;
+  designationId?: string;
+  designation_id?: string;
+  designationName?: string;
+  designation_name?: string;
+  gradeLevel?: 'L1' | 'L2' | 'L3' | 'L4' | 'L5' | 'L6' | 'L7' | 'L8' | string;
+  grade_level?: 'L1' | 'L2' | 'L3' | 'L4' | 'L5' | 'L6' | 'L7' | 'L8' | string;
+  reportingToId?: number | null;
+  reporting_to_id?: number | null;
+  managerName?: string;
+  manager_name?: string;
+  managerEmail?: string;
+  manager_email?: string;
+  managerCode?: string;
+  manager_code?: string;
+  branchId?: string;
+  branch_id?: string;
+  branchName?: string;
+  branch_name?: string;
+  employmentStatus?: 'Active' | 'On Leave' | 'Resigned' | 'Vacant' | 'Inactive';
+  employment_status?: 'Active' | 'On Leave' | 'Resigned' | 'Vacant' | 'Inactive';
   status: 'Active' | 'Inactive';
   lastActive: string;
   initials: string;
@@ -1595,3 +1653,90 @@ export interface IncentiveDispute {
   resolved_at?: string;
   created_at: string;
 }
+
+// ─── Hierarchy & Reporting Types ───
+export interface HierarchyManager {
+  id: number;
+  name: string;
+  email: string;
+  role: string;
+  grade_level: string;
+  department?: string;
+  branch_name?: string;
+  employee_code?: string;
+  status: string;
+  employment_status?: string;
+  is_direct_manager?: boolean;
+  steps_climbed?: number;
+  vacancy_bypassed?: boolean;
+  is_fallback_apex?: boolean;
+  max_discount_limit?: number;
+  max_expense_limit?: number;
+}
+
+export interface HierarchyChainItem {
+  id: number;
+  name: string;
+  email: string;
+  role: string;
+  grade_level: string;
+  department?: string;
+  branch_name?: string;
+  employee_code?: string;
+  status: string;
+  employment_status: string;
+  is_active: boolean;
+  max_discount_limit: number;
+  max_expense_limit: number;
+}
+
+export interface HierarchyDownline {
+  manager_id: number;
+  ids: number[];
+  direct_count: number;
+  total_downline_count: number;
+  directReports: Array<StaffMember & { level: number; is_active: boolean }>;
+  allReports: Array<StaffMember & { level: number; is_active: boolean }>;
+}
+
+export interface MyReportingResponse {
+  staff: {
+    id: number;
+    name: string;
+    email: string;
+    role: string;
+    grade_level: string;
+    department?: string;
+    employee_code?: string;
+  };
+  reporting_manager: HierarchyManager | null;
+  downline: HierarchyDownline;
+}
+
+export interface ApproverResolution {
+  approver: HierarchyManager;
+  escalated: boolean;
+  steps_climbed: number;
+  reason: string;
+}
+
+export interface HRGrievance {
+  id: string;
+  staffId: number;
+  staffName?: string;
+  staffEmail?: string;
+  department?: string;
+  gradeLevel?: string;
+  category: 'Manager Misconduct' | 'Harassment' | 'Policy Violation' | 'Compensation' | 'Work Environment' | 'Other';
+  subject: string;
+  description: string;
+  isAnonymous: boolean | number;
+  status: 'Submitted' | 'Under Review' | 'Resolved' | 'Dismissed';
+  resolutionNotes?: string;
+  resolvedBy?: number | null;
+  resolvedByName?: string | null;
+  resolvedAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+

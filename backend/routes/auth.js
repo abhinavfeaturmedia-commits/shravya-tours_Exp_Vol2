@@ -209,6 +209,9 @@ export function createAuthRoutes(app, pool) {
 
     // POST /api/auth/create-user — Create/update auth user (admin only)
     app.post('/api/auth/create-user', authMiddleware, async (req, res) => {
+        if (!req.user || (req.user.role !== 'admin' && req.user.role !== 'Admin')) {
+            return res.status(403).json({ error: 'Forbidden: Only administrators can create or update user accounts.' });
+        }
         const { email, password, role } = req.body;
         try {
             const hash = await bcrypt.hash(password, 10);

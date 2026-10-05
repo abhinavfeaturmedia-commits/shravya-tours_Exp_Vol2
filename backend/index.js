@@ -28,6 +28,8 @@ import { createAuthRoutes } from './routes/auth.js';
 import { createTrainingRoutes } from './routes/training.js';
 import { createAttendanceRoutes, autoCloseOrphanSessions } from './routes/attendance.js';
 import { createIncentiveRoutes } from './routes/incentives.js';
+import { createHierarchyRoutes } from './routes/hierarchy.js';
+import { getStaffDownline, isStaffInDownline } from './utils/hierarchyResolver.js';
 import { runStartupMigrations } from './migrations/startup.js';
 
 import {
@@ -69,6 +71,54 @@ app.use((req, res, next) => {
 app.use(configureCors());
 app.use(compression({ threshold: 1024 })); // Gzip responses > 1KB — reduces JSON payloads by 70-90%
 app.use(express.json({ limit: '10mb' }));
+
+// ─── KYC Document Privacy Gate (Anti-PII Exposure) ───
+// Intercepts /uploads/kyc/* before express.static to prevent unauthenticated access to passports & IDs
+app.use('/uploads/kyc', async (req, res, next) => {
+    const filename = path.basename(req.path);
+    if (!filename || filename === '.' || filename === '/') {
+        return res.status(404).json({ error: 'Document not found' });
+    }
+
+    const header = req.headers.authorization;
+    const queryToken = req.query.token || req.query.auth;
+    const rawToken = (header && header.startsWith('Bearer ')) ? header.split(' ')[1] : queryToken;
+
+    if (!rawToken) {
+        return res.status(401).json({ error: 'Unauthorized: Authentication required to view KYC documents.' });
+    }
+
+    try {
+        const decoded = jwt.verify(rawToken, getJwtSecret());
+        const userRole = (decoded.role || '').toLowerCase();
+
+        // 1. Administrators and staff have access to review KYC documents
+        if (userRole === 'admin' || userRole === 'staff' || userRole === 'editor') {
+            return next();
+        }
+
+        // 2. Partners can only access their own KYC documents
+        if (userRole === 'partner' && (decoded.partnerId || decoded.id)) {
+            const partnerId = decoded.partnerId || decoded.id;
+            const [rows] = await pool.query(
+                `SELECT id FROM partners WHERE id = ? AND (
+                    kyc_pan_front_url LIKE ? OR kyc_pan_back_url LIKE ? OR
+                    kyc_aadhaar_front_url LIKE ? OR kyc_aadhaar_back_url LIKE ? OR
+                    kyc_passport_url LIKE ? OR kyc_dl_url LIKE ?
+                )`,
+                [partnerId, `%${filename}%`, `%${filename}%`, `%${filename}%`, `%${filename}%`, `%${filename}%`, `%${filename}%`]
+            );
+            if (rows.length > 0) {
+                return next();
+            }
+        }
+
+        return res.status(403).json({ error: 'Forbidden: You do not have permission to view this document.' });
+    } catch (e) {
+        return res.status(403).json({ error: 'Forbidden: Invalid or expired token.' });
+    }
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ─── Rate Limiting Guards ───
@@ -117,7 +167,8 @@ initEmailService(pool);
 createAuthRoutes(app, pool);
 createTrainingRoutes(app, pool);
 createAttendanceRoutes(app, pool);
-createIncentiveRoutes(app, pool);
+createIncentiveRoutes(app, pool, authMiddleware);
+createHierarchyRoutes(app, pool, authMiddleware);
 runStartupMigrations(pool);
 
 // Background cron: Auto-close orphan/inactive sessions (5-minute timeout) every 60 seconds
@@ -2395,7 +2446,8 @@ const ALLOWED_TABLES = new Set([
     'trending_destinations', 'offer_banners', 'staff_leaves', 'attendance_sessions',
     'attendance_breaks', 'attendance_settings', 'support_canned_replies',
     'support_conversation_audit_logs', 'support_settings', 'booking_itineraries', 'booking_itinerary_markers',
-    'report_history'
+    'report_history',
+    'departments', 'designations', 'branches'
 ]);
 
 // ─── Auth Middleware ───
@@ -2516,6 +2568,9 @@ const TABLE_TO_MODULE = {
     'support_canned_replies': 'support_inbox',
     'support_conversation_audit_logs': 'support_inbox',
     'support_settings': 'support_inbox',
+    'departments': 'masters',
+    'designations': 'masters',
+    'branches': 'masters',
 };
 
 // Co-access mappings: Tables that may be modified by staff working within multiple operational contexts
@@ -2534,6 +2589,9 @@ const CO_ACCESS_MODULES = {
     'support_canned_replies': ['support_inbox'],
     'support_conversation_audit_logs': ['support_inbox', 'audit'],
     'support_settings': ['support_inbox', 'settings'],
+    'departments': ['masters', 'staff', 'staff_management', 'settings'],
+    'designations': ['masters', 'staff', 'staff_management', 'settings'],
+    'branches': ['masters', 'staff', 'staff_management', 'settings'],
 };
 
 // Fallback modules for legacy permission grants
@@ -7342,10 +7400,21 @@ app.get('/api/crud/staff_members', authMiddleware, async (req, res) => {
                 a.status AS attendance_status,
                 a.check_in_time,
                 a.check_out_time,
-                a.location AS current_location
+                a.location AS current_location,
+                m.name AS manager_name,
+                m.email AS manager_email,
+                m.employee_code AS manager_code,
+                d.name AS designation_name,
+                b.name AS branch_name
             FROM \`staff_members\` s
             LEFT JOIN \`attendance_logs\` a 
                 ON s.id = a.staff_id AND a.date = CURRENT_DATE()
+            LEFT JOIN \`staff_members\` m
+                ON s.reporting_to_id = m.id
+            LEFT JOIN \`designations\` d
+                ON s.designation_id = d.id
+            LEFT JOIN \`branches\` b
+                ON s.branch_id = b.id
         `;
         const params = [];
         const whereClauses = [];
@@ -7442,6 +7511,23 @@ app.get('/api/crud/:table', optionalAuthMiddleware, injectPackageStatusFilter, v
                 if (staffIds.length === 0 && req.user?.email) {
                     const [sRows] = await pool.query('SELECT id FROM staff_members WHERE LOWER(email) = LOWER(?) OR alternate_emails LIKE ?', [req.user.email, `%"${req.user.email}"%`]);
                     staffIds = sRows.map(s => s.id);
+                }
+
+                // Corporate Hierarchy Scoping: Include downline subordinates for team leads & managers
+                if (staffIds.length > 0) {
+                    try {
+                        const primaryStaffId = staffIds[0];
+                        const downline = await getStaffDownline(pool, primaryStaffId);
+                        if (downline?.ids?.length > 0) {
+                            for (const subId of downline.ids) {
+                                if (!staffIds.includes(subId)) {
+                                    staffIds.push(subId);
+                                }
+                            }
+                        }
+                    } catch (downlineErr) {
+                        console.warn('[CRUD Scoping] Failed to resolve staff downline:', downlineErr.message);
+                    }
                 }
             }
 
@@ -8755,8 +8841,19 @@ app.get('/api/transfer-requests', authMiddleware, async (req, res) => {
                 }
             }
             if (staffId) {
-                query += ` WHERE tr.from_staff_id = ? OR tr.to_staff_id = ? OR tr.requested_by = ?`;
-                params.push(staffId, staffId, staffId);
+                // Include downline staff IDs so managers can see transfer requests for their subordinates
+                let scopedStaffIds = [Number(staffId)];
+                try {
+                    const downline = await getStaffDownline(pool, staffId);
+                    if (downline?.ids?.length > 0) {
+                        for (const dId of downline.ids) {
+                            if (!scopedStaffIds.includes(dId)) scopedStaffIds.push(dId);
+                        }
+                    }
+                } catch (_) {}
+                const placeholders = scopedStaffIds.map(() => '?').join(',');
+                query += ` WHERE tr.from_staff_id IN (${placeholders}) OR tr.to_staff_id IN (${placeholders}) OR tr.requested_by IN (${placeholders})`;
+                params.push(...scopedStaffIds, ...scopedStaffIds, ...scopedStaffIds);
             } else {
                 return res.json({ data: [] });
             }
@@ -8964,14 +9061,32 @@ app.post('/api/transfer-requests/:id/approve', authMiddleware, async (req, res) 
     try {
         const { isAdmin } = await getStaffPermissionsAndScope(req.user?.email);
         const userIsAdmin = req.user?.role === 'admin' || req.user?.role === 'Admin' || isAdmin;
-        if (!userIsAdmin) {
-            return res.status(403).json({ error: 'Unauthorized' });
-        }
         
+        let callerStaffId = req.user?.staffId;
+        if (!callerStaffId && req.user?.email) {
+            const [staffRows] = await pool.query('SELECT id FROM staff_members WHERE email = ?', [req.user?.email]);
+            if (staffRows.length > 0) callerStaffId = staffRows[0].id;
+        }
+
         const [requests] = await pool.query('SELECT * FROM transfer_requests WHERE id = ?', [id]);
         if (requests.length === 0) return res.status(404).json({ error: 'Transfer request not found' });
         
         const request = requests[0];
+
+        // Authorization: Admin or Manager whose downline covers the transfer participants
+        let authorized = userIsAdmin;
+        if (!authorized && callerStaffId) {
+            const fromOk = !request.from_staff_id || await isStaffInDownline(pool, callerStaffId, request.from_staff_id);
+            const toOk = !request.to_staff_id || await isStaffInDownline(pool, callerStaffId, request.to_staff_id);
+            const reqOk = !request.requested_by || await isStaffInDownline(pool, callerStaffId, request.requested_by);
+            if (fromOk && toOk && reqOk) {
+                authorized = true;
+            }
+        }
+
+        if (!authorized) {
+            return res.status(403).json({ error: 'Unauthorized: You do not have permission to approve this transfer request' });
+        }
         if (request.status !== 'Pending') {
             return res.status(400).json({ error: `Request already processed: ${request.status}` });
         }
@@ -9078,14 +9193,32 @@ app.post('/api/transfer-requests/:id/reject', authMiddleware, async (req, res) =
     try {
         const { isAdmin } = await getStaffPermissionsAndScope(req.user?.email);
         const userIsAdmin = req.user?.role === 'admin' || req.user?.role === 'Admin' || isAdmin;
-        if (!userIsAdmin) {
-            return res.status(403).json({ error: 'Unauthorized' });
-        }
         
+        let callerStaffId = req.user?.staffId;
+        if (!callerStaffId && req.user?.email) {
+            const [staffRows] = await pool.query('SELECT id FROM staff_members WHERE email = ?', [req.user?.email]);
+            if (staffRows.length > 0) callerStaffId = staffRows[0].id;
+        }
+
         const [requests] = await pool.query('SELECT * FROM transfer_requests WHERE id = ?', [id]);
         if (requests.length === 0) return res.status(404).json({ error: 'Transfer request not found' });
         
         const request = requests[0];
+
+        // Authorization: Admin or Manager whose downline covers the transfer participants
+        let authorized = userIsAdmin;
+        if (!authorized && callerStaffId) {
+            const fromOk = !request.from_staff_id || await isStaffInDownline(pool, callerStaffId, request.from_staff_id);
+            const toOk = !request.to_staff_id || await isStaffInDownline(pool, callerStaffId, request.to_staff_id);
+            const reqOk = !request.requested_by || await isStaffInDownline(pool, callerStaffId, request.requested_by);
+            if (fromOk && toOk && reqOk) {
+                authorized = true;
+            }
+        }
+
+        if (!authorized) {
+            return res.status(403).json({ error: 'Unauthorized: You do not have permission to reject this transfer request' });
+        }
         if (request.status !== 'Pending') {
             return res.status(400).json({ error: `Request already processed: ${request.status}` });
         }
@@ -9116,7 +9249,7 @@ app.post('/api/transfer-requests/:id/reject', authMiddleware, async (req, res) =
 });
 
 // UPSERT - Insert or update (for daily_inventory etc.)
-app.post('/api/crud/:table/upsert', authMiddleware, validateTable, writeGuard, async (req, res) => {
+app.post('/api/crud/:table/upsert', authMiddleware, validateTable, writeGuard, permissionGuard, async (req, res) => {
     const { table } = req.params;
     let body = sanitizeDbBody(req.body);
     body = await filterDbBodyByTable(table, body);
@@ -10562,7 +10695,11 @@ app.get('/api/staff/me', authMiddleware, async (req, res) => {
 // This single endpoint handles creating both the users auth record AND the staff_members profile.
 // No separate auth call needed from the frontend.
 app.post('/api/staff/create', authMiddleware, async (req, res) => {
-    const { email, password, role, name, user_type, department, status, initials, color, permissions, query_scope, whatsapp_scope, phone } = req.body;
+    const { 
+        email, password, role, name, user_type, department, status, initials, color, 
+        permissions, query_scope, whatsapp_scope, phone,
+        employee_code, designation_id, grade_level, reporting_to_id, branch_id, employment_status
+    } = req.body;
 
     if (!email || !password) {
         return res.status(400).json({ error: 'Email and password are required' });
@@ -10583,7 +10720,16 @@ app.post('/api/staff/create', authMiddleware, async (req, res) => {
         }
 
         // 2. Create staff_members record
-        const staffPayload = { name, email: trimmedEmail, role, user_type, department, status, initials, color, permissions, query_scope, whatsapp_scope };
+        const staffPayload = { 
+            name, email: trimmedEmail, role, user_type, department, status, initials, color, 
+            permissions, query_scope, whatsapp_scope,
+            employee_code: employee_code || null,
+            designation_id: designation_id || null,
+            grade_level: grade_level || 'L8',
+            reporting_to_id: reporting_to_id ? Number(reporting_to_id) : null,
+            branch_id: branch_id || null,
+            employment_status: employment_status || 'Active'
+        };
         if (phone !== undefined) staffPayload.phone = phone;
 
         // Serialize JSON fields
@@ -10601,6 +10747,10 @@ app.post('/api/staff/create', authMiddleware, async (req, res) => {
         );
 
         const fetchedId = result.insertId;
+        if (!employee_code) {
+            const autoCode = `EMP-${String(fetchedId).padStart(4, '0')}`;
+            await pool.query('UPDATE `staff_members` SET employee_code = ? WHERE id = ?', [autoCode, fetchedId]);
+        }
         const [inserted] = await pool.query('SELECT * FROM `staff_members` WHERE id = ?', [fetchedId]);
         return res.status(201).json({ data: inserted[0] || { id: fetchedId } });
     } catch (error) {
@@ -12534,9 +12684,9 @@ async function getRazorpayCredentials() {
     return { keyId, keySecret };
 }
 
-// Standard POST Create Razorpay Order
+// Standard POST Create Razorpay Order (Protected against arbitrary price manipulation)
 app.post('/api/create-order', async (req, res) => {
-    const { amount, currency, receipt } = req.body || {};
+    const { amount, currency, receipt, bookingId, invoiceId } = req.body || {};
 
     if (amount === undefined || amount === null || isNaN(Number(amount))) {
         return res.status(400).json({ error: 'amount is required and must be a number' });
@@ -12548,6 +12698,29 @@ app.post('/api/create-order', async (req, res) => {
     }
 
     try {
+        // Server-side balance verification if linked to booking or invoice
+        if (bookingId) {
+            const [[booking]] = await pool.query('SELECT id, total_price, paid_amount FROM bookings WHERE id = ?', [bookingId]);
+            if (booking) {
+                const total = Number(booking.total_price) || 0;
+                const paid = Number(booking.paid_amount) || 0;
+                const balanceDuePaise = Math.round(Math.max(0, total - paid) * 100);
+                if (balanceDuePaise > 0 && amountInPaise > balanceDuePaise) {
+                    return res.status(400).json({ error: `Amount exceeds verified booking balance (₹${total - paid})` });
+                }
+            }
+        } else if (invoiceId) {
+            const [[invoice]] = await pool.query('SELECT id, total_amount, paid_amount FROM invoices WHERE id = ?', [invoiceId]);
+            if (invoice) {
+                const total = Number(invoice.total_amount) || 0;
+                const paid = Number(invoice.paid_amount) || 0;
+                const balanceDuePaise = Math.round(Math.max(0, total - paid) * 100);
+                if (balanceDuePaise > 0 && amountInPaise > balanceDuePaise) {
+                    return res.status(400).json({ error: `Amount exceeds verified invoice balance (₹${total - paid})` });
+                }
+            }
+        }
+
         const { keyId, keySecret } = await getRazorpayCredentials();
         if (!keyId || !keySecret) {
             return res.status(500).json({ error: 'Razorpay API credentials not configured' });
@@ -12561,7 +12734,11 @@ app.post('/api/create-order', async (req, res) => {
         const order = await rzp.orders.create({
             amount: amountInPaise,
             currency: currency || 'INR',
-            receipt: receipt || `rcpt_${Date.now()}`
+            receipt: receipt || (bookingId ? `rcpt_bkg_${bookingId}_${Date.now()}` : `rcpt_${Date.now()}`),
+            notes: {
+                bookingId: bookingId ? String(bookingId) : '',
+                invoiceId: invoiceId ? String(invoiceId) : ''
+            }
         });
 
         return res.json({

@@ -7,3 +7,4 @@
 export { normalisePhone, findMatchingCustomer } from './phone.js';
 export { sanitizeDbBody, isValidColumn, createAuditLogger } from './helpers.js';
 export { eventBus } from './eventBus.js';
+export * from './hierarchyResolver.js';

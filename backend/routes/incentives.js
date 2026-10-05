@@ -9,11 +9,16 @@
 import express from 'express';
 import crypto from 'crypto';
 
-export function createIncentiveRoutes(app, pool) {
+export function createIncentiveRoutes(app, pool, authMiddleware) {
     const router = express.Router();
 
-    // ─── Helper: Auth Extraction ───
-    const getUser = (req) => req.user || { id: 1, name: 'Super Admin', email: 'admin@shravyatours.com', role: 'admin' };
+    // ─── Security: Enforce Authentication on All Incentive Engine Endpoints ───
+    if (authMiddleware) {
+        router.use(authMiddleware);
+    }
+
+    // ─── Helper: Auth Extraction (Strict: never default to Super Admin) ───
+    const getUser = (req) => req.user || { id: null, name: 'Anonymous', email: null, role: null };
 
     // ─── Helper: Notification Dispatcher ───
     async function sendNotification(staffId, title, message, type = 'system') {
