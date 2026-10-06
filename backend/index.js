@@ -58,11 +58,11 @@ app.set('trust proxy', 1);
 // HTTP Security Headers (Clickjacking, MIME-sniffing, HSTS)
 app.use(configureHelmet());
 
-// Redirect shrawello.com to shravyatours.com
+// Redirect shravyatours.com to shrawello.com
 app.use((req, res, next) => {
     const host = req.headers.host || '';
-    if (host.includes('shrawello.com')) {
-        return res.redirect(301, `https://shravyatours.com${req.originalUrl}`);
+    if (host.includes('shravyatours.com')) {
+        return res.redirect(301, `https://shrawello.com${req.originalUrl}`);
     }
     next();
 });
@@ -1010,7 +1010,7 @@ async function callOpenRouterAI(messages, systemPrompt) {
             console.log(`[AI Chatbot] Querying OpenRouter model: ${m}`);
             const headers = {
                 "Content-Type": "application/json",
-                "HTTP-Referer": "https://shravyatours.com",
+                "HTTP-Referer": "https://shrawello.com",
                 "X-Title": "Shrawello Travel Hub AI"
             };
             if (apiKey) {
