@@ -42,6 +42,8 @@ const BlogList = lazy(() => import('./pages/BlogList').then(module => ({ default
 const BlogPostDetail = lazy(() => import('./pages/BlogPostDetail').then(module => ({ default: module.BlogPostDetail })));
 const DigitalCard = lazy(() => import('./pages/DigitalCard').then(module => ({ default: module.DigitalCard })));
 const CityLandingPage = lazy(() => import('./pages/CityLandingPage').then(module => ({ default: module.CityLandingPage })));
+const VendorAvailabilityResponse = lazy(() => import('./pages/VendorAvailabilityResponse').then(module => ({ default: module.VendorAvailabilityResponse })));
+const HotelAvailabilityResponse = lazy(() => import('./pages/HotelAvailabilityResponse').then(module => ({ default: module.HotelAvailabilityResponse })));
 
 
 
@@ -165,6 +167,10 @@ const App: React.FC = () => {
                 <Route path="/vcard/manali" element={<DigitalCard />} />
                 <Route path="/vcard/monali" element={<DigitalCard />} />
                 <Route path="/card" element={<DigitalCard />} />
+
+                {/* Supplier Hotel Room Availability Verification Portal (Public) */}
+                <Route path="/availability/:token" element={<VendorAvailabilityResponse />} />
+                <Route path="/hotel-check/:token" element={<HotelAvailabilityResponse />} />
 
                 {/* Admin Routes using AdminLayout (Sidebar/Topbar) */}
                 <Route path="/admin" element={<AdminLayout />}>

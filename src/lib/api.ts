@@ -1,5 +1,5 @@
 import imageCompression from 'browser-image-compression';
-import { Package, Booking, Lead, LeadLog, BookingStatus, BookingType, StaffMember, Customer, Department, Designation, Branch, HierarchyManager, HierarchyChainItem, HierarchyDownline, MyReportingResponse, ApproverResolution, HRGrievance, MasterRoomType, MasterMealPlan, MasterActivity, MasterTransport, MasterPlan, MasterLeadSource, MasterTermsTemplate, CMSBanner, CMSTestimonial, CMSGalleryImage, CMSPost, FollowUp, Proposal, DailyTarget, TimeSession, AssignmentRule, UserActivity, Campaign, MasterHotel, Task, AuditLog, Expense, AttendanceLog, StaffLeave, AttendanceSettings, TodayAttendanceResponse, AttendanceReportResponse, Coupon, DailyMarketingLog, MarketingTarget, LogComment, LogReaction, InAppNotification, BookingDailyDeliverable, DailySlot, MembershipPlan, Account, AccountTransaction, ReportHistoryItem } from '../../types';
+import { Package, Booking, Lead, LeadLog, BookingStatus, BookingType, StaffMember, Customer, Department, Designation, Branch, HierarchyManager, HierarchyChainItem, HierarchyDownline, MyReportingResponse, ApproverResolution, HRGrievance, MasterRoomType, MasterMealPlan, MasterActivity, MasterTransport, MasterPlan, MasterLeadSource, MasterTermsTemplate, CMSBanner, CMSTestimonial, CMSGalleryImage, CMSPost, FollowUp, Proposal, HotelAvailabilityRequest, HotelAvailabilityStatus, DailyTarget, TimeSession, AssignmentRule, UserActivity, Campaign, MasterHotel, Task, AuditLog, Expense, AttendanceLog, StaffLeave, AttendanceSettings, TodayAttendanceResponse, AttendanceReportResponse, Coupon, DailyMarketingLog, MarketingTarget, LogComment, LogReaction, InAppNotification, BookingDailyDeliverable, DailySlot, MembershipPlan, Account, AccountTransaction, ReportHistoryItem } from '../../types';
 import { normalisePhone } from '../../utils/phoneUtils';
 import { parsePaxString, formatPaxString } from '../../utils/paxUtils';
 
@@ -748,6 +748,7 @@ export const api = {
                 bookingStatus: sb.booking_status,
                 paymentDueDate: sb.payment_due_date,
                 notes: sb.notes,
+                payments: parseJsonFieldSafe(sb.payments, []),
                 // Live Operations transport fields
                 driverName: sb.driver_name || null,
                 driverPhone: sb.driver_phone || null,
@@ -817,6 +818,7 @@ export const api = {
                 couponDiscountAmount: row.coupon_discount_amount !== null ? Number(row.coupon_discount_amount) : undefined,
                 originalPrice: row.original_price !== null ? Number(row.original_price) : undefined,
                 createdAt: row.created_at ? new Date(row.created_at).toISOString() : undefined,
+                checklist: parseJsonFieldSafe(row.tour_checklist, undefined),
             };
         });
     },
@@ -838,6 +840,7 @@ export const api = {
             booking_status: sb.bookingStatus,
             payment_due_date: sb.paymentDueDate ? sb.paymentDueDate : null,
             notes: sb.notes || null,
+            payments: sb.payments ? (typeof sb.payments === 'string' ? sb.payments : JSON.stringify(sb.payments)) : JSON.stringify([]),
             // Transport-specific fields for Live Operations
             driver_name: sb.driverName || null,
             driver_phone: sb.driverPhone || null,
@@ -857,6 +860,9 @@ export const api = {
         if (sb.bookingStatus !== undefined) dbSb.booking_status = sb.bookingStatus;
         if (sb.paymentDueDate !== undefined) dbSb.payment_due_date = sb.paymentDueDate ? sb.paymentDueDate : null;
         if (sb.notes !== undefined) dbSb.notes = sb.notes || null;
+        if (sb.payments !== undefined) {
+            dbSb.payments = Array.isArray(sb.payments) ? JSON.stringify(sb.payments) : (typeof sb.payments === 'string' ? sb.payments : JSON.stringify([]));
+        }
         // Transport-specific fields (Live Operations) — must be mapped here for edits to persist
         if (sb.driverName !== undefined) dbSb.driver_name = sb.driverName || null;
         if (sb.driverPhone !== undefined) dbSb.driver_phone = sb.driverPhone || null;
@@ -919,7 +925,8 @@ export const api = {
             applied_coupon_code: booking.appliedCouponCode || null,
             coupon_discount_amount: booking.couponDiscountAmount || 0.00,
             original_price: booking.originalPrice || null,
-            customer_id: booking.customerId || null
+            customer_id: booking.customerId || null,
+            tour_checklist: booking.checklist ? JSON.stringify(booking.checklist) : null
         };
 
         if (booking.packageId) dbBooking.package_id = booking.packageId;
@@ -1009,6 +1016,7 @@ export const api = {
         if (updates.appliedCouponCode !== undefined) dbUpdates.applied_coupon_code = updates.appliedCouponCode || null;
         if (updates.couponDiscountAmount !== undefined) dbUpdates.coupon_discount_amount = updates.couponDiscountAmount || 0.00;
         if (updates.originalPrice !== undefined) dbUpdates.original_price = updates.originalPrice || null;
+        if (updates.checklist !== undefined) dbUpdates.tour_checklist = updates.checklist ? JSON.stringify(updates.checklist) : null;
         
         await crud.update('bookings', id, dbUpdates);
     },
@@ -2539,23 +2547,197 @@ export const api = {
 
     getProposals: async (): Promise<Proposal[]> => {
         const { data } = await crud.getAll('proposals', { order: 'created_at', asc: false });
-        return (data || []).map((r: any) => ({ ...r, leadId: r.lead_id, validUntil: r.valid_until, createdAt: r.created_at }));
+        return (data || []).map((r: any) => {
+            let parsedContent: any = {};
+            if (r.content) {
+                try {
+                    parsedContent = typeof r.content === 'string' ? JSON.parse(r.content) : r.content;
+                } catch {
+                    parsedContent = {};
+                }
+            }
+            return {
+                ...r,
+                leadId: r.lead_id,
+                validUntil: r.valid_until,
+                createdAt: r.created_at,
+                options: parsedContent.options || r.options || [],
+                version: parsedContent.version || r.version || 'v1',
+                revisionNumber: parsedContent.revisionNumber || r.revision_number || 1,
+                parentId: parsedContent.parentId || r.parent_id || null,
+                revisionNote: parsedContent.revisionNote || r.revision_note || ''
+            };
+        });
     },
     createProposal: async (item: Partial<Proposal>) => {
-        await crud.create('proposals', {
-            lead_id: item.leadId, title: item.title,
-            status: item.status, valid_until: item.validUntil
-        });
+        const payload: any = {
+            id: item.id,
+            lead_id: item.leadId,
+            title: item.title,
+            status: item.status || 'Draft',
+            valid_until: item.validUntil ? item.validUntil.split('T')[0] : null,
+            content: JSON.stringify({
+                options: item.options || [],
+                version: item.version || 'v1',
+                revisionNumber: item.revisionNumber || 1,
+                parentId: item.parentId || null,
+                revisionNote: item.revisionNote || ''
+            })
+        };
+        await crud.create('proposals', payload);
     },
     updateProposal: async (id: string, updates: Partial<Proposal>) => {
         const dbItem: any = {};
         if (updates.leadId !== undefined) dbItem.lead_id = updates.leadId;
         if (updates.title !== undefined) dbItem.title = updates.title;
         if (updates.status !== undefined) dbItem.status = updates.status;
-        if (updates.validUntil !== undefined) dbItem.valid_until = updates.validUntil;
+        if (updates.validUntil !== undefined) dbItem.valid_until = updates.validUntil ? updates.validUntil.split('T')[0] : null;
+        if (updates.options !== undefined || updates.version !== undefined || updates.revisionNote !== undefined) {
+            dbItem.content = JSON.stringify({
+                options: updates.options || [],
+                version: updates.version || 'v1',
+                revisionNumber: updates.revisionNumber || 1,
+                parentId: updates.parentId || null,
+                revisionNote: updates.revisionNote || ''
+            });
+        }
         await crud.update('proposals', id, dbItem);
     },
     deleteProposal: async (id: string) => { await crud.remove('proposals', id); },
+
+    // Hotel Availability Requests (Phase 3)
+    getHotelAvailabilityRequests: async (filters?: { proposalId?: string; hotelId?: string; status?: string }): Promise<HotelAvailabilityRequest[]> => {
+        const queryFilters: Record<string, string> = {};
+        if (filters?.proposalId) queryFilters['proposal_id'] = filters.proposalId;
+        if (filters?.hotelId) queryFilters['hotel_id'] = filters.hotelId;
+        if (filters?.status) queryFilters['status'] = filters.status;
+        const { data } = await crud.getAll('hotel_availability_requests', {
+            order: 'created_at',
+            asc: false,
+            filters: Object.keys(queryFilters).length > 0 ? queryFilters : undefined
+        });
+        return (data || []).map((r: any) => ({
+            id: r.id,
+            hotelId: r.hotel_id,
+            hotelName: r.hotel_name,
+            hotelEmail: r.hotel_email,
+            hotelPhone: r.hotel_phone,
+            proposalId: r.proposal_id,
+            leadId: r.lead_id,
+            guestName: r.guest_name,
+            destination: r.destination,
+            checkInDate: r.check_in_date ? String(r.check_in_date).split('T')[0] : undefined,
+            checkOutDate: r.check_out_date ? String(r.check_out_date).split('T')[0] : undefined,
+            roomCategory: r.room_category,
+            roomCount: r.room_count || 1,
+            mealPlan: r.meal_plan || 'CP (Breakfast)',
+            adults: r.adults || 2,
+            children: r.children || 0,
+            status: r.status || 'Pending',
+            token: r.token,
+            hotelNotes: r.hotel_notes,
+            agentNotes: r.agent_notes,
+            offeredAlternative: r.offered_alternative,
+            respondedBy: r.responded_by,
+            respondedAt: r.responded_at,
+            createdAt: r.created_at,
+            updatedAt: r.updated_at
+        }));
+    },
+    createHotelAvailabilityRequest: async (item: Partial<HotelAvailabilityRequest>): Promise<HotelAvailabilityRequest> => {
+        const token = item.token || `hav_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+        const payload: any = {
+            id: item.id || `HAV-${Date.now()}`,
+            hotel_id: item.hotelId || null,
+            hotel_name: item.hotelName,
+            hotel_email: item.hotelEmail || null,
+            hotel_phone: item.hotelPhone || null,
+            proposal_id: item.proposalId || null,
+            lead_id: item.leadId || null,
+            guest_name: item.guestName || null,
+            destination: item.destination || null,
+            check_in_date: item.checkInDate ? item.checkInDate.split('T')[0] : null,
+            check_out_date: item.checkOutDate ? item.checkOutDate.split('T')[0] : null,
+            room_category: item.roomCategory || null,
+            room_count: item.roomCount || 1,
+            meal_plan: item.mealPlan || 'CP (Breakfast)',
+            adults: item.adults ?? 2,
+            children: item.children ?? 0,
+            status: item.status || 'Pending',
+            token,
+            hotel_notes: item.hotelNotes || null,
+            agent_notes: item.agentNotes || null,
+            offered_alternative: item.offeredAlternative || null,
+            responded_by: item.respondedBy || null
+        };
+        await crud.create('hotel_availability_requests', payload);
+        return { ...item, id: payload.id, token } as HotelAvailabilityRequest;
+    },
+    updateHotelAvailabilityRequest: async (id: string, updates: Partial<HotelAvailabilityRequest>) => {
+        const payload: any = {};
+        if (updates.status !== undefined) payload.status = updates.status;
+        if (updates.hotelNotes !== undefined) payload.hotel_notes = updates.hotelNotes;
+        if (updates.agentNotes !== undefined) payload.agent_notes = updates.agentNotes;
+        if (updates.offeredAlternative !== undefined) payload.offered_alternative = updates.offeredAlternative;
+        if (updates.respondedBy !== undefined) payload.responded_by = updates.respondedBy;
+        if (updates.respondedAt !== undefined) payload.responded_at = updates.respondedAt;
+        if (updates.roomCategory !== undefined) payload.room_category = updates.roomCategory;
+        if (updates.roomCount !== undefined) payload.room_count = updates.roomCount;
+        if (updates.mealPlan !== undefined) payload.meal_plan = updates.mealPlan;
+        if (updates.checkInDate !== undefined) payload.check_in_date = updates.checkInDate ? updates.checkInDate.split('T')[0] : null;
+        if (updates.checkOutDate !== undefined) payload.check_out_date = updates.checkOutDate ? updates.checkOutDate.split('T')[0] : null;
+        await crud.update('hotel_availability_requests', id, payload);
+    },
+    deleteHotelAvailabilityRequest: async (id: string) => {
+        await crud.remove('hotel_availability_requests', id);
+    },
+    getPublicHotelAvailability: async (token: string): Promise<HotelAvailabilityRequest> => {
+        const res = await fetchApi(`/api/public/hotel-availability/${encodeURIComponent(token)}`);
+        return res.data;
+    },
+    respondToHotelAvailability: async (token: string, data: { status: HotelAvailabilityStatus; hotelNotes?: string; offeredAlternative?: string; respondedBy?: string }) => {
+        return fetchApi(`/api/public/hotel-availability/${encodeURIComponent(token)}/respond`, {
+            method: 'POST',
+            body: JSON.stringify(data)
+        });
+    },
+
+    // ─── Multi-vendor Availability RFQ ───
+    createAvailabilityRfq: async (data: {
+        bookingId: string; serviceType: string; summaryLines: { label: string; value: string }[]; notes?: string;
+        vendors: { vendorId?: string; name: string; email?: string; phone?: string }[];
+        destination?: string; startDate?: string; endDate?: string;
+    }): Promise<{ rfqId: string; results: { inviteId: string; vendorName: string; emailStatus: 'Sent' | 'Failed'; emailError?: string | null; link: string }[] }> => {
+        return fetchApi('/api/admin/availability-rfqs', {
+            method: 'POST',
+            body: JSON.stringify({ ...data, baseUrl: window.location.origin })
+        });
+    },
+    getAvailabilityRfqs: async (bookingId: string): Promise<import('../../types').AvailabilityRfq[]> => {
+        return fetchApi(`/api/admin/availability-rfqs?bookingId=${encodeURIComponent(bookingId)}&baseUrl=${encodeURIComponent(window.location.origin)}`);
+    },
+    resendAvailabilityInvite: async (rfqId: string, inviteId: string, email?: string) => {
+        return fetchApi(`/api/admin/availability-rfqs/${rfqId}/invites/${inviteId}/resend`, {
+            method: 'POST',
+            body: JSON.stringify({ baseUrl: window.location.origin, email })
+        });
+    },
+    awardAvailabilityRfq: async (rfqId: string, inviteId: string): Promise<{ success: boolean; supplierBookingId: string }> => {
+        return fetchApi(`/api/admin/availability-rfqs/${rfqId}/award`, { method: 'POST', body: JSON.stringify({ inviteId }) });
+    },
+    closeAvailabilityRfq: async (rfqId: string) => {
+        return fetchApi(`/api/admin/availability-rfqs/${rfqId}/close`, { method: 'POST', body: '{}' });
+    },
+    getPublicAvailabilityRfq: async (token: string): Promise<import('../../types').PublicAvailabilityRfq> => {
+        return fetchApi(`/api/public/availability-rfq/${encodeURIComponent(token)}`);
+    },
+    respondToAvailabilityRfq: async (token: string, data: { status: 'Available' | 'Not Available'; quotedPrice?: number; priceBasis?: string; remark?: string; respondedBy?: string }) => {
+        return fetchApi(`/api/public/availability-rfq/${encodeURIComponent(token)}/respond`, {
+            method: 'POST',
+            body: JSON.stringify(data)
+        });
+    },
+
 
     getDailyTargets: async (): Promise<DailyTarget[]> => {
         const { data } = await crud.getAll('daily_targets', { order: 'date', asc: false });

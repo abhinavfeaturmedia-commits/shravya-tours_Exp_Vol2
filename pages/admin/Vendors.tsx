@@ -10,6 +10,7 @@ import { ActionMenu } from '../../components/ui/ActionMenu';
 import { formatPrice, formatPriceCompact } from '../../utils/packageUtils';
 import { api } from '../../src/lib/api';
 import { useAuth } from '../../context/AuthContext';
+import { HotelAvailabilityModal } from '../../components/admin/HotelAvailabilityModal';
 
 
 // Internal Toast Component
@@ -37,6 +38,15 @@ export const Vendors: React.FC = () => {
 
     // Notification State
     const [toast, setToast] = useState<{ msg: string, type: 'success' | 'error' } | null>(null);
+
+    // Hotel Availability Modal (Phase 3)
+    const [availabilityModal, setAvailabilityModal] = useState<{
+        isOpen: boolean;
+        hotelName?: string;
+        hotelPhone?: string;
+        hotelEmail?: string;
+        destination?: string;
+    }>({ isOpen: false });
 
     // Filter & Search State
     const [search, setSearch] = useState('');
@@ -963,6 +973,9 @@ export const Vendors: React.FC = () => {
                             <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">Audit performance, manage pricing models, and handle payouts.</p>
                         </div>
                         <div className="flex gap-3">
+                            <button onClick={() => setAvailabilityModal({ isOpen: true })} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-bold shadow-lg shadow-indigo-600/20 transition-all active:scale-95 text-sm cursor-pointer">
+                                <span className="material-symbols-outlined text-[18px]">hotel</span> Check Availability
+                            </button>
                             <button onClick={() => setIsExportModalOpen(true)} className="hidden md:flex items-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 px-4 py-2.5 rounded-xl font-bold hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-sm">
                                 <span className="material-symbols-outlined text-[18px]">download</span> Export List
                             </button>
@@ -1346,6 +1359,22 @@ export const Vendors: React.FC = () => {
                                                                 <span className="material-symbols-outlined text-[18px]">chevron_right</span>
                                                             </button>
                                                             <ActionMenu>
+                                                                {vendor.category === 'Hotel' && (
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            setAvailabilityModal({
+                                                                                isOpen: true,
+                                                                                hotelName: vendor.name,
+                                                                                hotelPhone: vendor.contactPhone,
+                                                                                hotelEmail: vendor.contactEmail,
+                                                                                destination: vendor.location
+                                                                            });
+                                                                        }}
+                                                                        className="flex items-center gap-3 px-4 py-2.5 text-sm font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition-colors w-full text-left cursor-pointer"
+                                                                    >
+                                                                        <span className="material-symbols-outlined text-[18px] text-indigo-500">hotel</span> Check Availability
+                                                                    </button>
+                                                                )}
                                                                 {vendor.contactPhone && (
                                                                     <a href={`tel:${vendor.contactPhone}`} className="flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors w-full text-left">
                                                                         <span className="material-symbols-outlined text-[18px] text-blue-500">call</span> Call Vendor
@@ -2260,6 +2289,14 @@ export const Vendors: React.FC = () => {
                     </div>
                 </div>
             )}
+
+            {/* Hotel Availability Modal (Phase 3) */}
+            <HotelAvailabilityModal
+                isOpen={availabilityModal.isOpen}
+                onClose={() => setAvailabilityModal({ isOpen: false })}
+                hotelName={availabilityModal.hotelName}
+                destination={availabilityModal.destination}
+            />
         </div>
     );
 };

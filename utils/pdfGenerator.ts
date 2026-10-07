@@ -20,154 +20,295 @@ const loadLogo = (logoUrl: string = '/logo.png'): Promise<HTMLImageElement | nul
 export const generateProposalPDF = async (proposal: Proposal, lead: Lead, masterHotels: MasterHotel[] = [], masterActivities: MasterActivity[] = []) => {
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.width;
+    const pageHeight = doc.internal.pageSize.height;
 
     const logoImg = await loadLogo();
 
-    // --- Header ---
-    doc.setFillColor(88, 28, 135); // Purple-900 (approx)
-    doc.rect(0, 0, pageWidth, 40, 'F');
+    // ─── Header: Luxury Deep Slate Banner with Gold Accent ───
+    doc.setFillColor(15, 23, 42); // Slate-900
+    doc.rect(0, 0, pageWidth, 44, 'F');
 
+    // Gold accent divider strip
+    doc.setFillColor(217, 119, 6); // Amber-600 gold accent
+    doc.rect(0, 43, pageWidth, 1.5, 'F');
+
+    // Logo / Branding Monogram
     if (logoImg) {
         doc.setFillColor(255, 255, 255);
-        doc.roundedRect(15, 8, 24, 24, 2, 2, 'F');
-        doc.addImage(logoImg, "PNG", 16, 9, 22, 22);
+        doc.roundedRect(15, 8, 28, 28, 2, 2, 'F');
+        doc.addImage(logoImg, "PNG", 16.5, 9.5, 25, 25);
 
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(15);
+        doc.setFont("helvetica", "bold");
+        doc.text("SHRAWELLO TRAVEL HUB", 48, 18);
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(203, 213, 225); // Slate-300
+        doc.text("AND EVENTS LLP", 48, 23);
+        doc.setFontSize(7.5);
+        doc.setTextColor(245, 158, 11); // Amber-400
+        doc.text("Bespoke Holidays & Curated Experiences", 48, 28);
+    } else {
         doc.setTextColor(255, 255, 255);
         doc.setFontSize(18);
         doc.setFont("helvetica", "bold");
-        doc.text("Shrawello Travel Hub", 45, 18);
-        doc.setFontSize(10);
+        doc.text("SHRAWELLO TRAVEL HUB", 15, 20);
+        doc.setFontSize(9);
         doc.setFont("helvetica", "normal");
-        doc.text("and Events LLP", 45, 23);
-        doc.setFontSize(8);
-        doc.text("Making Dreams Come True", 45, 28);
-    } else {
-        doc.setTextColor(255, 255, 255);
-        doc.setFontSize(22);
-        doc.setFont("helvetica", "bold");
-        doc.text("SHRAWELLO Travel Hub and Events LLP", 15, 23);
-
-        doc.setFontSize(10);
-        doc.setFont("helvetica", "normal");
-        doc.text("Making Dreams Come True", 15, 32);
+        doc.setTextColor(203, 213, 225);
+        doc.text("AND EVENTS LLP • Bespoke Holidays", 15, 26);
     }
 
-    doc.text("Proposal", pageWidth - 15, 20, { align: 'right' });
+    // Top Right: Quotation & Version Badge
+    doc.setTextColor(148, 163, 184); // Slate-400
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "bold");
+    doc.text("EXCLUSIVE QUOTATION", pageWidth - 15, 16, { align: 'right' });
+
+    doc.setTextColor(255, 255, 255);
     doc.setFontSize(12);
-    doc.text(`#${proposal.id}`, pageWidth - 15, 28, { align: 'right' });
-
-    // --- Customer Info ---
-    doc.setTextColor(0, 0, 0);
-    doc.setFontSize(10);
-    let yPos = 55;
-
     doc.setFont("helvetica", "bold");
-    doc.text("Prepared For:", 15, yPos);
-    doc.setFont("helvetica", "normal");
-    doc.text(lead.name, 15, yPos + 5);
-    doc.text(lead.email || '', 15, yPos + 10);
-    doc.text(lead.phone || '', 15, yPos + 15);
+    doc.text(`#${proposal.id}`, pageWidth - 15, 23, { align: 'right' });
 
+    // Version Pill Badge
+    const revText = `Version: ${proposal.version || 'v1'}${proposal.revisionNumber && proposal.revisionNumber > 1 ? ` (Rev ${proposal.revisionNumber})` : ''}`;
+    doc.setFillColor(79, 70, 229); // Indigo-600
+    doc.roundedRect(pageWidth - 62, 27, 47, 6.5, 1.5, 1.5, 'F');
+    doc.setFontSize(7.5);
     doc.setFont("helvetica", "bold");
-    doc.text("Destination:", pageWidth / 2, yPos);
-    doc.setFont("helvetica", "normal");
-    doc.text(lead.destination || 'Custom', pageWidth / 2, yPos + 5);
+    doc.setTextColor(255, 255, 255);
+    doc.text(revText, pageWidth - 38.5, 31.5, { align: 'center' });
 
-    doc.setFont("helvetica", "bold");
-    doc.text("Valid Date:", pageWidth - 50, yPos);
-    doc.setFont("helvetica", "normal");
-    const validUntil = proposal.validUntil ? new Date(proposal.validUntil).toLocaleDateString() : '7 Days from issue';
-    doc.text(validUntil, pageWidth - 50, yPos + 5);
+    // Revision note if present
+    if (proposal.revisionNote) {
+        doc.setFontSize(7);
+        doc.setFont("helvetica", "italic");
+        doc.setTextColor(203, 213, 225);
+        doc.text(`Note: ${proposal.revisionNote}`, pageWidth - 15, 38, { align: 'right' });
+    }
 
-    yPos += 30;
+    let yPos = 52;
 
-    // --- Proposal Title ---
+    // ─── Proposal Title ───
     doc.setFontSize(16);
     doc.setFont("helvetica", "bold");
+    doc.setTextColor(15, 23, 42); // Slate-900
     doc.text(proposal.title, 15, yPos);
-    yPos += 5;
+    yPos += 7;
 
-    // --- Options ---
+    // ─── Executive Metadata Cards (Side-by-Side) ───
+    const cardWidth = (pageWidth - 36) / 2;
+    const cardHeight = 30;
+
+    // Card A: Prepared For
+    doc.setFillColor(248, 250, 252); // Slate-50
+    doc.setDrawColor(226, 232, 240); // Slate-200
+    doc.roundedRect(15, yPos, cardWidth, cardHeight, 2, 2, 'FD');
+
+    // Accent tag
+    doc.setFillColor(79, 70, 229); // Indigo
+    doc.rect(15, yPos, 3, cardHeight, 'F');
+
+    doc.setFontSize(7.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(99, 102, 241); // Indigo-500
+    doc.text("PREPARED EXCLUSIVELY FOR", 22, yPos + 6);
+
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(15, 23, 42);
+    doc.text(lead.name || 'Valued Client', 22, yPos + 13);
+
+    doc.setFontSize(8.5);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(100, 116, 139); // Slate-500
+    if (lead.phone) doc.text(`Phone: ${lead.phone}`, 22, yPos + 19);
+    if (lead.email) doc.text(`Email: ${lead.email}`, 22, yPos + 24);
+
+    // Card B: Tour Overview
+    const cardBX = 15 + cardWidth + 6;
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(cardBX, yPos, cardWidth, cardHeight, 2, 2, 'FD');
+
+    doc.setFillColor(217, 119, 6); // Amber
+    doc.rect(cardBX, yPos, 3, cardHeight, 'F');
+
+    doc.setFontSize(7.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(217, 119, 6);
+    doc.text("TRIP SPECIFICATIONS", cardBX + 7, yPos + 6);
+
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(15, 23, 42);
+    doc.text(`Destination: ${lead.destination || 'Custom Journey'}`, cardBX + 7, yPos + 13);
+
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(100, 116, 139);
+    const validUntilStr = proposal.validUntil ? new Date(proposal.validUntil).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '7 Days from issue';
+    doc.text(`Valid Until: ${validUntilStr}`, cardBX + 7, yPos + 19);
+    doc.text(`Status: ${proposal.status || 'Draft'} • ${proposal.options.length} Option Tier${proposal.options.length > 1 ? 's' : ''}`, cardBX + 7, yPos + 24);
+
+    yPos += cardHeight + 10;
+
+    // ─── Multi-Tier Quick Comparison Matrix (if more than 1 option) ───
+    if (proposal.options.length > 1) {
+        doc.setFontSize(11);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(15, 23, 42);
+        doc.text("Executive Tier Comparison Matrix", 15, yPos);
+        yPos += 4;
+
+        const comparisonRows = proposal.options.map((opt, i) => {
+            const hotelPreviews = opt.hotels.map(hId => {
+                const h = masterHotels.find(mh => mh.id === hId);
+                return h ? `${h.name} (${h.rating}★)` : hId;
+            }).join(', ') || 'Hotels on request';
+
+            const inclusionSummary = opt.inclusions.slice(0, 2).join('; ') + (opt.inclusions.length > 2 ? ` (+${opt.inclusions.length - 2} more)` : '');
+
+            return [
+                opt.name,
+                opt.hotelStarRating || opt.tier || `Tier ${i + 1}`,
+                hotelPreviews,
+                inclusionSummary,
+                `Rs. ${opt.price.toLocaleString('en-IN')}`
+            ];
+        });
+
+        autoTable(doc, {
+            startY: yPos,
+            margin: { left: 15, right: 15 },
+            head: [['Package Option', 'Category', 'Accommodation Preview', 'Key Inclusions', 'Total Investment']],
+            body: comparisonRows,
+            theme: 'grid',
+            headStyles: {
+                fillColor: [30, 41, 59], // Slate-800
+                textColor: [255, 255, 255],
+                fontStyle: 'bold',
+                fontSize: 8,
+                cellPadding: 3
+            },
+            styles: {
+                fontSize: 8,
+                cellPadding: 3.5,
+                valign: 'middle'
+            },
+            columnStyles: {
+                0: { cellWidth: 32, fontStyle: 'bold', textColor: [79, 70, 229] },
+                1: { cellWidth: 26, fontStyle: 'bold' },
+                2: { cellWidth: 55 },
+                3: { cellWidth: 'auto' },
+                4: { cellWidth: 32, fontStyle: 'bold', halign: 'right', textColor: [16, 185, 129] }
+            }
+        });
+
+        // @ts-ignore
+        yPos = doc.lastAutoTable.finalY + 12;
+    }
+
+    // ─── Detailed Options Breakdown ───
     proposal.options.forEach((option, index) => {
-        if (yPos > 240) {
+        // Page break if near bottom
+        if (yPos > pageHeight - 65) {
             doc.addPage();
             yPos = 20;
         }
 
-        yPos += 15;
+        // Option Section Header Card
+        doc.setFillColor(241, 245, 249); // Slate-100
+        doc.roundedRect(15, yPos, pageWidth - 30, 16, 2, 2, 'F');
 
-        // Option Header
-        doc.setFillColor(243, 244, 246); // Gray-100
-        doc.roundedRect(15, yPos, pageWidth - 30, 20, 3, 3, 'F');
+        // Color tag based on tier
+        const isLuxury = (option.tier === 'Luxury' || option.hotelStarRating === '5 Star');
+        const isDeluxe = (option.tier === 'Deluxe' || option.hotelStarRating === '4 Star');
+        doc.setFillColor(isLuxury ? 217 : isDeluxe ? 79 : 100, isLuxury ? 119 : isDeluxe ? 70 : 116, isLuxury ? 6 : isDeluxe ? 229 : 139);
+        doc.rect(15, yPos, 4, 16, 'F');
 
-        doc.setFontSize(12);
+        // Option Name & Tier Badge
+        doc.setFontSize(11);
         doc.setFont("helvetica", "bold");
-        doc.setTextColor(88, 28, 135); // Purple
-        doc.text(option.name, 20, yPos + 13);
+        doc.setTextColor(15, 23, 42);
+        doc.text(option.name, 23, yPos + 10.5);
 
-        doc.setTextColor(0, 0, 0);
-        doc.text(`Rs. ${option.price.toLocaleString()}`, pageWidth - 25, yPos + 13, { align: 'right' });
+        // Tier / Star rating pill
+        const tierLabel = option.hotelStarRating || option.tier || `Option ${index + 1}`;
+        doc.setFontSize(7.5);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(79, 70, 229);
+        doc.text(`[ ${tierLabel.toUpperCase()} ]`, 23 + doc.getTextWidth(option.name) + 5, yPos + 10.5);
 
-        yPos += 25;
+        // Price Tag
+        doc.setFontSize(13);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(15, 23, 42);
+        doc.text(`Rs. ${option.price.toLocaleString('en-IN')}`, pageWidth - 20, yPos + 11, { align: 'right' });
 
-        // --- Content Resolution ---
-        // Resolve Hotels
+        yPos += 20;
+
+        // Content Resolution
         const hotelNames = option.hotels.map(hId => {
             const h = masterHotels.find(mh => mh.id === hId);
-            return h ? `${h.name} (${h.rating} Star)` : hId;
+            return h ? `• ${h.name} (${h.rating} Star)` : `• ${hId}`;
         });
 
-        // Resolve Activities
         const activityNames = (option.activities || []).map(aId => {
             const a = masterActivities.find(ma => ma.id === aId);
-            return a ? a.name : aId;
+            return a ? `• ${a.name} (${a.duration || 'Half Day'})` : `• ${aId}`;
         });
 
-        // Inclusions List
-        const inclusions = [...option.inclusions];
+        const inclusions = (option.inclusions || []).map(i => `✓ ${i}`);
+        const exclusions = (option.exclusions || []).map(e => `✕ ${e}`);
 
-        // Format Body for AutoTable
         const bodyRows: string[][] = [];
 
         if (hotelNames.length > 0) {
-            bodyRows.push(['Hotels', hotelNames.join('\n')]);
+            bodyRows.push(['Accommodation', hotelNames.join('\n')]);
         }
         if (activityNames.length > 0) {
-            bodyRows.push(['Services/Activities', activityNames.join('\n')]);
+            bodyRows.push(['Sightseeing & Experiences', activityNames.join('\n')]);
         }
         if (inclusions.length > 0) {
-            bodyRows.push(['Inclusions', inclusions.map(i => `• ${i}`).join('\n')]);
+            bodyRows.push(['Package Inclusions', inclusions.join('\n')]);
+        }
+        if (exclusions.length > 0) {
+            bodyRows.push(['Exclusions', exclusions.join('\n')]);
         }
 
-        // Using autoTable for cleaner list
         autoTable(doc, {
             startY: yPos,
             margin: { left: 15, right: 15 },
             head: [],
             body: bodyRows,
             theme: 'grid',
-            styles: { fontSize: 10, cellPadding: 4, valign: 'top' },
+            styles: { fontSize: 8.5, cellPadding: 3.5, valign: 'top' },
             columnStyles: {
-                0: { cellWidth: 40, fontStyle: 'bold', textColor: [88, 28, 135] },
-                1: { cellWidth: 'auto' }
+                0: { cellWidth: 45, fontStyle: 'bold', textColor: [30, 41, 59], fillColor: [248, 250, 252] },
+                1: { cellWidth: 'auto', textColor: [51, 65, 85] }
             },
         });
 
         // @ts-ignore
-        yPos = doc.lastAutoTable.finalY + 5;
+        yPos = doc.lastAutoTable.finalY + 10;
     });
 
-    // --- Footer ---
+    // ─── Footer on Every Page ───
     const pageCount = doc.getNumberOfPages();
     for (let i = 1; i <= pageCount; i++) {
         doc.setPage(i);
-        doc.setFontSize(8);
-        doc.setTextColor(150, 150, 150);
-        doc.text(`Page ${i} of ${pageCount}`, pageWidth / 2, doc.internal.pageSize.height - 10, { align: 'center' });
-        doc.text(`Generated by Shrawello Travel Hub and Events LLP`, 15, doc.internal.pageSize.height - 10);
+        doc.setDrawColor(226, 232, 240);
+        doc.line(15, pageHeight - 14, pageWidth - 15, pageHeight - 14);
+
+        doc.setFontSize(7.5);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(148, 163, 184); // Slate-400
+        doc.text("Shrawello Travel Hub and Events LLP • Pune, MH • Tel: +91 80109 55675 • shrawello@gmail.com", 15, pageHeight - 9);
+        doc.text(`Page ${i} of ${pageCount}`, pageWidth - 15, pageHeight - 9, { align: 'right' });
     }
 
-    doc.save(`Quotation_${lead.name.replace(/\s+/g, '_')}_${proposal.id}.pdf`);
+    doc.save(`Quotation_${(lead.name || 'Client').replace(/\s+/g, '_')}_${proposal.version || 'v1'}_${proposal.id}.pdf`);
 };
 
 export const generateProformaInvoice = async (proposal: Proposal, optionId: string, lead: Lead) => {

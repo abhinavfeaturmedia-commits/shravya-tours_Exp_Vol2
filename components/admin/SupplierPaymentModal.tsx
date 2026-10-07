@@ -87,6 +87,24 @@ export const SupplierPaymentModal: React.FC<SupplierPaymentModalProps> = ({
     const numAmt = Number(amount) || 0;
     const projectedRemaining = Math.max(0, balanceDue - numAmt);
 
+    const pastPayments = useMemo(() => {
+        if (!supplierBooking) return [];
+        if (Array.isArray(supplierBooking.payments) && supplierBooking.payments.length > 0) {
+            return supplierBooking.payments;
+        }
+        if (Number(supplierBooking.paidAmount) > 0) {
+            return [{
+                id: `legacy-${supplierBooking.id}`,
+                amount: Number(supplierBooking.paidAmount),
+                paymentDate: supplierBooking.paymentDueDate || '-',
+                paymentMethod: 'Recorded Payment',
+                reference: supplierBooking.confirmationNumber || undefined,
+                notes: 'Initial recorded installment'
+            }];
+        }
+        return [];
+    }, [supplierBooking]);
+
     return (
         <div className="fixed inset-0 z-[220] flex items-center justify-center p-3 sm:p-4 bg-black/65 backdrop-blur-sm animate-in fade-in overflow-y-auto">
             <div className="bg-white dark:bg-[#1A2633] w-full max-w-lg max-h-[92vh] sm:max-h-[88vh] rounded-2xl sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 my-auto">
@@ -198,11 +216,38 @@ export const SupplierPaymentModal: React.FC<SupplierPaymentModalProps> = ({
                             </div>
                         </div>
 
+                        {/* Past Installments Preview (if any) */}
+                        {pastPayments.length > 0 && (
+                            <div className="p-3 bg-slate-50/70 dark:bg-slate-800/40 rounded-xl border border-slate-200/80 dark:border-slate-700/60 text-xs space-y-1.5">
+                                <div className="flex items-center justify-between font-bold text-slate-600 dark:text-slate-300">
+                                    <span className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider">
+                                        <span className="material-symbols-outlined text-[15px] text-emerald-600">history</span>
+                                        Past Payments Made ({pastPayments.length})
+                                    </span>
+                                    <span className="text-[11px] font-bold text-emerald-600">
+                                        Total: ₹{paidAmount.toLocaleString()}
+                                    </span>
+                                </div>
+                                <div className="space-y-1 max-h-24 overflow-y-auto scrollbar-thin divide-y divide-slate-100 dark:divide-slate-700/40 pr-1">
+                                    {pastPayments.map((p, idx) => (
+                                        <div key={p.id || idx} className="flex items-center justify-between py-1 text-[11px] text-slate-500">
+                                            <span className="truncate max-w-[240px]">
+                                                Part {idx + 1}: {p.paymentDate} • {p.paymentMethod} {p.reference ? `(${p.reference})` : ''}
+                                            </span>
+                                            <strong className="text-slate-800 dark:text-slate-200 shrink-0">
+                                                ₹{Number(p.amount || 0).toLocaleString()}
+                                            </strong>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
                         {/* Amount to Pay */}
                         <div className="space-y-1.5">
                             <div className="flex items-center justify-between">
                                 <label className="text-xs font-bold text-slate-600 dark:text-slate-300">
-                                    Payment Amount (₹) <span className="text-red-500">*</span>
+                                    This Payment Amount (₹) <span className="text-red-500">*</span>
                                 </label>
                                 {balanceDue > 0 && (
                                     <div className="flex items-center gap-1">
@@ -211,8 +256,17 @@ export const SupplierPaymentModal: React.FC<SupplierPaymentModalProps> = ({
                                             onClick={() => setAmount(String(balanceDue))}
                                             className="text-[10px] font-bold px-2 py-0.5 bg-primary/10 text-primary hover:bg-primary/20 rounded-md transition-colors"
                                         >
-                                            Pay Full Balance (₹{balanceDue.toLocaleString()})
+                                            Full Balance (₹{balanceDue.toLocaleString()})
                                         </button>
+                                        {balanceDue > 1000 && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setAmount(String(Math.round(balanceDue / 2)))}
+                                                className="text-[10px] font-bold px-2 py-0.5 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 rounded-md transition-colors"
+                                            >
+                                                50% (₹{Math.round(balanceDue / 2).toLocaleString()})
+                                            </button>
+                                        )}
                                     </div>
                                 )}
                             </div>
@@ -226,13 +280,13 @@ export const SupplierPaymentModal: React.FC<SupplierPaymentModalProps> = ({
                                     min="1"
                                     value={amount}
                                     onChange={e => setAmount(e.target.value)}
-                                    placeholder="Enter amount..."
+                                    placeholder="Enter installment amount..."
                                     className="w-full pl-8 pr-3 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold text-slate-900 dark:text-white outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                                 />
                             </div>
                             {numAmt > 0 && (
                                 <p className="text-[11px] text-slate-400">
-                                    Remaining after this payment:{' '}
+                                    Remaining balance after this payment:{' '}
                                     <strong className={projectedRemaining === 0 ? 'text-emerald-600' : 'text-amber-600'}>
                                         ₹{projectedRemaining.toLocaleString()} {projectedRemaining === 0 ? '(Fully Paid)' : ''}
                                     </strong>

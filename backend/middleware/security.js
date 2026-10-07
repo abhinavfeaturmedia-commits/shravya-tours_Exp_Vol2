@@ -53,8 +53,8 @@ export function configureCors() {
                 return callback(null, true);
             }
 
-            // In development, allow any local port
-            if (process.env.NODE_ENV !== 'production' && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+            // In development, allow any local port, localhost, loopback, or private LAN IP (e.g. 192.168.x.x, 10.x.x.x, 172.16-31.x.x, *.local)
+            if (process.env.NODE_ENV !== 'production' && /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}|[a-zA-Z0-9.-]+\.local)(:\d+)?$/.test(origin)) {
                 return callback(null, true);
             }
 

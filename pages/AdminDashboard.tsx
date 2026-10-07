@@ -7,12 +7,23 @@ import { toast } from 'sonner';
 import { Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ComposedChart, Line } from 'recharts';
 import { formatPrice, formatPriceCompact } from '../utils/packageUtils';
 
+// Timezone-safe local date parser
+const parseLocalDate = (dateStr?: string): Date | null => {
+    if (!dateStr) return null;
+    const parts = dateStr.split('T')[0].split('-');
+    if (parts.length !== 3) return new Date(dateStr);
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1;
+    const day = parseInt(parts[2], 10);
+    return new Date(year, month, day);
+};
+
 export const AdminDashboard: React.FC = () => {
     const navigate = useNavigate();
     const {
         bookings: globalBookings, packages, leads: globalLeads, masterLocations, masterHotels, masterActivities,
-        tasks, followUps, customers, getActiveMembershipForCustomer, expenses = []
-    } = useData();
+        tasks, followUps, customers, getActiveMembershipForCustomer, expenses = [], vendors = []
+    } = useData() as any;
     const { currentUser, staff, getModuleScope } = useAuth();
     const [greeting, setGreeting] = useState('');
     const [selectedYear, setSelectedYear] = useState('This Year');
@@ -22,6 +33,9 @@ export const AdminDashboard: React.FC = () => {
     const [isAlertsExpanded, setIsAlertsExpanded] = useState(false);
     const [unlinkedTransactions, setUnlinkedTransactions] = useState<any[]>(() => api.getUnlinkedTransactions());
     const [incentiveSummary, setIncentiveSummary] = useState<any>(null);
+    const [duesTab, setDuesTab] = useState<'all' | 'receivables' | 'payables'>('all');
+    const [duesHorizon, setDuesHorizon] = useState<'all' | '7d' | 'overdue'>('7d');
+    const [showAllDues, setShowAllDues] = useState(false);
     const today = new Date().toISOString().split('T')[0];
 
     useEffect(() => {
@@ -361,11 +375,11 @@ export const AdminDashboard: React.FC = () => {
         });
         const total = leads.length || 1;
         return [
-            { stage: 'New', count: counts.New, color: 'from-blue-400 to-indigo-500', width: `${(counts.New / total) * 100}%` },
-            { stage: 'Warm', count: counts.Warm, color: 'from-amber-400 to-orange-500', width: `${(counts.Warm / total) * 100}%` },
-            { stage: 'Hot', count: counts.Hot, color: 'from-rose-400 to-red-500', width: `${(counts.Hot / total) * 100}%` },
-            { stage: 'Offer Sent', count: counts['Offer Sent'], color: 'from-purple-400 to-fuchsia-500', width: `${(counts['Offer Sent'] / total) * 100}%` },
-            { stage: 'Converted', count: counts.Converted, color: 'from-emerald-400 to-teal-500', width: `${(counts.Converted / total) * 100}%` },
+            { stage: 'New', count: counts.New, color: 'from-blue-400 to-indigo-500', width: `${Math.round((counts.New / total) * 100)}%` },
+            { stage: 'Warm', count: counts.Warm, color: 'from-amber-400 to-orange-500', width: `${Math.round((counts.Warm / total) * 100)}%` },
+            { stage: 'Hot', count: counts.Hot, color: 'from-rose-400 to-red-500', width: `${Math.round((counts.Hot / total) * 100)}%` },
+            { stage: 'Offer Sent', count: counts['Offer Sent'], color: 'from-purple-400 to-fuchsia-500', width: `${Math.round((counts['Offer Sent'] / total) * 100)}%` },
+            { stage: 'Converted', count: counts.Converted, color: 'from-emerald-400 to-teal-500', width: `${Math.round((counts.Converted / total) * 100)}%` },
         ].filter(f => f.count > 0);
     }, [leads]);
 
@@ -466,6 +480,214 @@ export const AdminDashboard: React.FC = () => {
     }, [bookings, expenses]);
 
     const netWorkingCapital = financialHealth.receivables - financialHealth.payables;
+
+    // Today's Active Traveling Tours (Guest Program)
+    const todaysActiveTours = useMemo(() => {
+        const todayNow = new Date();
+        todayNow.setHours(0, 0, 0, 0);
+
+        return bookings.filter(b => {
+            if (b.status === 'Cancelled' || b.liveStatus === 'Cancelled') return false;
+            const start = parseLocalDate(b.date);
+            if (!start) return false;
+
+            let duration = b.durationDays || 1;
+            if (b.endDate) {
+                const endD = parseLocalDate(b.endDate);
+                if (endD && endD >= start) {
+                    duration = Math.max(Math.round((endD.getTime() - start.getTime()) / 86_400_000) + 1, duration);
+                }
+            } else {
+                const pkg = packages?.find((p: any) => p.id === b.packageId || p.title === b.title);
+                if (pkg?.days) duration = pkg.days;
+            }
+
+            const end = new Date(start);
+            end.setDate(start.getDate() + (duration - 1));
+            end.setHours(23, 59, 59, 999);
+
+            return todayNow >= start && todayNow <= end;
+        }).map(b => {
+            const start = parseLocalDate(b.date)!;
+            let duration = b.durationDays || 1;
+            if (b.endDate) {
+                const endD = parseLocalDate(b.endDate);
+                if (endD && endD >= start) {
+                    duration = Math.max(Math.round((endD.getTime() - start.getTime()) / 86_400_000) + 1, duration);
+                }
+            } else {
+                const pkg = packages?.find((p: any) => p.id === b.packageId || p.title === b.title);
+                if (pkg?.days) duration = pkg.days;
+            }
+
+            const diffDays = Math.round((todayNow.getTime() - start.getTime()) / 86_400_000) + 1;
+            const currentDay = Math.min(Math.max(diffDays, 1), duration);
+            const percent = Math.min(Math.max(Math.round((currentDay / duration) * 100), 5), 100);
+
+            const pkg = packages?.find((p: any) => p.id === b.packageId || p.title === b.title);
+            const dayItinerary = pkg?.itinerary?.[currentDay - 1];
+
+            const transportBooking = b.supplierBookings?.find((sb: any) => sb.serviceType === 'Transport' || sb.serviceType?.includes('Transport'));
+            const driverInfo = b.driverName || transportBooking?.driverName || null;
+            const driverPhone = b.driverPhone || transportBooking?.driverPhone || null;
+
+            const customerPhone = b.customerPhone || b.phone || '';
+
+            return {
+                ...b,
+                currentDay,
+                duration,
+                percent,
+                dayTitle: dayItinerary?.title || `Day ${currentDay} Tour Schedule`,
+                driverInfo,
+                driverPhone,
+                customerPhone
+            };
+        });
+    }, [bookings, packages]);
+
+    // Unified Due Payments & Obligations (Screenshot 24 benchmark)
+    const unifiedDues = useMemo(() => {
+        const todayNow = new Date();
+        todayNow.setHours(0, 0, 0, 0);
+
+        interface DueItem {
+            id: string;
+            type: 'receivable' | 'payable';
+            bookingId: string;
+            bookingTitle: string;
+            partyName: string;
+            partyPhone?: string;
+            partyRole: string;
+            dueDate: Date;
+            dueDateStr: string;
+            daysUntilDue: number;
+            totalAmount: number;
+            paidAmount: number;
+            balanceDue: number;
+            isOverdue: boolean;
+            supplierBookingId?: string;
+        }
+
+        const items: DueItem[] = [];
+
+        // 1. Customer Receivables
+        bookings.forEach(b => {
+            if (b.status === 'Cancelled') return;
+            const netPaid = getNetPaid(b);
+            const balance = b.amount - netPaid;
+            if (balance > 0) {
+                const depDate = parseLocalDate(b.date) || new Date();
+                const daysUntilDue = Math.round((depDate.getTime() - todayNow.getTime()) / 86_400_000);
+                const isOverdue = daysUntilDue < 0;
+
+                items.push({
+                    id: `rec-${b.id}`,
+                    type: 'receivable',
+                    bookingId: b.id,
+                    bookingTitle: b.title || 'Custom Tour',
+                    partyName: b.customer || 'Guest',
+                    partyPhone: b.customerPhone || b.phone || '',
+                    partyRole: 'Client Balance',
+                    dueDate: depDate,
+                    dueDateStr: depDate.toISOString().split('T')[0],
+                    daysUntilDue,
+                    totalAmount: b.amount,
+                    paidAmount: netPaid,
+                    balanceDue: balance,
+                    isOverdue
+                });
+            }
+
+            // 2. Supplier Payables
+            if (b.supplierBookings) {
+                b.supplierBookings.forEach((sb: any) => {
+                    if (sb.bookingStatus === 'Cancelled') return;
+                    if (sb.paymentStatus === 'Paid') return;
+                    const rem = Math.max(0, sb.cost - (sb.paidAmount || 0));
+                    if (rem > 0) {
+                        const dueDate = sb.paymentDueDate
+                            ? (parseLocalDate(sb.paymentDueDate) || parseLocalDate(b.date) || new Date())
+                            : (parseLocalDate(b.date) || new Date());
+                        const daysUntilDue = Math.round((dueDate.getTime() - todayNow.getTime()) / 86_400_000);
+                        const isOverdue = daysUntilDue < 0;
+
+                        const vendorObj = (vendors || []).find((v: any) => String(v.id) === String(sb.vendorId));
+                        const vendorName = vendorObj?.name || sb.notes || `${sb.serviceType} Vendor`;
+
+                        items.push({
+                            id: `pay-${b.id}-${sb.id}`,
+                            type: 'payable',
+                            bookingId: b.id,
+                            bookingTitle: b.title || 'Tour',
+                            partyName: vendorName,
+                            partyPhone: vendorObj?.phone || '',
+                            partyRole: `${sb.serviceType || 'Supplier'} Payable`,
+                            dueDate,
+                            dueDateStr: dueDate.toISOString().split('T')[0],
+                            daysUntilDue,
+                            totalAmount: sb.cost,
+                            paidAmount: sb.paidAmount || 0,
+                            balanceDue: rem,
+                            isOverdue,
+                            supplierBookingId: sb.id
+                        });
+                    }
+                });
+            }
+        });
+
+        // Sort: Overdue items first, then ascending by days until due
+        items.sort((a, b) => a.daysUntilDue - b.daysUntilDue);
+
+        const totalReceivables = items.filter(i => i.type === 'receivable').reduce((s, i) => s + i.balanceDue, 0);
+        const totalPayables = items.filter(i => i.type === 'payable').reduce((s, i) => s + i.balanceDue, 0);
+        const netHorizon = totalReceivables - totalPayables;
+
+        return {
+            items,
+            totalReceivables,
+            totalPayables,
+            netHorizon,
+            receivablesCount: items.filter(i => i.type === 'receivable').length,
+            payablesCount: items.filter(i => i.type === 'payable').length,
+            overdueCount: items.filter(i => i.isOverdue).length
+        };
+    }, [bookings, vendors]);
+
+    const filteredDues = useMemo(() => {
+        return unifiedDues.items.filter(item => {
+            if (duesTab === 'receivables' && item.type !== 'receivable') return false;
+            if (duesTab === 'payables' && item.type !== 'payable') return false;
+
+            if (duesHorizon === '7d' && item.daysUntilDue > 7 && !item.isOverdue) return false;
+            if (duesHorizon === 'overdue' && !item.isOverdue) return false;
+
+            return true;
+        });
+    }, [unifiedDues, duesTab, duesHorizon]);
+
+    const handleSendMorningBriefing = (tour: any) => {
+        const phone = (tour.customerPhone || '').replace(/\D/g, '');
+        if (!phone) {
+            toast.error('No contact phone number recorded for this guest');
+            return;
+        }
+        const driverText = tour.driverInfo ? ` Your assigned transport is with ${tour.driverInfo}${tour.driverPhone ? ` (${tour.driverPhone})` : ''}.` : '';
+        const highlightText = tour.dayTitle ? ` Today's scheduled highlight: ${tour.dayTitle}.` : '';
+        const message = `Good morning ${tour.customer}! ☀️\n\nWarm greetings from Shravya Tours! Today is Day ${tour.currentDay} of your ${tour.title || 'tour'}.${highlightText}${driverText}\n\nWe hope you have a delightful journey today. Feel free to message us here if you need anything at all! 🌟`;
+        window.open(`https://wa.me/${phone.length === 10 ? '91' + phone : phone}?text=${encodeURIComponent(message)}`, '_blank');
+    };
+
+    const handleSendPaymentReminder = (item: any) => {
+        const phone = (item.partyPhone || '').replace(/\D/g, '');
+        if (!phone) {
+            toast.error('No contact number available for this booking');
+            return;
+        }
+        const message = `Namaste ${item.partyName}! 🙏\n\nThis is a friendly reminder from Shravya Tours regarding your upcoming tour "${item.bookingTitle}".\n\n• Package Total: ${formatPrice(item.totalAmount)}\n• Paid so far: ${formatPrice(item.paidAmount)}\n• Pending Balance Due: ${formatPrice(item.balanceDue)}\n• Due Date: ${new Date(item.dueDate).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric' })}\n\nKindly complete the balance payment and share the confirmation screenshot. Let us know if you need any assistance!`;
+        window.open(`https://wa.me/${phone.length === 10 ? '91' + phone : phone}?text=${encodeURIComponent(message)}`, '_blank');
+    };
 
     // Lead Source Performance
     const leadSourcesData = useMemo(() => {
@@ -799,6 +1021,31 @@ export const AdminDashboard: React.FC = () => {
                                 >
                                     <span className="material-symbols-outlined text-[14px] text-emerald-400">payments</span>
                                     <span><strong className="text-white">{formatPriceCompact(financialHealth.receivables)}</strong> Uncollected</span>
+                                </button>
+                            )}
+
+                            {todaysActiveTours.length > 0 && (
+                                <button
+                                    onClick={() => navigate('/admin/operations?tab=guest-program')}
+                                    className="px-2.5 py-1 rounded-xl text-xs font-bold bg-teal-500/20 hover:bg-teal-500/30 border border-teal-500/30 text-teal-200 flex items-center gap-1.5 transition-all active:scale-95"
+                                >
+                                    <span className="material-symbols-outlined text-[14px] text-teal-400">tour</span>
+                                    <span><strong className="text-white">{todaysActiveTours.length}</strong> On-Tour</span>
+                                </button>
+                            )}
+
+                            {unifiedDues.overdueCount > 0 && (
+                                <button
+                                    onClick={() => {
+                                        setDuesTab('all');
+                                        setDuesHorizon('overdue');
+                                        const el = document.getElementById('unified-dues-section');
+                                        if (el) el.scrollIntoView({ behavior: 'smooth' });
+                                    }}
+                                    className="px-2.5 py-1 rounded-xl text-xs font-bold bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/30 text-amber-200 flex items-center gap-1.5 transition-all active:scale-95"
+                                >
+                                    <span className="material-symbols-outlined text-[14px] text-amber-400">notification_important</span>
+                                    <span><strong className="text-white">{unifiedDues.overdueCount}</strong> Overdue Dues</span>
                                 </button>
                             )}
                         </div>
@@ -1196,6 +1443,125 @@ export const AdminDashboard: React.FC = () => {
                 {/* Left (Col Span 2): Revenue Chart & Recent Bookings Table */}
                 <div className="xl:col-span-2 flex flex-col gap-6">
 
+                    {/* ─── Today's Active Guest Program Widget (On-Tour Live Operations) ─── */}
+                    <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-xs overflow-hidden flex flex-col">
+                        <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                                <div className="size-10 rounded-2xl bg-teal-50 dark:bg-teal-950/60 text-teal-600 dark:text-teal-400 flex items-center justify-center font-bold shadow-xs">
+                                    <span className="material-symbols-outlined text-2xl">tour</span>
+                                </div>
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <h3 className="text-base font-black text-slate-900 dark:text-white">Today's Active Guest Program</h3>
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400 text-[10px] font-black border border-emerald-200 dark:border-emerald-800">
+                                            <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                            {todaysActiveTours.length} Live on Tour
+                                        </span>
+                                    </div>
+                                    <p className="text-xs text-slate-400 font-medium mt-0.5">Real-time daily tour progress, assigned transport & 1-click morning briefing</p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => navigate('/admin/operations?tab=guest-program')}
+                                className="text-xs font-bold text-teal-600 hover:text-teal-700 flex items-center gap-1 group self-start sm:self-auto cursor-pointer"
+                            >
+                                <span>Open Operations Hub</span>
+                                <span className="material-symbols-outlined text-[16px] transition-transform group-hover:translate-x-1">arrow_forward</span>
+                            </button>
+                        </div>
+
+                        {todaysActiveTours.length > 0 ? (
+                            <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {todaysActiveTours.slice(0, 4).map((tour, idx) => (
+                                    <div
+                                        key={idx}
+                                        className="p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-700/50 flex flex-col justify-between gap-3 hover:border-teal-500/40 transition-all group"
+                                    >
+                                        <div>
+                                            <div className="flex items-start justify-between gap-2">
+                                                <div>
+                                                    <div className="flex items-center gap-2">
+                                                        <h4 className="font-black text-xs text-slate-900 dark:text-white truncate">{tour.customer}</h4>
+                                                        <span className="px-1.5 py-0.5 rounded bg-slate-200/70 dark:bg-slate-700 text-[10px] font-bold text-slate-700 dark:text-slate-300">
+                                                            {tour.paxCount || 2} Pax
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-[11px] text-slate-400 font-medium line-clamp-1 mt-0.5">{tour.title}</p>
+                                                </div>
+                                                <span className="px-2 py-0.5 rounded-full bg-teal-100 dark:bg-teal-950 text-teal-800 dark:text-teal-300 text-[10px] font-black shrink-0">
+                                                    Day {tour.currentDay} of {tour.duration}
+                                                </span>
+                                            </div>
+
+                                            {/* Progress Bar */}
+                                            <div className="mt-2.5">
+                                                <div className="flex justify-between text-[10px] text-slate-400 font-semibold mb-1">
+                                                    <span>Tour Progress</span>
+                                                    <span>{tour.percent}%</span>
+                                                </div>
+                                                <div className="h-1.5 w-full bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                                                    <div className="h-full bg-gradient-to-r from-teal-500 to-emerald-500 rounded-full" style={{ width: `${tour.percent}%` }} />
+                                                </div>
+                                            </div>
+
+                                            {/* Today's Plan */}
+                                            <div className="mt-3 p-2.5 rounded-xl bg-white dark:bg-slate-900/80 border border-slate-100 dark:border-slate-800 text-[11px] space-y-1">
+                                                <div className="flex items-center gap-1.5 text-slate-700 dark:text-slate-200 font-bold truncate">
+                                                    <span className="material-symbols-outlined text-[14px] text-teal-500 shrink-0">location_on</span>
+                                                    <span className="truncate">{tour.dayTitle}</span>
+                                                </div>
+                                                <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 truncate">
+                                                    <span className="material-symbols-outlined text-[14px] text-blue-500 shrink-0">directions_car</span>
+                                                    <span className="truncate">
+                                                        {tour.driverInfo ? `Driver: ${tour.driverInfo}${tour.driverPhone ? ` (${tour.driverPhone})` : ''}` : 'No driver allocated'}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Actions */}
+                                        <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-200/50 dark:border-slate-700/50">
+                                            <button
+                                                onClick={() => handleSendMorningBriefing(tour)}
+                                                className="flex-1 py-1.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] flex items-center justify-center gap-1.5 transition-all active:scale-95 shadow-xs cursor-pointer"
+                                            >
+                                                <span className="material-symbols-outlined text-[14px]">chat</span>
+                                                <span>WhatsApp Morning Briefing</span>
+                                            </button>
+                                            <button
+                                                onClick={() => navigate('/admin/operations?tab=guest-program')}
+                                                className="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-all cursor-pointer"
+                                                title="View in Operations"
+                                            >
+                                                <span className="material-symbols-outlined text-[16px]">visibility</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="p-6 text-center flex flex-col items-center justify-center gap-2 text-slate-400">
+                                <div className="size-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400">
+                                    <span className="material-symbols-outlined text-2xl">luggage</span>
+                                </div>
+                                <p className="text-xs font-bold text-slate-600 dark:text-slate-300">No active traveler tours on the road today</p>
+                                {upcomingDepartures.length > 0 ? (
+                                    <p className="text-[11px] text-slate-400">
+                                        Next departure: <strong className="text-slate-700 dark:text-slate-200">{upcomingDepartures[0].customer}</strong> departing on {new Date(upcomingDepartures[0].date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                                    </p>
+                                ) : (
+                                    <p className="text-[11px] text-slate-400">All recent departures completed or scheduled for next week.</p>
+                                )}
+                                <button
+                                    onClick={() => navigate('/admin/operations?tab=checklist-hub')}
+                                    className="mt-2 text-xs font-bold text-teal-600 hover:underline cursor-pointer"
+                                >
+                                    Check 10-Point Pre-Tour Departure Readiness →
+                                </button>
+                            </div>
+                        )}
+                    </div>
+
                     {/* Executive Revenue Overview Chart Card */}
                     <div className="bg-white dark:bg-slate-900 p-5 lg:p-7 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col gap-5">
                         
@@ -1484,78 +1850,210 @@ export const AdminDashboard: React.FC = () => {
                                 </tbody>
                             </table>
                         </div>
+                    </div>
 
-                        {/* Mobile Cards */}
-                        <div className="md:hidden divide-y divide-slate-100 dark:divide-slate-800">
-                            {bookings.slice(0, 4).map((row, i) => (
-                                <div key={i} className="p-4 hover:bg-slate-50 transition-colors cursor-pointer" onClick={() => navigate('/admin/bookings')}>
-                                    <div className="flex justify-between items-start">
-                                        <div>
-                                            <p className="font-bold text-slate-900 dark:text-white text-xs">{row.customer}</p>
-                                            <p className="text-[11px] text-slate-400 line-clamp-1">{row.title}</p>
-                                        </div>
-                                        <span className="text-xs font-black text-slate-900 dark:text-white">{formatPrice(row.amount)}</span>
-                                    </div>
+                    {/* ─── Unified Due Payments & Financial Horizon Console (Screenshot 24 Benchmark) ─── */}
+                    <div id="unified-dues-section" className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-xs overflow-hidden flex flex-col">
+                        <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <h3 className="text-base font-black text-slate-900 dark:text-white">Due Payments & Financial Horizon</h3>
+                                    <span className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 text-[10px] font-black">
+                                        {filteredDues.length} shown
+                                    </span>
                                 </div>
-                            ))}
+                                <p className="text-xs text-slate-400 font-medium mt-0.5">
+                                    Unified radar of pending customer collections & upcoming vendor supplier payables
+                                </p>
+                            </div>
+
+                            {/* Dues Tab Segmented Control & Filter */}
+                            <div className="flex flex-wrap items-center gap-2">
+                                <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
+                                    <button
+                                        onClick={() => setDuesTab('all')}
+                                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                            duesTab === 'all'
+                                                ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                                                : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                                        }`}
+                                    >
+                                        All Dues ({unifiedDues.items.length})
+                                    </button>
+                                    <button
+                                        onClick={() => setDuesTab('receivables')}
+                                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                            duesTab === 'receivables'
+                                                ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-xs'
+                                                : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                                        }`}
+                                    >
+                                        Receivables ({unifiedDues.receivablesCount})
+                                    </button>
+                                    <button
+                                        onClick={() => setDuesTab('payables')}
+                                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                            duesTab === 'payables'
+                                                ? 'bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-400 shadow-xs'
+                                                : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                                        }`}
+                                    >
+                                        Payables ({unifiedDues.payablesCount})
+                                    </button>
+                                </div>
+
+                                <select
+                                    value={duesHorizon}
+                                    onChange={(e) => setDuesHorizon(e.target.value as any)}
+                                    className="bg-slate-100 dark:bg-slate-800 border-none text-xs font-bold rounded-xl px-2.5 py-1.5 text-slate-700 dark:text-slate-300 cursor-pointer outline-none"
+                                >
+                                    <option value="7d">Due within 7 Days</option>
+                                    <option value="all">All Pending Dates</option>
+                                    <option value="overdue">Overdue Only ({unifiedDues.overdueCount})</option>
+                                </select>
+                            </div>
                         </div>
+
+                        {/* KPI Cashflow Horizon Strip */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 bg-slate-50/60 dark:bg-slate-800/30 border-b border-slate-100 dark:border-slate-800">
+                            <div className="p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                                <div>
+                                    <p className="text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Total Receivables</p>
+                                    <h4 className="text-base font-black text-slate-900 dark:text-white mt-0.5">{formatPrice(unifiedDues.totalReceivables)}</h4>
+                                </div>
+                                <span className="material-symbols-outlined text-emerald-500 text-2xl">call_received</span>
+                            </div>
+
+                            <div className="p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                                <div>
+                                    <p className="text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400">Total Payables Due</p>
+                                    <h4 className="text-base font-black text-slate-900 dark:text-white mt-0.5">{formatPrice(unifiedDues.totalPayables)}</h4>
+                                </div>
+                                <span className="material-symbols-outlined text-amber-500 text-2xl">call_made</span>
+                            </div>
+
+                            <div className="p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                                <div>
+                                    <p className="text-[10px] font-black uppercase tracking-wider text-indigo-600 dark:text-indigo-400">Net Cashflow Horizon</p>
+                                    <h4 className={`text-base font-black mt-0.5 ${unifiedDues.netHorizon >= 0 ? 'text-indigo-600 dark:text-indigo-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                                        {formatPrice(unifiedDues.netHorizon)}
+                                    </h4>
+                                </div>
+                                <span className="material-symbols-outlined text-indigo-500 text-2xl">account_balance_wallet</span>
+                            </div>
+                        </div>
+
+                        {/* Due Items List */}
+                        <div>
+                            {filteredDues.length > 0 ? (
+                                <ul className="divide-y divide-slate-100 dark:divide-slate-800/80">
+                                    {(showAllDues ? filteredDues : filteredDues.slice(0, 6)).map((item) => {
+                                        const isRecv = item.type === 'receivable';
+                                        const dueLabel = item.isOverdue
+                                            ? `Overdue by ${Math.abs(item.daysUntilDue)}d`
+                                            : item.daysUntilDue === 0
+                                            ? 'Due today'
+                                            : `Due in ${item.daysUntilDue}d`;
+                                        const dueTone = item.isOverdue
+                                            ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-400'
+                                            : item.daysUntilDue <= 7
+                                            ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                                            : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300';
+                                        return (
+                                            <li key={item.id} className="px-4 sm:px-5 py-3.5 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                                                {/* Line 1: party + amount */}
+                                                <div className="flex items-start gap-3">
+                                                    <div className={`size-9 rounded-xl flex items-center justify-center shrink-0 ${
+                                                        isRecv
+                                                            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+                                                            : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+                                                    }`}>
+                                                        <span className="material-symbols-outlined text-[18px]">{isRecv ? 'person' : 'store'}</span>
+                                                    </div>
+                                                    <div className="min-w-0 flex-1">
+                                                        <p className="text-[13px] font-bold text-slate-900 dark:text-white truncate" title={item.partyName}>{item.partyName}</p>
+                                                        <p className="text-[11px] text-slate-400 truncate" title={item.bookingTitle}>{item.bookingTitle}</p>
+                                                    </div>
+                                                    <div className="text-right shrink-0">
+                                                        <p className="text-[13px] font-black tabular-nums text-slate-900 dark:text-white">{formatPrice(item.balanceDue)}</p>
+                                                        <p className="text-[10px] text-slate-400 tabular-nums">of {formatPriceCompact(item.totalAmount)}</p>
+                                                    </div>
+                                                </div>
+
+                                                {/* Line 2: status chips + action */}
+                                                <div className="mt-2 pl-12 flex flex-wrap items-center gap-x-2 gap-y-1.5">
+                                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                                                        isRecv
+                                                            ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400'
+                                                            : 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400'
+                                                    }`}>
+                                                        {isRecv ? 'Client Balance' : 'Vendor Payable'}
+                                                    </span>
+                                                    <span className={`px-2 py-0.5 rounded-md text-[10px] font-black ${dueTone}`}>
+                                                        {dueLabel}
+                                                    </span>
+                                                    <span className="text-[10px] text-slate-400">
+                                                        {new Date(item.dueDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                                                    </span>
+                                                    {isRecv && !item.isOverdue && item.daysUntilDue <= 7 && (
+                                                        <span className="text-[10px] font-black text-rose-600 dark:text-rose-400 inline-flex items-center gap-0.5">
+                                                            <span className="material-symbols-outlined text-[11px]">flight_takeoff</span>
+                                                            Collect before travel
+                                                        </span>
+                                                    )}
+
+                                                    <div className="ml-auto">
+                                                        {isRecv ? (
+                                                            <button
+                                                                onClick={() => handleSendPaymentReminder(item)}
+                                                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 text-[11px] font-bold transition-all active:scale-95 cursor-pointer"
+                                                                title="Send 1-click WhatsApp reminder"
+                                                            >
+                                                                <span className="material-symbols-outlined text-[14px]">chat</span>
+                                                                <span>Remind</span>
+                                                            </button>
+                                                        ) : (
+                                                            <button
+                                                                onClick={() => {
+                                                                    const params = new URLSearchParams();
+                                                                    if (item.bookingId) params.set('manageSuppliers', item.bookingId);
+                                                                    if (item.supplierBookingId) params.set('supplierBookingId', item.supplierBookingId);
+                                                                    navigate(`/admin/bookings?${params.toString()}`);
+                                                                }}
+                                                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-[11px] font-bold transition-all active:scale-95 cursor-pointer"
+                                                                title="Manage supplier payments and allocations"
+                                                            >
+                                                                <span className="material-symbols-outlined text-[14px]">payments</span>
+                                                                <span>Manage</span>
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </li>
+                                        );
+                                    })}
+                                </ul>
+                            ) : (
+                                <div className="p-8 text-center text-slate-400 text-xs">
+                                    <span className="material-symbols-outlined text-3xl mb-1 text-slate-300">verified</span>
+                                    <p className="font-bold text-slate-700 dark:text-slate-300">No pending dues in this category</p>
+                                    <p className="text-[11px] text-slate-400">All customer payments and supplier balances are up to date for this horizon.</p>
+                                </div>
+                            )}
+                        </div>
+
+                        {filteredDues.length > 6 && (
+                            <div className="p-3 border-t border-slate-100 dark:border-slate-800 text-center">
+                                <button
+                                    onClick={() => setShowAllDues(!showAllDues)}
+                                    className="text-xs font-bold text-indigo-600 hover:text-indigo-700 cursor-pointer"
+                                >
+                                    {showAllDues ? 'Show Fewer Dues' : `View All ${filteredDues.length} Dues`}
+                                </button>
+                            </div>
+                        )}
                     </div>
 
-                    {/* 3 Intelligence Sub-Widgets */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        {/* Lead Funnel */}
-                        <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col justify-between">
-                            <div className="flex items-center gap-2 mb-3">
-                                <span className="material-symbols-outlined text-indigo-500 text-[18px]">filter_alt</span>
-                                <h4 className="font-black text-xs text-slate-900 dark:text-white">Lead Funnel</h4>
-                            </div>
-                            <div className="space-y-2.5">
-                                {leadFunnel.map((stage, i) => (
-                                    <div key={i} className="space-y-1">
-                                        <div className="flex justify-between text-[10px] font-bold">
-                                            <span className="text-slate-600 dark:text-slate-300">{stage.stage}</span>
-                                            <span className="text-slate-400">{stage.count}</span>
-                                        </div>
-                                        <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden flex justify-end">
-                                            <div className={`h-full rounded-full bg-gradient-to-r ${stage.color}`} style={{ width: stage.width }} />
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* Top Destinations */}
-                        <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col justify-between">
-                            <div className="flex items-center gap-2 mb-3">
-                                <span className="material-symbols-outlined text-emerald-500 text-[18px]">map</span>
-                                <h4 className="font-black text-xs text-slate-900 dark:text-white">Trending Tours</h4>
-                            </div>
-                            <div className="space-y-2">
-                                {topDestinations.map((dest, i) => (
-                                    <div key={i} className="flex items-center justify-between p-2 rounded-xl bg-slate-50 dark:bg-slate-800/40 text-xs">
-                                        <span className="font-bold text-slate-800 dark:text-slate-200 truncate">{dest.name}</span>
-                                        <span className="text-[10px] font-black text-emerald-600 bg-emerald-100 dark:bg-emerald-950 px-1.5 py-0.5 rounded">{dest.count} tours</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* Lead Sources */}
-                        <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col justify-between">
-                            <div className="flex items-center gap-2 mb-3">
-                                <span className="material-symbols-outlined text-purple-500 text-[18px]">hub</span>
-                                <h4 className="font-black text-xs text-slate-900 dark:text-white">Lead Channels</h4>
-                            </div>
-                            <div className="space-y-2">
-                                {leadSourcesData.map((src, i) => (
-                                    <div key={i} className="flex items-center justify-between text-xs py-1 border-b last:border-0 border-slate-100 dark:border-slate-800">
-                                        <span className="font-bold text-slate-700 dark:text-slate-300">{src.source}</span>
-                                        <span className="text-[11px] font-black text-purple-600">{src.rate}% win</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
                 </div>
 
                 {/* Right (Col Span 1): Priority Action Queue & Operational Radars */}
@@ -1700,6 +2198,128 @@ export const AdminDashboard: React.FC = () => {
                                     <div className="flex-1 min-w-0">
                                         <p className="font-bold text-slate-900 dark:text-white truncate">{item.title}</p>
                                         <p className="text-[10px] text-slate-400">{item.displayTime}</p>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* ─── Intelligence Sub-Widgets (Stacked Vertically in Right Rail) ─── */}
+
+                    {/* 1. Lead Funnel */}
+                    <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col justify-between">
+                        <div className="flex items-center justify-between mb-3.5">
+                            <div className="flex items-center gap-2">
+                                <div className="size-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                                    <span className="material-symbols-outlined text-[18px]">filter_alt</span>
+                                </div>
+                                <div>
+                                    <h4 className="font-black text-xs text-slate-900 dark:text-white">Lead Funnel</h4>
+                                    <p className="text-[10px] text-slate-400">Pipeline conversion stages</p>
+                                </div>
+                            </div>
+                            <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 border border-indigo-200/50 dark:border-indigo-800/50">
+                                {leads.length} Leads
+                            </span>
+                        </div>
+                        <div className="space-y-3 pt-1">
+                            {leadFunnel.map((stage, i) => (
+                                <div key={i} className="space-y-1.5">
+                                    <div className="flex items-center justify-between text-[11px] font-bold">
+                                        <span className="text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                                            <span className={`size-1.5 rounded-full bg-gradient-to-r ${stage.color}`}></span>
+                                            {stage.stage}
+                                        </span>
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-slate-400 font-semibold">{stage.width}</span>
+                                            <span className="px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-[10px] font-black text-slate-700 dark:text-slate-300 tabular-nums">
+                                                {stage.count}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div className="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                                        <div 
+                                            className={`h-full rounded-full bg-gradient-to-r ${stage.color} transition-all duration-500`} 
+                                            style={{ width: stage.width }} 
+                                        />
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* 2. Trending Destinations */}
+                    <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col justify-between">
+                        <div className="flex items-center justify-between mb-3.5">
+                            <div className="flex items-center gap-2">
+                                <div className="size-8 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                                    <span className="material-symbols-outlined text-[18px]">map</span>
+                                </div>
+                                <div>
+                                    <h4 className="font-black text-xs text-slate-900 dark:text-white">Trending Destinations</h4>
+                                    <p className="text-[10px] text-slate-400">Most booked tour circuits</p>
+                                </div>
+                            </div>
+                            <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200/50 dark:border-emerald-800/50">
+                                Top Circuits
+                            </span>
+                        </div>
+                        <div className="space-y-2">
+                            {topDestinations.map((dest, i) => (
+                                <div 
+                                    key={i} 
+                                    className="flex items-center justify-between p-2.5 rounded-2xl bg-slate-50/70 dark:bg-slate-800/40 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-colors text-xs"
+                                >
+                                    <div className="flex items-center gap-2.5 min-w-0">
+                                        <span className={`size-5 rounded-lg flex items-center justify-center text-[10px] font-black shrink-0 ${
+                                            i === 0 
+                                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300' 
+                                                : i === 1 
+                                                ? 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300' 
+                                                : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
+                                        }`}>
+                                            #{i + 1}
+                                        </span>
+                                        <span className="font-bold text-slate-800 dark:text-slate-200 truncate">{dest.name}</span>
+                                    </div>
+                                    <span className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/80 border border-emerald-200/50 dark:border-emerald-800/50 px-2 py-0.5 rounded-full shrink-0">
+                                        {dest.count} tours
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* 3. Lead Acquisition Channels */}
+                    <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col justify-between">
+                        <div className="flex items-center justify-between mb-3.5">
+                            <div className="flex items-center gap-2">
+                                <div className="size-8 rounded-xl bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 flex items-center justify-center">
+                                    <span className="material-symbols-outlined text-[18px]">hub</span>
+                                </div>
+                                <div>
+                                    <h4 className="font-black text-xs text-slate-900 dark:text-white">Lead Channels</h4>
+                                    <p className="text-[10px] text-slate-400">Acquisition win rate</p>
+                                </div>
+                            </div>
+                            <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 dark:bg-purple-950 dark:text-purple-300 border border-purple-200/50 dark:border-purple-800/50">
+                                Win Rates
+                            </span>
+                        </div>
+                        <div className="space-y-2.5">
+                            {leadSourcesData.map((src, i) => (
+                                <div key={i} className="p-2.5 rounded-2xl bg-slate-50/70 dark:bg-slate-800/40 text-xs space-y-1.5">
+                                    <div className="flex items-center justify-between">
+                                        <span className="font-bold text-slate-700 dark:text-slate-300 truncate">{src.source}</span>
+                                        <span className="text-[11px] font-black text-purple-600 dark:text-purple-400 px-1.5 py-0.5 rounded-md bg-purple-100/70 dark:bg-purple-950/80">
+                                            {src.rate}% win
+                                        </span>
+                                    </div>
+                                    <div className="h-1.5 w-full bg-slate-200/60 dark:bg-slate-700/60 rounded-full overflow-hidden">
+                                        <div 
+                                            className="h-full rounded-full bg-purple-500 transition-all duration-500" 
+                                            style={{ width: `${Math.min(100, Math.max(0, src.rate))}%` }} 
+                                        />
                                     </div>
                                 </div>
                             ))}

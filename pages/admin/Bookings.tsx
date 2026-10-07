@@ -5,7 +5,10 @@ import { BookingStatus, Booking, BookingType, BookingNote, Task, BookingDailyDel
 import { api } from '../../src/lib/api';
 import { generateReceiptPDF } from '../../utils/pdfGenerator';
 import { SupplierManagementModal } from '../../components/admin/SupplierManagementModal';
+import { BookingAvailabilityModal } from '../../components/admin/BookingAvailabilityModal';
 import { LedgerManagementModal } from '../../components/admin/LedgerManagementModal';
+import { TourChecklistModal } from '../../components/admin/TourChecklistModal';
+import { getBookingReadiness, getBalanceFlag, parseDay, startOfToday, READINESS_STYLES, BALANCE_FLAG_STYLES } from '../../utils/tourReadiness';
 
 import { ActionMenu } from '../../components/ui/ActionMenu';
 import { SuggestPopup, isDismissed, isSnoozed } from '../../components/ui/SuggestPopup';
@@ -46,18 +49,39 @@ export const Bookings: React.FC = () => {
         }
     });
 
-    useEffect(() => {
-        const querySearch = new URLSearchParams(location.search).get('search');
-        if (querySearch !== null) {
-            setSearch(querySearch);
-        }
-    }, [location.search]);
-
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isEditMode, setIsEditMode] = useState(false);
     const [selectedBookingForSuppliersId, setSelectedBookingForSuppliersId] = useState<string | null>(null);
+    const [availabilityBookingId, setAvailabilityBookingId] = useState<string | null>(null);
+    const [highlightedSupplierBookingId, setHighlightedSupplierBookingId] = useState<string | null>(null);
     const [bookingForLedgerId, setBookingForLedgerId] = useState<string | null>(null);
+    const [bookingForChecklistId, setBookingForChecklistId] = useState<string | null>(null);
     const [viewingBookingId, setViewingBookingId] = useState<string | null>(null);
+
+    useEffect(() => {
+        const params = new URLSearchParams(location.search);
+        const querySearch = params.get('search');
+        if (querySearch !== null) {
+            setSearch(querySearch);
+        }
+
+        const manageSuppliersParam = params.get('manageSuppliers');
+        if (manageSuppliersParam) {
+            setSelectedBookingForSuppliersId(manageSuppliersParam);
+            const sbId = params.get('supplierBookingId');
+            if (sbId) setHighlightedSupplierBookingId(sbId);
+        }
+
+        const checklistParam = params.get('checklist');
+        if (checklistParam) {
+            setBookingForChecklistId(checklistParam);
+        }
+
+        const ledgerParam = params.get('ledger');
+        if (ledgerParam) {
+            setBookingForLedgerId(ledgerParam);
+        }
+    }, [location.search]);
     const [printingTxId, setPrintingTxId] = useState<string | null>(null);
     const [activePaymentPopoverId, setActivePaymentPopoverId] = useState<string | null>(null);
     const [activeVendorPaymentPopoverId, setActiveVendorPaymentPopoverId] = useState<string | null>(null);
@@ -92,10 +116,10 @@ export const Bookings: React.FC = () => {
         }
     };
 
-    // Always derive from live bookings array so modals auto-refresh after mutations
     const bookingForLedger = bookingForLedgerId ? bookings?.find(b => b.id === bookingForLedgerId) ?? null : null;
     const viewingBooking = viewingBookingId ? bookings?.find(b => b.id === viewingBookingId) ?? null : null;
     const selectedBookingForSuppliers = selectedBookingForSuppliersId ? bookings?.find(b => b.id === selectedBookingForSuppliersId) ?? null : null;
+    const bookingForChecklist = bookingForChecklistId ? bookings?.find(b => b.id === bookingForChecklistId) ?? null : null;
 
     const [noteText, setNoteText] = useState('');
     const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
@@ -2829,7 +2853,54 @@ export const Bookings: React.FC = () => {
                                                     </td>
                                                     <td className="px-6 py-4">
                                                         <p className="text-sm font-semibold text-slate-700 dark:text-slate-300 max-w-[180px] truncate">{booking.title}</p>
-                                                        <p className="text-xs text-slate-500">{booking.guests}</p>
+                                                        <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                                            <p className="text-xs text-slate-500">{booking.guests}</p>
+                                                            {(() => {
+                                                                const chk = booking.checklist || [];
+                                                                const hasItems = chk.length > 0;
+                                                                const today = startOfToday();
+                                                                const endDay = parseDay(booking.endDate || booking.date);
+                                                                const tourEnded = !!endDay && endDay.getTime() < today.getTime();
+                                                                const isCancelled = booking.status === 'Cancelled';
+                                                                const readiness = getBookingReadiness(booking, today);
+                                                                const balanceFlag = getBalanceFlag(booking, today);
+                                                                // Past / cancelled tours: keep the badge calm (no red alarms)
+                                                                const calm = tourEnded || isCancelled;
+                                                                const chipClass = calm
+                                                                    ? 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-400'
+                                                                    : READINESS_STYLES[readiness.level].chip;
+                                                                return (
+                                                                    <>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                setBookingForChecklistId(booking.id);
+                                                                            }}
+                                                                            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border transition-colors hover:brightness-95 ${chipClass}`}
+                                                                            title={calm ? 'Open 10-Point Pre-Tour Checklist' : `${readiness.label}: ${readiness.reason}`}
+                                                                        >
+                                                                            {!calm && <span className={`w-1.5 h-1.5 rounded-full ${READINESS_STYLES[readiness.level].dot}`} />}
+                                                                            <span className="material-symbols-outlined text-[12px]">checklist</span>
+                                                                            <span>
+                                                                                Checklist {hasItems ? `${readiness.done}/${readiness.total}` : '+'}
+                                                                                {!calm && readiness.level !== 'ready' && readiness.level !== 'on-track' ? ` · ${readiness.label}` : ''}
+                                                                                {!calm && readiness.overdueCount > 0 ? ` · ${readiness.overdueCount} overdue` : ''}
+                                                                            </span>
+                                                                        </button>
+                                                                        {!calm && balanceFlag.level !== 'none' && (
+                                                                            <span
+                                                                                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border ${BALANCE_FLAG_STYLES[balanceFlag.level]}`}
+                                                                                title={`Pending balance ₹${Math.round(balanceFlag.balance).toLocaleString('en-IN')} · ${balanceFlag.label}`}
+                                                                            >
+                                                                                <span className="material-symbols-outlined text-[12px]">payments</span>
+                                                                                <span>{balanceFlag.label}</span>
+                                                                            </span>
+                                                                        )}
+                                                                    </>
+                                                                );
+                                                            })()}
+                                                        </div>
                                                     </td>
                                                     <td className="px-6 py-4">
                                                         <div className="flex flex-col">
@@ -3088,8 +3159,14 @@ export const Bookings: React.FC = () => {
                                                             <button onClick={() => setBookingForLedgerId(booking.id)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors">
                                                                 <span className="material-symbols-outlined text-[18px] text-indigo-500">account_balance_wallet</span> Billing Ledger
                                                             </button>
+                                                            <button onClick={() => setBookingForChecklistId(booking.id)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors">
+                                                                <span className="material-symbols-outlined text-[18px] text-amber-500">checklist</span> Pre-Tour Checklist
+                                                            </button>
                                                             <button onClick={() => setSelectedBookingForSuppliersId(booking.id)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors">
                                                                 <span className="material-symbols-outlined text-[18px] text-emerald-500">inventory</span> Manage Suppliers
+                                                            </button>
+                                                            <button onClick={() => setAvailabilityBookingId(booking.id)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors">
+                                                                <span className="material-symbols-outlined text-[18px] text-sky-500">forward_to_inbox</span> Check Availability
                                                             </button>
                                                             {hasPermission('bookings', 'manage') && (
                                                                 <button onClick={() => openEditModal(booking)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors">
@@ -3473,6 +3550,15 @@ export const Bookings: React.FC = () => {
                                                     <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
                                                         <button 
                                                             type="button"
+                                                            onClick={() => setBookingForChecklistId(booking.id)}
+                                                            className="px-2 py-1 rounded-lg bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 font-bold text-[10px] border border-amber-200/60 dark:border-amber-800/50 flex items-center gap-1 hover:bg-amber-100 transition-colors"
+                                                            title="Pre-Tour Checklist"
+                                                        >
+                                                            <span className="material-symbols-outlined text-[13px]">checklist</span>
+                                                            Checklist
+                                                        </button>
+                                                        <button 
+                                                            type="button"
                                                             onClick={() => setSelectedBookingForSuppliersId(booking.id)}
                                                             className="px-2 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 font-bold text-[10px] border border-indigo-200/60 dark:border-indigo-800/50 flex items-center gap-1 hover:bg-indigo-100 transition-colors"
                                                             title="Assign & Manage Vendors"
@@ -3487,8 +3573,14 @@ export const Bookings: React.FC = () => {
                                                             <button onClick={() => setBookingForLedgerId(booking.id)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors">
                                                                 <span className="material-symbols-outlined text-[18px] text-indigo-500">account_balance_wallet</span> Billing Ledger
                                                             </button>
+                                                            <button onClick={() => setBookingForChecklistId(booking.id)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors">
+                                                                <span className="material-symbols-outlined text-[18px] text-amber-500">checklist</span> Pre-Tour Checklist
+                                                            </button>
                                                             <button onClick={() => setSelectedBookingForSuppliersId(booking.id)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors">
                                                                 <span className="material-symbols-outlined text-[18px] text-emerald-500">inventory</span> Assign / Manage Suppliers
+                                                            </button>
+                                                            <button onClick={() => setAvailabilityBookingId(booking.id)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors">
+                                                                <span className="material-symbols-outlined text-[18px] text-sky-500">forward_to_inbox</span> Check Availability
                                                             </button>
                                                             {hasPermission('bookings', 'manage') && (
                                                                 <button onClick={() => openEditModal(booking)} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors">
@@ -3634,13 +3726,34 @@ export const Bookings: React.FC = () => {
 
             </div>
 
+            {/* Multi-vendor availability & quote requests */}
+            {availabilityBookingId && bookings.find(b => b.id === availabilityBookingId) && (
+                <BookingAvailabilityModal
+                    booking={bookings.find(b => b.id === availabilityBookingId)!}
+                    isOpen
+                    onClose={() => setAvailabilityBookingId(null)}
+                    onAwarded={() => { refreshData(); }}
+                />
+            )}
+
             {/* Supplier Management Modal — booking derived live from bookings[] so it auto-refreshes */}
             {
                 selectedBookingForSuppliers && (
                     <SupplierManagementModal
                         isOpen={!!selectedBookingForSuppliers}
-                        onClose={() => setSelectedBookingForSuppliersId(null)}
+                        onClose={() => {
+                            setSelectedBookingForSuppliersId(null);
+                            setHighlightedSupplierBookingId(null);
+                            const params = new URLSearchParams(location.search);
+                            if (params.has('manageSuppliers') || params.has('supplierBookingId')) {
+                                params.delete('manageSuppliers');
+                                params.delete('supplierBookingId');
+                                const newSearch = params.toString() ? `?${params.toString()}` : '';
+                                navigate({ search: newSearch }, { replace: true });
+                            }
+                        }}
                         booking={selectedBookingForSuppliers}
+                        initialSupplierBookingId={highlightedSupplierBookingId || undefined}
                     />
                 )}
 
@@ -3648,8 +3761,33 @@ export const Bookings: React.FC = () => {
             {bookingForLedger && (
                 <LedgerManagementModal
                     isOpen={!!bookingForLedger}
-                    onClose={() => setBookingForLedgerId(null)}
+                    onClose={() => {
+                        setBookingForLedgerId(null);
+                        const params = new URLSearchParams(location.search);
+                        if (params.has('ledger')) {
+                            params.delete('ledger');
+                            const newSearch = params.toString() ? `?${params.toString()}` : '';
+                            navigate({ search: newSearch }, { replace: true });
+                        }
+                    }}
                     booking={bookingForLedger}
+                />
+            )}
+
+            {/* Tour Checklist Modal — booking derived live from bookings[] */}
+            {bookingForChecklist && (
+                <TourChecklistModal
+                    isOpen={!!bookingForChecklist}
+                    onClose={() => {
+                        setBookingForChecklistId(null);
+                        const params = new URLSearchParams(location.search);
+                        if (params.has('checklist')) {
+                            params.delete('checklist');
+                            const newSearch = params.toString() ? `?${params.toString()}` : '';
+                            navigate({ search: newSearch }, { replace: true });
+                        }
+                    }}
+                    booking={bookingForChecklist}
                 />
             )}
 

@@ -39,7 +39,8 @@ export const ALLOWED_TABLES = new Set([
     'support_canned_replies', 'support_conversation_audit_logs', 'support_settings',
     'incentive_plans', 'incentive_rules', 'incentive_runs', 'incentive_ledger',
     'incentive_employee_summaries', 'incentive_adjustments', 'incentive_payouts',
-    'incentive_disputes', 'incentive_booking_overrides'
+    'incentive_disputes', 'incentive_booking_overrides',
+    'hotel_availability_requests'
 ]);
 
 // ═══════════════════════════════════════════
@@ -81,6 +82,7 @@ export const TABLE_TO_MODULE = {
     'cms_posts': 'cms',
     'follow_ups': 'leads',
     'proposals': 'proposals',
+    'hotel_availability_requests': 'proposals',
     'daily_targets': 'dashboard',
     'time_sessions': 'dashboard',
     'assignment_rules': 'staff',

@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import {
   Package, Booking, BookingStatus, DailySlot, Lead, LeadLog, Vendor, VendorDocument, VendorTransaction, VendorNote, Account, AccountTransaction, Campaign,
   MasterLocation, MasterHotel, MasterActivity, MasterTransport, MasterPlan, AuditLog, Customer,
-  FollowUp, MasterRoomType, MasterMealPlan, MasterLeadSource, MasterTermsTemplate, SupplierBooking, BookingTransaction, Proposal,
+  FollowUp, MasterRoomType, MasterMealPlan, MasterLeadSource, MasterTermsTemplate, SupplierBooking, SupplierPayment, BookingTransaction, Proposal,
   CMSBanner, CMSTestimonial, CMSGalleryImage, CMSPost, TrendingDestination, OfferBanner,
   Task, DailyTarget, UserActivity, TimeSession, AssignmentRule,
   MembershipPlan, CustomerMembership, Coupon, Expense
@@ -401,6 +401,7 @@ interface DataContextType {
     notes?: string;
     receiptUrl?: string;
   }) => Promise<void>;
+  deleteSupplierPayment: (bookingId: string, sbId: string, paymentId: string) => Promise<void>;
 
   // Lead Functions
   addLead: (lead: Lead) => void;
@@ -547,7 +548,7 @@ interface DataContextType {
 const DataContext = (globalThis as any).__SHRAWELLO_DATA_CONTEXT__ ?? ((globalThis as any).__SHRAWELLO_DATA_CONTEXT__ = createContext<DataContextType | undefined>(undefined));
 
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, currentUser } = useAuth();
   // Core Data (fetched from API)
   const [packages, setPackages] = useState<Package[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -1288,8 +1289,37 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const vendor = vendors.find(v => v.id === targetSb.vendorId);
       const currentPaid = Number(targetSb.paidAmount) || 0;
-      const newPaidAmount = currentPaid + Number(payment.amount);
       const totalCost = Number(targetSb.cost) || 0;
+
+      // Prepare payments list with auto-backfill of legacy paidAmount if payments is currently empty
+      let existingPayments: SupplierPayment[] = Array.isArray(targetSb.payments) ? [...targetSb.payments] : [];
+      if (existingPayments.length === 0 && currentPaid > 0) {
+        existingPayments = [{
+          id: `SPAY-LEGACY-${targetSb.id}`,
+          amount: currentPaid,
+          paymentDate: targetSb.paymentDueDate || new Date().toISOString().split('T')[0],
+          paymentMethod: 'Prior Recorded Payment',
+          reference: targetSb.confirmationNumber || undefined,
+          notes: 'Initial recorded installment',
+          recordedBy: 'Accounts',
+          createdAt: new Date().toISOString()
+        }];
+      }
+
+      const newInstallment: SupplierPayment = {
+        id: `SPAY-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        amount: Number(payment.amount),
+        paymentDate: payment.paymentDate || new Date().toISOString().split('T')[0],
+        paymentMethod: payment.paymentMethod || 'UPI',
+        reference: payment.reference?.trim() || undefined,
+        notes: payment.notes?.trim() || undefined,
+        receiptUrl: payment.receiptUrl || undefined,
+        recordedBy: currentUser?.name || 'Staff',
+        createdAt: new Date().toISOString()
+      };
+
+      const updatedPayments = [...existingPayments, newInstallment];
+      const newPaidAmount = updatedPayments.reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
 
       // Recalculate payment status
       let newPaymentStatus: SupplierBooking['paymentStatus'] = 'Unpaid';
@@ -1308,6 +1338,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await api.updateSupplierBooking(sbId, {
         paidAmount: newPaidAmount,
         paymentStatus: newPaymentStatus,
+        payments: updatedPayments,
         notes: updatedNotes
       });
 
@@ -1318,7 +1349,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             ...b,
             supplierBookings: (b.supplierBookings || []).map(item =>
               item.id === sbId
-                ? { ...item, paidAmount: newPaidAmount, paymentStatus: newPaymentStatus, notes: updatedNotes }
+                ? { ...item, paidAmount: newPaidAmount, paymentStatus: newPaymentStatus, payments: updatedPayments, notes: updatedNotes }
                 : item
             )
           };
@@ -1376,6 +1407,73 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (e: any) {
       console.error('Failed to record supplier payment:', e);
       toast.error(e.message || "Failed to record payment");
+      throw e;
+    }
+  }, [bookings, vendors, currentUser, logAction]);
+
+  const deleteSupplierPayment = useCallback(async (
+    bookingId: string,
+    sbId: string,
+    paymentId: string
+  ) => {
+    try {
+      const booking = bookings.find(b => b.id === bookingId);
+      const targetSb = booking?.supplierBookings?.find(item => item.id === sbId);
+      if (!targetSb) throw new Error("Supplier booking not found");
+
+      const vendor = vendors.find(v => v.id === targetSb.vendorId);
+      const existingPayments = Array.isArray(targetSb.payments) ? targetSb.payments : [];
+      const deletedPayment = existingPayments.find(p => p.id === paymentId);
+      const updatedPayments = existingPayments.filter(p => p.id !== paymentId);
+
+      const newPaidAmount = updatedPayments.reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
+      const totalCost = Number(targetSb.cost) || 0;
+
+      let newPaymentStatus: SupplierBooking['paymentStatus'] = 'Unpaid';
+      if (totalCost <= 0) {
+        newPaymentStatus = newPaidAmount > 0 ? 'Paid' : 'Unpaid';
+      } else if (newPaidAmount >= totalCost) {
+        newPaymentStatus = 'Paid';
+      } else if (newPaidAmount > 0) {
+        newPaymentStatus = 'Partially Paid';
+      }
+
+      await api.updateSupplierBooking(sbId, {
+        paidAmount: newPaidAmount,
+        paymentStatus: newPaymentStatus,
+        payments: updatedPayments
+      });
+
+      setBookings(prev => prev.map(b => {
+        if (b.id === bookingId) {
+          return {
+            ...b,
+            supplierBookings: (b.supplierBookings || []).map(item =>
+              item.id === sbId
+                ? { ...item, paidAmount: newPaidAmount, paymentStatus: newPaymentStatus, payments: updatedPayments }
+                : item
+            )
+          };
+        }
+        return b;
+      }));
+
+      if (vendor && deletedPayment) {
+        const restoredBalance = (vendor.balanceDue || 0) + Number(deletedPayment.amount);
+        api.updateVendor(vendor.id, { balanceDue: restoredBalance }).catch(console.error);
+        setVendors(prev => prev.map(v => v.id === vendor.id ? { ...v, balanceDue: restoredBalance } : v));
+      }
+
+      window.dispatchEvent(new CustomEvent('supplier-bookings-changed', {
+        detail: { bookingId, supplierBookingId: sbId }
+      }));
+      window.dispatchEvent(new CustomEvent('bookings-changed'));
+
+      logAction('Update', 'Vendors', `Deleted payment ${paymentId} of ₹${deletedPayment?.amount || 0} for Booking ${bookingId}`);
+      toast.success("Payment installment removed and balance recalculated");
+    } catch (e: any) {
+      console.error('Failed to delete supplier payment:', e);
+      toast.error(e.message || "Failed to remove payment installment");
       throw e;
     }
   }, [bookings, vendors, logAction]);
@@ -2385,7 +2483,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     addPackage, updatePackage, deletePackage,
     addBooking, updateBooking, updateBookingStatus, deleteBooking,
     addBookingTransaction, deleteBookingTransaction,
-    addSupplierBooking, updateSupplierBooking, deleteSupplierBooking, recordSupplierPayment,
+    addSupplierBooking, updateSupplierBooking, deleteSupplierBooking, recordSupplierPayment, deleteSupplierPayment,
     addLead, updateLead, deleteLead, addLeadLog,
     addCustomer, updateCustomer, deleteCustomer, importCustomers,
     updateInventory, getRevenue,
@@ -2476,7 +2574,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     addPackage, updatePackage, deletePackage,
     addBooking, updateBooking, updateBookingStatus, deleteBooking,
     addBookingTransaction, deleteBookingTransaction,
-    addSupplierBooking, updateSupplierBooking, deleteSupplierBooking, recordSupplierPayment,
+    addSupplierBooking, updateSupplierBooking, deleteSupplierBooking, recordSupplierPayment, deleteSupplierPayment,
     addLead, updateLead, deleteLead, addLeadLog,
     addCustomer, updateCustomer, deleteCustomer, importCustomers,
     updateInventory, getRevenue,

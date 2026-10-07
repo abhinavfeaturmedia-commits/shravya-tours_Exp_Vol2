@@ -1,4 +1,13 @@
 import nodemailer from 'nodemailer';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const LOGO_PATH = fs.existsSync(path.resolve(__dirname, 'public/logo.png'))
+    ? path.resolve(__dirname, 'public/logo.png')
+    : (fs.existsSync(path.resolve(__dirname, '../public/logo.png')) ? path.resolve(__dirname, '../public/logo.png') : null);
 
 let dbPool = null;
 
@@ -107,7 +116,19 @@ export async function sendEmail({ type = 'general', to, subject, html, text = ''
         return { success: false, error: errorMsg };
     }
 
-    return await sendWithTransporter(config, to, subject, html, text, attachments);
+    let emailAttachments = Array.isArray(attachments) ? [...attachments] : [];
+    if (html && html.includes('cid:shrawello-logo')) {
+        const alreadyAttached = emailAttachments.some(a => a.cid === 'shrawello-logo');
+        if (!alreadyAttached && LOGO_PATH && fs.existsSync(LOGO_PATH)) {
+            emailAttachments.push({
+                filename: 'shrawello-logo.png',
+                path: LOGO_PATH,
+                cid: 'shrawello-logo'
+            });
+        }
+    }
+
+    return await sendWithTransporter(config, to, subject, html, text, emailAttachments);
 }
 
 /**
@@ -266,6 +287,8 @@ export function wrapTemplate(title, bodyContent, options = {}) {
     const theme = options.theme || 'luxury_indigo';
     const st = getThemeStyles(theme);
     const badgeLabel = options.badgeLabel || 'Official Notice';
+    const publicUrl = process.env.PUBLIC_APP_URL ? String(process.env.PUBLIC_APP_URL).replace(/\/+$/, '') : 'https://shrawellotravels.com';
+    const logoSrc = options.logoSrc || 'cid:shrawello-logo';
 
     return `
     <!DOCTYPE html>
@@ -278,7 +301,7 @@ export function wrapTemplate(title, bodyContent, options = {}) {
             @media only screen and (max-width: 620px) {
                 .email-container { width: 100% !important; border-radius: 0 !important; }
                 .content-padding { padding: 24px 16px !important; }
-                .header-padding { padding: 28px 20px !important; }
+                .header-padding { padding: 28px 16px !important; }
                 .mobile-stack { display: block !important; width: 100% !important; }
                 .mobile-text-left { text-align: left !important; }
                 .mobile-pt { padding-top: 8px !important; }
@@ -292,14 +315,23 @@ export function wrapTemplate(title, bodyContent, options = {}) {
                     <!-- Main Card -->
                     <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" class="email-container" style="max-width: 600px; background-color: #ffffff; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.03); border: 1px solid #e2e8f0;">
                         
-                        <!-- Header Banner -->
+                        <!-- Header Banner with Official Shrawello Logo Emblem -->
                         <tr>
-                            <td class="header-padding" style="background: ${st.headerGradient}; padding: 36px 32px; text-align: center; color: #ffffff;">
-                                <div style="display: inline-block; padding: 4px 12px; background: rgba(255, 255, 255, 0.18); backdrop-filter: blur(8px); border-radius: 30px; font-size: 11px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 12px; border: 1px solid rgba(255, 255, 255, 0.25);">
+                            <td class="header-padding" style="background: ${st.headerGradient}; padding: 32px 24px 28px 24px; text-align: center; color: #ffffff;">
+                                <!-- Official Logo Emblem Badge -->
+                                <table role="presentation" border="0" cellpadding="0" cellspacing="0" align="center" style="margin: 0 auto 12px auto;">
+                                    <tr>
+                                        <td align="center" style="background-color: #ffffff; width: 62px; height: 62px; border-radius: 18px; padding: 5px; box-shadow: 0 10px 25px -3px rgba(0, 0, 0, 0.3); border: 2px solid rgba(255, 255, 255, 0.7);">
+                                            <img src="${logoSrc}" alt="SHRAWELLO" width="52" height="52" style="display: block; width: 52px; height: 52px; max-width: 52px; height: auto; object-fit: contain; margin: 0 auto; border: 0; outline: none; text-decoration: none;" />
+                                        </td>
+                                    </tr>
+                                </table>
+
+                                <div style="display: inline-block; padding: 4px 14px; background: rgba(255, 255, 255, 0.18); backdrop-filter: blur(8px); border-radius: 30px; font-size: 11px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 8px; border: 1px solid rgba(255, 255, 255, 0.3);">
                                     ${badgeLabel}
                                 </div>
-                                <h1 style="margin: 0; font-size: 26px; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; color: #ffffff;">SHRAWELLO</h1>
-                                <p style="margin: 6px 0 0 0; font-size: 13px; color: ${st.subHeaderColor}; font-weight: 600; letter-spacing: 2px; text-transform: uppercase;">Travel Hub &amp; Events</p>
+                                <h1 style="margin: 0; font-size: 24px; font-weight: 900; letter-spacing: 1.5px; text-transform: uppercase; color: #ffffff; text-shadow: 0 2px 4px rgba(0,0,0,0.15);">SHRAWELLO</h1>
+                                <p style="margin: 4px 0 0 0; font-size: 12px; color: ${st.subHeaderColor}; font-weight: 700; letter-spacing: 2px; text-transform: uppercase;">Travel Hub &amp; Events</p>
                             </td>
                         </tr>
 
@@ -1220,3 +1252,124 @@ export async function sendPartnerKYCSubmittedAdminEmail({ partnerName, partnerEm
 
     return await sendEmail({ type: 'general', to: adminEmail, subject, html });
 }
+
+/** Minimal HTML escaping for user-supplied text placed inside email HTML. */
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+/**
+ * Send an availability + quote request to a vendor (Hotel / Transport / DMC / Activity).
+ * The vendor clicks the button, lands on the public reply page and chooses Available / Not Available.
+ * @param {object} p
+ * @param {string} p.to - Vendor email
+ * @param {string} p.vendorName
+ * @param {string} p.serviceType - Hotel | Transport | DMC | Activity
+ * @param {string} p.bookingRef - Public-safe reference (e.g. BK-0012)
+ * @param {Array<{label:string,value:string}>} p.summaryLines - Requirement lines
+ * @param {string} [p.notes] - Free text note from our team
+ * @param {string} p.link - Public reply link
+ * @param {string|Date} [p.expiresAt]
+ * @param {boolean} [p.isReminder]
+ */
+export async function sendAvailabilityRequestEmail({ to, vendorName, serviceType, bookingRef, summaryLines = [], notes = '', link, expiresAt = null, isReminder = false }) {
+    const theme = await getActiveTheme();
+    const st = getThemeStyles(theme);
+    const serviceIcons = {
+        Hotel: '🏨',
+        Transport: '🚗',
+        DMC: '🗺️',
+        Activity: '🎫'
+    };
+    const icon = serviceIcons[serviceType] || '📋';
+    const subject = `${isReminder ? 'Reminder: ' : ''}${icon} Availability & Quote Request: ${serviceType} (${bookingRef})`;
+    const expiryText = expiresAt
+        ? new Date(expiresAt).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })
+        : null;
+
+    const rows = (summaryLines || [])
+        .filter(l => l && l.label && l.value !== undefined && String(l.value).trim() !== '')
+        .map((l, idx) => `
+            <tr style="background-color: ${idx % 2 === 0 ? '#ffffff' : '#f8fafc'};">
+                <td style="padding: 10px 16px; border-bottom: 1px solid #eef2f6; color: #64748b; font-weight: 600; width: 38%; font-size: 13px;">${escapeHtml(l.label)}</td>
+                <td style="padding: 10px 16px; border-bottom: 1px solid #eef2f6; color: #0f172a; font-weight: 700; font-size: 13.5px;">${escapeHtml(l.value)}</td>
+            </tr>
+        `).join('');
+
+    const html = wrapTemplate(subject, `
+        <div style="margin-bottom: 20px;">
+            <p style="margin: 0 0 4px 0; font-size: 12px; font-weight: 800; color: #ea580c; text-transform: uppercase; letter-spacing: 1px;">Partner Procurement Brief</p>
+            <h2 style="margin: 0 0 10px 0; color: #0f172a; font-size: 21px; font-weight: 800;">Dear ${escapeHtml(vendorName || 'Partner')},</h2>
+            <p style="font-size: 15px; line-height: 1.65; color: #334155; margin: 0;">
+                ${isReminder ? '<strong>Gentle Reminder:</strong> We are still awaiting your availability response. ' : ''}
+                SHRAWELLO Travel Hub has an active tour requirement matching your inventory. Please review the specifications below and confirm whether you are <strong>available</strong> along with your <strong>best quoted rate</strong>.
+            </p>
+        </div>
+
+        <!-- Specification Voucher Card -->
+        <div style="border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; background-color: #ffffff; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03); margin: 24px 0;">
+            <div style="background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%); color: #ffffff; padding: 12px 18px;">
+                <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+                    <tr>
+                        <td align="left" style="font-size: 13px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase; color: #ffffff;">
+                            ${icon} ${escapeHtml(serviceType)} Specification
+                        </td>
+                        <td align="right" style="font-size: 12px; font-weight: 800; color: #f97316; letter-spacing: 0.5px;">
+                            REF: ${escapeHtml(bookingRef)}
+                        </td>
+                    </tr>
+                </table>
+            </div>
+            <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: separate; border-spacing: 0;">
+                ${rows}
+            </table>
+        </div>
+
+        ${notes ? `
+        <div style="background-color: #fffbeb; border-left: 4px solid #f97316; border-radius: 0 12px 12px 0; padding: 14px 18px; margin: 20px 0;">
+            <div style="font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px; color: #c2410c; margin-bottom: 4px;">
+                📝 Specific Instructions / Inclusions Required
+            </div>
+            <div style="font-size: 13.5px; line-height: 1.6; color: #78350f; font-weight: 500;">
+                ${escapeHtml(notes).replace(/\n/g, '<br>')}
+            </div>
+        </div>
+        ` : ''}
+
+        <!-- Interactive CTA Section -->
+        <div style="text-align: center; margin: 32px 0 16px 0;">
+            <a href="${escapeHtml(link)}" style="background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%); color: #ffffff; text-decoration: none; padding: 16px 38px; font-weight: 800; font-size: 15px; border-radius: 12px; display: inline-block; box-shadow: 0 6px 20px rgba(234, 88, 12, 0.35); letter-spacing: 0.3px;">
+                Reply: Available / Not Available &rarr;
+            </a>
+        </div>
+        <div style="text-align: center; margin-bottom: 12px;">
+            <span style="display: inline-block; font-size: 11.5px; font-weight: 700; color: #047857; background-color: #ecfdf5; border: 1px solid #a7f3d0; padding: 4px 14px; border-radius: 30px;">
+                ⚡ 1-Click Response &bull; No Login Required &bull; Direct System Update
+            </span>
+        </div>
+
+        ${expiryText ? `
+        <p style="font-size: 12px; color: #b45309; text-align: center; margin: 12px 0 16px 0; font-weight: 600;">
+            ⏱️ Please submit your quote by <strong>${expiryText}</strong> (Link expires automatically).
+        </p>
+        ` : ''}
+
+        <div style="background-color: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 10px; padding: 10px 14px; margin: 20px 0 0 0;">
+            <p style="font-size: 11px; color: #64748b; margin: 0 0 4px 0; font-weight: 600;">Direct link button not clickable? Copy and open in any browser:</p>
+            <p style="font-size: 11px; color: #3b82f6; word-break: break-all; margin: 0; font-family: monospace;">${escapeHtml(link)}</p>
+        </div>
+
+        <p style="font-size: 14px; line-height: 1.6; color: #334155; margin: 24px 0 0 0;">
+            Warm regards,<br>
+            <strong>SHRAWELLO Travel Hub</strong><br>
+            <span style="font-size: 12px; color: #64748b;">Vendor Relations &amp; Operations Team</span>
+        </p>
+    `, { theme, badgeLabel: `${serviceType.toUpperCase()} AVAILABILITY REQUEST` });
+
+    return await sendEmail({ type: 'general', to, subject, html });
+}
+

@@ -28,6 +28,7 @@ import { createAuthRoutes } from './routes/auth.js';
 import { createTrainingRoutes } from './routes/training.js';
 import { createAttendanceRoutes, autoCloseOrphanSessions } from './routes/attendance.js';
 import { createIncentiveRoutes } from './routes/incentives.js';
+import { createAvailabilityRfqRoutes } from './routes/availabilityRfq.js';
 import { createHierarchyRoutes } from './routes/hierarchy.js';
 import { getStaffDownline, isStaffInDownline } from './utils/hierarchyResolver.js';
 import { runStartupMigrations } from './migrations/startup.js';
@@ -168,6 +169,7 @@ createAuthRoutes(app, pool);
 createTrainingRoutes(app, pool);
 createAttendanceRoutes(app, pool);
 createIncentiveRoutes(app, pool, authMiddleware);
+createAvailabilityRfqRoutes(app, pool, authMiddleware);
 createHierarchyRoutes(app, pool, authMiddleware);
 runStartupMigrations(pool);
 
@@ -1219,7 +1221,8 @@ async function ensureLiveOpsSchema() {
     const sbAlterations = [
         "ALTER TABLE supplier_bookings ADD COLUMN IF NOT EXISTS driver_name VARCHAR(100) DEFAULT NULL",
         "ALTER TABLE supplier_bookings ADD COLUMN IF NOT EXISTS driver_phone VARCHAR(50) DEFAULT NULL",
-        "ALTER TABLE supplier_bookings ADD COLUMN IF NOT EXISTS vehicle_number VARCHAR(50) DEFAULT NULL"
+        "ALTER TABLE supplier_bookings ADD COLUMN IF NOT EXISTS vehicle_number VARCHAR(50) DEFAULT NULL",
+        "ALTER TABLE supplier_bookings ADD COLUMN IF NOT EXISTS payments JSON DEFAULT NULL"
     ];
     for (const sql of sbAlterations) {
         try { await pool.query(sql); }
@@ -2447,7 +2450,8 @@ const ALLOWED_TABLES = new Set([
     'attendance_breaks', 'attendance_settings', 'support_canned_replies',
     'support_conversation_audit_logs', 'support_settings', 'booking_itineraries', 'booking_itinerary_markers',
     'report_history',
-    'departments', 'designations', 'branches'
+    'departments', 'designations', 'branches',
+    'hotel_availability_requests'
 ]);
 
 // ─── Auth Middleware ───
@@ -2528,6 +2532,7 @@ const TABLE_TO_MODULE = {
     'cms_posts': 'cms',
     'follow_ups': 'leads',
     'proposals': 'proposals',
+    'hotel_availability_requests': 'proposals',
     'daily_targets': 'dashboard',
     'time_sessions': 'dashboard',
     'assignment_rules': 'staff',
@@ -5490,6 +5495,92 @@ app.post('/api/public/leads', async (req, res) => {
     } catch (err) {
         console.error('[Public Leads] Create error:', err.stack || err.message);
         return res.status(500).json({ error: err.message || 'Failed to create lead.' });
+    }
+});
+
+// ═══════════════════════════════════════════
+// PUBLIC HOTEL ROOM AVAILABILITY VERIFICATION
+// ═══════════════════════════════════════════
+
+// GET public availability check details via unique token
+app.get('/api/public/hotel-availability/:token', async (req, res) => {
+    try {
+        const { token } = req.params;
+        if (!token) return res.status(400).json({ error: 'Token is required' });
+
+        const [rows] = await pool.query(
+            `SELECT id, hotel_id, hotel_name, hotel_email, hotel_phone,
+                    proposal_id, lead_id, guest_name, destination,
+                    check_in_date, check_out_date, room_category, room_count,
+                    meal_plan, adults, children, status, token,
+                    hotel_notes, agent_notes, offered_alternative,
+                    responded_by, responded_at, created_at
+             FROM hotel_availability_requests
+             WHERE token = ?`,
+            [token]
+        );
+
+        if (!rows || rows.length === 0) {
+            return res.status(404).json({ error: 'Availability request not found or link has expired' });
+        }
+
+        const r = rows[0];
+        return res.json({
+            success: true,
+            data: {
+                ...r,
+                checkInDate: r.check_in_date ? (r.check_in_date.toISOString ? r.check_in_date.toISOString().split('T')[0] : String(r.check_in_date).split('T')[0]) : null,
+                checkOutDate: r.check_out_date ? (r.check_out_date.toISOString ? r.check_out_date.toISOString().split('T')[0] : String(r.check_out_date).split('T')[0]) : null,
+                hotelName: r.hotel_name,
+                guestName: r.guest_name,
+                roomCategory: r.room_category,
+                roomCount: r.room_count,
+                mealPlan: r.meal_plan,
+                hotelNotes: r.hotel_notes,
+                agentNotes: r.agent_notes,
+                offeredAlternative: r.offered_alternative,
+                respondedBy: r.responded_by,
+                respondedAt: r.responded_at,
+                createdAt: r.created_at
+            }
+        });
+    } catch (err) {
+        console.error('[Public Hotel Availability] Fetch error:', err.message);
+        return res.status(500).json({ error: 'Failed to retrieve availability request.' });
+    }
+});
+
+// POST hotel reservation team responds with availability status
+app.post('/api/public/hotel-availability/:token/respond', async (req, res) => {
+    try {
+        const { token } = req.params;
+        const { status, hotelNotes, offeredAlternative, respondedBy } = req.body || {};
+
+        if (!token) return res.status(400).json({ error: 'Token is required' });
+        if (!status || !['Available', 'Sold Out', 'Alternative Offered'].includes(status)) {
+            return res.status(400).json({ error: 'Valid status is required (Available, Sold Out, or Alternative Offered).' });
+        }
+
+        const [check] = await pool.query('SELECT id, hotel_name, proposal_id FROM hotel_availability_requests WHERE token = ?', [token]);
+        if (!check || check.length === 0) {
+            return res.status(404).json({ error: 'Availability request not found.' });
+        }
+
+        await pool.query(
+            `UPDATE hotel_availability_requests
+             SET status = ?, hotel_notes = ?, offered_alternative = ?, responded_by = ?, responded_at = NOW()
+             WHERE token = ?`,
+            [status, hotelNotes || null, offeredAlternative || null, respondedBy || 'Hotel Reservations', token]
+        );
+
+        return res.json({
+            success: true,
+            message: 'Availability response submitted successfully.',
+            status
+        });
+    } catch (err) {
+        console.error('[Public Hotel Availability] Submit error:', err.message);
+        return res.status(500).json({ error: 'Failed to submit response.' });
     }
 });
 

@@ -22,6 +22,11 @@ export async function runStartupMigrations(pool) {
         } catch (e) {
             try { await pool.query(`ALTER TABLE bookings ADD COLUMN assigned_staff_ids JSON DEFAULT NULL`); } catch (_) {}
         }
+        try {
+            await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS tour_checklist LONGTEXT DEFAULT NULL`);
+        } catch (e) {
+            try { await pool.query(`ALTER TABLE bookings ADD COLUMN tour_checklist LONGTEXT DEFAULT NULL`); } catch (_) {}
+        }
         // One-time backfill: if assigned_to is set and assigned_staff_ids is empty/null, initialize as JSON_ARRAY(assigned_to)
         try {
             await pool.query(`UPDATE leads SET assigned_staff_ids = JSON_ARRAY(assigned_to) WHERE assigned_to IS NOT NULL AND (assigned_staff_ids IS NULL OR assigned_staff_ids = '[]')`);
@@ -814,9 +819,84 @@ export async function runStartupMigrations(pool) {
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             `);
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS hotel_availability_requests (
+                    id VARCHAR(64) PRIMARY KEY,
+                    hotel_id VARCHAR(64) DEFAULT NULL,
+                    hotel_name VARCHAR(255) NOT NULL,
+                    hotel_email VARCHAR(255) DEFAULT NULL,
+                    hotel_phone VARCHAR(64) DEFAULT NULL,
+                    proposal_id VARCHAR(64) DEFAULT NULL,
+                    lead_id VARCHAR(64) DEFAULT NULL,
+                    guest_name VARCHAR(255) DEFAULT NULL,
+                    destination VARCHAR(255) DEFAULT NULL,
+                    check_in_date DATE DEFAULT NULL,
+                    check_out_date DATE DEFAULT NULL,
+                    room_category VARCHAR(128) DEFAULT NULL,
+                    room_count INT DEFAULT 1,
+                    meal_plan VARCHAR(64) DEFAULT 'CP (Breakfast)',
+                    adults INT DEFAULT 2,
+                    children INT DEFAULT 0,
+                    status VARCHAR(64) DEFAULT 'Pending',
+                    token VARCHAR(64) NOT NULL,
+                    hotel_notes TEXT DEFAULT NULL,
+                    agent_notes TEXT DEFAULT NULL,
+                    offered_alternative TEXT DEFAULT NULL,
+                    responded_by VARCHAR(255) DEFAULT NULL,
+                    responded_at DATETIME DEFAULT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    INDEX idx_token (token),
+                    INDEX idx_proposal (proposal_id),
+                    INDEX idx_status (status)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            `);
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS availability_rfqs (
+                    id VARCHAR(64) PRIMARY KEY,
+                    booking_id VARCHAR(64) NOT NULL,
+                    service_type VARCHAR(32) NOT NULL,
+                    title VARCHAR(255) DEFAULT NULL,
+                    destination VARCHAR(255) DEFAULT NULL,
+                    start_date DATE DEFAULT NULL,
+                    end_date DATE DEFAULT NULL,
+                    summary_lines JSON DEFAULT NULL,
+                    notes TEXT DEFAULT NULL,
+                    status VARCHAR(16) DEFAULT 'Open',
+                    awarded_invite_id VARCHAR(64) DEFAULT NULL,
+                    created_by VARCHAR(255) DEFAULT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_rfq_booking (booking_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            `);
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS availability_rfq_invites (
+                    id VARCHAR(64) PRIMARY KEY,
+                    rfq_id VARCHAR(64) NOT NULL,
+                    vendor_id VARCHAR(64) DEFAULT NULL,
+                    vendor_name VARCHAR(255) NOT NULL,
+                    vendor_email VARCHAR(255) DEFAULT NULL,
+                    vendor_phone VARCHAR(64) DEFAULT NULL,
+                    token VARCHAR(64) NOT NULL,
+                    status VARCHAR(24) DEFAULT 'Sent',
+                    quoted_price DECIMAL(12,2) DEFAULT NULL,
+                    price_basis VARCHAR(24) DEFAULT 'Total',
+                    vendor_remark TEXT DEFAULT NULL,
+                    responded_by VARCHAR(255) DEFAULT NULL,
+                    email_status VARCHAR(16) DEFAULT NULL,
+                    email_error VARCHAR(500) DEFAULT NULL,
+                    sent_at DATETIME DEFAULT NULL,
+                    viewed_at DATETIME DEFAULT NULL,
+                    responded_at DATETIME DEFAULT NULL,
+                    expires_at DATETIME DEFAULT NULL,
+                    reminder_count INT DEFAULT 0,
+                    UNIQUE KEY uq_invite_token (token),
+                    INDEX idx_invite_rfq (rfq_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            `);
             // Clean up expired OTPs older than 1 hour
             await pool.query(`DELETE FROM otp_tokens WHERE expires_at < NOW() - INTERVAL 1 HOUR`).catch(() => {});
-            console.log('[Migration] Inventory, expenses, reports & offer banners schema verified');
+            console.log('[Migration] Inventory, expenses, reports, hotel availability & offer banners schema verified');
         } catch (errMisc) {
             console.warn('[Migration Misc Notice]', errMisc.message);
         }

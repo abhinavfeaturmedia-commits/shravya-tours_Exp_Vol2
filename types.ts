@@ -113,6 +113,7 @@ export interface Booking {
   appliedCouponCode?: string;
   couponDiscountAmount?: number;
   originalPrice?: number;
+  checklist?: TourChecklistItem[]; // 10-Point Pre-Tour Checklist items
 }
 
 export interface BookingNote {
@@ -139,6 +140,18 @@ export interface BookingTransaction {
 
 export type SupplierBookingStatus = 'Pending' | 'Confirmed' | 'Cancelled' | 'Partially Paid' | 'Paid';
 
+export interface SupplierPayment {
+  id: string;
+  amount: number;
+  paymentDate: string; // YYYY-MM-DD
+  paymentMethod: 'Cash' | 'Bank Transfer' | 'UPI' | 'Credit Card' | 'Cheque' | 'Net Banking' | string;
+  reference?: string;
+  notes?: string;
+  recordedBy?: string;
+  receiptUrl?: string;
+  createdAt?: string;
+}
+
 export interface SupplierBooking {
   id: string;
   bookingId: string;
@@ -151,6 +164,7 @@ export interface SupplierBooking {
   bookingStatus: SupplierBookingStatus;
   paymentDueDate?: string; // ISO String
   notes?: string;
+  payments?: SupplierPayment[]; // Structured list of partial payment installments
   // Transport-specific fields (Live Operations)
   driverName?: string;    // Actual driver name
   driverPhone?: string;   // Driver contact number
@@ -167,6 +181,26 @@ export interface BookingDailyDeliverable {
   status: 'Pending' | 'Verified Success' | 'Delayed' | 'Substituted';
   notes?: string;
   createdAt?: string;
+  updatedAt?: string;
+}
+
+// ─── 10-Point Pre-Tour Booking Checklist ───────────────────────────────────
+export type TourChecklistStatus = 'Not Updated' | 'In Progress' | 'Completed' | 'Not Applicable';
+
+export type TourChecklistCategory = 'Visa' | 'Tickets' | 'Hotel' | 'Transport' | 'Activities' | 'Vouchers' | 'Briefing' | 'Other';
+
+export interface TourChecklistItem {
+  id: string;
+  bookingId?: string;
+  taskNumber: number; // 1 to 10 standard items
+  title: string;
+  category: TourChecklistCategory;
+  status: TourChecklistStatus;
+  assignedStaffId?: number;
+  assignedStaffName?: string;
+  notes?: string;
+  dueDate?: string;
+  completedAt?: string;
   updatedAt?: string;
 }
 
@@ -845,7 +879,7 @@ export interface FollowUp {
   notes?: string; // Optional alias if needed, or stick to description
 }
 
-// --- Proposal Management Types ---
+export type ProposalTierType = 'Budget' | 'Standard' | 'Deluxe' | 'Luxury' | 'Custom';
 
 export interface Proposal {
   id: string;
@@ -855,11 +889,18 @@ export interface Proposal {
   options: ProposalOption[];
   createdAt: string;
   validUntil?: string;
+  // Quotation Versioning (Phase 2.1)
+  version?: string;          // e.g. "v1", "v2"
+  revisionNumber?: number;   // 1, 2, 3
+  parentId?: string;         // Root proposal ID for revision lineage
+  revisionNote?: string;     // e.g. "Client requested 4-star upgrade"
 }
 
 export interface ProposalOption {
   id: string;
   name: string; // e.g: "Luxury", "Standard"
+  tier?: ProposalTierType;
+  hotelStarRating?: '3 Star' | '4 Star' | '5 Star' | 'Boutique / Heritage';
   description?: string;
   price: number;
   items: string[]; // List of hotel IDs or Names (Legacy)
@@ -868,6 +909,38 @@ export interface ProposalOption {
   inclusions: string[];
   exclusions: string[];
   image?: string;
+}
+
+// --- Hotel Availability Automation Types (Phase 3) ---
+
+export type HotelAvailabilityStatus = 'Pending' | 'Available' | 'Sold Out' | 'Alternative Offered' | 'Cancelled';
+
+export interface HotelAvailabilityRequest {
+  id: string;
+  hotelId?: string;
+  hotelName: string;
+  hotelEmail?: string;
+  hotelPhone?: string;
+  proposalId?: string;
+  leadId?: string;
+  guestName?: string;
+  destination?: string;
+  checkInDate?: string;
+  checkOutDate?: string;
+  roomCategory?: string;
+  roomCount: number;
+  mealPlan: 'EP (Room Only)' | 'CP (Breakfast)' | 'MAP (Breakfast + Dinner)' | 'AP (All Meals)' | string;
+  adults: number;
+  children: number;
+  status: HotelAvailabilityStatus;
+  token: string;
+  hotelNotes?: string;
+  agentNotes?: string;
+  offeredAlternative?: string;
+  respondedBy?: string;
+  respondedAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 // --- Pricing Engine Types ---
@@ -1740,3 +1813,62 @@ export interface HRGrievance {
   updatedAt?: string;
 }
 
+
+// ─── Multi-vendor Availability & Quote Requests (RFQ) ───
+export type RfqServiceType = 'Hotel' | 'Transport' | 'DMC' | 'Activity';
+export type RfqInviteStatus = 'Sent' | 'Viewed' | 'Available' | 'Not Available';
+export type RfqPriceBasis = 'Total' | 'Per Night' | 'Per Day' | 'Per Person';
+
+export interface AvailabilityInvite {
+    id: string;
+    rfqId: string;
+    vendorId?: string | null;
+    vendorName: string;
+    vendorEmail?: string | null;
+    vendorPhone?: string | null;
+    status: RfqInviteStatus;
+    quotedPrice: number | null;
+    priceBasis: RfqPriceBasis;
+    vendorRemark?: string | null;
+    respondedBy?: string | null;
+    emailStatus?: 'Sent' | 'Failed' | null;
+    emailError?: string | null;
+    sentAt?: string | null;
+    viewedAt?: string | null;
+    respondedAt?: string | null;
+    expiresAt?: string | null;
+    reminderCount: number;
+    link: string | null;
+}
+
+export interface AvailabilityRfq {
+    id: string;
+    bookingId: string;
+    serviceType: RfqServiceType;
+    title?: string | null;
+    destination?: string | null;
+    startDate?: string | null;
+    endDate?: string | null;
+    summaryLines: { label: string; value: string }[];
+    notes?: string | null;
+    status: 'Open' | 'Awarded' | 'Closed';
+    awardedInviteId?: string | null;
+    createdBy?: string | null;
+    createdAt: string;
+    invites: AvailabilityInvite[];
+}
+
+export interface PublicAvailabilityRfq {
+    vendorName: string;
+    serviceType: RfqServiceType;
+    bookingRef: string;
+    summaryLines: { label: string; value: string }[];
+    notes?: string | null;
+    status: RfqInviteStatus;
+    quotedPrice: number | null;
+    priceBasis: RfqPriceBasis;
+    vendorRemark?: string | null;
+    expiresAt?: string | null;
+    closed: boolean;
+    expired: boolean;
+}

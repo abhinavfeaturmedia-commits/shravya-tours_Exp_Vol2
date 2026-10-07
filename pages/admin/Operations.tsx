@@ -12,6 +12,11 @@ import {
 import { Booking, SupplierBooking, BookingDailyDeliverable } from '../../types';
 import { api } from '../../src/lib/api';
 import { toast } from 'sonner';
+import { TourChecklistModal } from '../../components/admin/TourChecklistModal';
+import {
+    getBookingReadiness, getBalanceFlag, getAttentionFlags,
+    READINESS_STYLES, BALANCE_FLAG_STYLES, type ReadinessLevel
+} from '../../utils/tourReadiness';
 
 // ─── Palette for staff avatars – avoids Tailwind purge of dynamic class names ──
 const AVATAR_PALETTE: Record<string, string> = {
@@ -573,6 +578,159 @@ export const Operations: React.FC = () => {
         } catch { toast.error('Failed to update tour status'); }
     };
 
+    // ─── Phase 1: Operational Extensions (Guest Program & Checklists) ────────
+    const [operationsTab, setOperationsTab] = useState<'live' | 'guest-program' | 'pre-tour-checklists'>('live');
+    const [programDate, setProgramDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+    const [selectedBookingForChecklist, setSelectedBookingForChecklist] = useState<Booking | null>(null);
+    const [checklistFilter, setChecklistFilter] = useState<'all' | 'ready' | 'pending'>('all');
+    const [guestProgramSearch, setGuestProgramSearch] = useState('');
+    const [attentionOnly, setAttentionOnly] = useState(false);
+
+    // Guest Program calculation (Screenshot 23)
+    const guestProgramData = useMemo(() => {
+        const targetDate = parseLocalDate(programDate);
+        if (!targetDate) return [];
+
+        const activeList: Array<{
+            booking: Booking;
+            currentDay: number;
+            totalDays: number;
+            percent: number;
+            todayItineraryTitle: string;
+            todayItineraryDesc: string;
+            overnightHotel: string;
+            mealPlan: string;
+            transportInfo: string;
+            driverName: string;
+            driverPhone: string;
+            vehicleNumber: string;
+        }> = [];
+
+        bookings.forEach((b: Booking) => {
+            if (b.status === 'Cancelled') return;
+            const start = parseLocalDate(b.date);
+            if (!start) return;
+
+            const pkg = packages.find((p: any) => p.id === b.packageId || p.title === b.title);
+            let duration = b.durationDays || (b.endDate ? Math.max(1, Math.round((parseLocalDate(b.endDate)!.getTime() - start.getTime()) / 86400000) + 1) : 0);
+            if (!duration || duration <= 0) {
+                duration = pkg?.days || 3;
+            }
+
+            const end = new Date(start);
+            end.setDate(start.getDate() + (duration - 1));
+            end.setHours(23, 59, 59, 999);
+
+            if (targetDate >= start && targetDate <= end) {
+                const diffDays = Math.round((targetDate.getTime() - start.getTime()) / 86400000) + 1;
+                const currentDay = Math.min(Math.max(diffDays, 1), duration);
+                const percent = Math.min(Math.max(Math.round((currentDay / duration) * 100), 5), 100);
+
+                const dayItin = pkg?.itinerary?.find((item: any) => item.day === currentDay);
+                const todayItineraryTitle = dayItin?.title || `Tour Day ${currentDay} Itinerary & Sightseeing`;
+                const todayItineraryDesc = dayItin?.desc || 'Scheduled activities & transfers as per itinerary docket.';
+
+                const hotelBooking = b.supplierBookings?.find((sb: any) => sb.serviceType === 'Hotel' || sb.serviceType?.toLowerCase().includes('hotel'));
+                const overnightHotel = hotelBooking?.notes || (pkg?.location ? `Selected Hotel, ${pkg.location}` : 'Confirmed Property');
+                const mealPlan = 'CP (Breakfast Included)';
+
+                const transportBooking = b.supplierBookings?.find((sb: any) => sb.serviceType === 'Transport' || sb.serviceType?.toLowerCase().includes('transport'));
+                const driverName = transportBooking?.driverName || '';
+                const driverPhone = transportBooking?.driverPhone || '';
+                const vehicleNumber = transportBooking?.vehicleNumber || '';
+                const transportInfo = transportBooking 
+                    ? `${vehicleNumber ? `[${vehicleNumber}] ` : ''}${driverName ? `${driverName} (${driverPhone})` : 'Assigned'}`
+                    : 'Pending Transport Assignment';
+
+                activeList.push({
+                    booking: b,
+                    currentDay,
+                    totalDays: duration,
+                    percent,
+                    todayItineraryTitle,
+                    todayItineraryDesc,
+                    overnightHotel,
+                    mealPlan,
+                    transportInfo,
+                    driverName,
+                    driverPhone,
+                    vehicleNumber
+                });
+            }
+        });
+
+        return activeList;
+    }, [bookings, programDate, packages]);
+
+    // Attach "needs attention" flags (no driver / hotel unconfirmed / checklist open / balance pending)
+    const guestProgramWithFlags = useMemo(() => (
+        guestProgramData.map(item => ({
+            ...item,
+            flags: getAttentionFlags(item.booking, { hasDriver: !!item.driverName }),
+        }))
+    ), [guestProgramData]);
+
+    const attentionCount = useMemo(
+        () => guestProgramWithFlags.filter(i => i.flags.length > 0).length,
+        [guestProgramWithFlags]
+    );
+
+    const visibleGuestProgram = useMemo(
+        () => (attentionOnly ? guestProgramWithFlags.filter(i => i.flags.length > 0) : guestProgramWithFlags),
+        [guestProgramWithFlags, attentionOnly]
+    );
+
+    const handleSendGuestBriefing = (item: any) => {
+        const phone = item.booking.whatsapp || item.booking.phone;
+        if (!phone) {
+            toast.error('No contact phone/WhatsApp found for this customer');
+            return;
+        }
+        const cleanPhone = phone.replace(/\D/g, '');
+        const targetPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+        const clientName = item.booking.customer || 'Guest';
+        const bRef = item.booking.bookingNumber ? `BK-${String(item.booking.bookingNumber).padStart(4, '0')}` : `#${item.booking.id.slice(0, 8)}`;
+        const dateStr = formatLocalDate(programDate);
+
+        const driverDetails = item.driverName ? `${item.driverName} (${item.driverPhone || 'Active'}) - ${item.vehicleNumber || 'Assigned'}` : 'Local tour coordinator on standby';
+
+        const message = `Namaste ${clientName}! ✨\n\nGood morning from Shravya Tours! Here is your daily tour program for Today (${dateStr}):\n\n📅 *Day ${item.currentDay} of ${item.totalDays}* (${item.booking.title} - ${bRef})\n📍 *Today's Highlights:* ${item.todayItineraryTitle}\n🏨 *Overnight Stay:* ${item.overnightHotel}\n🚗 *Transport:* ${driverDetails}\n\nOur 24/7 guest care helpline is active for any support. Wishing you a magnificent and memorable day! 🌴`;
+
+        const url = `https://wa.me/${targetPhone}?text=${encodeURIComponent(message)}`;
+        window.open(url, '_blank');
+    };
+
+    // Pre-Tour Checklists calculation (Screenshots 21 & 22)
+    const upcomingChecklistTours = useMemo(() => {
+        const rank: Record<ReadinessLevel, number> = { critical: 0, 'at-risk': 1, 'not-started': 2, 'on-track': 3, ready: 4 };
+        const rows = tourStats.upcoming.map(tour => {
+            const chk = tour.checklist || [];
+            const completed = chk.filter(c => c.status === 'Completed').length;
+            const applicable = chk.filter(c => c.status !== 'Not Applicable').length;
+            const actionable = applicable > 0 ? applicable : 10;
+            const percent = chk.length > 0 ? Math.round((completed / actionable) * 100) : 0;
+            const isReady = chk.length > 0 && completed >= actionable;
+            const readiness = getBookingReadiness(tour);
+            const balanceFlag = getBalanceFlag(tour);
+
+            return {
+                tour,
+                checklist: chk,
+                completed,
+                total: actionable,
+                percent,
+                isReady,
+                readiness,
+                balanceFlag
+            };
+        });
+        // Most urgent tours float to the top (stable within the same level)
+        return rows
+            .map((r, i) => ({ r, i }))
+            .sort((a, b) => (rank[a.r.readiness.level] - rank[b.r.readiness.level]) || (a.i - b.i))
+            .map(x => x.r);
+    }, [tourStats.upcoming]);
+
     // ─── Prep / Assignment Modal ──────────────────────────────────────────────
     const [selectedBookingForPrep, setSelectedBookingForPrep] = useState<Booking | null>(null);
     const [prepModalOpen, setPrepModalOpen] = useState(false);
@@ -752,8 +910,62 @@ export const Operations: React.FC = () => {
                 </div>
             </div>
 
+            {/* ─── Operational View Switcher Tabs (iTours Ergonomics) ─── */}
+            <div className="bg-white/80 dark:bg-[#1A2633]/80 border-b border-slate-200/80 dark:border-slate-800 px-6 py-2.5 flex items-center gap-2 overflow-x-auto sticky top-[73px] z-10 backdrop-blur-sm">
+                <button
+                    onClick={() => setOperationsTab('live')}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shrink-0 ${
+                        operationsTab === 'live'
+                            ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                            : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                    }`}
+                >
+                    <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-green-400"></span>
+                    </span>
+                    <span>Live Tours Monitor</span>
+                    <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-white/20 font-black">
+                        {tourStats.live.length}
+                    </span>
+                </button>
+
+                <button
+                    onClick={() => setOperationsTab('guest-program')}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shrink-0 ${
+                        operationsTab === 'guest-program'
+                            ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                            : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                    }`}
+                >
+                    <Calendar size={14} />
+                    <span>Today's Guest Program</span>
+                    <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${operationsTab === 'guest-program' ? 'bg-white/25 text-white' : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'}`}>
+                        {guestProgramData.length} On Tour
+                    </span>
+                </button>
+
+                <button
+                    onClick={() => setOperationsTab('pre-tour-checklists')}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shrink-0 ${
+                        operationsTab === 'pre-tour-checklists'
+                            ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                            : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                    }`}
+                >
+                    <CheckSquare size={14} />
+                    <span>10-Point Pre-Tour Checklists</span>
+                    <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${operationsTab === 'pre-tour-checklists' ? 'bg-white/25 text-white' : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'}`}>
+                        {tourStats.upcoming.length} Upcoming
+                    </span>
+                </button>
+            </div>
+
             <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
                 <div className="max-w-7xl mx-auto space-y-6">
+
+                {operationsTab === 'live' && (
+                    <>
 
                     {/* ── KPI Summary Dashboard Control Header ── */}
                     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
@@ -1318,6 +1530,14 @@ export const Operations: React.FC = () => {
                                                     </select>
 
                                                     <button
+                                                        onClick={() => setSelectedBookingForChecklist(tour)}
+                                                        className="py-1.5 px-2.5 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1"
+                                                        title="10-Point Pre-Tour Checklist"
+                                                    >
+                                                        <CheckSquare size={12} /> Checklist
+                                                    </button>
+
+                                                    <button
                                                         onClick={() => openPrepModal(tour)}
                                                         className="flex-1 py-1.5 px-3 bg-blue-600 text-white hover:bg-blue-700 text-xs font-bold rounded-xl transition-colors shadow-xs flex items-center justify-center gap-1"
                                                     >
@@ -1496,8 +1716,393 @@ export const Operations: React.FC = () => {
                                 </div>
                             </div>
                         )}
+                    </>
+                )}
+
+                {/* ══════════════════════════════════════════════════════════════
+                    TAB 2: TODAY'S GUEST PROGRAM (Screenshot 23)
+                ══════════════════════════════════════════════════════════════ */}
+                {operationsTab === 'guest-program' && (
+                    <div className="space-y-6 animate-fade-in">
+                        {/* Date Toolbar & Overview */}
+                        <div className="bg-white dark:bg-[#1A2633] p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                            <div className="flex flex-wrap items-center gap-3">
+                                <div>
+                                    <label className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">
+                                        Select Program Date
+                                    </label>
+                                    <input
+                                        type="date"
+                                        value={programDate}
+                                        onChange={(e) => setProgramDate(e.target.value)}
+                                        className="px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white outline-none focus:ring-2 ring-blue-500/20"
+                                    />
+                                </div>
+
+                                <div className="flex items-center gap-1.5 pt-3 sm:pt-4">
+                                    <button
+                                        onClick={() => {
+                                            const d = new Date(programDate);
+                                            d.setDate(d.getDate() - 1);
+                                            setProgramDate(d.toISOString().split('T')[0]);
+                                        }}
+                                        className="px-2.5 py-1.5 text-xs font-bold rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors"
+                                    >
+                                        ◀ Yesterday
+                                    </button>
+                                    <button
+                                        onClick={() => setProgramDate(new Date().toISOString().split('T')[0])}
+                                        className="px-3 py-1.5 text-xs font-bold rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors"
+                                    >
+                                        Today
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            const d = new Date(programDate);
+                                            d.setDate(d.getDate() + 1);
+                                            setProgramDate(d.toISOString().split('T')[0]);
+                                        }}
+                                        className="px-2.5 py-1.5 text-xs font-bold rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors"
+                                    >
+                                        Tomorrow ▶
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="flex items-center gap-4">
+                                <div className="text-right">
+                                    <p className="text-2xl font-black text-slate-900 dark:text-white">
+                                        {guestProgramData.length} Group{guestProgramData.length === 1 ? '' : 's'}
+                                    </p>
+                                    <p className="text-xs text-slate-500 font-semibold">
+                                        {guestProgramData.reduce((acc, item) => acc + (item.booking.paxCount || 1), 0)} Total Guests on Tour
+                                    </p>
+                                </div>
+                                {guestProgramData.length > 0 && (
+                                    <button
+                                        onClick={() => setAttentionOnly(v => !v)}
+                                        title="Show only groups that need action (no driver, hotel unconfirmed, checklist open, balance pending)"
+                                        className={`px-3 py-2 rounded-xl text-xs font-black border transition-all flex items-center gap-1.5 ${
+                                            attentionOnly
+                                                ? 'bg-rose-600 text-white border-rose-600 shadow-md shadow-rose-500/20'
+                                                : attentionCount > 0
+                                                ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800'
+                                                : 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
+                                        }`}
+                                    >
+                                        <AlertTriangle size={13} />
+                                        <span>
+                                            {attentionCount > 0 ? `${attentionCount} need attention` : 'All clear'}
+                                            {attentionOnly ? ' · showing only these' : ''}
+                                        </span>
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Guest Program Grid */}
+                        {guestProgramData.length === 0 ? (
+                            <div className="bg-white dark:bg-[#1A2633] p-12 rounded-2xl border border-slate-200/80 dark:border-slate-800 text-center space-y-3">
+                                <Calendar size={40} className="mx-auto text-slate-300 dark:text-slate-600" />
+                                <h4 className="text-base font-bold text-slate-800 dark:text-slate-200">
+                                    No Traveling Guests on {formatLocalDate(programDate)}
+                                </h4>
+                                <p className="text-xs text-slate-500 max-w-md mx-auto">
+                                    No active booking spans across this date. Check tomorrow or jump back to the Live Tours Monitor.
+                                </p>
+                                <button
+                                    onClick={() => setProgramDate(new Date().toISOString().split('T')[0])}
+                                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-colors"
+                                >
+                                    Return to Today
+                                </button>
+                            </div>
+                        ) : visibleGuestProgram.length === 0 ? (
+                            <div className="bg-white dark:bg-[#1A2633] p-10 rounded-2xl border border-emerald-200 dark:border-emerald-900/50 text-center space-y-2">
+                                <CheckCircle size={36} className="mx-auto text-emerald-500" />
+                                <h4 className="text-base font-bold text-slate-800 dark:text-slate-200">Nothing needs attention</h4>
+                                <p className="text-xs text-slate-500">Every group on tour has a driver, confirmed hotel, completed checklist and cleared balance.</p>
+                                <button
+                                    onClick={() => setAttentionOnly(false)}
+                                    className="mt-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-colors"
+                                >
+                                    Show all groups
+                                </button>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                                {visibleGuestProgram.map((item) => (
+                                    <div
+                                        key={item.booking.id}
+                                        className="bg-white dark:bg-[#1A2633] rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs p-5 flex flex-col justify-between space-y-4 hover:border-blue-400 transition-all"
+                                    >
+                                        <div>
+                                            {/* Top badges */}
+                                            <div className="flex items-center justify-between gap-2 mb-3">
+                                                <span className="font-mono text-xs font-extrabold px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
+                                                    {formatBookingBadge(item.booking)}
+                                                </span>
+                                                <span className="text-xs font-black px-2.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                                                    Day {item.currentDay} of {item.totalDays}
+                                                </span>
+                                            </div>
+
+                                            {/* Needs-attention flags */}
+                                            {item.flags.length > 0 && (
+                                                <div className="flex flex-wrap gap-1.5 mb-3">
+                                                    {item.flags.map(flag => (
+                                                        <span
+                                                            key={flag.key}
+                                                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black border ${
+                                                                flag.severity === 'red'
+                                                                    ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800'
+                                                                    : 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
+                                                            }`}
+                                                        >
+                                                            <AlertTriangle size={10} />
+                                                            {flag.label}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            )}
+
+                                            {/* Guest Profile */}
+                                            <h4 className="text-base font-black text-slate-900 dark:text-white">
+                                                {item.booking.customer}
+                                            </h4>
+                                            <p className="text-xs text-slate-500 font-medium">
+                                                {item.booking.title} • <span className="font-bold text-slate-700 dark:text-slate-300">{item.booking.guests || `${item.booking.paxCount || 1} Guests`}</span>
+                                            </p>
+
+                                            {/* Tour Progress Bar */}
+                                            <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full my-3 overflow-hidden">
+                                                <div className="bg-gradient-to-r from-blue-500 to-emerald-500 h-full rounded-full transition-all" style={{ width: `${item.percent}%` }}></div>
+                                            </div>
+
+                                            {/* Today's Activities */}
+                                            <div className="space-y-2 text-xs">
+                                                <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
+                                                    <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5 mb-0.5">
+                                                        <span>📍</span>
+                                                        <span>Today's Program:</span>
+                                                    </div>
+                                                    <p className="text-slate-600 dark:text-slate-300 text-[11px] font-medium line-clamp-2">
+                                                        {item.todayItineraryTitle}
+                                                    </p>
+                                                </div>
+
+                                                <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
+                                                    <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5 mb-0.5">
+                                                        <span>🏨</span>
+                                                        <span>Overnight Stay:</span>
+                                                    </div>
+                                                    <p className="text-slate-600 dark:text-slate-300 text-[11px] font-medium truncate">
+                                                        {item.overnightHotel} ({item.mealPlan})
+                                                    </p>
+                                                </div>
+
+                                                <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
+                                                    <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5 mb-0.5">
+                                                        <span>🚗</span>
+                                                        <span>Transport:</span>
+                                                    </div>
+                                                    <p className={`text-[11px] font-semibold truncate ${item.driverName ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600'}`}>
+                                                        {item.transportInfo}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Action buttons */}
+                                        <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2">
+                                            <button
+                                                onClick={() => handleSendGuestBriefing(item)}
+                                                className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition-colors shadow-xs flex items-center justify-center gap-1.5"
+                                            >
+                                                <MessageSquare size={13} />
+                                                <span>WhatsApp Morning Briefing</span>
+                                            </button>
+
+                                            <div className="flex gap-2">
+                                                <button
+                                                    onClick={() => setSelectedBookingForChecklist(item.booking)}
+                                                    className="flex-1 py-1.5 px-2 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1"
+                                                >
+                                                    <CheckSquare size={12} />
+                                                    <span>Checklist</span>
+                                                </button>
+                                                <button
+                                                    onClick={() => openPrepModal(item.booking)}
+                                                    className="flex-1 py-1.5 px-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1"
+                                                >
+                                                    <Car size={12} />
+                                                    <span>Driver</span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
+                )}
+
+                {/* ══════════════════════════════════════════════════════════════
+                    TAB 3: PRE-TOUR CHECKLISTS HUB (Screenshots 21 & 22)
+                ══════════════════════════════════════════════════════════════ */}
+                {operationsTab === 'pre-tour-checklists' && (
+                    <div className="space-y-6 animate-fade-in">
+                        {/* Header Metrics */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            <div className="bg-white dark:bg-[#1A2633] p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
+                                <p className="text-xs font-black uppercase tracking-wider text-slate-400">Total Upcoming Tours</p>
+                                <p className="text-3xl font-black text-slate-900 dark:text-white mt-1">
+                                    {upcomingChecklistTours.length}
+                                </p>
+                                <p className="text-xs text-slate-500 mt-1">Departing in next {upcomingDays} days</p>
+                            </div>
+                            <div className="bg-white dark:bg-[#1A2633] p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
+                                <p className="text-xs font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Ready for Departure</p>
+                                <p className="text-3xl font-black text-emerald-600 dark:text-emerald-400 mt-1">
+                                    {upcomingChecklistTours.filter(t => t.isReady).length}
+                                </p>
+                                <p className="text-xs text-slate-500 mt-1">100% Pre-Tour items verified</p>
+                            </div>
+                            <div className="bg-white dark:bg-[#1A2633] p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
+                                <p className="text-xs font-black uppercase tracking-wider text-amber-600 dark:text-amber-400">Checklist In Progress</p>
+                                <p className="text-3xl font-black text-amber-600 dark:text-amber-400 mt-1">
+                                    {upcomingChecklistTours.filter(t => !t.isReady).length}
+                                </p>
+                                <p className="text-xs text-slate-500 mt-1">Vouchers or tickets pending</p>
+                            </div>
+                        </div>
+
+                        {/* Checklist List Table */}
+                        <div className="bg-white dark:bg-[#1A2633] rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs overflow-hidden">
+                            <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                                <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">
+                                    Upcoming Pre-Tour Deliverables Checklist
+                                </h3>
+                                <div className="flex gap-1.5">
+                                    <button
+                                        onClick={() => setChecklistFilter('all')}
+                                        className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${checklistFilter === 'all' ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'}`}
+                                    >
+                                        All ({upcomingChecklistTours.length})
+                                    </button>
+                                    <button
+                                        onClick={() => setChecklistFilter('ready')}
+                                        className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${checklistFilter === 'ready' ? 'bg-emerald-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'}`}
+                                    >
+                                        Ready ({upcomingChecklistTours.filter(t => t.isReady).length})
+                                    </button>
+                                    <button
+                                        onClick={() => setChecklistFilter('pending')}
+                                        className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${checklistFilter === 'pending' ? 'bg-amber-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'}`}
+                                    >
+                                        Pending ({upcomingChecklistTours.filter(t => !t.isReady).length})
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left text-xs">
+                                    <thead className="bg-slate-50 dark:bg-slate-800 text-[10px] font-black uppercase tracking-wider text-slate-400">
+                                        <tr>
+                                            <th className="px-6 py-3.5">Booking &amp; Customer</th>
+                                            <th className="px-6 py-3.5">Departure Date</th>
+                                            <th className="px-6 py-3.5">Checklist Progress</th>
+                                            <th className="px-6 py-3.5 text-center">Status</th>
+                                            <th className="px-6 py-3.5 text-right">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                        {upcomingChecklistTours
+                                            .filter(t => {
+                                                if (checklistFilter === 'ready') return t.isReady;
+                                                if (checklistFilter === 'pending') return !t.isReady;
+                                                return true;
+                                            })
+                                            .map(({ tour, completed, total, percent, isReady, readiness, balanceFlag }) => (
+                                                <tr key={tour.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
+                                                    <td className="px-6 py-4">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="font-mono text-[11px] font-extrabold text-blue-600 dark:text-blue-400">
+                                                                {formatBookingBadge(tour)}
+                                                            </span>
+                                                            <p className="font-bold text-slate-900 dark:text-white">
+                                                                {tour.customer}
+                                                            </p>
+                                                        </div>
+                                                        <p className="text-[11px] text-slate-500 font-medium mt-0.5">{tour.title}</p>
+                                                    </td>
+                                                    <td className="px-6 py-4">
+                                                        <p className="font-bold text-slate-800 dark:text-slate-200">
+                                                            {formatLocalDate(tour.date)}
+                                                        </p>
+                                                        <p className="text-[10px] text-slate-400">
+                                                            Departs in {Math.max(0, Math.round((new Date(tour.date).getTime() - Date.now()) / 86400000))} days
+                                                        </p>
+                                                    </td>
+                                                    <td className="px-6 py-4 min-w-[200px]">
+                                                        <div className="flex items-center justify-between text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
+                                                            <span>{completed} of {total} Done</span>
+                                                            <span>{percent}%</span>
+                                                        </div>
+                                                        <div className="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+                                                            <div
+                                                                className={`h-full rounded-full transition-all ${isReady ? 'bg-emerald-500' : 'bg-amber-500'}`}
+                                                                style={{ width: `${percent}%` }}
+                                                            />
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-6 py-4 text-center">
+                                                        <div className="flex flex-col items-center gap-1">
+                                                            <span
+                                                                title={readiness.reason}
+                                                                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${READINESS_STYLES[readiness.level].chip}`}
+                                                            >
+                                                                <span className={`w-1.5 h-1.5 rounded-full ${READINESS_STYLES[readiness.level].dot}`} />
+                                                                {readiness.level === 'ready' ? 'Ready for Tour' : readiness.label}
+                                                            </span>
+                                                            {readiness.overdueCount > 0 && (
+                                                                <span className="text-[10px] font-black text-rose-600 dark:text-rose-400">
+                                                                    {readiness.overdueCount} item{readiness.overdueCount === 1 ? '' : 's'} overdue
+                                                                </span>
+                                                            )}
+                                                            {balanceFlag.level !== 'none' && (
+                                                                <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold border ${BALANCE_FLAG_STYLES[balanceFlag.level]}`}>
+                                                                    {balanceFlag.label}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-6 py-4 text-right">
+                                                        <button
+                                                            onClick={() => setSelectedBookingForChecklist(tour)}
+                                                            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-colors inline-flex items-center gap-1 shadow-xs"
+                                                        >
+                                                            <CheckSquare size={13} /> Open Checklist
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        {upcomingChecklistTours.length === 0 && (
+                                            <tr>
+                                                <td colSpan={5} className="px-6 py-10 text-center text-slate-400 font-medium">
+                                                    No upcoming tours found to checklist.
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 </div>
+            </div>
 
             {/* ══ PREP / SUPPLIER ASSIGNMENT MODAL ══ */}
             {prepModalOpen && selectedBookingForPrep && (
@@ -1642,6 +2247,15 @@ export const Operations: React.FC = () => {
                         </div>
                     </div>
                 </div>
+            )}
+
+            {/* ══ 10-POINT PRE-TOUR CHECKLIST MODAL ══ */}
+            {selectedBookingForChecklist && (
+                <TourChecklistModal
+                    isOpen={!!selectedBookingForChecklist}
+                    onClose={() => setSelectedBookingForChecklist(null)}
+                    booking={selectedBookingForChecklist}
+                />
             )}
         </div>
     );

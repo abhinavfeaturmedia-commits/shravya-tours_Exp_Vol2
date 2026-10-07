@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { SupplierBooking, SupplierBookingStatus, Vendor } from '../../types';
+import { SupplierBooking, SupplierBookingStatus, SupplierPayment, Vendor } from '../../types';
 import { useData } from '../../context/DataContext';
 import { VendorSearchSelect } from './VendorSearchSelect';
 
@@ -72,8 +72,23 @@ export const SupplierBookingModal: React.FC<SupplierBookingModalProps> = ({ isOp
         paymentStatus: 'Unpaid',
         bookingStatus: 'Pending',
         paymentDueDate: '',
-        notes: ''
+        notes: '',
+        payments: []
     });
+
+    const existingPayments = useMemo<SupplierPayment[]>(() => {
+        if (existingBooking?.payments && Array.isArray(existingBooking.payments) && existingBooking.payments.length > 0) {
+            return existingBooking.payments;
+        }
+        if (formData.payments && Array.isArray(formData.payments) && formData.payments.length > 0) {
+            return formData.payments;
+        }
+        return [];
+    }, [existingBooking, formData.payments]);
+
+    const installmentsTotal = useMemo(() => {
+        return existingPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+    }, [existingPayments]);
 
     const selectedVendor = useMemo(() => {
         return vendors.find(v => v.id === formData.vendorId) || null;
@@ -101,7 +116,16 @@ export const SupplierBookingModal: React.FC<SupplierBookingModalProps> = ({ isOp
 
     useEffect(() => {
         if (existingBooking) {
-            setFormData(existingBooking);
+            const payments = Array.isArray(existingBooking.payments) ? existingBooking.payments : [];
+            const computedPaid = payments.length > 0
+                ? payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0)
+                : (Number(existingBooking.paidAmount) || 0);
+
+            setFormData({
+                ...existingBooking,
+                paidAmount: computedPaid,
+                payments
+            });
             const { services, customOther } = parseServices(existingBooking.serviceType);
             setCustomOtherText(customOther);
             const v = vendors.find(x => x.id === existingBooking.vendorId);
@@ -120,7 +144,8 @@ export const SupplierBookingModal: React.FC<SupplierBookingModalProps> = ({ isOp
                 paymentStatus: 'Unpaid',
                 bookingStatus: 'Pending',
                 paymentDueDate: '',
-                notes: ''
+                notes: '',
+                payments: []
             });
             setIsMultiSelectMode(false);
             setCustomOtherText('');
@@ -245,7 +270,7 @@ export const SupplierBookingModal: React.FC<SupplierBookingModalProps> = ({ isOp
     };
 
     const totalCost = Number(formData.cost) || 0;
-    const paidAmt = Number(formData.paidAmount) || 0;
+    const paidAmt = existingPayments.length > 0 ? installmentsTotal : (Number(formData.paidAmount) || 0);
     const balanceDue = totalCost - paidAmt;
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -263,7 +288,8 @@ export const SupplierBookingModal: React.FC<SupplierBookingModalProps> = ({ isOp
         }
 
         setIsSubmitting(true);
-        const autoPaymentStatus = formData.paymentStatus === 'Refunded' ? 'Refunded' : calculatePaymentStatus(Number(formData.cost), Number(formData.paidAmount));
+        const finalPaidAmount = existingPayments.length > 0 ? installmentsTotal : Number(formData.paidAmount);
+        const autoPaymentStatus = formData.paymentStatus === 'Refunded' ? 'Refunded' : calculatePaymentStatus(Number(formData.cost), finalPaidAmount);
 
         const newBooking: SupplierBooking = {
             id: existingBooking?.id || `SB-${Date.now()}`,
@@ -272,11 +298,12 @@ export const SupplierBookingModal: React.FC<SupplierBookingModalProps> = ({ isOp
             serviceType: formData.serviceType as any,
             confirmationNumber: formData.confirmationNumber,
             cost: Number(formData.cost),
-            paidAmount: Number(formData.paidAmount),
+            paidAmount: finalPaidAmount,
             paymentStatus: (formData.paymentStatus || autoPaymentStatus) as any,
             bookingStatus: formData.bookingStatus as any,
             paymentDueDate: formData.paymentDueDate,
-            notes: formData.notes
+            notes: formData.notes,
+            payments: existingPayments.length > 0 ? existingPayments : (formData.payments || [])
         };
 
         try {
@@ -545,20 +572,124 @@ export const SupplierBookingModal: React.FC<SupplierBookingModalProps> = ({ isOp
                                     min="0"
                                     value={formData.cost}
                                     onChange={handleCostChange}
-                                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+                                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary font-medium"
                                 />
                             </div>
                             <div className="space-y-1">
-                                <label className="text-xs font-bold text-slate-500">Paid Amount (₹)</label>
-                                <input
-                                    type="number"
-                                    min="0"
-                                    value={formData.paidAmount}
-                                    onChange={handlePaidAmountChange}
-                                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
-                                />
+                                <div className="flex items-center justify-between">
+                                    <label className="text-xs font-bold text-slate-500">Paid Amount (₹)</label>
+                                    {existingPayments.length > 0 && (
+                                        <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 px-1.5 py-0.2 rounded flex items-center gap-0.5">
+                                            <span className="material-symbols-outlined text-[11px]">lock</span>
+                                            {existingPayments.length} parts
+                                        </span>
+                                    )}
+                                </div>
+                                <div className="relative">
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        value={existingPayments.length > 0 ? installmentsTotal : formData.paidAmount}
+                                        onChange={handlePaidAmountChange}
+                                        readOnly={existingPayments.length > 0}
+                                        className={`w-full border rounded-lg px-3 py-2 text-sm outline-none font-medium ${
+                                            existingPayments.length > 0
+                                                ? 'bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 cursor-not-allowed select-none font-mono font-semibold'
+                                                : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-primary'
+                                        }`}
+                                    />
+                                    {existingPayments.length > 0 && (
+                                        <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 material-symbols-outlined text-[16px]" title="Auto-calculated from recorded installments">
+                                            lock
+                                        </span>
+                                    )}
+                                </div>
+                                {existingPayments.length > 0 && (
+                                    <p className="text-[10px] text-slate-400">
+                                        Calculated from {existingPayments.length} part payment{existingPayments.length > 1 ? 's' : ''} below
+                                    </p>
+                                )}
                             </div>
                         </div>
+
+                        {/* If installments exist, show Breakdown Ledger Card */}
+                        {existingPayments.length > 0 && (
+                            <div className="p-3.5 rounded-xl bg-gradient-to-br from-slate-50 to-slate-100/60 dark:from-slate-900/80 dark:to-slate-800/50 border border-slate-200 dark:border-slate-700 space-y-2.5 animate-in fade-in">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <div className="w-6 h-6 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
+                                            <span className="material-symbols-outlined text-[16px]">receipt_long</span>
+                                        </div>
+                                        <div>
+                                            <div className="text-xs font-bold text-slate-900 dark:text-white">
+                                                Part Payments Breakdown
+                                            </div>
+                                            <div className="text-[10px] text-slate-500">
+                                                {existingPayments.length} installment{existingPayments.length > 1 ? 's' : ''} recorded for this booking
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="text-right">
+                                        <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Remaining Balance</div>
+                                        <div className={`text-xs font-bold ${balanceDue <= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                                            {balanceDue <= 0 ? '₹0 (Settled)' : `₹${Math.max(0, balanceDue).toLocaleString()}`}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="border border-slate-200/80 dark:border-slate-700/80 rounded-lg overflow-hidden bg-white dark:bg-slate-900 max-h-40 overflow-y-auto scrollbar-thin">
+                                    <table className="w-full text-left text-xs">
+                                        <thead className="bg-slate-50 dark:bg-slate-800 text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-800">
+                                            <tr>
+                                                <th className="px-2.5 py-1.5">Part #</th>
+                                                <th className="px-2 py-1.5">Date</th>
+                                                <th className="px-2 py-1.5">Mode / Ref</th>
+                                                <th className="px-2.5 py-1.5 text-right">Amount</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
+                                            {existingPayments.map((p, idx) => (
+                                                <tr key={p.id || idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
+                                                    <td className="px-2.5 py-1.5">
+                                                        <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-primary/10 text-primary font-bold text-[10px]">
+                                                            {idx + 1}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-2 py-1.5 text-slate-700 dark:text-slate-300 whitespace-nowrap text-[11px]">
+                                                        {p.paymentDate || '—'}
+                                                    </td>
+                                                    <td className="px-2 py-1.5 text-[11px]">
+                                                        <div className="flex items-center gap-1">
+                                                            <span className="font-semibold text-slate-800 dark:text-slate-200">
+                                                                {p.paymentMethod || 'Other'}
+                                                            </span>
+                                                            {p.reference && (
+                                                                <span className="text-[10px] text-slate-400 font-mono">
+                                                                    ({p.reference})
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        {p.notes && (
+                                                            <div className="text-[10px] text-slate-400 truncate max-w-[140px]">
+                                                                {p.notes}
+                                                            </div>
+                                                        )}
+                                                    </td>
+                                                    <td className="px-2.5 py-1.5 text-right font-bold text-emerald-600 dark:text-emerald-400 font-mono text-[11px] whitespace-nowrap">
+                                                        ₹{Number(p.amount || 0).toLocaleString()}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                <div className="flex items-center justify-between text-[11px] px-1 text-slate-500 dark:text-slate-400">
+                                    <span>Total Settled: <strong className="text-emerald-600 dark:text-emerald-400 font-mono">₹{installmentsTotal.toLocaleString()}</strong></span>
+                                    <span className="italic text-[10px]">To add or adjust installments, use Supplier Management passbook</span>
+                                </div>
+                            </div>
+                        )}
 
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-1">
