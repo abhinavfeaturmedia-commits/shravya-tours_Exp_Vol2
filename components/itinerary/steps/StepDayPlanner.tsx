@@ -8,8 +8,9 @@ import {
     ChevronUp, ChevronDown, Sparkles, MoreHorizontal, IndianRupee, MapPin, RefreshCw,
     Shield, UserCheck, AlertTriangle, Wand2, Compass, Heart, Users, Mountain,
     Landmark, Utensils, Waves, Crown, X, Check, HelpCircle, Layers, Calendar, CheckCircle2,
-    ArrowRight, ArrowLeft, LayoutGrid, ListOrdered, CheckCircle, Image
+    ArrowRight, ArrowLeft, LayoutGrid, ListOrdered, CheckCircle, Image, FileText
 } from 'lucide-react';
+import { PdfItineraryImportModal } from '../modals/PdfItineraryImportModal';
 import {
     generateItinerary,
     regenerateSingleDay,
@@ -694,6 +695,7 @@ export const StepDayPlanner: React.FC<Props> = ({ onOpenPricing, onOpenTripDetai
     const [addingToDay, setAddingToDay] = useState<number | null>(null);
     const [isGenerating, setIsGenerating] = useState(false);
     const [showAiCustomizer, setShowAiCustomizer] = useState(false);
+    const [showPdfImportModal, setShowPdfImportModal] = useState(false);
 
     const days = Array.from({ length: tripDetails.days }, (_, i) => i + 1);
 
@@ -1019,6 +1021,17 @@ export const StepDayPlanner: React.FC<Props> = ({ onOpenPricing, onOpenTripDetai
                     >
                         <Sparkles size={13} className={isGenerating ? 'animate-spin' : ''} />
                         {isGenerating ? 'Designing Plan…' : 'AI Auto-Plan'}
+                    </button>
+
+                    {/* Import DMC PDF Package */}
+                    <button
+                        type="button"
+                        onClick={() => setShowPdfImportModal(true)}
+                        className="flex items-center gap-1.5 text-xs font-black px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white shadow-md shadow-amber-500/20 transition-all active:scale-95"
+                        title="Upload DMC / Supplier PDF Package to auto-generate day-by-day itinerary"
+                    >
+                        <FileText size={13} />
+                        <span>Import DMC PDF</span>
                     </button>
                     {onOpenPricing && (
                         <button
@@ -1373,6 +1386,12 @@ export const StepDayPlanner: React.FC<Props> = ({ onOpenPricing, onOpenTripDetai
 
             {/* AI Auto-Plan Loading Modal */}
             <AiAutoPlanLoadingModal isOpen={isGenerating} />
+
+            {/* DMC PDF Import Modal */}
+            <PdfItineraryImportModal
+                isOpen={showPdfImportModal}
+                onClose={() => setShowPdfImportModal(false)}
+            />
         </div>
     );
 };

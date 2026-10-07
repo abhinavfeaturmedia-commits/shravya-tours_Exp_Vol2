@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useItinerary } from '../ItineraryContext';
 import { useData } from '../../../context/DataContext';
-import { MapPin, Calendar, Users, Globe, Plus, X, ArrowRight, Check, Image, Upload, Sparkles, ChevronDown, Search, Loader2, Compass, CheckCircle2, Sun, Moon, BedDouble, Utensils, Hotel, Coffee } from 'lucide-react';
+import { MapPin, Calendar, Users, Globe, Plus, X, ArrowRight, Check, Image, Upload, Sparkles, ChevronDown, Search, Loader2, Compass, CheckCircle2, Sun, Moon, BedDouble, Utensils, Hotel, Coffee, FileText } from 'lucide-react';
 import { MasterLocation, MasterLocationType, RoomSharingType, ROOM_SHARING_OPTIONS, MealPlanCode, MEAL_PLAN_DESCRIPTIONS } from '../../../types';
 import { ImageUpload } from '../../ui/ImageUpload';
 import { api } from '../../../src/lib/api';
 import { generateInclusionsExclusions } from '../../../src/lib/gemini';
+import { PdfItineraryImportModal } from '../modals/PdfItineraryImportModal';
 import { toast } from 'sonner';
 
 interface Props {
@@ -17,6 +18,7 @@ export const StepTripDetails: React.FC<Props> = ({ onDone }) => {
     const { masterLocations, addMasterLocation, masterMealPlans } = useData();
     const [isGeneratingIncExc, setIsGeneratingIncExc] = useState(false);
     const [showQuickAddModal, setShowQuickAddModal] = useState(false);
+    const [showPdfImportModal, setShowPdfImportModal] = useState(false);
 
     const handleQuickAddLocation = async (name: string, type: MasterLocationType = 'City', region: string = 'India', country: string = 'India'): Promise<string | null> => {
         if (!name.trim()) return null;
@@ -178,6 +180,34 @@ export const StepTripDetails: React.FC<Props> = ({ onDone }) => {
                 <p className="text-xs sm:text-sm text-stone-500 mt-1">
                     Configure destination route stays, travel party, visuals, and package terms before scheduling daily services.
                 </p>
+
+                {/* Quick DMC PDF Import Banner */}
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-4 p-4 rounded-2xl bg-gradient-to-r from-amber-500/15 via-amber-50 to-orange-500/10 border border-amber-300/80 shadow-xs">
+                    <div className="flex items-center gap-3">
+                        <div className="size-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs">
+                            <FileText size={20} />
+                        </div>
+                        <div>
+                            <div className="flex items-center gap-2">
+                                <h4 className="text-xs font-black text-stone-900">Have a DMC / Supplier Itinerary PDF?</h4>
+                                <span className="text-[10px] font-black uppercase tracking-wider bg-amber-200/80 text-amber-900 px-2 py-0.5 rounded-full">
+                                    Instant 1-Click
+                                </span>
+                            </div>
+                            <p className="text-[11px] text-stone-600 mt-0.5">
+                                Upload your supplier quotation PDF to automatically extract days, hotels, sightseeing, and inclusions with AI.
+                            </p>
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setShowPdfImportModal(true)}
+                        className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-xs shadow-md shadow-amber-600/20 active:scale-95 transition-all"
+                    >
+                        <Sparkles size={14} />
+                        <span>Import DMC PDF Package</span>
+                    </button>
+                </div>
             </div>
 
             {/* Main Balanced 12-Column Grid */}
@@ -914,6 +944,12 @@ export const StepTripDetails: React.FC<Props> = ({ onDone }) => {
                         updateTripDetails({ destinations: newDests, nights: totalNights, days: totalNights === 0 ? 1 : totalNights + 1 });
                     }
                 }}
+            />
+
+            {/* DMC PDF Import Modal */}
+            <PdfItineraryImportModal
+                isOpen={showPdfImportModal}
+                onClose={() => setShowPdfImportModal(false)}
             />
         </div>
     );
