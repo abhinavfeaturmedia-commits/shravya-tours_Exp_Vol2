@@ -4088,15 +4088,51 @@ export const api = {
 
     // ─── CONFIDENTIAL HR ESCALATION / GRIEVANCES ───
     submitGrievance: async (data: { category: string; subject: string; description: string; isAnonymous?: boolean }): Promise<{ success: boolean; grievanceId: string }> => {
-        return fetchApi('/api/hierarchy/grievances', { method: 'POST', body: JSON.stringify(data) });
+        const payload = {
+            ...data,
+            details: data.description,
+            is_anonymous: data.isAnonymous
+        };
+        const res: any = await fetchApi('/api/hierarchy/grievances', { method: 'POST', body: JSON.stringify(payload) });
+        return {
+            success: true,
+            grievanceId: res?.id || res?.grievance?.id || '',
+            ...res
+        };
     },
     getGrievances: async (params?: { status?: string }): Promise<HRGrievance[]> => {
         const qs = new URLSearchParams();
         if (params?.status) qs.set('status', params.status);
-        return fetchApi(`/api/hierarchy/grievances${qs.toString() ? `?${qs.toString()}` : ''}`);
+        const res: any = await fetchApi(`/api/hierarchy/grievances${qs.toString() ? `?${qs.toString()}` : ''}`);
+        const list: any[] = Array.isArray(res) ? res : (res?.grievances || res?.data || []);
+        return list.map((g: any) => ({
+            ...g,
+            id: String(g.id),
+            staffId: Number(g.staffId ?? g.staff_id ?? 0),
+            staffName: g.staffName || g.staff_name || '',
+            staffEmail: g.staffEmail || g.staff_email || '',
+            department: g.department || 'Operations',
+            gradeLevel: g.gradeLevel || g.grade_level || 'L8',
+            category: g.category || 'Other',
+            subject: g.subject || 'Confidential Grievance',
+            description: g.description || g.details || '',
+            isAnonymous: Boolean(g.isAnonymous ?? g.is_anonymous),
+            status: g.status || 'Submitted',
+            resolutionNotes: g.resolutionNotes || g.resolution_notes || '',
+            resolvedBy: g.resolvedBy ?? g.resolved_by ?? null,
+            resolvedByName: g.resolvedByName || g.resolved_by_name || null,
+            resolvedAt: g.resolvedAt || g.resolved_at || undefined,
+            createdAt: g.createdAt || g.created_at || new Date().toISOString(),
+            updatedAt: g.updatedAt || g.updated_at || new Date().toISOString()
+        }));
     },
     updateGrievanceStatus: async (id: string, data: { status: string; resolutionNotes?: string }): Promise<{ success: boolean }> => {
-        return fetchApi(`/api/hierarchy/grievances/${encodeURIComponent(id)}/status`, { method: 'PATCH', body: JSON.stringify(data) });
+        const payload = {
+            status: data.status,
+            resolutionNotes: data.resolutionNotes,
+            resolution_notes: data.resolutionNotes
+        };
+        return fetchApi(`/api/hierarchy/grievances/${encodeURIComponent(id)}/status`, { method: 'PATCH', body: JSON.stringify(payload) });
     },
 
     crud

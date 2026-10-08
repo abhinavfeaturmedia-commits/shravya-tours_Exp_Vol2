@@ -1,87 +1,34 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Booking, TourChecklistItem, TourChecklistStatus, TourChecklistCategory } from '../../types';
 import { useAuth } from '../../context/AuthContext';
+import { useData } from '../../context/DataContext';
 import { useBookings } from '../../src/hooks/useBookings';
 import { toast } from 'sonner';
 import {
-    CheckCircle2, Clock, AlertCircle, MinusCircle, Plus, Trash2,
-    MessageCircle, Calendar, CheckSquare, Sparkles, User, RefreshCw, X, CalendarClock
+    CheckCircle2, Clock, AlertCircle, Plus, Trash2,
+    MessageCircle, Calendar, CheckSquare, Sparkles, RefreshCw, X, CalendarClock,
+    ChevronDown, ShieldCheck, MapPin
 } from 'lucide-react';
 import { suggestDueDate, getItemDueState, parseDay, daysBetween, startOfToday } from '../../utils/tourReadiness';
+import {
+    CHECKLIST_TEMPLATES,
+    ChecklistTemplateId,
+    detectBookingChecklistType,
+    getChecklistTemplateForBooking,
+    detectChecklistMismatch,
+    ChecklistTemplate
+} from '../../utils/tourChecklistTemplates';
 
-export const DEFAULT_PRE_TOUR_CHECKLIST: Omit<TourChecklistItem, 'id' | 'bookingId'>[] = [
-    {
-        taskNumber: 1,
-        title: 'Visa Document Collection',
-        category: 'Visa',
-        status: 'Not Updated',
-        notes: 'Collect passport copies (minimum 6 months validity), passport photos, and financial proofs.',
-    },
-    {
-        taskNumber: 2,
-        title: 'Visa Processing & Submission',
-        category: 'Visa',
-        status: 'Not Updated',
-        notes: 'Submit visa paperwork to embassy/VFS/consulate portal and obtain submission tracking code.',
-    },
-    {
-        taskNumber: 3,
-        title: 'Visa Approval & Verification',
-        category: 'Visa',
-        status: 'Not Updated',
-        notes: 'Verify stamped/eVisa validity dates against itinerary travel dates and verify traveler names.',
-    },
-    {
-        taskNumber: 4,
-        title: 'Flight / Train Ticket Booking',
-        category: 'Tickets',
-        status: 'Not Updated',
-        notes: 'Confirm transit tickets, seat assignments, baggage allowance and verify PNR status.',
-    },
-    {
-        taskNumber: 5,
-        title: 'Hotel Confirmation & Vouchers',
-        category: 'Hotel',
-        status: 'Not Updated',
-        notes: 'Reconfirm reservations directly with properties, verify room types & obtain hotel voucher codes.',
-    },
-    {
-        taskNumber: 6,
-        title: 'Activity & Sightseeing Tickets',
-        category: 'Activities',
-        status: 'Not Updated',
-        notes: 'Pre-book slot permits, ferry passes (e.g. Havelock/Neil), monument entries, and guided tours.',
-    },
-    {
-        taskNumber: 7,
-        title: 'Cab / Transport & Driver Allocation',
-        category: 'Transport',
-        status: 'Not Updated',
-        notes: 'Confirm vehicle type (Innova/Crysta/Tempo), assign driver name, phone number & vehicle registration number.',
-    },
-    {
-        taskNumber: 8,
-        title: 'Service Vouchers Handover to Guest',
-        category: 'Vouchers',
-        status: 'Not Updated',
-        notes: 'Compile & dispatch hotel vouchers, driver details, and activity vouchers to guest.',
-    },
-    {
-        taskNumber: 9,
-        title: 'Travel Tickets Handover to Guest',
-        category: 'Tickets',
-        status: 'Not Updated',
-        notes: 'Deliver confirmed flight/train/ferry tickets with baggage guidelines and web check-in advisories.',
-    },
-    {
-        taskNumber: 10,
-        title: 'Emergency Briefing & Final Payment Check',
-        category: 'Briefing',
-        status: 'Not Updated',
-        notes: 'Ensure 100% final balance is collected, share 24/7 emergency coordinator hotline and final briefing note.',
-    },
-];
+// Exported for backward compatibility with external references
+export const DEFAULT_PRE_TOUR_CHECKLIST: Omit<TourChecklistItem, 'id' | 'bookingId'>[] =
+    CHECKLIST_TEMPLATES.international_tour.items.map(tpl => ({
+        taskNumber: tpl.taskNumber,
+        title: tpl.title,
+        category: tpl.category,
+        status: 'Not Updated' as TourChecklistStatus,
+        notes: tpl.notes,
+    }));
 
 interface TourChecklistModalProps {
     isOpen: boolean;
@@ -103,9 +50,9 @@ const CATEGORY_ICONS: Record<string, string> = {
 const CATEGORY_COLORS: Record<string, string> = {
     Visa: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800',
     Tickets: 'bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border-blue-200 dark:border-blue-800',
-    Hotel: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800',
+    Hotel: 'bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border-purple-200 dark:border-purple-800',
     Transport: 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border-amber-200 dark:border-amber-800',
-    Activities: 'bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border-purple-200 dark:border-purple-800',
+    Activities: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800',
     Vouchers: 'bg-cyan-50 text-cyan-700 dark:bg-cyan-950/60 dark:text-cyan-300 border-cyan-200 dark:border-cyan-800',
     Briefing: 'bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border-rose-200 dark:border-rose-800',
     Other: 'bg-slate-50 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border-slate-200 dark:border-slate-700',
@@ -113,8 +60,12 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 export const TourChecklistModal: React.FC<TourChecklistModalProps> = ({ isOpen, onClose, booking }) => {
     const { staff, currentUser } = useAuth();
+    const { packages, masterLocations } = useData();
     const { updateBooking } = useBookings();
+
     const [items, setItems] = useState<TourChecklistItem[]>([]);
+    const [selectedTemplateId, setSelectedTemplateId] = useState<ChecklistTemplateId>('domestic_tour');
+    const [isTemplateMenuOpen, setIsTemplateMenuOpen] = useState(false);
     const [filterCategory, setFilterCategory] = useState<'All' | TourChecklistStatus>('All');
     const [isSaving, setIsSaving] = useState(false);
     const [showAddCustom, setShowAddCustom] = useState(false);
@@ -122,26 +73,71 @@ export const TourChecklistModal: React.FC<TourChecklistModalProps> = ({ isOpen, 
     const [customCategory, setCustomCategory] = useState<TourChecklistCategory>('Other');
     const [customNotes, setCustomNotes] = useState('');
 
-    // Initialize items from booking or default template
+    const templateMenuRef = useRef<HTMLDivElement>(null);
+
+    // Resolve linked package if booking has packageId
+    const linkedPackage = useMemo(() => {
+        if (!booking?.packageId || !packages) return null;
+        return packages.find(p => p.id === booking.packageId) || null;
+    }, [booking?.packageId, packages]);
+
+    // Detect ideal template for this booking
+    const autoDetectedTemplateId = useMemo(() => {
+        if (!booking) return 'domestic_tour';
+        return detectBookingChecklistType(booking, linkedPackage, masterLocations || []);
+    }, [booking, linkedPackage, masterLocations]);
+
+    // Check for checklist mismatch (e.g. Domestic Tour holding Visa tasks)
+    const mismatchInfo = useMemo(() => {
+        if (!booking) return { hasMismatch: false, detectedTemplate: CHECKLIST_TEMPLATES.domestic_tour };
+        return detectChecklistMismatch(items, booking, linkedPackage, masterLocations || []);
+    }, [items, booking, linkedPackage, masterLocations]);
+
+    // Close template menu on click outside
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (templateMenuRef.current && !templateMenuRef.current.contains(e.target as Node)) {
+                setIsTemplateMenuOpen(false);
+            }
+        };
+        if (isTemplateMenuOpen) {
+            document.addEventListener('mousedown', handleClickOutside);
+        }
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [isTemplateMenuOpen]);
+
+    // Helper: Build 10 items from a given template
+    const buildItemsFromTemplate = (templateId: ChecklistTemplateId): TourChecklistItem[] => {
+        const template = CHECKLIST_TEMPLATES[templateId] || CHECKLIST_TEMPLATES.domestic_tour;
+        return template.items.map((tpl, idx) => ({
+            id: `chk-${booking.id}-${tpl.taskNumber || idx + 1}-${Date.now().toString(36)}`,
+            bookingId: booking.id,
+            taskNumber: tpl.taskNumber || idx + 1,
+            title: tpl.title,
+            category: tpl.category,
+            status: 'Not Updated',
+            notes: tpl.notes,
+            dueDate: suggestDueDate(booking.date, tpl.category),
+            assignedStaffId: booking.assignedTo || currentUser?.id,
+            assignedStaffName: staff?.find(s => s.id === (booking.assignedTo || currentUser?.id))?.name,
+            updatedAt: new Date().toISOString(),
+        }));
+    };
+
+    // Initialize items from booking or auto-detect from package/tour type
     useEffect(() => {
         if (!isOpen || !booking) return;
+
+        setSelectedTemplateId(autoDetectedTemplateId);
 
         if (booking.checklist && Array.isArray(booking.checklist) && booking.checklist.length > 0) {
             setItems(booking.checklist);
         } else {
-            // Seed default 10 items
-            const initialItems: TourChecklistItem[] = DEFAULT_PRE_TOUR_CHECKLIST.map((tpl, idx) => ({
-                id: `chk-${booking.id}-${idx + 1}-${Date.now().toString(36)}`,
-                bookingId: booking.id,
-                ...tpl,
-                dueDate: suggestDueDate(booking.date, tpl.category),
-                assignedStaffId: booking.assignedTo || currentUser?.id,
-                assignedStaffName: staff?.find(s => s.id === (booking.assignedTo || currentUser?.id))?.name,
-                updatedAt: new Date().toISOString(),
-            }));
+            // Seed 10 items matching the exact booking/package type
+            const initialItems = buildItemsFromTemplate(autoDetectedTemplateId);
             setItems(initialItems);
         }
-    }, [isOpen, booking, staff, currentUser]);
+    }, [isOpen, booking, autoDetectedTemplateId]);
 
     // Progress metrics
     const stats = useMemo(() => {
@@ -220,7 +216,7 @@ export const TourChecklistModal: React.FC<TourChecklistModalProps> = ({ isOpen, 
         }));
     };
 
-    // Fills ONLY the empty due dates (never overwrites a date someone typed in).
+    // Fills ONLY the empty due dates
     const handleSuggestDueDates = () => {
         if (!parseDay(booking.date)) {
             toast.error('This booking has no departure date, so due dates cannot be suggested.');
@@ -230,7 +226,7 @@ export const TourChecklistModal: React.FC<TourChecklistModalProps> = ({ isOpen, 
             if (item.dueDate) return item;
             return { ...item, dueDate: suggestDueDate(booking.date, item.category), updatedAt: new Date().toISOString() };
         }));
-        toast.success('Due dates suggested from the departure date. Adjust any of them if needed.');
+        toast.success('Due dates suggested from the departure date.');
     };
 
     const handleSave = async (itemsToSave = items) => {
@@ -259,31 +255,24 @@ export const TourChecklistModal: React.FC<TourChecklistModalProps> = ({ isOpen, 
         toast.info('Marked all applicable items as Completed');
     };
 
-    const handleSetDomesticDefaults = () => {
-        // Domestic tour doesn't require Visa (tasks 1, 2, 3)
-        const updated = items.map(item => {
-            if (item.category === 'Visa') {
-                return { ...item, status: 'Not Applicable' as TourChecklistStatus, notes: 'Domestic tour — visa not required' };
-            }
-            return item;
-        });
-        setItems(updated);
-        toast.success('Visa tasks marked as Not Applicable for Domestic tour');
+    // Apply or switch to a specific template
+    const handleApplyTemplate = (templateId: ChecklistTemplateId) => {
+        const targetTemplate = CHECKLIST_TEMPLATES[templateId];
+        if (!targetTemplate) return;
+
+        const newItems = buildItemsFromTemplate(templateId);
+        setItems(newItems);
+        setSelectedTemplateId(templateId);
+        setIsTemplateMenuOpen(false);
+        toast.success(`Applied 10-Point Checklist: ${targetTemplate.name}`);
     };
 
-    const handleResetToDefault = () => {
-        if (!window.confirm('Reset checklist back to the standard 10 template items? Any custom items will be removed.')) return;
-        const reset: TourChecklistItem[] = DEFAULT_PRE_TOUR_CHECKLIST.map((tpl, idx) => ({
-            id: `chk-${booking.id}-${idx + 1}-${Date.now().toString(36)}`,
-            bookingId: booking.id,
-            ...tpl,
-            dueDate: suggestDueDate(booking.date, tpl.category),
-            assignedStaffId: booking.assignedTo || currentUser?.id,
-            assignedStaffName: staff?.find(s => s.id === (booking.assignedTo || currentUser?.id))?.name,
-            updatedAt: new Date().toISOString(),
-        }));
-        setItems(reset);
-        toast.info('Checklist reset to standard 10 items');
+    const handleResetToActiveTemplate = () => {
+        const activeTpl = CHECKLIST_TEMPLATES[selectedTemplateId] || CHECKLIST_TEMPLATES.domestic_tour;
+        if (!window.confirm(`Reset checklist back to the 10 standard items for "${activeTpl.name}"? Any custom items will be replaced.`)) return;
+        const resetItems = buildItemsFromTemplate(selectedTemplateId);
+        setItems(resetItems);
+        toast.info(`Checklist reset to standard 10 items for ${activeTpl.name}`);
     };
 
     const handleAddCustomItem = () => {
@@ -327,28 +316,42 @@ export const TourChecklistModal: React.FC<TourChecklistModalProps> = ({ isOpen, 
         const tourTitle = booking.title || 'your upcoming tour';
         const bRef = booking.bookingNumber ? `BK-${String(booking.bookingNumber).padStart(4, '0')}` : `#${booking.id.slice(0, 8)}`;
 
+        // Look for matching template message template
         let message = '';
-        switch (item.category) {
-            case 'Visa':
-                message = `Namaste ${clientName}! Greetings from Shravya Tours.\n\nRegarding your booking ${bRef} (${tourTitle}):\nPlease share your original passport copies and documents for *${item.title}* at your earliest convenience.\n\nFeel free to message here for any visa assistance!`;
-                break;
-            case 'Tickets':
-                message = `Namaste ${clientName}!\n\nThis is an update regarding your travel tickets for ${tourTitle} (${bRef}).\nStatus: *${item.title}* is currently ${item.status}.\n\nOur team is ensuring all PNRs and transit details are verified for your seamless journey.`;
-                break;
-            case 'Hotel':
-                message = `Namaste ${clientName}!\n\nGood news! Your hotel reservations for ${tourTitle} (${bRef}) are confirmed. All property vouchers and room allocations are being prepared by our reservations desk.`;
-                break;
-            case 'Transport':
-                message = `Namaste ${clientName}!\n\nRegarding your local transport for ${tourTitle} (${bRef}):\nYour vehicle and driver details will be shared right before departure. Pickup time and coordinator numbers are active.`;
-                break;
-            case 'Vouchers':
-                message = `Namaste ${clientName}!\n\nYour complete service vouchers and detailed tour docket for ${tourTitle} (${bRef}) are ready. Please review the attached docket for all property check-in details.`;
-                break;
-            case 'Briefing':
-                message = `Namaste ${clientName}!\n\nWe are excited to welcome you on tour ${tourTitle} (${bRef})!\nYour 24/7 Shravya Tours on-ground helpline is active. Please let us know if you need any last-minute assistance before departure. Have a wonderful trip!`;
-                break;
-            default:
-                message = `Namaste ${clientName}!\n\nUpdate from Shravya Tours for booking ${bRef} (${tourTitle}):\n*${item.title}*: ${item.notes || 'In progress'}.\n\nThank you for choosing Shravya Tours!`;
+        const activeTemplate = CHECKLIST_TEMPLATES[selectedTemplateId];
+        const matchingTplItem = activeTemplate?.items.find(i => i.taskNumber === item.taskNumber || i.title.toLowerCase() === item.title.toLowerCase());
+
+        if (matchingTplItem?.whatsappMessageTemplate) {
+            message = matchingTplItem.whatsappMessageTemplate
+                .replace(/{clientName}/g, clientName)
+                .replace(/{bRef}/g, bRef)
+                .replace(/{tourTitle}/g, tourTitle)
+                .replace(/{title}/g, item.title)
+                .replace(/{status}/g, item.status);
+        } else {
+            // Category-based fallback
+            switch (item.category) {
+                case 'Visa':
+                    message = `Namaste ${clientName}! Greetings from Shravya Tours.\n\nRegarding your booking ${bRef} (${tourTitle}):\nPlease share your original passport copies and documents for *${item.title}* at your earliest convenience.\n\nFeel free to message here for any assistance!`;
+                    break;
+                case 'Tickets':
+                    message = `Namaste ${clientName}!\n\nThis is an update regarding your travel tickets for ${tourTitle} (${bRef}).\nStatus: *${item.title}* is currently ${item.status}.\n\nOur team is ensuring all transit details are verified for your seamless journey.`;
+                    break;
+                case 'Hotel':
+                    message = `Namaste ${clientName}!\n\nGood news! Your hotel reservations for ${tourTitle} (${bRef}) are confirmed. All property vouchers and room allocations are being prepared by our reservations desk.`;
+                    break;
+                case 'Transport':
+                    message = `Namaste ${clientName}!\n\nRegarding your local transport for ${tourTitle} (${bRef}):\nYour vehicle and driver details will be shared right before departure. Pickup time and coordinator numbers are active.`;
+                    break;
+                case 'Vouchers':
+                    message = `Namaste ${clientName}!\n\nYour complete service vouchers and detailed tour docket for ${tourTitle} (${bRef}) are ready. Please review the attached docket for all check-in details.`;
+                    break;
+                case 'Briefing':
+                    message = `Namaste ${clientName}!\n\nWe are excited to welcome you on tour ${tourTitle} (${bRef})!\nYour 24/7 Shravya Tours on-ground helpline is active. Please let us know if you need any assistance before departure. Have a wonderful trip!`;
+                    break;
+                default:
+                    message = `Namaste ${clientName}!\n\nUpdate from Shravya Tours for booking ${bRef} (${tourTitle}):\n*${item.title}*: ${item.notes || 'In progress'}.\n\nThank you for choosing Shravya Tours!`;
+            }
         }
 
         const url = `https://wa.me/${targetPhone}?text=${encodeURIComponent(message)}`;
@@ -366,6 +369,8 @@ export const TourChecklistModal: React.FC<TourChecklistModalProps> = ({ isOpen, 
         return `#BK-${b.id.slice(0, 8).toUpperCase()}`;
     };
 
+    const activeTemplate = CHECKLIST_TEMPLATES[selectedTemplateId] || CHECKLIST_TEMPLATES.domestic_tour;
+
     return createPortal(
         <div
             className="fixed inset-0 z-[300] flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm animate-fade-in"
@@ -380,18 +385,29 @@ export const TourChecklistModal: React.FC<TourChecklistModalProps> = ({ isOpen, 
                 <div className="shrink-0 p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                                 <span className="px-2.5 py-0.5 rounded-md font-mono text-xs font-black tracking-wide bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
                                     {formatBookingBadge(booking)}
                                 </span>
+
                                 <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
                                     <span>10-Point Pre-Tour Checklist</span>
                                 </h2>
+
+                                {/* Active Template Indicator Badge */}
+                                <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold border ${activeTemplate.badgeColor}`}>
+                                    <span>{activeTemplate.icon}</span>
+                                    <span>{activeTemplate.badgeLabel}</span>
+                                </span>
                             </div>
+
                             <p className="text-sm text-slate-600 dark:text-slate-400 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
                                 <span className="font-semibold text-slate-900 dark:text-white">{booking.customer}</span>
                                 <span>•</span>
-                                <span>{booking.title}</span>
+                                <span className="inline-flex items-center gap-1">
+                                    <MapPin className="w-3.5 h-3.5 text-slate-400" />
+                                    {booking.title}
+                                </span>
                                 <span>•</span>
                                 <span className="flex items-center gap-1">
                                     <Calendar className="w-3.5 h-3.5 text-slate-400" />
@@ -401,14 +417,69 @@ export const TourChecklistModal: React.FC<TourChecklistModalProps> = ({ isOpen, 
                         </div>
 
                         <div className="flex items-center gap-2">
+                            {/* Template Switcher Dropdown */}
+                            <div className="relative" ref={templateMenuRef}>
+                                <button
+                                    onClick={() => setIsTemplateMenuOpen(!isTemplateMenuOpen)}
+                                    title="Switch Checklist Template"
+                                    className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5 transition-all shadow-xs"
+                                >
+                                    <span>{activeTemplate.icon}</span>
+                                    <span className="hidden sm:inline">Template: {activeTemplate.name}</span>
+                                    <span className="sm:hidden">{activeTemplate.badgeLabel}</span>
+                                    <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isTemplateMenuOpen ? 'rotate-180' : ''}`} />
+                                </button>
+
+                                {isTemplateMenuOpen && (
+                                    <div className="absolute right-0 top-full mt-1.5 w-72 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl py-1.5 z-50 animate-in fade-in zoom-in-95">
+                                        <div className="px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-slate-400 border-b border-slate-100 dark:border-slate-700/60">
+                                            Select 10-Point Template
+                                        </div>
+                                        <div className="max-h-72 overflow-y-auto p-1 space-y-0.5">
+                                            {Object.values(CHECKLIST_TEMPLATES).map(tpl => {
+                                                const isSelected = selectedTemplateId === tpl.id;
+                                                const isAuto = autoDetectedTemplateId === tpl.id;
+                                                return (
+                                                    <button
+                                                        key={tpl.id}
+                                                        type="button"
+                                                        onClick={() => handleApplyTemplate(tpl.id)}
+                                                        className={`w-full text-left px-2.5 py-2 rounded-lg text-xs font-bold flex items-center justify-between gap-2 transition-colors ${
+                                                            isSelected
+                                                                ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 font-black'
+                                                                : 'hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300'
+                                                        }`}
+                                                    >
+                                                        <div className="flex items-center gap-2 truncate">
+                                                            <span className="text-sm shrink-0">{tpl.icon}</span>
+                                                            <div className="truncate">
+                                                                <div className="truncate">{tpl.name}</div>
+                                                                <div className="text-[10px] text-slate-400 font-normal truncate">{tpl.description}</div>
+                                                            </div>
+                                                        </div>
+                                                        {isAuto && (
+                                                            <span className="text-[9px] uppercase px-1.5 py-0.5 rounded font-black bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 shrink-0">
+                                                                Auto
+                                                            </span>
+                                                        )}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Reset Button */}
                             <button
-                                onClick={handleResetToDefault}
-                                title="Reset checklist to standard 10 items"
+                                onClick={handleResetToActiveTemplate}
+                                title={`Reset checklist to standard 10 items for ${activeTemplate.name}`}
                                 className="p-2 text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors text-xs font-semibold flex items-center gap-1"
                             >
                                 <RefreshCw className="w-3.5 h-3.5" />
                                 <span className="hidden sm:inline">Reset</span>
                             </button>
+
                             <button
                                 onClick={onClose}
                                 className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
@@ -417,6 +488,32 @@ export const TourChecklistModal: React.FC<TourChecklistModalProps> = ({ isOpen, 
                             </button>
                         </div>
                     </div>
+
+                    {/* ─── Template Mismatch Warning Banner ─── */}
+                    {mismatchInfo.hasMismatch && (
+                        <div className="mt-3.5 p-3 rounded-xl border border-amber-300 dark:border-amber-700/80 bg-amber-50/90 dark:bg-amber-950/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in">
+                            <div className="flex items-start sm:items-center gap-2.5">
+                                <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5 sm:mt-0" />
+                                <div>
+                                    <p className="text-xs font-bold text-amber-900 dark:text-amber-200">
+                                        Checklist Mismatch Notice
+                                    </p>
+                                    <p className="text-[11px] text-amber-700 dark:text-amber-300">
+                                        {mismatchInfo.reason}
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                                <button
+                                    onClick={() => handleApplyTemplate(mismatchInfo.detectedTemplate.id)}
+                                    className="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-500 hover:bg-amber-600 text-slate-950 shadow-sm transition-all flex items-center gap-1.5"
+                                >
+                                    <Sparkles className="w-3.5 h-3.5" />
+                                    <span>Apply {mismatchInfo.detectedTemplate.name} (10 Points)</span>
+                                </button>
+                            </div>
+                        </div>
+                    )}
 
                     {/* ─── Metric Bar & Action Ribbon ─── */}
                     <div className="mt-4 pt-4 border-t border-slate-200/60 dark:border-slate-800/60 flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -521,21 +618,35 @@ export const TourChecklistModal: React.FC<TourChecklistModalProps> = ({ isOpen, 
                             {stats.missingDueDates > 0 && (
                                 <button
                                     onClick={handleSuggestDueDates}
-                                    title="Fill empty due dates based on the departure date (Visa 30d, Tickets 14d, Hotel 10d, Activities 7d, Transport/Vouchers 3d, Briefing 1d before)"
+                                    title="Auto-fill missing due dates from travel departure date"
                                     className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-sky-50 hover:bg-sky-100 dark:bg-sky-950/50 dark:hover:bg-sky-900/60 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800 transition-colors flex items-center gap-1.5"
                                 >
                                     <CalendarClock className="w-3.5 h-3.5" />
                                     <span>Suggest Due Dates ({stats.missingDueDates})</span>
                                 </button>
                             )}
-                            <button
-                                onClick={handleSetDomesticDefaults}
-                                title="Sets Visa steps as Not Applicable (Domestic Tour)"
-                                className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 transition-colors flex items-center gap-1.5"
-                            >
-                                <Sparkles className="w-3.5 h-3.5" />
-                                <span>Domestic Trip (Exempt Visa)</span>
-                            </button>
+
+                            {/* Quick template toggle for tours: Domestic vs International */}
+                            {selectedTemplateId === 'domestic_tour' ? (
+                                <button
+                                    onClick={() => handleApplyTemplate('international_tour')}
+                                    title="Switch to International Tour (adds Visa steps)"
+                                    className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 transition-colors flex items-center gap-1.5"
+                                >
+                                    <span>🌍</span>
+                                    <span>Switch to Intl Tour</span>
+                                </button>
+                            ) : selectedTemplateId === 'international_tour' ? (
+                                <button
+                                    onClick={() => handleApplyTemplate('domestic_tour')}
+                                    title="Switch to Domestic Tour (replaces Visa with Domestic ID & permits)"
+                                    className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 transition-colors flex items-center gap-1.5"
+                                >
+                                    <span>🇮🇳</span>
+                                    <span>Switch to Domestic Tour</span>
+                                </button>
+                            ) : null}
+
                             <button
                                 onClick={handleMarkAllCompleted}
                                 className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 transition-colors flex items-center gap-1.5"
@@ -688,7 +799,7 @@ export const TourChecklistModal: React.FC<TourChecklistModalProps> = ({ isOpen, 
                                             {/* WhatsApp Prompt Button */}
                                             <button
                                                 onClick={() => handleSendWhatsAppPrompt(item)}
-                                                title={`Send WhatsApp prompt for ${item.title}`}
+                                                title={`Send tailored WhatsApp prompt for ${item.title}`}
                                                 className="p-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 transition-colors"
                                             >
                                                 <MessageCircle className="w-4 h-4" />
@@ -784,8 +895,9 @@ export const TourChecklistModal: React.FC<TourChecklistModalProps> = ({ isOpen, 
 
                 {/* ─── Footer ─── */}
                 <div className="shrink-0 p-3 sm:p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex items-center justify-between gap-3">
-                    <div className="text-xs text-slate-500 dark:text-slate-400">
-                        Changes are saved directly to booking record.
+                    <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                        <span>Changes are saved directly to booking record.</span>
                     </div>
                     <div className="flex items-center gap-2">
                         <button

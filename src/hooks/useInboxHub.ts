@@ -213,9 +213,17 @@ export const useInboxHub = () => {
   });
 
   // Fetch HR Grievances / Confidential Escalations (Bypassing direct supervisors)
-  const { data: grievances = [], refetch: refetchGrievances } = useQuery<HRGrievance[]>({
+  const { data: rawGrievances = [], refetch: refetchGrievances } = useQuery<HRGrievance[]>({
     queryKey: ['hr-grievances'],
-    queryFn: () => api.getGrievances().catch(() => []),
+    queryFn: async () => {
+      try {
+        const res: any = await api.getGrievances();
+        return Array.isArray(res) ? res : (res?.grievances || res?.data || []);
+      } catch (err) {
+        console.warn('Failed to fetch grievances:', err);
+        return [];
+      }
+    },
     refetchInterval: 30000,
   });
 
@@ -224,8 +232,20 @@ export const useInboxHub = () => {
     const items: UnifiedInboxItem[] = [];
     const now = Date.now();
 
+    const txList = Array.isArray(transactions) ? transactions : [];
+    const trList = Array.isArray(transfers) ? transfers : [];
+    const lvList = Array.isArray(leaves) ? leaves : ((leaves as any)?.leaves || (leaves as any)?.data || []);
+    const regList = Array.isArray(regularizations) ? regularizations : ((regularizations as any)?.data || []);
+    const grList: HRGrievance[] = Array.isArray(rawGrievances) ? rawGrievances : ((rawGrievances as any)?.grievances || (rawGrievances as any)?.data || []);
+    const bkList = Array.isArray(bookings) ? bookings : [];
+    const fuList = Array.isArray(followUps) ? followUps : [];
+    const ldList = Array.isArray(leads) ? leads : [];
+    const ptList = Array.isArray(partners) ? partners : ((partners as any)?.data || (partners as any)?.partners || []);
+    const kycList = Array.isArray(kycRecords) ? kycRecords : ((kycRecords as any)?.data || []);
+    const tskList = Array.isArray(tasks) ? tasks : [];
+
     // 1. 💰 FINANCE: Customer Payment Proofs
-    transactions.forEach(tx => {
+    txList.forEach(tx => {
       const isPending = tx.status === 'Pending';
       const isApproved = tx.status === 'Verified';
       const isStarred = starredIds.includes(`pay_${tx.id}`);
@@ -268,7 +288,7 @@ export const useInboxHub = () => {
     });
 
     // 2. 🔄 TRANSFERS: Lead & Booking Ownership Reassignments
-    transfers.forEach(tr => {
+    trList.forEach(tr => {
       const isPending = tr.status === 'Pending';
       const isApproved = tr.status === 'Approved';
       const isStarred = starredIds.includes(`tr_${tr.id}`);
@@ -306,7 +326,7 @@ export const useInboxHub = () => {
     });
 
     // 3. 👥 HR: Staff Leave Requests
-    leaves.forEach(lv => {
+    lvList.forEach(lv => {
       const raw = lv as any;
       const isPending = raw.status === 'Pending';
       const isApproved = raw.status === 'Approved';
@@ -372,7 +392,7 @@ export const useInboxHub = () => {
     });
 
     // 3b. ⏰ HR: Attendance Regularization Requests
-    regularizations.forEach(reg => {
+    regList.forEach(reg => {
       const isPending = reg.regularization_status === 'Requested';
       if (!isPending) return;
 
@@ -417,40 +437,51 @@ export const useInboxHub = () => {
     });
 
     // 3c. 🛡️ HR: Confidential Escalations & Grievances (Direct Founder/HR channel)
-    grievances.forEach(gr => {
-      const isPending = gr.status === 'Submitted' || gr.status === 'Under Review';
-      const isResolved = gr.status === 'Resolved';
-      const isStarred = starredIds.includes(`gr_${gr.id}`);
-      const requester = gr.isAnonymous ? 'Confidential (Anonymous)' : (gr.staffName || `Staff #${gr.staffId}`);
+    grList.forEach(gr => {
+      const rawGr = gr as any;
+      const isPending = rawGr.status === 'Submitted' || rawGr.status === 'Under Review';
+      const isResolved = rawGr.status === 'Resolved';
+      const isStarred = starredIds.includes(`gr_${rawGr.id}`);
+      const isAnon = Boolean(rawGr.isAnonymous ?? rawGr.is_anonymous);
+      const staffLabel = rawGr.staffName || rawGr.staff_name || (rawGr.staffId ? `Staff #${rawGr.staffId}` : (rawGr.staff_id ? `Staff #${rawGr.staff_id}` : 'Staff'));
+      const requester = isAnon ? 'Confidential (Anonymous)' : staffLabel;
+      const createdAt = rawGr.createdAt || rawGr.created_at || new Date().toISOString();
+      const department = rawGr.department || 'Operations';
+      const gradeLevel = rawGr.gradeLevel || rawGr.grade_level || 'Staff';
+      const email = isAnon ? undefined : (rawGr.staffEmail || rawGr.staff_email);
+      const category = rawGr.category || 'General';
+      const subject = rawGr.subject || 'Confidential Grievance';
+      const description = rawGr.description || rawGr.details || '';
 
       items.push({
-        id: `gr_${gr.id}`,
-        originalId: gr.id,
+        id: `gr_${rawGr.id}`,
+        originalId: rawGr.id,
         category: 'hr',
         categoryLabel: 'Confidential Escalation',
-        type: `HR Escalation: ${gr.category}`,
-        title: `${gr.subject}`,
-        subtitle: `${gr.isAnonymous ? 'Anonymous Employee' : `${gr.staffName || 'Staff'} (${gr.gradeLevel || 'Staff'}, ${gr.department || 'Operations'})`} • Status: ${gr.status}`,
+        type: `HR Escalation: ${category}`,
+        title: `${subject}`,
+        subtitle: `${isAnon ? 'Anonymous Employee' : `${staffLabel} (${gradeLevel}, ${department})`} • Status: ${rawGr.status || 'Submitted'}`,
         requesterName: requester,
-        requesterEmail: gr.isAnonymous ? undefined : gr.staffEmail,
-        requesterInitials: gr.isAnonymous ? '??' : getInitials(gr.staffName || 'ST'),
-        avatarColor: gr.isAnonymous ? 'bg-purple-700' : getAvatarColor(gr.staffName || 'ST'),
+        requesterEmail: email,
+        requesterInitials: isAnon ? '??' : getInitials(staffLabel),
+        avatarColor: isAnon ? 'bg-purple-700' : getAvatarColor(staffLabel),
         activityIcon: 'shield_person',
         iconBgColor: 'bg-rose-600 text-white',
-        referenceCode: `ESC-${gr.id.substring(0, 6).toUpperCase()}`,
+        referenceCode: `ESC-${String(rawGr.id).substring(0, 6).toUpperCase()}`,
         priority: 'Urgent',
         status: isPending ? 'Pending' : isResolved ? 'Approved' : 'Rejected',
-        createdAt: gr.createdAt || new Date().toISOString(),
-        timeAgo: formatRelativeTime(gr.createdAt),
+        createdAt: createdAt,
+        timeAgo: formatRelativeTime(createdAt),
         starred: isStarred,
         deepLinkUrl: '/admin/inbox',
         metadata: {
-          ...gr,
+          ...rawGr,
           isGrievance: true,
-          category: gr.category,
-          description: gr.description,
-          isAnonymous: gr.isAnonymous,
-          gradeLevel: gr.gradeLevel
+          category: category,
+          description: description,
+          details: description,
+          isAnonymous: isAnon,
+          gradeLevel: gradeLevel
         },
         actions: {
           canApprove: isPending,
@@ -462,7 +493,7 @@ export const useInboxHub = () => {
     });
 
     // 4. 🚗 OPERATIONS: Driver & Vehicle Allocation Missing
-    bookings.forEach(b => {
+    bkList.forEach(b => {
       if (b.status === 'Cancelled' || b.status === 'Completed') return;
 
       const departureDate = new Date(b.date).getTime();
@@ -553,7 +584,7 @@ export const useInboxHub = () => {
     });
 
     // 5. 📞 CRM & SALES: Overdue Follow-ups & Unassigned Inquiries
-    followUps.forEach(f => {
+    fuList.forEach(f => {
       const isPending = f.status === 'Pending' || f.status === 'Scheduled';
       if (!isPending) return;
 
@@ -598,7 +629,7 @@ export const useInboxHub = () => {
     });
 
     // Unassigned Fresh Leads
-    leads.forEach(l => {
+    ldList.forEach(l => {
       if (l.status === 'New' && (!l.assignedTo || l.assignedTo === 0)) {
         const isStarred = starredIds.includes(`crm_lead_${l.id}`);
         items.push({
@@ -638,7 +669,7 @@ export const useInboxHub = () => {
     });
 
     // 6. 🤝 PARTNERS & KYC: Approvals and KYC Verification
-    partners.forEach(p => {
+    ptList.forEach(p => {
       if (p.status === 'Pending Approval') {
         const isStarred = starredIds.includes(`partner_${p.id}`);
         items.push({
@@ -675,7 +706,7 @@ export const useInboxHub = () => {
       }
     });
 
-    kycRecords.forEach(kyc => {
+    kycList.forEach(kyc => {
       if (kyc.kyc_status === 'Submitted') {
         const isStarred = starredIds.includes(`kyc_${kyc.id}`);
         items.push({
@@ -713,7 +744,7 @@ export const useInboxHub = () => {
     });
 
     // 7. 📋 PRODUCTIVITY TASKS (Assigned & Urgent Playbooks)
-    tasks.forEach(t => {
+    tskList.forEach(t => {
       if (t.status === 'Pending' || t.status === 'In Progress') {
         const isStarred = starredIds.includes(`task_${t.id}`);
         const assignedByName = resolveStaffDisplayName(t.assignedBy);
@@ -802,7 +833,7 @@ export const useInboxHub = () => {
       if (pDiff !== 0) return pDiff;
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
-  }, [transactions, transfers, leaves, regularizations, grievances, bookings, followUps, leads, partners, kycRecords, tasks, starredIds]);
+  }, [transactions, transfers, leaves, regularizations, rawGrievances, bookings, followUps, leads, partners, kycRecords, tasks, starredIds]);
 
   // Folder Counts
   const counts = useMemo(() => {

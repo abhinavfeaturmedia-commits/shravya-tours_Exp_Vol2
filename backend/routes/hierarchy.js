@@ -151,12 +151,13 @@ export function createHierarchyRoutes(app, pool, authMiddleware) {
                 return res.status(401).json({ error: 'Staff profile required to submit grievance' });
             }
 
-            const { category, subject, details, is_anonymous } = req.body;
-            if (!subject || !details || !category) {
-                return res.status(400).json({ error: 'Category, subject, and details are required' });
+            const { category, subject, details, description, is_anonymous, isAnonymous } = req.body;
+            const grievanceDetails = details || description;
+            if (!subject || !grievanceDetails || !category) {
+                return res.status(400).json({ error: 'Category, subject, and details/description are required' });
             }
 
-            const isAnon = Boolean(is_anonymous);
+            const isAnon = Boolean(is_anonymous ?? isAnonymous);
             const id = crypto.randomUUID();
 
             // Generate clean ticket number
@@ -173,7 +174,7 @@ export function createHierarchyRoutes(app, pool, authMiddleware) {
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Submitted', 'HR Head / Founder', NOW(), NOW())`,
                 [
                     id, ticketNumber, currentStaff.id, displayName, displayEmail, 
-                    currentStaff.department, category, subject, details, isAnon ? 1 : 0
+                    currentStaff.department, category, subject, grievanceDetails, isAnon ? 1 : 0
                 ]
             );
 
@@ -181,7 +182,8 @@ export function createHierarchyRoutes(app, pool, authMiddleware) {
             const [[created]] = await pool.query('SELECT * FROM hr_grievances WHERE id = ?', [id]);
             return res.status(201).json({
                 message: 'Confidential grievance submitted directly to HR Head / Founder',
-                grievance: created
+                grievance: created,
+                id
             });
         } catch (error) {
             console.error('[Hierarchy Route /grievances Error]:', error);
@@ -214,7 +216,30 @@ export function createHierarchyRoutes(app, pool, authMiddleware) {
             query += ' ORDER BY created_at DESC';
             const [rows] = await pool.query(query, params);
 
-            return res.json({ count: rows.length, grievances: rows });
+            const mapped = (rows || []).map(r => ({
+                ...r,
+                id: String(r.id),
+                ticketNumber: r.ticket_number,
+                staffId: r.staff_id,
+                staffName: r.staff_name,
+                staffEmail: r.staff_email,
+                department: r.department,
+                gradeLevel: r.grade_level,
+                category: r.category,
+                subject: r.subject,
+                description: r.details,
+                details: r.details,
+                isAnonymous: Boolean(r.is_anonymous),
+                status: r.status,
+                resolutionNotes: r.resolution_notes,
+                resolvedBy: r.resolved_by,
+                resolvedByName: r.resolved_by_name,
+                resolvedAt: r.resolved_at,
+                createdAt: r.created_at,
+                updatedAt: r.updated_at
+            }));
+
+            return res.json({ count: mapped.length, grievances: mapped, data: mapped });
         } catch (error) {
             console.error('[Hierarchy Route GET /grievances Error]:', error);
             return res.status(500).json({ error: 'Failed to fetch grievances', details: error.message });
@@ -235,7 +260,8 @@ export function createHierarchyRoutes(app, pool, authMiddleware) {
                 return res.status(403).json({ error: 'Only HR leadership or Administrators can update grievance resolutions' });
             }
 
-            const { status, resolution_notes } = req.body;
+            const { status, resolution_notes, resolutionNotes } = req.body;
+            const finalNotes = resolution_notes || resolutionNotes || null;
             const grievanceId = req.params.id;
 
             await pool.query(
@@ -246,11 +272,26 @@ export function createHierarchyRoutes(app, pool, authMiddleware) {
                     resolved_at = NOW(),
                     updated_at = NOW()
                  WHERE id = ?`,
-                [status, resolution_notes, currentStaff?.id || null, grievanceId]
+                [status, finalNotes, currentStaff?.id || null, grievanceId]
             );
 
             const [[updated]] = await pool.query('SELECT * FROM hr_grievances WHERE id = ?', [grievanceId]);
-            return res.json({ message: 'Grievance updated successfully', grievance: updated });
+            const normalizedUpdated = updated ? {
+                ...updated,
+                id: String(updated.id),
+                ticketNumber: updated.ticket_number,
+                staffId: updated.staff_id,
+                staffName: updated.staff_name,
+                staffEmail: updated.staff_email,
+                description: updated.details,
+                details: updated.details,
+                isAnonymous: Boolean(updated.is_anonymous),
+                resolutionNotes: updated.resolution_notes,
+                createdAt: updated.created_at,
+                updatedAt: updated.updated_at
+            } : null;
+
+            return res.json({ message: 'Grievance updated successfully', grievance: normalizedUpdated || updated });
         } catch (error) {
             console.error('[Hierarchy Route PATCH /grievances/:id/status Error]:', error);
             return res.status(500).json({ error: 'Failed to update grievance', details: error.message });
