@@ -328,6 +328,59 @@ function cleanHtmlToPlainText(html: string): string {
     return text.trim();
 }
 
+/**
+ * Robust date formatting for input[type="date"] (YYYY-MM-DD)
+ * Guards against MySQL 1899/0000 bugs and timezone day-shifting.
+ */
+export const formatLocalDate = (val: any): string => {
+    if (!val) return '';
+    const str = String(val).trim();
+    if (str.startsWith('1899') || str.startsWith('0000') || str.startsWith('1970-01-01')) return '';
+
+    // If it's already a clean YYYY-MM-DD string without time, return as-is
+    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+        return str;
+    }
+
+    // If it's an ISO timestamp or Date object
+    const dateObj = new Date(val);
+    if (!isNaN(dateObj.getTime())) {
+        const y = dateObj.getFullYear();
+        if (y < 1970) return '';
+        const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+        const day = String(dateObj.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+    }
+
+    // Try extracting YYYY-MM-DD pattern
+    const isoMatch = str.match(/\b\d{4}-\d{2}-\d{2}\b/);
+    if (isoMatch) return isoMatch[0];
+
+    // Try extracting DD-MM-YYYY or DD/MM/YYYY pattern
+    const dmyMatch = str.match(/\b(\d{1,2})[-/](\d{1,2})[-/](\d{4})\b/);
+    if (dmyMatch) {
+        const [, d, m, y] = dmyMatch;
+        return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+    }
+
+    return '';
+};
+
+/**
+ * Parses free-form travel_dates strings like:
+ * "2026-10-04 to 2026-10-06", "04-10-2026", "2026-10-04 - 2026-10-06"
+ */
+export const parseDateRangeString = (rangeStr: any): { from: string; to: string } => {
+    if (!rangeStr) return { from: '', to: '' };
+    const s = String(rangeStr).trim();
+    if (s.startsWith('1899') || s.startsWith('0000')) return { from: '', to: '' };
+
+    const parts = s.split(/\s+to\s+|\s*-\s*|\s*–\s*|\s*,\s*/i);
+    const from = formatLocalDate(parts[0]);
+    const to = parts.length > 1 ? formatLocalDate(parts[1]) : '';
+    return { from, to: to || from };
+};
+
 export const DocumentEditor: React.FC = () => {
     const { settings } = useSettings();
     const co = settings.company;
@@ -651,6 +704,9 @@ export const DocumentEditor: React.FC = () => {
             if (res.ok) {
                 const { data } = await res.json();
                 const pax = parsePaxString(data.pax_adult || data.guests || data.number_of_people);
+                const fromDate = formatLocalDate(data.start_date || data.booking_date || data.date);
+                const toDate = formatLocalDate(data.end_date) || fromDate;
+                const tDates = fromDate ? `${fromDate}${toDate && toDate !== fromDate ? ' to ' + toDate : ''}` : '';
                 setDocData(prev => ({
                     ...prev,
                     client_name: data.customer_name || data.customer || '',
@@ -658,9 +714,9 @@ export const DocumentEditor: React.FC = () => {
                     // Fix: bookings stores phone as customer_phone, address as residential_address
                     phone: data.customer_phone || data.phone || prev.phone || '',
                     address: data.residential_address || data.address || prev.address || '',
-                    travel_dates: data.booking_date || data.date ? new Date(data.booking_date || data.date).toISOString().split('T')[0] : '',
-                    travel_date_from: data.start_date ? new Date(data.start_date).toISOString().split('T')[0] : (data.booking_date ? new Date(data.booking_date).toISOString().split('T')[0] : ''),
-                    travel_date_to: data.end_date ? new Date(data.end_date).toISOString().split('T')[0] : '',
+                    travel_dates: tDates,
+                    travel_date_from: fromDate,
+                    travel_date_to: toDate,
                     adults: data.pax_adult || data.number_of_people || pax.adults,
                     children: data.pax_child !== undefined && data.pax_child !== null ? Number(data.pax_child) : pax.children
                 }));
@@ -678,6 +734,9 @@ export const DocumentEditor: React.FC = () => {
             if (res.ok) {
                 const { data } = await res.json();
                 const pax = parsePaxString(data.pax_adult || data.travelers);
+                const fromDate = formatLocalDate(data.start_date || data.travelDate);
+                const toDate = formatLocalDate(data.end_date) || fromDate;
+                const tDates = fromDate ? `${fromDate}${toDate && toDate !== fromDate ? ' to ' + toDate : ''}` : '';
                 setDocData(prev => ({
                     ...prev,
                     client_name: data.name || '',
@@ -686,9 +745,9 @@ export const DocumentEditor: React.FC = () => {
                     phone: data.phone || prev.phone || '',
                     adults: data.pax_adult || pax.adults,
                     children: data.pax_child !== undefined && data.pax_child !== null ? Number(data.pax_child) : pax.children,
-                    travel_dates: data.start_date || data.travelDate ? new Date(data.start_date || data.travelDate).toISOString().split('T')[0] : '',
-                    travel_date_from: data.start_date ? new Date(data.start_date).toISOString().split('T')[0] : (data.travelDate ? new Date(data.travelDate).toISOString().split('T')[0] : ''),
-                    travel_date_to: data.end_date ? new Date(data.end_date).toISOString().split('T')[0] : '',
+                    travel_dates: tDates,
+                    travel_date_from: fromDate,
+                    travel_date_to: toDate,
                 }));
                 const budget = data.potential_value || data.budget;
                 if (budget) {
@@ -735,14 +794,62 @@ export const DocumentEditor: React.FC = () => {
                     navigate('/admin/invoices');
                     return;
                 }
-                const normalizeDate = (d: any) => d ? (String(d).includes('T') ? String(d).split('T')[0] : String(d)) : '';
+                // ── 4-TIER DEFENSIVE TRAVEL DATES RESOLUTION ──
+                let resolvedFrom = formatLocalDate(data.travel_date_from);
+                let resolvedTo = formatLocalDate(data.travel_date_to);
+
+                // Tier 2: Parse from stored travel_dates string if primary dates missing
+                if (!resolvedFrom && data.travel_dates) {
+                    const parsed = parseDateRangeString(data.travel_dates);
+                    if (parsed.from) {
+                        resolvedFrom = parsed.from;
+                        if (!resolvedTo && parsed.to) resolvedTo = parsed.to;
+                    }
+                }
+
+                // Tier 3: Fetch linked booking dates if still missing
+                if ((!resolvedFrom || !resolvedTo) && data.booking_id) {
+                    try {
+                        const bkRes = await fetch(`/api/crud/bookings/${data.booking_id}`, { headers: { 'Authorization': `Bearer ${token}` } });
+                        if (bkRes.ok) {
+                            const bkData = await bkRes.json();
+                            const b = bkData.data;
+                            if (b) {
+                                if (!resolvedFrom) resolvedFrom = formatLocalDate(b.booking_date || b.start_date);
+                                if (!resolvedTo) resolvedTo = formatLocalDate(b.end_date);
+                            }
+                        }
+                    } catch (_) {}
+                }
+
+                // Tier 3b: Fetch linked lead dates if still missing
+                if ((!resolvedFrom || !resolvedTo) && data.lead_id) {
+                    try {
+                        const ldRes = await fetch(`/api/crud/leads/${data.lead_id}`, { headers: { 'Authorization': `Bearer ${token}` } });
+                        if (ldRes.ok) {
+                            const ldData = await ldRes.json();
+                            const l = ldData.data;
+                            if (l) {
+                                if (!resolvedFrom) resolvedFrom = formatLocalDate(l.start_date || l.travelDate);
+                                if (!resolvedTo) resolvedTo = formatLocalDate(l.end_date);
+                            }
+                        }
+                    } catch (_) {}
+                }
+
+                if (resolvedFrom && !resolvedTo) {
+                    resolvedTo = resolvedFrom;
+                }
+
+                const syncedTravelDates = data.travel_dates || (resolvedFrom ? `${resolvedFrom}${resolvedTo && resolvedTo !== resolvedFrom ? ' to ' + resolvedTo : ''}` : '');
 
                 setDocData({
                     ...data,
-                    issue_date: normalizeDate(data.issue_date),
-                    due_date: normalizeDate(data.due_date),
-                    travel_date_from: normalizeDate(data.travel_date_from),
-                    travel_date_to: normalizeDate(data.travel_date_to),
+                    issue_date: formatLocalDate(data.issue_date) || new Date().toISOString().split('T')[0],
+                    due_date: formatLocalDate(data.due_date),
+                    travel_date_from: resolvedFrom,
+                    travel_date_to: resolvedTo,
+                    travel_dates: syncedTravelDates,
                     driver_stay_allowance: Number(data.driver_stay_allowance || 0),
                     extra_km_charges: Number(data.extra_km_charges || 0),
                     extra_hrs_charges: Number(data.extra_hrs_charges || 0),
@@ -777,9 +884,25 @@ export const DocumentEditor: React.FC = () => {
                             unit_price: Number(it.unit_price !== undefined && it.unit_price !== null ? it.unit_price : 0),
                             tax_rate: Number(it.tax_rate || 0),
                             hsn_sac: it.hsn_sac || fi.defaultSacCode || DEFAULT_SAC_CODE,
-                            date_from: normalizeDate(it.date_from),
-                            date_to: normalizeDate(it.date_to)
+                            date_from: formatLocalDate(it.date_from),
+                            date_to: formatLocalDate(it.date_to)
                         })));
+
+                        // Tier 4: Fallback from line items if dates were completely empty
+                        if (!resolvedFrom || !resolvedTo) {
+                            for (const it of itemsData.data) {
+                                if (!resolvedFrom && it.date_from) resolvedFrom = formatLocalDate(it.date_from);
+                                if (!resolvedTo && it.date_to) resolvedTo = formatLocalDate(it.date_to);
+                            }
+                            if (resolvedFrom) {
+                                setDocData((prev: any) => ({
+                                    ...prev,
+                                    travel_date_from: resolvedFrom,
+                                    travel_date_to: resolvedTo || resolvedFrom,
+                                    travel_dates: prev.travel_dates || `${resolvedFrom}${resolvedTo && resolvedTo !== resolvedFrom ? ' to ' + resolvedTo : ''}`
+                                }));
+                            }
+                        }
                     } else if (Number(data.subtotal || data.total_amount) > 0) {
                         // Fallback for legacy / repaired records where subtotal is present but line items were not persisted
                         const taxRate = Number(data.tax_total) > 0 && Number(data.subtotal) > 0 
@@ -853,6 +976,9 @@ export const DocumentEditor: React.FC = () => {
 
     const linkRecord = (record: any) => {
         setDocData(prev => {
+            const fromDate = formatLocalDate(record.start_date) || prev.travel_date_from;
+            const toDate = formatLocalDate(record.end_date) || fromDate || prev.travel_date_to;
+            const tDates = fromDate ? `${fromDate}${toDate && toDate !== fromDate ? ' to ' + toDate : ''}` : prev.travel_dates;
             const updated: any = {
                 ...prev,
                 booking_id: record.booking_id || null,
@@ -862,9 +988,9 @@ export const DocumentEditor: React.FC = () => {
                 email: record.email || prev.email || '',
                 phone: record.phone || prev.phone || '',
                 address: record.address || prev.address || '',
-                travel_dates: record.start_date ? new Date(record.start_date).toISOString().split('T')[0] : prev.travel_dates,
-                travel_date_from: record.start_date ? new Date(record.start_date).toISOString().split('T')[0] : prev.travel_date_from,
-                travel_date_to: record.end_date ? new Date(record.end_date).toISOString().split('T')[0] : prev.travel_date_to,
+                travel_dates: tDates,
+                travel_date_from: fromDate,
+                travel_date_to: toDate,
                 adults: record.adults || prev.adults,
                 children: record.children !== undefined ? record.children : prev.children
             };
@@ -1105,6 +1231,10 @@ export const DocumentEditor: React.FC = () => {
                 payment_status: 'Unpaid',
                 amount_paid: 0,
                 issue_date: new Date().toISOString().split('T')[0],
+                due_date: docData.due_date ? formatLocalDate(docData.due_date) : null,
+                travel_date_from: docData.travel_date_from ? formatLocalDate(docData.travel_date_from) : null,
+                travel_date_to: docData.travel_date_to ? formatLocalDate(docData.travel_date_to) : null,
+                travel_dates: docData.travel_dates || (docData.travel_date_from ? `${formatLocalDate(docData.travel_date_from)}${docData.travel_date_to && docData.travel_date_to !== docData.travel_date_from ? ' to ' + formatLocalDate(docData.travel_date_to) : ''}` : null),
                 field_labels: Object.keys(fieldLabels).length > 0 ? JSON.stringify(fieldLabels) : null
             };
             
@@ -1241,11 +1371,11 @@ export const DocumentEditor: React.FC = () => {
                     email: docData.email,
                     phone: docData.phone,
                     address: docData.address,
-                    travel_dates: docData.travel_dates,
-                    travel_date_from: docData.travel_date_from,
-                    travel_date_to: docData.travel_date_to,
-                    due_date: docData.due_date,
-                    issue_date: docData.issue_date || new Date().toISOString().split('T')[0],
+                    travel_dates: docData.travel_dates || (docData.travel_date_from ? `${formatLocalDate(docData.travel_date_from)}${docData.travel_date_to && docData.travel_date_to !== docData.travel_date_from ? ' to ' + formatLocalDate(docData.travel_date_to) : ''}` : null),
+                    travel_date_from: docData.travel_date_from ? formatLocalDate(docData.travel_date_from) : null,
+                    travel_date_to: docData.travel_date_to ? formatLocalDate(docData.travel_date_to) : null,
+                    due_date: docData.due_date ? formatLocalDate(docData.due_date) : null,
+                    issue_date: formatLocalDate(docData.issue_date) || new Date().toISOString().split('T')[0],
                     booking_id: docData.booking_id || null,
                     lead_id: docData.lead_id || null,
                     customer_id: docData.customer_id || null,
@@ -1336,8 +1466,11 @@ export const DocumentEditor: React.FC = () => {
                 status: generate ? (docData.status === 'Void' ? 'Void' : 'Sent') : (docData.status || 'Draft'),
                 payment_status: resolvedPaymentStatus,
                 amount_paid: docData.amount_paid || 0,
-                issue_date: isEdit ? (docData.issue_date || new Date().toISOString().split('T')[0]) : new Date().toISOString().split('T')[0],
-                due_date: docData.due_date || null,
+                issue_date: isEdit ? (formatLocalDate(docData.issue_date) || new Date().toISOString().split('T')[0]) : new Date().toISOString().split('T')[0],
+                due_date: docData.due_date ? formatLocalDate(docData.due_date) : null,
+                travel_date_from: docData.travel_date_from ? formatLocalDate(docData.travel_date_from) : null,
+                travel_date_to: docData.travel_date_to ? formatLocalDate(docData.travel_date_to) : null,
+                travel_dates: docData.travel_dates || (docData.travel_date_from ? `${formatLocalDate(docData.travel_date_from)}${docData.travel_date_to && docData.travel_date_to !== docData.travel_date_from ? ' to ' + formatLocalDate(docData.travel_date_to) : ''}` : null),
                 field_labels: Object.keys(fieldLabels).length > 0 ? JSON.stringify(fieldLabels) : null
             };
 
@@ -2178,12 +2311,12 @@ export const DocumentEditor: React.FC = () => {
                                     <div className="flex items-center gap-1.5">
                                         <input
                                             type="date"
-                                            value={docData.issue_date ? docData.issue_date.split('T')[0] : new Date().toISOString().split('T')[0]}
+                                            value={formatLocalDate(docData.issue_date) || formatLocalDate(new Date())}
                                             onChange={e => { setDocData((prev: any) => ({...prev, issue_date: e.target.value})); setIsDirty(true); }}
                                             disabled={isLocked && isEdit}
                                             className="font-bold text-[#091C3B] dark:text-white bg-transparent border-0 outline-none text-xs p-0 w-full print:hidden disabled:opacity-60 cursor-pointer"
                                         />
-                                        <span className="hidden print:inline font-bold text-[#091C3B]">{new Date(docData.issue_date || new Date()).toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'})}</span>
+                                        <span className="hidden print:inline font-bold text-[#091C3B]">{docData.issue_date ? new Date(formatLocalDate(docData.issue_date) + 'T00:00:00').toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'}) : new Date().toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'})}</span>
                                     </div>
                                 </div>
                                 <div className="bg-slate-50/50 dark:bg-slate-800/10 border border-slate-100 dark:border-slate-800/60 rounded-2xl p-3.5 flex flex-col justify-center transition-colors">
@@ -2191,13 +2324,13 @@ export const DocumentEditor: React.FC = () => {
                                     <div className="flex items-center gap-1.5">
                                         <input
                                             type="date"
-                                            value={docData.due_date ? String(docData.due_date).split('T')[0] : ''}
+                                            value={formatLocalDate(docData.due_date) || ''}
                                             onChange={e => { setDocData((prev: any) => ({...prev, due_date: e.target.value || null})); setIsDirty(true); }}
                                             disabled={isLocked && isEdit}
                                             className="font-bold text-[#091C3B] dark:text-white bg-transparent border-0 outline-none text-xs p-0 w-full print:hidden disabled:opacity-60 cursor-pointer"
                                             placeholder="Not set"
                                         />
-                                        <span className="hidden print:inline font-bold text-[#091C3B]">{docData.due_date ? new Date(docData.due_date).toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'}) : '—'}</span>
+                                        <span className="hidden print:inline font-bold text-[#091C3B]">{docData.due_date ? new Date(formatLocalDate(docData.due_date) + 'T00:00:00').toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'}) : '—'}</span>
                                     </div>
                                 </div>
                             </div>
@@ -2211,34 +2344,63 @@ export const DocumentEditor: React.FC = () => {
                                     <div className="flex items-center gap-1.5">
                                         <input
                                             type="date"
-                                            value={docData.travel_date_from ? String(docData.travel_date_from).split('T')[0] : ''}
-                                            onChange={e => { setDocData(prev => ({...prev, travel_date_from: e.target.value || ''})); setIsDirty(true); }}
+                                            value={formatLocalDate(docData.travel_date_from) || ''}
+                                            onChange={e => {
+                                                const val = e.target.value || '';
+                                                setDocData(prev => {
+                                                    const from = val;
+                                                    const to = formatLocalDate(prev.travel_date_to) || '';
+                                                    const synced = from ? `${from}${to && to !== from ? ' to ' + to : ''}` : (to || '');
+                                                    return {
+                                                        ...prev,
+                                                        travel_date_from: from,
+                                                        travel_dates: synced
+                                                    };
+                                                });
+                                                setIsDirty(true);
+                                            }}
                                             disabled={isLocked}
                                             className="font-bold text-[#091C3B] dark:text-white bg-transparent border-0 outline-none text-xs p-0 w-full print:hidden disabled:opacity-60 cursor-pointer"
                                             placeholder="dd-mm-yyyy"
                                         />
-                                        <span className="hidden print:inline font-bold text-[#091C3B]">{docData.travel_date_from ? new Date(docData.travel_date_from).toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'}) : '—'}</span>
+                                        <span className="hidden print:inline font-bold text-[#091C3B]">{docData.travel_date_from ? new Date(formatLocalDate(docData.travel_date_from) + 'T00:00:00').toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'}) : '—'}</span>
                                     </div>
                                 </div>
                                 <div className="bg-orange-50/40 dark:bg-orange-500/5 border border-orange-200/60 dark:border-orange-500/20 rounded-2xl p-3.5 flex flex-col justify-center transition-colors">
                                     <span className="text-[10px] text-orange-500 dark:text-orange-400 font-extrabold uppercase tracking-wider mb-1 flex items-center gap-1">
                                         🏁 Travel Date To
                                         {docData.travel_date_from && docData.travel_date_to && (() => {
-                                            const diff = Math.round((new Date(docData.travel_date_to).getTime() - new Date(docData.travel_date_from).getTime()) / (1000 * 60 * 60 * 24));
+                                            const fromStr = formatLocalDate(docData.travel_date_from);
+                                            const toStr = formatLocalDate(docData.travel_date_to);
+                                            if (!fromStr || !toStr) return null;
+                                            const diff = Math.round((new Date(toStr + 'T00:00:00').getTime() - new Date(fromStr + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24));
                                             return diff > 0 ? <span className="ml-auto text-[9px] bg-orange-100 dark:bg-orange-500/10 text-orange-600 dark:text-orange-400 px-1.5 py-0.5 rounded-md font-black">{formatTripDuration({ nights: diff, days: diff + 1 })}</span> : null;
                                         })()}
                                     </span>
                                     <div className="flex items-center gap-1.5">
                                         <input
                                             type="date"
-                                            value={docData.travel_date_to ? String(docData.travel_date_to).split('T')[0] : ''}
-                                            min={docData.travel_date_from || undefined}
-                                            onChange={e => { setDocData(prev => ({...prev, travel_date_to: e.target.value || ''})); setIsDirty(true); }}
+                                            value={formatLocalDate(docData.travel_date_to) || ''}
+                                            min={formatLocalDate(docData.travel_date_from) || undefined}
+                                            onChange={e => {
+                                                const val = e.target.value || '';
+                                                setDocData(prev => {
+                                                    const from = formatLocalDate(prev.travel_date_from) || '';
+                                                    const to = val;
+                                                    const synced = from ? `${from}${to && to !== from ? ' to ' + to : ''}` : (to || '');
+                                                    return {
+                                                        ...prev,
+                                                        travel_date_to: to,
+                                                        travel_dates: synced
+                                                    };
+                                                });
+                                                setIsDirty(true);
+                                            }}
                                             disabled={isLocked}
                                             className="font-bold text-[#091C3B] dark:text-white bg-transparent border-0 outline-none text-xs p-0 w-full print:hidden disabled:opacity-60 cursor-pointer"
                                             placeholder="dd-mm-yyyy"
                                         />
-                                        <span className="hidden print:inline font-bold text-[#091C3B]">{docData.travel_date_to ? new Date(docData.travel_date_to).toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'}) : '—'}</span>
+                                        <span className="hidden print:inline font-bold text-[#091C3B]">{docData.travel_date_to ? new Date(formatLocalDate(docData.travel_date_to) + 'T00:00:00').toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'}) : '—'}</span>
                                     </div>
                                 </div>
                             </div>
@@ -2490,14 +2652,14 @@ export const DocumentEditor: React.FC = () => {
                         </div>
 
                         {/* Line Items Table */}
-                        <div className="border border-slate-200/60 dark:border-slate-800/80 rounded-2xl overflow-hidden shadow-sm transition-all duration-300">
-                            <table className="w-full text-sm">
+                        <div className="border border-slate-200/60 dark:border-slate-800/80 rounded-2xl overflow-x-auto overflow-y-visible shadow-sm transition-all duration-300 bg-white dark:bg-[#111827]">
+                            <table className="w-full text-sm min-w-[780px]">
                                 <thead>
                                     <tr className="bg-[#091C3B] dark:bg-slate-800 text-white text-xs font-bold uppercase tracking-wider" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-                                        <th className="text-left px-4 py-4 w-[5%]">#</th>
-                                        <th className={`text-left px-4 py-4 ${docData.is_gst === 1 ? 'w-[30%]' : 'w-[40%]'}`}>Description</th>
+                                        <th className="text-left px-3 py-4 w-10">#</th>
+                                        <th className={`text-left px-4 py-4 ${docData.is_gst === 1 ? 'min-w-[220px]' : 'min-w-[280px]'}`}>Description</th>
                                         {docData.is_gst === 1 && (
-                                            <th className="text-center px-2 py-4 w-[11%]">
+                                            <th className="text-center px-2 py-4 w-28 min-w-[100px]">
                                                 <div className="flex items-center justify-center gap-1">
                                                     <span>HSN/SAC</span>
                                                     <button
@@ -2511,14 +2673,14 @@ export const DocumentEditor: React.FC = () => {
                                                 </div>
                                             </th>
                                         )}
-                                        <th className={`text-center px-2 py-4 ${docData.is_gst === 1 ? 'w-[8%]' : 'w-[10%]'}`}>Qty</th>
-                                        <th className={`text-center px-2 py-4 ${docData.is_gst === 1 ? 'w-[14%]' : 'w-[18%]'}`}>Total Days / Km</th>
-                                        <th className="text-right px-2 py-4 w-[13%]">Rate (₹)</th>
+                                        <th className="text-center px-2 py-4 w-20 min-w-[72px]">Qty</th>
+                                        <th className="text-center px-2 py-4 w-40 min-w-[145px]">Total Days / Km</th>
+                                        <th className="text-right px-2 py-4 w-32 min-w-[115px]">Rate (₹)</th>
                                         {docData.is_gst === 1 && (
-                                            <th className="text-right px-2 py-4 w-[8%]">GST (%)</th>
+                                            <th className="text-center px-2 py-4 w-24 min-w-[85px]">GST (%)</th>
                                         )}
-                                        <th className="text-right px-4 py-4 w-[12%]">Amount (₹)</th>
-                                        <th className="w-0 p-0 print:hidden"></th>
+                                        <th className="text-right px-4 py-4 w-32 min-w-[125px]">Amount (₹)</th>
+                                        <th className="w-8 p-0 print:hidden"></th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -2526,7 +2688,7 @@ export const DocumentEditor: React.FC = () => {
                                         const { num: daysKmNum, unit: daysKmUnit } = getDaysKmParts(item.total_days_km);
                                         return (
                                         <tr key={index} className={`group transition-colors border-b border-slate-100 dark:border-slate-800/50 last:border-0 ${index % 2 !== 0 ? 'bg-slate-50/50 dark:bg-slate-800/10' : 'bg-white dark:bg-[#111827]'}`} style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-                                            <td className="px-4 py-4.5 align-middle text-slate-400 dark:text-slate-500 font-bold text-xs">{index + 1}.</td>
+                                            <td className="px-3 py-4.5 align-middle text-slate-400 dark:text-slate-500 font-bold text-xs">{index + 1}.</td>
                                             <td className="px-4 py-4.5 align-middle">
                                                 <DescriptionEditorCell
                                                     value={item.description}
@@ -2554,17 +2716,17 @@ export const DocumentEditor: React.FC = () => {
                                                                     }
                                                                 }}
                                                                 placeholder={DEFAULT_SAC_CODE}
-                                                                className="w-full bg-slate-50 dark:bg-slate-800/40 text-center text-slate-800 dark:text-slate-100 outline-none border border-slate-200/60 dark:border-slate-800 focus:border-orange-500 focus:ring-0 font-mono font-bold rounded-xl transition-all text-xs px-1 py-1.5"
+                                                                className="w-full bg-white dark:bg-slate-800 text-center text-slate-900 dark:text-white outline-none border border-slate-300 dark:border-slate-700 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 font-mono font-bold rounded-xl transition-all text-xs px-1.5 py-1.5 shadow-2xs"
                                                             />
                                                         </div>
                                                         {(() => {
                                                             const sacInfo = getSacDetails(item.hsn_sac || fi.defaultSacCode || DEFAULT_SAC_CODE);
-                                                            return (
+                                                             return (
                                                                 <button
                                                                     type="button"
                                                                     onClick={() => { setActiveSacRowIndex(index); setShowSacModal(true); }}
                                                                     title={`${sacInfo?.description || 'Click to change SAC code'}\nClick to browse standard Indian Tour/Cab SAC codes`}
-                                                                    className="text-[9px] font-semibold text-slate-500 dark:text-slate-400 hover:text-orange-600 dark:hover:text-orange-400 truncate max-w-[95px] block leading-tight px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800/80 hover:bg-orange-50 dark:hover:bg-orange-950/40 border border-slate-200/40 dark:border-slate-700/60 transition-colors"
+                                                                    className="text-[9px] font-semibold text-slate-600 dark:text-slate-300 hover:text-orange-600 dark:hover:text-orange-400 truncate max-w-[100px] block leading-tight px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 hover:bg-orange-50 dark:hover:bg-orange-950/40 border border-slate-200 dark:border-slate-700 transition-colors"
                                                                 >
                                                                     {sacInfo?.shortName || 'Custom SAC'}
                                                                 </button>
@@ -2575,36 +2737,44 @@ export const DocumentEditor: React.FC = () => {
                                             )}
                                             <td className="px-2 py-4.5 align-middle text-center">
                                                 <input
-                                                    type="number" min="1"
-                                                    value={item.quantity}
-                                                    onChange={(e) => handleItemChange(index, 'quantity', parseFloat(e.target.value) || 0)}
-                                                    className="w-full bg-slate-50 dark:bg-slate-800/40 text-center text-slate-700 dark:text-slate-200 outline-none border border-slate-200/60 dark:border-slate-800 focus:border-orange-500 focus:ring-0 font-semibold rounded-xl transition-all text-xs px-2 py-1.5"
+                                                    type="number"
+                                                    min="1"
+                                                    value={item.quantity === 0 ? '' : item.quantity}
+                                                    onChange={(e) => {
+                                                        const val = e.target.value === '' ? 0 : parseFloat(e.target.value);
+                                                        handleItemChange(index, 'quantity', isNaN(val) ? 0 : val);
+                                                    }}
+                                                    className="w-full bg-white dark:bg-slate-800 text-center text-slate-900 dark:text-white font-bold outline-none border border-slate-300 dark:border-slate-700 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 rounded-xl transition-all text-xs px-2 py-2 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none shadow-2xs"
                                                 />
                                             </td>
                                             <td className="px-2 py-4.5 align-middle text-center print:text-xs">
-                                                <div className="flex items-center justify-center gap-1.5 print:hidden">
-                                                    <input
-                                                        type="number"
-                                                        min="0"
-                                                        step="any"
-                                                        value={daysKmNum}
-                                                        onChange={(e) => {
-                                                            const val = parseFloat(e.target.value);
-                                                            const newNum = isNaN(val) ? 0 : val;
-                                                            handleItemChange(index, 'total_days_km', `${newNum} ${daysKmUnit}`);
-                                                        }}
-                                                        className="w-14 bg-slate-50 dark:bg-slate-800/40 text-center text-slate-700 dark:text-slate-200 outline-none border border-slate-200/60 dark:border-slate-800 focus:border-orange-500 focus:ring-0 font-semibold rounded-xl transition-all text-xs px-1.5 py-1.5"
-                                                    />
-                                                    <select
-                                                        value={daysKmUnit}
-                                                        onChange={(e) => {
-                                                            handleItemChange(index, 'total_days_km', `${daysKmNum} ${e.target.value}`);
-                                                        }}
-                                                        className="bg-slate-50 dark:bg-slate-800/40 text-slate-700 dark:text-slate-200 outline-none border border-slate-200/60 dark:border-slate-800 focus:border-orange-500 focus:ring-0 font-semibold rounded-xl transition-all text-xs py-1.5 px-1 cursor-pointer dark:bg-slate-900"
-                                                    >
-                                                        <option value="Days">Days</option>
-                                                        <option value="Km">Km</option>
-                                                    </select>
+                                                <div className="flex items-center justify-center print:hidden">
+                                                    <div className="flex items-stretch w-full max-w-[140px] bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 focus-within:border-orange-500 focus-within:ring-2 focus-within:ring-orange-500/20 rounded-xl overflow-hidden shadow-2xs transition-all">
+                                                        <input
+                                                            type="number"
+                                                            min="0"
+                                                            step="any"
+                                                            value={daysKmNum === 0 ? '' : daysKmNum}
+                                                            onChange={(e) => {
+                                                                const val = e.target.value === '' ? 0 : parseFloat(e.target.value);
+                                                                const newNum = isNaN(val) ? 0 : val;
+                                                                handleItemChange(index, 'total_days_km', `${newNum} ${daysKmUnit}`);
+                                                            }}
+                                                            className="w-full min-w-0 bg-transparent text-center text-slate-900 dark:text-white font-bold outline-none text-xs px-2 py-2 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                                            placeholder="1"
+                                                        />
+                                                        <div className="w-px bg-slate-200 dark:bg-slate-700 my-1" />
+                                                        <select
+                                                            value={daysKmUnit}
+                                                            onChange={(e) => {
+                                                                handleItemChange(index, 'total_days_km', `${daysKmNum} ${e.target.value}`);
+                                                            }}
+                                                            className="bg-slate-100 dark:bg-slate-700/60 text-slate-800 dark:text-slate-100 font-bold outline-none text-xs px-2 py-2 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors shrink-0"
+                                                        >
+                                                            <option value="Days">Days</option>
+                                                            <option value="Km">Km</option>
+                                                        </select>
+                                                    </div>
                                                 </div>
                                                 <span className="hidden print:inline font-semibold">
                                                     {item.total_days_km || '1'}
@@ -2616,19 +2786,27 @@ export const DocumentEditor: React.FC = () => {
                                                         ? Number(item.unit_price || 0).toLocaleString('en-IN')
                                                         : Number(item.unit_price || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
                                                 </span>
-                                                <input
-                                                    type="number" min="0" step="any"
-                                                    value={item.unit_price}
-                                                    onChange={(e) => handleItemChange(index, 'unit_price', parseFloat(e.target.value) || 0)}
-                                                    className="w-full print:hidden bg-slate-50 dark:bg-slate-800/40 text-right text-slate-700 dark:text-slate-200 outline-none border border-slate-200/60 dark:border-slate-800 focus:border-orange-500 focus:ring-0 font-semibold rounded-xl transition-all text-xs px-2.5 py-1.5"
-                                                />
+                                                <div className="relative w-full print:hidden">
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        step="any"
+                                                        value={item.unit_price === 0 ? '' : item.unit_price}
+                                                        onChange={(e) => {
+                                                            const val = e.target.value === '' ? 0 : parseFloat(e.target.value);
+                                                            handleItemChange(index, 'unit_price', isNaN(val) ? 0 : val);
+                                                        }}
+                                                        placeholder="0.00"
+                                                        className="w-full bg-white dark:bg-slate-800 text-right text-slate-900 dark:text-white font-bold outline-none border border-slate-300 dark:border-slate-700 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 rounded-xl transition-all text-xs px-2.5 py-2 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none shadow-2xs"
+                                                    />
+                                                </div>
                                             </td>
                                             {docData.is_gst === 1 && (
-                                                <td className="px-2 py-4.5 align-middle text-right">
+                                                <td className="px-2 py-4.5 align-middle text-center">
                                                     <select
-                                                        value={item.tax_rate || 0}
+                                                        value={item.tax_rate ?? 0}
                                                         onChange={(e) => handleItemChange(index, 'tax_rate', parseFloat(e.target.value) || 0)}
-                                                        className="w-full bg-slate-50 dark:bg-slate-800/40 text-right text-slate-700 dark:text-slate-200 outline-none border border-slate-200/60 dark:border-slate-800 focus:border-orange-500 focus:ring-0 font-semibold rounded-xl transition-all text-xs py-1.5 px-2 dark:bg-slate-900 cursor-pointer"
+                                                        className="w-full bg-white dark:bg-slate-800 text-center text-slate-900 dark:text-white font-bold outline-none border border-slate-300 dark:border-slate-700 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 rounded-xl transition-all text-xs py-2 px-2 cursor-pointer shadow-2xs"
                                                     >
                                                         <option value="0">0%</option>
                                                         <option value="5">5%</option>
@@ -2638,12 +2816,12 @@ export const DocumentEditor: React.FC = () => {
                                                     </select>
                                                 </td>
                                             )}
-                                            <td className="px-4 py-4.5 align-middle text-right text-[#091C3B] dark:text-white tabular-nums font-bold text-xs">
+                                            <td className="px-4 py-4.5 align-middle text-right text-[#091C3B] dark:text-white tabular-nums font-black text-xs whitespace-nowrap">
                                                 ₹{(parseDaysKm(item.total_days_km) * Number(item.unit_price || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                                             </td>
-                                            <td className="p-0 align-middle print:hidden w-8">
-                                                <button onClick={() => removeItem(index)} className="p-2.5 text-slate-300 hover:text-red-500 hover:scale-105 active:scale-95 opacity-0 group-hover:opacity-100 transition-all mt-1">
-                                                    <Trash2 size={13} />
+                                            <td className="p-0 align-middle print:hidden w-8 text-center">
+                                                <button onClick={() => removeItem(index)} className="p-2 text-slate-300 hover:text-red-500 hover:scale-105 active:scale-95 opacity-0 group-hover:opacity-100 transition-all rounded-lg" title="Remove row">
+                                                    <Trash2 size={14} />
                                                 </button>
                                             </td>
                                         </tr>

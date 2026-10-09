@@ -145,7 +145,9 @@ export const StaffBotAvatar: React.FC<StaffBotAvatarProps> = ({
   // - If active working/clocked-in or hovered: 'working' (hops and turns)
   // - Otherwise: 'default' (idle look-around and blinking)
   const isInactive = staff?.status === 'Inactive';
-  const shouldPause = paused ?? isInactive;
+  // Performance optimization: Pause continuous animation loops by default to eliminate browser lag,
+  // activating smooth mascot animations when hovered or explicitly marked active.
+  const shouldPause = paused !== undefined ? paused : (isInactive || (!isHovered && !isActive));
   const avatarState = (isActive || isHovered) ? 'working' : 'default';
 
   return (

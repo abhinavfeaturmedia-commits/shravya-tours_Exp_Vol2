@@ -6938,7 +6938,9 @@ app.post('/api/invoices/issue', authMiddleware, async (req, res) => {
             email: body.email || null,
             phone: body.phone || null,
             address: body.address || null,
-            travel_dates: body.travel_dates || null,
+            travel_dates: body.travel_dates || (body.travel_date_from ? `${body.travel_date_from}${body.travel_date_to ? ' to ' + body.travel_date_to : ''}` : null),
+            travel_date_from: (body.travel_date_from && !String(body.travel_date_from).startsWith('1899') && !String(body.travel_date_from).startsWith('0000')) ? String(body.travel_date_from).split('T')[0] : null,
+            travel_date_to: (body.travel_date_to && !String(body.travel_date_to).startsWith('1899') && !String(body.travel_date_to).startsWith('0000')) ? String(body.travel_date_to).split('T')[0] : null,
             adults: Number(body.adults || 0),
             children: Number(body.children || 0),
             subtotal: Number(body.subtotal || 0),
@@ -7102,7 +7104,9 @@ app.post('/api/invoices/credit-note', authMiddleware, async (req, res) => {
             email: body.email || null,
             phone: body.phone || null,
             address: body.address || null,
-            travel_dates: body.travel_dates || null,
+            travel_dates: body.travel_dates || (body.travel_date_from ? `${body.travel_date_from}${body.travel_date_to ? ' to ' + body.travel_date_to : ''}` : null),
+            travel_date_from: (body.travel_date_from && !String(body.travel_date_from).startsWith('1899') && !String(body.travel_date_from).startsWith('0000')) ? String(body.travel_date_from).split('T')[0] : null,
+            travel_date_to: (body.travel_date_to && !String(body.travel_date_to).startsWith('1899') && !String(body.travel_date_to).startsWith('0000')) ? String(body.travel_date_to).split('T')[0] : null,
             subtotal: Number(body.subtotal || 0),
             discount: 0,
             tax_total: Number(body.tax_total || 0),
@@ -7857,14 +7861,20 @@ app.put('/api/crud/staff_members/:id', authMiddleware, writeGuard, async (req, r
 const DATE_COLUMNS = new Set([
     'start_date', 'end_date', 'booking_date', 'travel_date', 'departure_date',
     'return_date', 'check_in', 'check_out', 'dob', 'date_of_birth',
-    'created_at', 'updated_at', 'scheduled_at', 'completed_at'
+    'created_at', 'updated_at', 'scheduled_at', 'completed_at',
+    'travel_date_from', 'travel_date_to', 'issue_date', 'due_date',
+    'date_from', 'date_to'
 ]);
 function sanitizeDbBody(body) {
     if (!body || typeof body !== 'object') return body;
     const sanitized = { ...body };
     for (const [key, val] of Object.entries(sanitized)) {
-        if (DATE_COLUMNS.has(key) && (val === '' || val === undefined)) {
-            sanitized[key] = null;
+        if (DATE_COLUMNS.has(key)) {
+            if (val === '' || val === undefined || val === null) {
+                sanitized[key] = null;
+            } else if (typeof val === 'string' && (val.startsWith('1899') || val.startsWith('0000'))) {
+                sanitized[key] = null;
+            }
         }
     }
     return sanitized;

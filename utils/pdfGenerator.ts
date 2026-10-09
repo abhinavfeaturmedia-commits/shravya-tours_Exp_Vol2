@@ -941,7 +941,8 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
     }
 
     // Travel Dates & Pax (pinned to bottom of card)
-    if (docData.travel_date_from || docData.travel_dates || docData.adults) {
+    const hasValidTravelDate = docData.travel_date_from && !String(docData.travel_date_from).startsWith('1899') && !String(docData.travel_date_from).startsWith('0000');
+    if (hasValidTravelDate || docData.travel_dates || docData.adults) {
         doc.setFont("helvetica", "bold");
         doc.setFontSize(6.8);
         doc.setTextColor(9, 28, 59);
@@ -949,12 +950,15 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
 
         // Build travel date label: prefer date range over single legacy date
         let travelLabel = '';
-        if (docData.travel_date_from) {
-            const fromDate = new Date(docData.travel_date_from).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-            if (docData.travel_date_to) {
-                const toDate = new Date(docData.travel_date_to).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-                const diffMs = new Date(docData.travel_date_to).getTime() - new Date(docData.travel_date_from).getTime();
-                const nights = Math.round(diffMs / (1000 * 60 * 60 * 24));
+        if (hasValidTravelDate) {
+            const rawFrom = String(docData.travel_date_from).split('T')[0];
+            const fromDate = new Date(rawFrom + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+            const hasValidTravelTo = docData.travel_date_to && !String(docData.travel_date_to).startsWith('1899') && !String(docData.travel_date_to).startsWith('0000');
+            if (hasValidTravelTo) {
+                const rawTo = String(docData.travel_date_to).split('T')[0];
+                const toDate = new Date(rawTo + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+                const diffMs = new Date(rawTo + 'T00:00:00').getTime() - new Date(rawFrom + 'T00:00:00').getTime();
+                const nights = Math.max(0, Math.round(diffMs / (1000 * 60 * 60 * 24)));
                 const daysLabel = ` (${formatTripDuration({ nights, days: nights + 1 })})`;
                 travelLabel = `${fromDate} - ${toDate}${daysLabel}`;
             } else {
