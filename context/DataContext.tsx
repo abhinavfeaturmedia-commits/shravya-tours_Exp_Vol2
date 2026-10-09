@@ -781,6 +781,28 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => window.removeEventListener('tasks-changed', handleTasksChanged);
   }, []);
 
+  // Listen for the custom 'bookings-changed' event to silently update in-memory bookings state
+  // This ensures modules reading from DataContext (Operations, Inventory, etc.) stay immediately synchronized
+  // with changes made through React Query useBookings hooks (like TourChecklistModal).
+  useEffect(() => {
+    const handleBookingsChanged = async (e: any) => {
+      const detail = e.detail;
+      if (detail?.id && detail?.updates) {
+        setBookings(prev => prev.map(b => b.id === detail.id ? { ...b, ...detail.updates } : b));
+      } else if (detail?.id && detail?.deleted) {
+        setBookings(prev => prev.filter(b => b.id !== detail.id));
+      }
+      try {
+        const b = await api.getBookings();
+        setBookings(b);
+      } catch (err) {
+        console.warn("Failed to background refresh bookings on 'bookings-changed':", err);
+      }
+    };
+    window.addEventListener('bookings-changed', handleBookingsChanged);
+    return () => window.removeEventListener('bookings-changed', handleBookingsChanged);
+  }, []);
+
   // Persistence Effects (Only for non-migrated data)
   useEffect(() => { saveToStorage(`${STORAGE_KEY}_m_hotels`, masterHotels); }, [masterHotels]);
   useEffect(() => { saveToStorage(`${STORAGE_KEY}_m_activities`, masterActivities); }, [masterActivities]);
@@ -903,7 +925,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       logAction('Create', 'Bookings', `Created Booking for ${booking.customer}`);
       toast.success("Booking created successfully");
-      window.dispatchEvent(new CustomEvent('bookings-changed'));
+      window.dispatchEvent(new CustomEvent('bookings-changed', {
+        detail: { id: bookingToCreate.id, updates: bookingToCreate }
+      }));
 
       // 5. Auto-create or update Customer record (non-blocking)
       try {
@@ -976,7 +1000,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await api.updateBooking(id, booking);
       logAction('Update', 'Bookings', `Updated Booking: ${id}`);
       toast.success("Booking updated successfully");
-      window.dispatchEvent(new CustomEvent('bookings-changed'));
+      window.dispatchEvent(new CustomEvent('bookings-changed', {
+        detail: { id, updates: booking }
+      }));
     } catch (e: any) {
       setBookings(previousState);
       toast.error(e.message || "Failed to update booking");
@@ -990,7 +1016,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await api.updateBookingStatus(id, status);
       logAction('Update', 'Bookings', `Updated Booking Status to ${status}`);
       toast.success(`Booking status updated to ${status}`);
-      window.dispatchEvent(new CustomEvent('bookings-changed'));
+      window.dispatchEvent(new CustomEvent('bookings-changed', {
+        detail: { id, updates: { status } }
+      }));
     } catch (e: any) {
       setBookings(previousState);
       toast.error(e.message || "Failed to update status");
@@ -1024,7 +1052,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await api.deleteBooking(id);
       logAction('Delete', 'Bookings', `Deleted Booking: ${id}`);
       toast.success("Booking deleted");
-      window.dispatchEvent(new CustomEvent('bookings-changed'));
+      window.dispatchEvent(new CustomEvent('bookings-changed', {
+        detail: { id, deleted: true }
+      }));
       window.dispatchEvent(new CustomEvent('leads-changed'));
     } catch (e: any) {
       setBookings(previousState);

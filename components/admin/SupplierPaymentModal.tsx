@@ -82,11 +82,6 @@ export const SupplierPaymentModal: React.FC<SupplierPaymentModalProps> = ({
         }
     };
 
-    if (!isOpen || !supplierBooking) return null;
-
-    const numAmt = Number(amount) || 0;
-    const projectedRemaining = Math.max(0, balanceDue - numAmt);
-
     const pastPayments = useMemo(() => {
         if (!supplierBooking) return [];
         if (Array.isArray(supplierBooking.payments) && supplierBooking.payments.length > 0) {
@@ -104,6 +99,11 @@ export const SupplierPaymentModal: React.FC<SupplierPaymentModalProps> = ({
         }
         return [];
     }, [supplierBooking]);
+
+    if (!isOpen || !supplierBooking) return null;
+
+    const numAmt = Number(amount) || 0;
+    const projectedRemaining = Math.max(0, balanceDue - numAmt);
 
     return (
         <div className="fixed inset-0 z-[220] flex items-center justify-center p-3 sm:p-4 bg-black/65 backdrop-blur-sm animate-in fade-in overflow-y-auto">

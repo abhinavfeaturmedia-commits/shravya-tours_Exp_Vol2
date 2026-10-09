@@ -361,6 +361,7 @@ export interface TodayAttendanceResponse {
   } | null;
   currentAttendance: TodayRosterItem | null;
   settings: AttendanceSettings;
+  canViewAllStaff?: boolean;
 }
 
 export interface AttendanceReportResponse {

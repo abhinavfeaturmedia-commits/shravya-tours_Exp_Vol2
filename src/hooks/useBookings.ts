@@ -107,10 +107,20 @@ export const useBookings = () => {
         return () => window.removeEventListener('supplier-bookings-changed', handler);
     }, [queryClient]);
 
-    // Listen for any booking CRUD from DataContext (add/update/delete) and invalidate cache
+    // Listen for any booking CRUD from DataContext or other modules and update cache
     // This ensures pages reading from useBookings() immediately see changes made via DataContext
     useEffect(() => {
-        const handler = () => {
+        const handler = (e: any) => {
+            const detail = e.detail;
+            if (detail?.id && detail?.updates) {
+                queryClient.setQueryData<Booking[]>(['bookings'], (old) =>
+                    old?.map((booking) => (booking.id === detail.id ? { ...booking, ...detail.updates } : booking))
+                );
+            } else if (detail?.id && detail?.deleted) {
+                queryClient.setQueryData<Booking[]>(['bookings'], (old) =>
+                    old?.filter((booking) => booking.id !== detail.id)
+                );
+            }
             queryClient.invalidateQueries({ queryKey: ['bookings'] });
         };
         window.addEventListener('bookings-changed', handler);
@@ -132,6 +142,9 @@ export const useBookings = () => {
         onSuccess: async (_data, newBooking) => {
             toast.success('Booking created completely!');
             queryClient.invalidateQueries({ queryKey: ['bookings'] });
+            window.dispatchEvent(new CustomEvent('bookings-changed', {
+                detail: { id: newBooking.id, updates: newBooking }
+            }));
 
             // Auto-create or update Customer record in MySQL (non-blocking)
             try {
@@ -180,9 +193,12 @@ export const useBookings = () => {
             queryClient.setQueryData(['bookings'], context?.previousBookings);
             toast.error(err.message || 'Failed to update booking status');
         },
-        onSuccess: () => {
+        onSuccess: (_data, variables) => {
             toast.success('Booking status updated');
             queryClient.invalidateQueries({ queryKey: ['bookings'] });
+            window.dispatchEvent(new CustomEvent('bookings-changed', {
+                detail: { id: variables.id, updates: { status: variables.status } }
+            }));
         },
     });
 
@@ -203,6 +219,9 @@ export const useBookings = () => {
         onSuccess: (_data, variables) => {
             if (!variables.silent) toast.success('Booking updated');
             queryClient.invalidateQueries({ queryKey: ['bookings'] });
+            window.dispatchEvent(new CustomEvent('bookings-changed', {
+                detail: { id: variables.id, updates: variables.updates }
+            }));
         },
     });
 
@@ -218,9 +237,12 @@ export const useBookings = () => {
             queryClient.setQueryData(['bookings'], context?.previousBookings);
             toast.error(err.message || 'Failed to delete booking');
         },
-        onSuccess: () => {
+        onSuccess: (_data, id) => {
             toast.success('Booking deleted');
             queryClient.invalidateQueries({ queryKey: ['bookings'] });
+            window.dispatchEvent(new CustomEvent('bookings-changed', {
+                detail: { id, deleted: true }
+            }));
             // If this booking was linked to a lead (converted from), the backend will have
             // unlocked that lead. Dispatch leads-changed so the Leads page refetches immediately.
             window.dispatchEvent(new CustomEvent('leads-changed'));

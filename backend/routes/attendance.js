@@ -183,7 +183,7 @@ export async function autoCloseOrphanSessions(pool) {
                     if (netWorkedMins < halfDayMins && netWorkedMins > 0) {
                         status = 'Half Day';
                     } else if (netWorkedMins === 0) {
-                        status = 'Absent';
+                        status = 'Clocked Out'; // Never mark as Absent if staff logged in and has punch session
                     }
                 } else {
                     status = 'On Leave';
@@ -344,6 +344,29 @@ export async function recordStaffLoginAndAutoClockIn(pool, staffMember, req, log
         console.error('[RecordStaffLoginAndAutoClockIn Error]:', e);
         return null;
     }
+}
+
+// Helper to verify if requester has permission to view all staff attendance
+function checkCanViewAllStaff(req, currentStaff) {
+    if (!currentStaff) return false;
+    const reqRole = (req.user?.role || '').toLowerCase();
+    const staffRole = (currentStaff.role || '').toLowerCase();
+    const reqUserType = (req.user?.user_type || req.user?.userType || '').toLowerCase();
+    const staffUserType = (currentStaff.user_type || currentStaff.userType || '').toLowerCase();
+    
+    if (reqRole === 'admin' || staffRole === 'admin' || reqUserType === 'admin' || staffUserType === 'admin') {
+        return true;
+    }
+    if (currentStaff.permissions) {
+        try {
+            const perms = typeof currentStaff.permissions === 'string' ? JSON.parse(currentStaff.permissions) : currentStaff.permissions;
+            const att = perms?.attendance;
+            if (att?.manage === true || att?.features?.view_all_staff === true || att?.subFeatures?.view_all_staff === true || att?.view_all_staff === true) {
+                return true;
+            }
+        } catch (_) {}
+    }
+    return false;
 }
 
 export function createAttendanceRoutes(app, pool) {
@@ -591,16 +614,29 @@ export function createAttendanceRoutes(app, pool) {
             // 8. Find current user's attendance
             const currentStaffRoster = currentStaff ? roster.find(r => Number(r.staffId) === Number(currentStaff.id)) : null;
 
+            // Security: Only Admins or staff with view_all_staff permission see the full roster
+            const canViewAllStaff = checkCanViewAllStaff(req, currentStaff);
+            const visibleRoster = canViewAllStaff ? roster : (currentStaffRoster ? [currentStaffRoster] : []);
+
+            const visibleKpis = canViewAllStaff ? {
+                presentCount,
+                lateCount,
+                onLeaveCount,
+                absentPendingCount,
+                totalStaff: staffList.length
+            } : {
+                presentCount: currentStaffRoster && (currentStaffRoster.status === 'Present' || currentStaffRoster.status === 'On Break' || currentStaffRoster.status === 'Clocked Out') ? 1 : 0,
+                lateCount: currentStaffRoster && currentStaffRoster.isLate ? 1 : 0,
+                onLeaveCount: currentStaffRoster && currentStaffRoster.status === 'On Leave' ? 1 : 0,
+                absentPendingCount: !currentStaffRoster || currentStaffRoster.status === 'Absent' ? 1 : 0,
+                totalStaff: 1
+            };
+
             res.json({
                 date: today,
-                kpis: {
-                    presentCount,
-                    lateCount,
-                    onLeaveCount,
-                    absentPendingCount,
-                    totalStaff: staffList.length
-                },
-                roster,
+                kpis: visibleKpis,
+                canViewAllStaff,
+                roster: visibleRoster,
                 currentStaff: currentStaff ? {
                     id: currentStaff.id,
                     name: currentStaff.name,
@@ -1187,60 +1223,401 @@ export function createAttendanceRoutes(app, pool) {
     });
 
     // ─── 9. GET /api/attendance/my-history ───
-    // Monthly history for authenticated staff or selected staff
+    // Monthly history for authenticated staff or selected staff with full RBAC enforcement
     app.get('/api/attendance/my-history', authMiddleware, async (req, res) => {
         try {
             const currentStaff = await resolveStaff(pool, req);
-            const targetStaffId = req.query.staffId ? Number(req.query.staffId) : currentStaff?.id;
+            const canViewAll = checkCanViewAllStaff(req, currentStaff);
+            const requestedStaffId = req.query.staffId ? Number(req.query.staffId) : undefined;
+            const targetStaffId = requestedStaffId || currentStaff?.id;
 
             if (!targetStaffId) return res.status(400).json({ error: 'Staff ID not found' });
 
-            const month = req.query.month || getTodayISTDate().substring(0, 7); // e.g. "2026-08"
+            // Enforce permission: Staff can only view his/her own attendance records unless granted view_all_staff permission
+            if (requestedStaffId && requestedStaffId !== currentStaff?.id && !canViewAll) {
+                return res.status(403).json({ error: "Access Denied: You only have permission to view your own attendance records." });
+            }
 
+            const month = req.query.month || getTodayISTDate().substring(0, 7); // e.g. "2026-10"
+            const [yStr, mStr] = month.split('-');
+            const yearNum = parseInt(yStr, 10);
+            const monthNum = parseInt(mStr, 10);
+            const daysInMonth = new Date(yearNum, monthNum, 0).getDate();
+
+            // 1. Fetch staff member profile
+            const [staffRows] = await pool.query(
+                'SELECT id, name, department, role, email, phone, initials, color, user_type FROM staff_members WHERE id = ?',
+                [targetStaffId]
+            );
+            const targetStaff = staffRows[0] || currentStaff;
+
+            // 2. Fetch logs for that month
             const [rawLogs] = await pool.query(
                 `SELECT *, DATE_FORMAT(date, '%Y-%m-%d') as clean_date 
                  FROM attendance_logs 
                  WHERE staff_id = ? AND date LIKE ? 
-                 ORDER BY date DESC`,
+                 ORDER BY date ASC`,
                 [targetStaffId, `${month}%`]
             );
 
-            const logs = rawLogs.map(l => ({
-                ...l,
-                date: l.clean_date || formatISTDateString(l.date)
-            }));
+            // 3. Fetch all sessions for that month
+            const [sessions] = await pool.query(
+                `SELECT id, attendance_id, staff_id, session_number, session_start, session_end,
+                        active_minutes, idle_minutes, system_minutes, login_type, logout_type, ip_address, device_info
+                 FROM attendance_sessions
+                 WHERE staff_id = ? AND session_start LIKE ?
+                 ORDER BY session_start ASC`,
+                [targetStaffId, `${month}%`]
+            );
+
+            // 4. Fetch all breaks for that month
+            const [breaks] = await pool.query(
+                `SELECT id, attendance_id, staff_id, break_type, start_time, end_time, duration_minutes
+                 FROM attendance_breaks
+                 WHERE staff_id = ? AND start_time LIKE ?
+                 ORDER BY start_time ASC`,
+                [targetStaffId, `${month}%`]
+            );
+
+            // 5. Fetch approved leaves for that month
+            const [leaves] = await pool.query(
+                `SELECT id, staff_id, leave_type, start_date, end_date, days_count, reason, status
+                 FROM staff_leaves
+                 WHERE staff_id = ? AND status = 'Approved' 
+                   AND ((start_date LIKE ?) OR (end_date LIKE ?) OR (start_date <= ? AND end_date >= ?))`,
+                [targetStaffId, `${month}%`, `${month}%`, `${month}-01`, `${month}-${String(daysInMonth).padStart(2, '0')}`]
+            );
+
+            // 6. Fetch shift settings
+            const [settingsRows] = await pool.query('SELECT * FROM attendance_settings WHERE id = ?', ['default']);
+            const settings = settingsRows.length > 0 ? settingsRows[0] : {
+                shift_start: '09:30',
+                shift_end: '18:30',
+                grace_period_mins: 15,
+                work_days: 'Mon,Tue,Wed,Thu,Fri,Sat'
+            };
+
+            // Map sessions and breaks by date string YYYY-MM-DD
+            const sessionsByDate = new Map();
+            (sessions || []).forEach(s => {
+                const sDate = formatISTDateString(s.session_start);
+                if (!sessionsByDate.has(sDate)) sessionsByDate.set(sDate, []);
+                sessionsByDate.get(sDate).push(s);
+            });
+
+            const breaksByDate = new Map();
+            (breaks || []).forEach(b => {
+                const bDate = formatISTDateString(b.start_time);
+                if (!breaksByDate.has(bDate)) breaksByDate.set(bDate, []);
+                breaksByDate.get(bDate).push(b);
+            });
+
+            const logs = rawLogs.map(l => {
+                const cleanD = l.clean_date || formatISTDateString(l.date);
+                return {
+                    ...l,
+                    date: cleanD,
+                    sessions: sessionsByDate.get(cleanD) || [],
+                    breaks: breaksByDate.get(cleanD) || []
+                };
+            });
 
             // Compute monthly summary
             let presentDays = 0;
             let lateDays = 0;
+            let halfDays = 0;
             let absentDays = 0;
+            let leaveDays = 0;
             let totalWorkedMinutes = 0;
             let totalOvertimeMinutes = 0;
+            let totalBreakMinutes = 0;
 
             logs.forEach(l => {
-                if (l.status === 'Present' || l.status === 'On Break' || l.status === 'On Field') presentDays++;
-                else if (l.status === 'Late' || l.is_late) { lateDays++; presentDays++; }
-                else if (l.status === 'Absent') absentDays++;
+                const hasPunched = Boolean(
+                    l.check_in_time ||
+                    l.first_login_time ||
+                    Number(l.worked_minutes || 0) > 0 ||
+                    ['Present', 'On Break', 'On Field', 'Clocked Out', 'Late', 'Half Day'].includes(l.status)
+                );
+
+                if (l.status === 'Half Day') {
+                    halfDays++;
+                    presentDays++;
+                } else if (l.status === 'On Leave') {
+                    leaveDays++;
+                } else if (l.status === 'Late' || l.is_late) {
+                    lateDays++;
+                    presentDays++;
+                } else if (hasPunched) {
+                    presentDays++;
+                } else if (l.status === 'Absent') {
+                    absentDays++;
+                }
 
                 totalWorkedMinutes += Number(l.worked_minutes || 0);
                 totalOvertimeMinutes += Number(l.overtime_minutes || 0);
+                totalBreakMinutes += Number(l.total_break_minutes || 0);
+            });
+
+            const totalWorkedHours = (totalWorkedMinutes / 60).toFixed(1);
+            const totalOvertimeHours = (totalOvertimeMinutes / 60).toFixed(1);
+            const avgDailyHours = presentDays > 0 ? (totalWorkedMinutes / presentDays / 60).toFixed(1) : '0';
+            const punctualityScore = presentDays > 0 ? Math.round(((presentDays - lateDays) / presentDays) * 100) : 100;
+
+            const totalsObj = {
+                present: presentDays,
+                late: lateDays,
+                halfDay: halfDays,
+                leave: leaveDays,
+                weeklyOff: 0,
+                absent: absentDays,
+                workedHours: totalWorkedHours,
+                breakHours: (totalBreakMinutes / 60).toFixed(1),
+                presentDays,
+                lateDays,
+                halfDays,
+                leaveDays,
+                absentDays,
+                totalWorkedHours,
+                totalOvertimeHours,
+                totalBreakHours: (totalBreakMinutes / 60).toFixed(1),
+                avgDailyHours,
+                punctualityScore,
+                punctualityRate: punctualityScore,
+                daysInMonth,
+                workingDaysInMonth: Math.max(0, daysInMonth - 4)
+            };
+
+            res.json({
+                month,
+                daysInMonth,
+                staffId: targetStaffId,
+                staff: targetStaff,
+                canViewAllStaff: canViewAll,
+                settings,
+                summary: totalsObj,
+                totals: totalsObj,
+                logs,
+                leaves: leaves || []
+            });
+        } catch (err) {
+            console.error('[My-History Error]:', err);
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // ─── 9B. GET /api/attendance/monthly-matrix ───
+    // Company-wide Monthly Muster Roll Matrix for Admin & Authorized Supervisors
+    app.get('/api/attendance/monthly-matrix', authMiddleware, async (req, res) => {
+        try {
+            const currentStaff = await resolveStaff(pool, req);
+            const canViewAll = checkCanViewAllStaff(req, currentStaff);
+            if (!canViewAll) {
+                return res.status(403).json({ error: "Access Denied: Only Admins and staff with 'view_all_staff' permission can view the company monthly attendance matrix." });
+            }
+
+            const month = req.query.month || getTodayISTDate().substring(0, 7); // e.g. "2026-10"
+            const department = req.query.department || 'All';
+            const [yStr, mStr] = month.split('-');
+            const yearNum = parseInt(yStr, 10);
+            const monthNum = parseInt(mStr, 10);
+            const daysInMonth = new Date(yearNum, monthNum, 0).getDate();
+
+            // 1. Fetch active staff members
+            let staffQuery = "SELECT id, name, department, role, initials, color, email, phone FROM staff_members WHERE status = 'Active'";
+            const staffParams = [];
+            if (department && department !== 'All') {
+                staffQuery += " AND department = ?";
+                staffParams.push(department);
+            }
+            staffQuery += " ORDER BY department ASC, name ASC";
+            const [staffList] = await pool.query(staffQuery, staffParams);
+
+            // 2. Fetch all attendance logs for this month
+            const [rawLogs] = await pool.query(
+                `SELECT *, DATE_FORMAT(date, '%Y-%m-%d') as clean_date 
+                 FROM attendance_logs 
+                 WHERE date LIKE ? 
+                 ORDER BY date ASC`,
+                [`${month}%`]
+            );
+
+            // 3. Fetch approved leaves for this month
+            const [leaves] = await pool.query(
+                `SELECT id, staff_id, leave_type, start_date, end_date, days_count, status
+                 FROM staff_leaves
+                 WHERE status = 'Approved' 
+                   AND ((start_date LIKE ?) OR (end_date LIKE ?) OR (start_date <= ? AND end_date >= ?))`,
+                [`${month}%`, `${month}%`, `${month}-01`, `${month}-${String(daysInMonth).padStart(2, '0')}`]
+            );
+
+            // 4. Fetch shift settings
+            const [settingsRows] = await pool.query('SELECT * FROM attendance_settings WHERE id = ?', ['default']);
+            const settings = settingsRows.length > 0 ? settingsRows[0] : {
+                shift_start: '09:30',
+                shift_end: '18:30',
+                work_days: 'Mon,Tue,Wed,Thu,Fri,Sat'
+            };
+            const workDaysList = (settings.work_days || 'Mon,Tue,Wed,Thu,Fri,Sat').split(',').map(d => d.trim().toLowerCase());
+
+            // Build map of staffId -> dateString -> log
+            const logsByStaffAndDate = new Map();
+            rawLogs.forEach(l => {
+                const sId = Number(l.staff_id);
+                const dStr = l.clean_date || formatISTDateString(l.date);
+                if (!logsByStaffAndDate.has(sId)) logsByStaffAndDate.set(sId, new Map());
+                logsByStaffAndDate.get(sId).set(dStr, l);
+            });
+
+            // Build leaves map by staffId -> array of leaves
+            const leavesByStaff = new Map();
+            leaves.forEach(lv => {
+                const sId = Number(lv.staff_id);
+                if (!leavesByStaff.has(sId)) leavesByStaff.set(sId, []);
+                leavesByStaff.get(sId).push(lv);
+            });
+
+            const todayIST = getTodayISTDate();
+
+            // Construct matrix per staff member
+            const matrix = staffList.map(member => {
+                const sId = Number(member.id);
+                const staffLogs = logsByStaffAndDate.get(sId) || new Map();
+                const staffLeaves = leavesByStaff.get(sId) || [];
+
+                let presentCount = 0;
+                let lateCount = 0;
+                let halfDayCount = 0;
+                let leaveCount = 0;
+                let absentCount = 0;
+                let totalWorkedMins = 0;
+
+                const days = [];
+                for (let d = 1; d <= daysInMonth; d++) {
+                    const dStr = `${month}-${String(d).padStart(2, '0')}`;
+                    const dObj = new Date(yearNum, monthNum - 1, d);
+                    const dayNameShort = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dObj.getDay()];
+                    const isWeeklyOff = !workDaysList.includes(dayNameShort.toLowerCase());
+                    const isFuture = dStr > todayIST;
+
+                    const log = staffLogs.get(dStr);
+                    const onLeave = staffLeaves.some(lv => {
+                        const sStart = formatISTDateString(lv.start_date);
+                        const sEnd = formatISTDateString(lv.end_date);
+                        return dStr >= sStart && dStr <= sEnd;
+                    });
+
+                    let cellStatus = 'Absent';
+                    let cellCode = 'A'; // P, L, HD, LV, WO, A, -
+                    let workedMins = 0;
+                    let checkIn = null;
+                    let checkOut = null;
+                    let isLate = false;
+
+                    if (isFuture) {
+                        cellStatus = isWeeklyOff ? 'Weekly Off' : 'Upcoming';
+                        cellCode = isWeeklyOff ? 'WO' : '-';
+                    } else if (log) {
+                        workedMins = Number(log.worked_minutes || 0);
+                        checkIn = log.check_in_time;
+                        checkOut = log.check_out_time;
+                        isLate = log.is_late || log.status === 'Late';
+
+                        if (log.status === 'Half Day') {
+                            cellStatus = 'Half Day';
+                            cellCode = 'HD';
+                            halfDayCount++;
+                            presentCount++;
+                        } else if (log.status === 'On Leave' || onLeave) {
+                            cellStatus = 'On Leave';
+                            cellCode = 'LV';
+                            leaveCount++;
+                        } else if (isLate) {
+                            cellStatus = 'Late';
+                            cellCode = 'L';
+                            lateCount++;
+                            presentCount++;
+                        } else if (['Present', 'Clocked Out', 'On Break', 'On Field', 'Late', 'Half Day'].includes(log.status) || workedMins > 0 || checkIn || log.first_login_time) {
+                            cellStatus = 'Present';
+                            cellCode = 'P';
+                            presentCount++;
+                        } else {
+                            cellStatus = 'Absent';
+                            cellCode = 'A';
+                            absentCount++;
+                        }
+                        totalWorkedMins += workedMins;
+                    } else if (onLeave) {
+                        cellStatus = 'On Leave';
+                        cellCode = 'LV';
+                        leaveCount++;
+                    } else if (isWeeklyOff) {
+                        cellStatus = 'Weekly Off';
+                        cellCode = 'WO';
+                    } else {
+                        cellStatus = 'Absent';
+                        cellCode = 'A';
+                        absentCount++;
+                    }
+
+                    days.push({
+                        dayNum: d,
+                        date: dStr,
+                        dayOfWeek: dayNameShort,
+                        isWeeklyOff,
+                        isFuture,
+                        status: cellStatus,
+                        code: cellCode,
+                        workedMinutes: workedMins,
+                        checkInTime: checkIn,
+                        checkOutTime: checkOut,
+                        isLate
+                    });
+                }
+
+                const punctualityRate = presentCount > 0 ? Math.round(((presentCount - lateCount) / presentCount) * 100) : 100;
+
+                const daysMap = {};
+                days.forEach(d => {
+                    daysMap[d.dayNum] = d;
+                });
+
+                const totalsObj = {
+                    present: presentCount,
+                    late: lateCount,
+                    halfDay: halfDayCount,
+                    leave: leaveCount,
+                    weeklyOff: 0,
+                    absent: absentCount,
+                    workedHours: (totalWorkedMins / 60).toFixed(1),
+                    breakHours: 0,
+                    presentCount,
+                    lateCount,
+                    halfDayCount,
+                    leaveCount,
+                    absentCount,
+                    totalWorkedHours: (totalWorkedMins / 60).toFixed(1),
+                    punctualityRate
+                };
+
+                return {
+                    staff: member,
+                    summary: totalsObj,
+                    totals: totalsObj,
+                    days: daysMap,
+                    daysList: days
+                };
             });
 
             res.json({
                 month,
-                staffId: targetStaffId,
-                summary: {
-                    presentDays,
-                    lateDays,
-                    absentDays,
-                    totalWorkedHours: (totalWorkedMinutes / 60).toFixed(1),
-                    totalOvertimeHours: (totalOvertimeMinutes / 60).toFixed(1),
-                    avgDailyHours: presentDays > 0 ? (totalWorkedMinutes / presentDays / 60).toFixed(1) : '0'
-                },
-                logs
+                daysInMonth,
+                totalStaff: staffList.length,
+                matrix,
+                settings
             });
         } catch (err) {
-            console.error('[My-History Error]:', err);
+            console.error('[Attendance Monthly Matrix Error]:', err);
             res.status(500).json({ error: err.message });
         }
     });

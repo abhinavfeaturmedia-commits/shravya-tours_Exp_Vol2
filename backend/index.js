@@ -2580,6 +2580,7 @@ const TABLE_TO_MODULE = {
 
 // Co-access mappings: Tables that may be modified by staff working within multiple operational contexts
 const CO_ACCESS_MODULES = {
+    'bookings': ['bookings', 'operations'],
     'booking_transactions': ['finance_verification', 'bookings', 'accounts'],
     'supplier_bookings': ['operations', 'bookings'],
     'tasks': ['dashboard', 'leads', 'bookings'],
@@ -2776,10 +2777,21 @@ async function permissionGuard(req, res, next) {
             return next();
         }
 
-        const allowed = targetModules.some(m => {
+        let allowed = targetModules.some(m => {
             const fallback = MODULE_FALLBACKS[m];
             return Boolean(permissions[m]?.[action]) || Boolean(fallback && permissions[fallback]?.[action]);
         });
+
+        // Pre-tour checklist operational exception: allow operations/bookings staff to save checklist tasks
+        if (!allowed && table === 'bookings' && action === 'manage') {
+            const bodyKeys = Object.keys(req.body || {});
+            const isChecklistUpdate = bodyKeys.length > 0 && bodyKeys.every(k => k === 'tour_checklist' || k === 'checklist');
+            const hasAccess = Boolean(permissions.operations?.view || permissions.bookings?.view);
+            if (isChecklistUpdate && hasAccess) {
+                allowed = true;
+            }
+        }
+
         if (!allowed) {
             console.warn(`[Permission Denied] User ${req.user?.email} lacks '${action}' permission for table '${table}' (Checked modules: ${targetModules.join(', ')})`);
             return res.status(403).json({ error: `Unauthorized: You do not have permission to ${action} this module (${targetModules[0]}).` });
@@ -9829,8 +9841,8 @@ app.get('/api/bookings-with-package', authMiddleware, async (req, res) => {
     // Check permission
     const { permissions, queryScope, isAdmin, department, staffId: resolvedStaffId } = await getStaffPermissionsAndScope(req.user);
     if (req.user?.role !== 'admin' && req.user?.role !== 'Admin' && !isAdmin) {
-        if (!permissions.bookings?.view) {
-            return res.status(403).json({ error: 'Unauthorized: Bookings view access required.' });
+        if (!permissions.bookings?.view && !permissions.operations?.view) {
+            return res.status(403).json({ error: 'Unauthorized: Bookings or Operations view access required.' });
         }
     }
 

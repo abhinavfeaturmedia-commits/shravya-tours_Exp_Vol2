@@ -581,7 +581,11 @@ export const Operations: React.FC = () => {
     // ─── Phase 1: Operational Extensions (Guest Program & Checklists) ────────
     const [operationsTab, setOperationsTab] = useState<'live' | 'guest-program' | 'pre-tour-checklists'>('live');
     const [programDate, setProgramDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
-    const [selectedBookingForChecklist, setSelectedBookingForChecklist] = useState<Booking | null>(null);
+    const [selectedBookingForChecklistId, setSelectedBookingForChecklistId] = useState<string | null>(null);
+    const selectedBookingForChecklist = useMemo(() => {
+        if (!selectedBookingForChecklistId || !bookings) return null;
+        return (bookings as Booking[]).find((b: Booking) => b.id === selectedBookingForChecklistId) || null;
+    }, [bookings, selectedBookingForChecklistId]);
     const [checklistFilter, setChecklistFilter] = useState<'all' | 'ready' | 'pending'>('all');
     const [guestProgramSearch, setGuestProgramSearch] = useState('');
     const [attentionOnly, setAttentionOnly] = useState(false);
@@ -1530,7 +1534,7 @@ export const Operations: React.FC = () => {
                                                     </select>
 
                                                     <button
-                                                        onClick={() => setSelectedBookingForChecklist(tour)}
+                                                        onClick={() => setSelectedBookingForChecklistId(tour.id)}
                                                         className="py-1.5 px-2.5 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1"
                                                         title="10-Point Pre-Tour Checklist"
                                                     >
@@ -1925,7 +1929,7 @@ export const Operations: React.FC = () => {
 
                                             <div className="flex gap-2">
                                                 <button
-                                                    onClick={() => setSelectedBookingForChecklist(item.booking)}
+                                                    onClick={() => setSelectedBookingForChecklistId(item.booking.id)}
                                                     className="flex-1 py-1.5 px-2 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1"
                                                 >
                                                     <CheckSquare size={12} />
@@ -2079,7 +2083,7 @@ export const Operations: React.FC = () => {
                                                     </td>
                                                     <td className="px-6 py-4 text-right">
                                                         <button
-                                                            onClick={() => setSelectedBookingForChecklist(tour)}
+                                                            onClick={() => setSelectedBookingForChecklistId(tour.id)}
                                                             className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-colors inline-flex items-center gap-1 shadow-xs"
                                                         >
                                                             <CheckSquare size={13} /> Open Checklist
@@ -2253,7 +2257,7 @@ export const Operations: React.FC = () => {
             {selectedBookingForChecklist && (
                 <TourChecklistModal
                     isOpen={!!selectedBookingForChecklist}
-                    onClose={() => setSelectedBookingForChecklist(null)}
+                    onClose={() => setSelectedBookingForChecklistId(null)}
                     booking={selectedBookingForChecklist}
                 />
             )}

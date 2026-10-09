@@ -34,6 +34,7 @@ interface TourChecklistModalProps {
     isOpen: boolean;
     onClose: () => void;
     booking: Booking;
+    onSaved?: (updatedItems: TourChecklistItem[]) => void;
 }
 
 const CATEGORY_ICONS: Record<string, string> = {
@@ -58,7 +59,7 @@ const CATEGORY_COLORS: Record<string, string> = {
     Other: 'bg-slate-50 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border-slate-200 dark:border-slate-700',
 };
 
-export const TourChecklistModal: React.FC<TourChecklistModalProps> = ({ isOpen, onClose, booking }) => {
+export const TourChecklistModal: React.FC<TourChecklistModalProps> = ({ isOpen, onClose, booking, onSaved }) => {
     const { staff, currentUser } = useAuth();
     const { packages, masterLocations } = useData();
     const { updateBooking } = useBookings();
@@ -234,8 +235,9 @@ export const TourChecklistModal: React.FC<TourChecklistModalProps> = ({ isOpen, 
         try {
             await updateBooking(booking.id, {
                 checklist: itemsToSave,
-            });
+            }, true);
             toast.success('Pre-Tour Checklist saved successfully!');
+            onSaved?.(itemsToSave);
             onClose();
         } catch (err: any) {
             console.error('Failed to save checklist:', err);

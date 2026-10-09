@@ -585,13 +585,15 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                 existingBooking={editingSupplierBooking}
             />
 
-            <SupplierPaymentModal
-                isOpen={!!payingSupplierBooking}
-                onClose={() => setPayingSupplierBooking(null)}
-                booking={booking}
-                supplierBooking={payingSupplierBooking}
-                vendor={vendors.find(v => v.id === payingSupplierBooking?.vendorId)}
-            />
+            {payingSupplierBooking && (
+                <SupplierPaymentModal
+                    isOpen={!!payingSupplierBooking}
+                    onClose={() => setPayingSupplierBooking(null)}
+                    booking={booking}
+                    supplierBooking={payingSupplierBooking}
+                    vendor={vendors.find(v => v.id === payingSupplierBooking?.vendorId)}
+                />
+            )}
         </div>
     );
 };

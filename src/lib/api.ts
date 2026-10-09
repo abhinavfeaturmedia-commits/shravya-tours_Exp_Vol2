@@ -3969,6 +3969,12 @@ export const api = {
         if (staffId) qs.set('staffId', String(staffId));
         return fetchApi(`/api/attendance/my-history${qs.toString() ? `?${qs.toString()}` : ''}`);
     },
+    getAttendanceMonthlyMatrix: async (month?: string, department?: string): Promise<any> => {
+        const qs = new URLSearchParams();
+        if (month) qs.set('month', month);
+        if (department && department !== 'All') qs.set('department', department);
+        return fetchApi(`/api/attendance/monthly-matrix${qs.toString() ? `?${qs.toString()}` : ''}`);
+    },
     submitRegularization: async (data: { date: string; requestedCheckIn?: string; requestedCheckOut?: string; reason: string; staffId?: number }) => {
         return fetchApi('/api/attendance/regularize', { method: 'POST', body: JSON.stringify(data) });
     },
