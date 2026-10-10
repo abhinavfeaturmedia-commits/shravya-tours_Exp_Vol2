@@ -64,7 +64,7 @@ export const BlogList: React.FC = () => {
         <div className="relative max-w-7xl mx-auto text-center space-y-6">
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/10 backdrop-blur-md text-emerald-300 border border-white/20 text-xs font-bold uppercase tracking-wider shadow-lg">
             <span className="material-symbols-outlined text-sm text-emerald-400">auto_awesome</span> 
-            Shravya Travel Intelligence & SEO/AEO Guides
+            Shrawello Travel Intelligence & SEO/AEO Guides
           </div>
 
           <h1 className="text-3xl sm:text-6xl font-black tracking-tight text-white font-display leading-tight">

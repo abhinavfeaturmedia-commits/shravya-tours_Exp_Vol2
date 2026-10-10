@@ -2268,7 +2268,7 @@ ensureTasksCategoryColumn();
 // Fix #5: Added priority to every task. Fix #6: Added dueDaysOffset (relative to booking date for bookings, relative to today for leads)
 const LEAD_STAGE_PLAYBOOKS = {
     'New': [
-        { title: 'Send WhatsApp greeting message', description: 'Introduce Shravya Tours and acknowledge receipt of inquiry.', priority: 'High', dueDaysOffset: 0 },
+        { title: 'Send WhatsApp greeting message', description: 'Introduce Shrawello Travel Hub and acknowledge receipt of inquiry.', priority: 'High', dueDaysOffset: 0 },
         { title: 'Call customer to qualify requirements', description: 'Understand duration, pax count, budget, and destinations.', priority: 'High', dueDaysOffset: 0 },
         { title: 'Update lead source and assignment', description: 'Ensure source tracking and owner details are correct.', priority: 'Medium', dueDaysOffset: 1 }
     ],

@@ -675,7 +675,7 @@ export const AdminDashboard: React.FC = () => {
         }
         const driverText = tour.driverInfo ? ` Your assigned transport is with ${tour.driverInfo}${tour.driverPhone ? ` (${tour.driverPhone})` : ''}.` : '';
         const highlightText = tour.dayTitle ? ` Today's scheduled highlight: ${tour.dayTitle}.` : '';
-        const message = `Good morning ${tour.customer}! ☀️\n\nWarm greetings from Shravya Tours! Today is Day ${tour.currentDay} of your ${tour.title || 'tour'}.${highlightText}${driverText}\n\nWe hope you have a delightful journey today. Feel free to message us here if you need anything at all! 🌟`;
+        const message = `Good morning ${tour.customer}! ☀️\n\nWarm greetings from Shrawello Travel Hub! Today is Day ${tour.currentDay} of your ${tour.title || 'tour'}.${highlightText}${driverText}\n\nWe hope you have a delightful journey today. Feel free to message us here if you need anything at all! 🌟`;
         window.open(`https://wa.me/${phone.length === 10 ? '91' + phone : phone}?text=${encodeURIComponent(message)}`, '_blank');
     };
 
@@ -685,7 +685,7 @@ export const AdminDashboard: React.FC = () => {
             toast.error('No contact number available for this booking');
             return;
         }
-        const message = `Namaste ${item.partyName}! 🙏\n\nThis is a friendly reminder from Shravya Tours regarding your upcoming tour "${item.bookingTitle}".\n\n• Package Total: ${formatPrice(item.totalAmount)}\n• Paid so far: ${formatPrice(item.paidAmount)}\n• Pending Balance Due: ${formatPrice(item.balanceDue)}\n• Due Date: ${new Date(item.dueDate).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric' })}\n\nKindly complete the balance payment and share the confirmation screenshot. Let us know if you need any assistance!`;
+        const message = `Namaste ${item.partyName}! 🙏\n\nThis is a friendly reminder from Shrawello Travel Hub regarding your upcoming tour "${item.bookingTitle}".\n\n• Package Total: ${formatPrice(item.totalAmount)}\n• Paid so far: ${formatPrice(item.paidAmount)}\n• Pending Balance Due: ${formatPrice(item.balanceDue)}\n• Due Date: ${new Date(item.dueDate).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric' })}\n\nKindly complete the balance payment and share the confirmation screenshot. Let us know if you need any assistance!`;
         window.open(`https://wa.me/${phone.length === 10 ? '91' + phone : phone}?text=${encodeURIComponent(message)}`, '_blank');
     };
 

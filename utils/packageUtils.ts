@@ -62,7 +62,7 @@ export interface TripDurationInfo {
 }
 
 /**
- * calculateTripDuration — canonical duration calculator for Shravya Tours.
+ * calculateTripDuration — canonical duration calculator for Shrawello Travel Hub.
  * Calculates exact nights and days given start/end dates, daysCount, or nightsCount.
  * 
  * Rules:

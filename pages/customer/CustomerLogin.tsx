@@ -173,7 +173,7 @@ export const CustomerLogin: React.FC = () => {
                 </label>
                 <button type="button" className="text-xs font-medium transition-colors"
                   style={{ color: '#C9732A' }}
-                  onClick={() => { setError('To reset your password, please contact our support team via WhatsApp or email at info@shravyatours.com'); }}
+                  onClick={() => { setError('To reset your password, please contact our support team via WhatsApp or email at hello@shrawello.com'); }}
                   onMouseEnter={e => (e.currentTarget.style.color = '#A85E1E')}
                   onMouseLeave={e => (e.currentTarget.style.color = '#C9732A')}>
                   Forgot password?

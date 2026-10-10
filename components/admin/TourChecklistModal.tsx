@@ -17,7 +17,9 @@ import {
     detectBookingChecklistType,
     getChecklistTemplateForBooking,
     detectChecklistMismatch,
-    ChecklistTemplate
+    ChecklistTemplate,
+    normalizeBrandText,
+    COMPANY_BRAND_NAME
 } from '../../utils/tourChecklistTemplates';
 
 // Exported for backward compatibility with external references
@@ -334,7 +336,7 @@ export const TourChecklistModal: React.FC<TourChecklistModalProps> = ({ isOpen, 
             // Category-based fallback
             switch (item.category) {
                 case 'Visa':
-                    message = `Namaste ${clientName}! Greetings from Shravya Tours.\n\nRegarding your booking ${bRef} (${tourTitle}):\nPlease share your original passport copies and documents for *${item.title}* at your earliest convenience.\n\nFeel free to message here for any assistance!`;
+                    message = `Namaste ${clientName}! Greetings from ${COMPANY_BRAND_NAME}.\n\nRegarding your booking ${bRef} (${tourTitle}):\nPlease share your original passport copies and documents for *${item.title}* at your earliest convenience.\n\nFeel free to message here for any assistance!`;
                     break;
                 case 'Tickets':
                     message = `Namaste ${clientName}!\n\nThis is an update regarding your travel tickets for ${tourTitle} (${bRef}).\nStatus: *${item.title}* is currently ${item.status}.\n\nOur team is ensuring all transit details are verified for your seamless journey.`;
@@ -349,14 +351,16 @@ export const TourChecklistModal: React.FC<TourChecklistModalProps> = ({ isOpen, 
                     message = `Namaste ${clientName}!\n\nYour complete service vouchers and detailed tour docket for ${tourTitle} (${bRef}) are ready. Please review the attached docket for all check-in details.`;
                     break;
                 case 'Briefing':
-                    message = `Namaste ${clientName}!\n\nWe are excited to welcome you on tour ${tourTitle} (${bRef})!\nYour 24/7 Shravya Tours on-ground helpline is active. Please let us know if you need any assistance before departure. Have a wonderful trip!`;
+                    message = `Namaste ${clientName}!\n\nWe are excited to welcome you on tour ${tourTitle} (${bRef})!\nYour 24/7 ${COMPANY_BRAND_NAME} on-ground helpline is active. Please let us know if you need any assistance before departure. Have a wonderful trip!`;
                     break;
                 default:
-                    message = `Namaste ${clientName}!\n\nUpdate from Shravya Tours for booking ${bRef} (${tourTitle}):\n*${item.title}*: ${item.notes || 'In progress'}.\n\nThank you for choosing Shravya Tours!`;
+                    message = `Namaste ${clientName}!\n\nUpdate from ${COMPANY_BRAND_NAME} for booking ${bRef} (${tourTitle}):\n*${item.title}*: ${item.notes || 'In progress'}.\n\nThank you for choosing ${COMPANY_BRAND_NAME}!`;
             }
         }
 
-        const url = `https://wa.me/${targetPhone}?text=${encodeURIComponent(message)}`;
+        // Runtime brand sanitizer safeguard (ensures any legacy persisted checklist text is cleaned)
+        const sanitizedMessage = normalizeBrandText(message);
+        const url = `https://wa.me/${targetPhone}?text=${encodeURIComponent(sanitizedMessage)}`;
         window.open(url, '_blank');
     };
 

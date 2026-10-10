@@ -16,6 +16,7 @@ import {
 } from '../../src/config/permissionsConfig';
 import { StaffBotAvatar } from '../../src/components/ui/StaffBotAvatar';
 import { FastHierarchySelector } from '../../components/admin/hierarchy/FastHierarchySelector';
+import { ShrawelloOrgChart } from '../../components/admin/hierarchy/ShrawelloOrgChart';
 
 // Format last_active ISO timestamp into human-readable relative time
 const formatLastActive = (value: string | null | undefined): string => {
@@ -62,6 +63,7 @@ export const StaffManagement: React.FC = () => {
     const [selectedStaffId, setSelectedStaffId] = useState<number | string | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [activeTab, setActiveTab] = useState('All');
+    const [viewMode, setViewMode] = useState<'list' | 'org-chart'>('list');
     const [sortBy, setSortBy] = useState<'name' | 'role' | 'department' | 'joined'>('name');
 
     // Edit Mode State
@@ -1510,7 +1512,37 @@ export const StaffManagement: React.FC = () => {
                                 </p>
                             </div>
 
-                            <div className="flex items-center gap-2.5 w-full md:w-auto shrink-0">
+                            <div className="flex items-center gap-2.5 w-full md:w-auto shrink-0 flex-wrap">
+                                {/* View Mode Toggle */}
+                                <div className="flex items-center p-1 bg-slate-100 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl shadow-xs">
+                                    <button
+                                        type="button"
+                                        onClick={() => setViewMode('list')}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                                            viewMode === 'list'
+                                                ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-white shadow-xs'
+                                                : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                                        }`}
+                                        title="Standard Table List View"
+                                    >
+                                        <span className="material-symbols-outlined text-[16px]">view_list</span>
+                                        <span className="hidden sm:inline">List View</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setViewMode('org-chart')}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                                            viewMode === 'org-chart'
+                                                ? 'bg-gradient-to-r from-sky-500 via-indigo-600 to-purple-600 text-white shadow-xs'
+                                                : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                                        }`}
+                                        title="Visual Organizational Hierarchy Tree"
+                                    >
+                                        <span className="material-symbols-outlined text-[16px]">account_tree</span>
+                                        <span>Org Hierarchy</span>
+                                    </button>
+                                </div>
+
                                 <button
                                     onClick={handleRefresh}
                                     disabled={isRefreshing}
@@ -1759,8 +1791,23 @@ export const StaffManagement: React.FC = () => {
                         </div>
                     </div>
 
-                    {/* Split Content Area */}
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+                    {/* View Switcher Output: Org Chart vs Split Table/Inspector */}
+                    {viewMode === 'org-chart' ? (
+                        <div className="w-full">
+                            <ShrawelloOrgChart
+                                staff={staff}
+                                onEditStaff={(member) => {
+                                    handleOpenEdit(member);
+                                }}
+                                onUpdateStaff={async (staffId, updates) => {
+                                    await updateStaff(staffId, updates);
+                                    await refreshStaff();
+                                }}
+                            />
+                        </div>
+                    ) : (
+                        /* Split Content Area */
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
                         {/* Staff List (Left Column) */}
                         <div className="lg:col-span-2 space-y-4">
                             {filteredStaff.length > 0 ? (
@@ -2302,6 +2349,7 @@ export const StaffManagement: React.FC = () => {
                             )}
                         </div>
                     </div>
+                    )}
                 </div>
             </div>
         </div>

@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { StaffMember, Designation, Branch } from '../../../types';
+import { useAuth } from '../../../context/AuthContext';
 import { Link } from 'react-router-dom';
 import {
   Crown,
@@ -14,9 +15,13 @@ import {
   ShieldCheck,
   Building2,
   ChevronDown,
-  X
+  X,
+  Layers,
+  AlertTriangle
 } from 'lucide-react';
 import { HIERARCHY_TIERS } from './hierarchyConstants';
+import { ShrawelloOrgChart } from './ShrawelloOrgChart';
+import { validateManagerSelection } from './shrawelloOrgBlueprint';
 
 export interface FastHierarchySelectorProps {
   staff: StaffMember[];
@@ -104,8 +109,10 @@ export const FastHierarchySelector: React.FC<FastHierarchySelectorProps> = ({
   formData,
   onChange
 }) => {
+  const { updateStaff, refreshStaff } = useAuth();
   const [managerSearch, setManagerSearch] = useState('');
   const [isManagerPickerOpen, setIsManagerPickerOpen] = useState(false);
+  const [isOrgChartModalOpen, setIsOrgChartModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
@@ -533,14 +540,25 @@ export const FastHierarchySelector: React.FC<FastHierarchySelectorProps> = ({
             )}
           </div>
 
-          <button
-            type="button"
-            onClick={() => setIsManagerPickerOpen(!isManagerPickerOpen)}
-            className="px-3.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-xs font-bold text-slate-700 dark:text-slate-200 hover:border-indigo-500 hover:text-indigo-600 transition-all flex items-center gap-1.5 shrink-0 self-start sm:self-auto shadow-2xs"
-          >
-            <span>{isManagerPickerOpen ? 'Close Menu' : 'Choose Different Manager'}</span>
-            <ChevronDown size={13} className={isManagerPickerOpen ? 'rotate-180 transition-transform' : ''} />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsOrgChartModalOpen(true)}
+              className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-sky-500 via-indigo-600 to-purple-600 text-white text-xs font-bold hover:shadow-md transition-all flex items-center gap-1.5 shrink-0 self-start sm:self-auto shadow-xs cursor-pointer"
+            >
+              <Layers size={13} />
+              <span>🗺️ Pick from Visual Org Chart</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsManagerPickerOpen(!isManagerPickerOpen)}
+              className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-xs font-bold text-slate-700 dark:text-slate-200 hover:border-indigo-500 hover:text-indigo-600 transition-all flex items-center gap-1.5 shrink-0 self-start sm:self-auto shadow-2xs cursor-pointer"
+            >
+              <span>{isManagerPickerOpen ? 'Close Menu' : 'Quick List'}</span>
+              <ChevronDown size={13} className={isManagerPickerOpen ? 'rotate-180 transition-transform' : ''} />
+            </button>
+          </div>
         </div>
 
         {/* ─── Searchable Manager Popover Menu ─── */}
@@ -601,15 +619,25 @@ export const FastHierarchySelector: React.FC<FastHierarchySelectorProps> = ({
                   {mgrs.map(m => {
                     const isSelected = formData.reportingToId === m.id;
                     const grade = (m.gradeLevel || (m as any).grade_level || 'L8').toUpperCase();
+                    const validation = validateManagerSelection(staff, editingMemberId, m.id);
+                    const isBlocked = !validation.allowed;
 
                     return (
                       <div
                         key={m.id}
-                        onClick={() => handleSelectManager(m.id)}
-                        className={`p-2 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-2 ${
-                          isSelected
-                            ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-500 font-bold shadow-2xs'
-                            : 'bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800 hover:border-indigo-400 hover:bg-slate-50 dark:hover:bg-slate-850'
+                        onClick={() => {
+                          if (isBlocked) {
+                            showToast(validation.reason || 'Cannot select this manager');
+                            return;
+                          }
+                          handleSelectManager(m.id);
+                        }}
+                        className={`p-2 rounded-xl border transition-all flex items-center justify-between gap-2 ${
+                          isBlocked
+                            ? 'opacity-40 bg-slate-100 dark:bg-slate-800/40 border-slate-200 dark:border-slate-800 cursor-not-allowed'
+                            : isSelected
+                            ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-500 font-bold shadow-2xs cursor-pointer'
+                            : 'bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800 hover:border-indigo-400 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer'
                         }`}
                       >
                         <div className="flex items-center gap-2.5 min-w-0">
@@ -624,15 +652,23 @@ export const FastHierarchySelector: React.FC<FastHierarchySelectorProps> = ({
                               </span>
                             </div>
                             <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
-                              {m.role} • {m.department}
+                              {isBlocked ? (
+                                <span className="text-rose-500 font-semibold">{validation.reason}</span>
+                              ) : (
+                                `${m.role} • ${m.department}`
+                              )}
                             </p>
                           </div>
                         </div>
 
                         <span className={`text-[11px] font-bold shrink-0 ${
-                          isSelected ? 'text-emerald-600 dark:text-emerald-400' : 'text-indigo-600 dark:text-indigo-400'
+                          isBlocked
+                            ? 'text-slate-400'
+                            : isSelected
+                            ? 'text-emerald-600 dark:text-emerald-400'
+                            : 'text-indigo-600 dark:text-indigo-400'
                         }`}>
-                          {isSelected ? '✓ Active' : 'Select'}
+                          {isBlocked ? 'Blocked' : isSelected ? '✓ Active' : 'Select'}
                         </span>
                       </div>
                     );
@@ -708,6 +744,39 @@ export const FastHierarchySelector: React.FC<FastHierarchySelectorProps> = ({
           Self-healing escalation: If your direct supervisor is absent, approval requests climb automatically to the next active senior.
         </p>
       </div>
+
+      {/* ─── Visual Org Chart Selection Modal ─── */}
+      {isOrgChartModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="w-full max-w-7xl max-h-[94vh] flex flex-col rounded-3xl overflow-hidden shadow-2xl border border-white/20">
+            <ShrawelloOrgChart
+              staff={staff}
+              editingMemberId={editingMemberId}
+              currentEmployeeName={currentEmployeeName || formData.name}
+              selectionMode={true}
+              selectedManagerId={formData.reportingToId}
+              onSelectManager={(mgrId) => {
+                handleSelectManager(mgrId);
+                setIsOrgChartModalOpen(false);
+              }}
+              onCloseSelectionModal={() => setIsOrgChartModalOpen(false)}
+              onUpdateStaff={async (staffId, updates) => {
+                try {
+                  await updateStaff(staffId, updates);
+                  await refreshStaff();
+                  if (staffId === editingMemberId && onChange) {
+                    onChange(updates as any);
+                  }
+                  showToast('Role updated successfully in Organization Tree!');
+                } catch (err: any) {
+                  console.error('Failed to update staff role:', err);
+                  showToast('Failed to update staff role');
+                }
+              }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };

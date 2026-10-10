@@ -2630,7 +2630,7 @@ export const PackageDetail: React.FC = () => {
               <div>
                 <span className="text-[10px] font-black uppercase tracking-widest text-indigo-600 dark:text-indigo-400 block mb-1.5">Verified Feedback</span>
                 <h2 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight">Client Reviews &amp; Experiences</h2>
-                <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">Real travelers who explored Ladakh with Shravya Tours</p>
+                <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">Real travelers who explored Ladakh with Shrawello Travel Hub</p>
               </div>
 
               {/* Overall Score & Trust Badges (PDF Page 4 reference) */}

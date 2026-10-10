@@ -85,9 +85,27 @@ export const PublicLayout: React.FC = () => {
     { label: 'Blogs', href: '/blog' },
     { label: 'About', href: '/about' },
     { label: 'Contact', href: '/contact' },
-    { label: 'My Account', href: isAuthenticated ? '/my-account' : '/customer/login' },
-    { label: 'Associates', href: '/partner/login' },
-    { label: 'Staff', href: '/login' },
+    {
+      label: 'Portals',
+      children: [
+        { 
+          label: isAuthenticated ? 'My Account' : 'Customer Login', 
+          href: isAuthenticated ? '/my-account' : '/customer/login',
+          icon: 'account_circle',
+          badge: isAuthenticated ? 'Active' : undefined 
+        },
+        { 
+          label: 'Associate Portal', 
+          href: '/partner/login',
+          icon: 'handshake'
+        },
+        { 
+          label: 'Staff Portal', 
+          href: '/login',
+          icon: 'badge'
+        },
+      ],
+    },
   ];
 
   const handlePlaceholder = (e: React.MouseEvent, label: string) => {

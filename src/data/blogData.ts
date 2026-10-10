@@ -222,7 +222,7 @@ export const BLOG_POSTS: BlogPost[] = [
       {
         id: 'money-saving-tips',
         title: '5 Insider Tips to Save Money in Kashmir',
-        content: '1. Book bundled packages through local operators like Shravya Tours for wholesale hotel & cab pricing.\n2. Travel in April or September (shoulder seasons) for 25% lower hotel rates.\n3. Negotiate pony rides directly using official Union rate charts displayed at stands.'
+        content: '1. Book bundled packages through local operators like Shrawello Travel Hub for wholesale hotel & cab pricing.\n2. Travel in April or September (shoulder seasons) for 25% lower hotel rates.\n3. Negotiate pony rides directly using official Union rate charts displayed at stands.'
       }
     ],
     faqs: [
@@ -551,7 +551,7 @@ export const BLOG_POSTS: BlogPost[] = [
     faqs: [
       {
         question: 'Do I need Inner Line Permits for Ladakh?',
-        answer: 'Yes, Indian and foreign tourists require Inner Line Permits (ILP) to visit Nubra, Pangong, Tso Moriri, and Hanle. Shravya Tours arranges all permits in advance.'
+        answer: 'Yes, Indian and foreign tourists require Inner Line Permits (ILP) to visit Nubra, Pangong, Tso Moriri, and Hanle. Shrawello Travel Hub arranges all permits in advance.'
       }
     ],
     relatedPackageIds: ['pkg-leh-ladakh', 'pkg-himachal-scenic']

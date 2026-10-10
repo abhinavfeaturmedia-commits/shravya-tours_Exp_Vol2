@@ -22,6 +22,22 @@ export interface ChecklistTemplateItem {
     whatsappMessageTemplate: string;
 }
 
+export const COMPANY_BRAND_NAME = 'Shrawello Travel Hub';
+export const FLEET_BRAND_NAME = 'Shrawello Fleet';
+
+/**
+ * Normalizes any legacy or hardcoded brand text (e.g. "Shravya Tours", "Shravya Fleet", "Shravya")
+ * into the canonical brand name "Shrawello Travel Hub" or "Shrawello Fleet".
+ * This serves as a runtime safeguard for both static templates and legacy persisted checklist data.
+ */
+export const normalizeBrandText = (text: string): string => {
+    if (!text) return text;
+    return text
+        .replace(/Shravya\s+Tours/gi, COMPANY_BRAND_NAME)
+        .replace(/Shravya\s+Fleet/gi, FLEET_BRAND_NAME)
+        .replace(/\bShravya\b/gi, 'Shrawello');
+};
+
 export interface ChecklistTemplate {
     id: ChecklistTemplateId;
     name: string;
@@ -46,7 +62,7 @@ const DOMESTIC_TOUR_TEMPLATE: ChecklistTemplate = {
             title: 'Guest ID Proof & Passenger Manifest',
             category: 'Briefing',
             notes: 'Collect valid Government photo ID copies (Aadhar/Voter ID/Passport), verify all passenger full names, age, and dietary preferences.',
-            whatsappMessageTemplate: 'Namaste {clientName}! Greetings from Shravya Tours.\n\nRegarding your booking {bRef} ({tourTitle}):\nPlease share clear copies of Government photo IDs (Aadhar Card / Voter ID / Passport) for all traveling guests to finalize hotel check-in and transit permits.'
+            whatsappMessageTemplate: 'Namaste {clientName}! Greetings from Shrawello Travel Hub.\n\nRegarding your booking {bRef} ({tourTitle}):\nPlease share clear copies of Government photo IDs (Aadhar Card / Voter ID / Passport) for all traveling guests to finalize hotel check-in and transit permits.'
         },
         {
             taskNumber: 2,
@@ -109,7 +125,7 @@ const DOMESTIC_TOUR_TEMPLATE: ChecklistTemplate = {
             title: '24/7 Helpline Briefing & Final Payment Check',
             category: 'Briefing',
             notes: 'Ensure 100% final balance is collected, share dedicated 24/7 on-ground emergency coordinator hotline and final briefing note.',
-            whatsappMessageTemplate: 'Namaste {clientName}!\n\nWe are excited to welcome you on tour {tourTitle} ({bRef})!\nYour 24/7 Shravya Tours on-ground helpline is active. Please let us know if you need any assistance before departure. Have a wonderful trip!'
+            whatsappMessageTemplate: 'Namaste {clientName}!\n\nWe are excited to welcome you on tour {tourTitle} ({bRef})!\nYour 24/7 Shrawello Travel Hub on-ground helpline is active. Please let us know if you need any assistance before departure. Have a wonderful trip!'
         }
     ]
 };
@@ -128,7 +144,7 @@ const INTERNATIONAL_TOUR_TEMPLATE: ChecklistTemplate = {
             title: 'Passport & Visa Document Collection',
             category: 'Visa',
             notes: 'Collect passport copies (minimum 6 months validity from return date), passport photos, employment letters & financial proofs.',
-            whatsappMessageTemplate: 'Namaste {clientName}! Greetings from Shravya Tours.\n\nRegarding your international booking {bRef} ({tourTitle}):\nPlease share clear copies of your passport (minimum 6 months validity from return date) and visa documentation at your earliest convenience.'
+            whatsappMessageTemplate: 'Namaste {clientName}! Greetings from Shrawello Travel Hub.\n\nRegarding your international booking {bRef} ({tourTitle}):\nPlease share clear copies of your passport (minimum 6 months validity from return date) and visa documentation at your earliest convenience.'
         },
         {
             taskNumber: 2,
@@ -348,14 +364,14 @@ const CAB_RENTAL_TEMPLATE: ChecklistTemplate = {
             title: '24/7 Fleet Coordinator & Breakdown Support Helpline',
             category: 'Briefing',
             notes: 'Provide customer with 24/7 dedicated fleet operations manager contact number for en-route assistance or emergency vehicle backup.',
-            whatsappMessageTemplate: 'Namaste {clientName}!\n\nFor any real-time assistance during your ride {tourTitle} ({bRef}), our 24/7 Shravya Fleet Helpdesk is standing by to assist you.'
+            whatsappMessageTemplate: 'Namaste {clientName}!\n\nFor any real-time assistance during your ride {tourTitle} ({bRef}), our 24/7 Shrawello Fleet Helpdesk is standing by to assist you.'
         },
         {
             taskNumber: 10,
             title: 'Trip Advance Settlement & Final Billing Verification',
             category: 'Briefing',
             notes: 'Verify trip advance payment is recorded, explain balance collection protocol at trip conclusion, and issue booking confirmation receipt.',
-            whatsappMessageTemplate: 'Namaste {clientName}!\n\nYour cab booking {tourTitle} ({bRef}) is confirmed. Thank you for choosing Shravya Tours! Wishing you a smooth and safe drive.'
+            whatsappMessageTemplate: 'Namaste {clientName}!\n\nYour cab booking {tourTitle} ({bRef}) is confirmed. Thank you for choosing Shrawello Travel Hub! Wishing you a smooth and safe drive.'
         }
     ]
 };
@@ -437,7 +453,7 @@ const FLIGHT_ONLY_TEMPLATE: ChecklistTemplate = {
             title: 'Final Airfare Settlement & Tax Invoice Dispatch',
             category: 'Briefing',
             notes: 'Ensure 100% airfare payment is settled, confirm zero outstanding balance, and deliver official GST invoice to traveler / corporate.',
-            whatsappMessageTemplate: 'Namaste {clientName}!\n\nYour flight booking {tourTitle} ({bRef}) is completed. Your invoice and receipts are saved. Thank you for booking with Shravya Tours!'
+            whatsappMessageTemplate: 'Namaste {clientName}!\n\nYour flight booking {tourTitle} ({bRef}) is completed. Your invoice and receipts are saved. Thank you for booking with Shrawello Travel Hub!'
         }
     ]
 };
@@ -511,8 +527,8 @@ const BUS_TRANSIT_TEMPLATE: ChecklistTemplate = {
             taskNumber: 9,
             title: '24/7 Agency Support Helpline Handover',
             category: 'Briefing',
-            notes: 'Provide 24/7 Shravya Tours transit assistance contact in case of boarding delays, missed bus, or route changes.',
-            whatsappMessageTemplate: 'Namaste {clientName}!\n\nOur 24/7 Shravya Tours helpdesk is active if you need any assistance before or during your bus journey ({tourTitle}).'
+            notes: 'Provide 24/7 Shrawello Travel Hub transit assistance contact in case of boarding delays, missed bus, or route changes.',
+            whatsappMessageTemplate: 'Namaste {clientName}!\n\nOur 24/7 Shrawello Travel Hub helpdesk is active if you need any assistance before or during your bus journey ({tourTitle}).'
         },
         {
             taskNumber: 10,
@@ -591,10 +607,10 @@ const TRAIN_TRANSIT_TEMPLATE: ChecklistTemplate = {
         },
         {
             taskNumber: 9,
-            title: '24/7 Shravya Tours Emergency Transit Helpline',
+            title: '24/7 Shrawello Travel Hub Emergency Transit Helpline',
             category: 'Briefing',
             notes: 'Share 24/7 agency support coordinator helpline in case of train cancellation, chart preparation status, or missed train assistance.',
-            whatsappMessageTemplate: 'Namaste {clientName}!\n\nOur 24/7 Shravya Tours transit desk is available if you need any assistance regarding your train journey ({tourTitle}).'
+            whatsappMessageTemplate: 'Namaste {clientName}!\n\nOur 24/7 Shrawello Travel Hub transit desk is available if you need any assistance regarding your train journey ({tourTitle}).'
         },
         {
             taskNumber: 10,
@@ -765,7 +781,7 @@ const VISA_ONLY_TEMPLATE: ChecklistTemplate = {
             title: 'Safe Passport Handover to Applicant & Final Payment',
             category: 'Visa',
             notes: 'Safely deliver passport with approved visa to customer, verify final service fee clearance, and provide travel briefing.',
-            whatsappMessageTemplate: 'Namaste {clientName}!\n\nYour passport with approved visa for {tourTitle} ({bRef}) is ready for delivery. Congratulations and thank you for choosing Shravya Tours!'
+            whatsappMessageTemplate: 'Namaste {clientName}!\n\nYour passport with approved visa for {tourTitle} ({bRef}) is ready for delivery. Congratulations and thank you for choosing Shrawello Travel Hub!'
         }
     ]
 };

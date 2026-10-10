@@ -698,7 +698,7 @@ export const Operations: React.FC = () => {
 
         const driverDetails = item.driverName ? `${item.driverName} (${item.driverPhone || 'Active'}) - ${item.vehicleNumber || 'Assigned'}` : 'Local tour coordinator on standby';
 
-        const message = `Namaste ${clientName}! ✨\n\nGood morning from Shravya Tours! Here is your daily tour program for Today (${dateStr}):\n\n📅 *Day ${item.currentDay} of ${item.totalDays}* (${item.booking.title} - ${bRef})\n📍 *Today's Highlights:* ${item.todayItineraryTitle}\n🏨 *Overnight Stay:* ${item.overnightHotel}\n🚗 *Transport:* ${driverDetails}\n\nOur 24/7 guest care helpline is active for any support. Wishing you a magnificent and memorable day! 🌴`;
+        const message = `Namaste ${clientName}! ✨\n\nGood morning from Shrawello Travel Hub! Here is your daily tour program for Today (${dateStr}):\n\n📅 *Day ${item.currentDay} of ${item.totalDays}* (${item.booking.title} - ${bRef})\n📍 *Today's Highlights:* ${item.todayItineraryTitle}\n🏨 *Overnight Stay:* ${item.overnightHotel}\n🚗 *Transport:* ${driverDetails}\n\nOur 24/7 guest care helpline is active for any support. Wishing you a magnificent and memorable day! 🌴`;
 
         const url = `https://wa.me/${targetPhone}?text=${encodeURIComponent(message)}`;
         window.open(url, '_blank');
