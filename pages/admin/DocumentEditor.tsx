@@ -159,9 +159,9 @@ const DescriptionEditorCell: React.FC<DescriptionEditorCellProps> = ({ value, on
                 : 'border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
         }`}>
             {/* ── Docked Header Toolbar ── */}
-            <div className="bg-slate-100/80 dark:bg-slate-800/80 px-2 py-1 border-b border-slate-200/60 dark:border-slate-800 flex items-center justify-between gap-1 flex-wrap select-none">
+            <div className="bg-slate-50 dark:bg-slate-800/90 px-2.5 py-1 border-b border-slate-200/60 dark:border-slate-800 flex items-center justify-between gap-2 overflow-x-auto select-none [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
                 {/* Formatting Tools */}
-                <div className="flex items-center gap-0.5">
+                <div className="flex items-center gap-0.5 shrink-0">
                     {/* Bold */}
                     <button
                         type="button"
@@ -202,7 +202,7 @@ const DescriptionEditorCell: React.FC<DescriptionEditorCellProps> = ({ value, on
                         &lt;&gt;
                     </button>
 
-                    <div className="w-[1px] h-3.5 bg-slate-300 dark:bg-slate-700 mx-0.5" />
+                    <div className="w-[1px] h-3.5 bg-slate-300 dark:bg-slate-700 mx-0.5 shrink-0" />
 
                     {/* Numbered List */}
                     <button
@@ -236,7 +236,7 @@ const DescriptionEditorCell: React.FC<DescriptionEditorCellProps> = ({ value, on
                 </div>
 
                 {/* Quick Travel Insert Chips */}
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 shrink-0">
                     <button
                         type="button"
                         title="Insert 'Vehicle: '"
@@ -273,7 +273,7 @@ const DescriptionEditorCell: React.FC<DescriptionEditorCellProps> = ({ value, on
                 onBlur={() => setIsFocused(false)}
                 placeholder={placeholder || "Enter details of tour packages, vehicles, flights, stays..."}
                 rows={2}
-                className="w-full min-h-[64px] bg-transparent outline-none text-slate-800 dark:text-slate-100 leading-relaxed font-semibold transition-all text-xs px-3 py-2 resize-y placeholder:text-slate-400 dark:placeholder:text-slate-500"
+                className="w-full min-h-[64px] bg-transparent outline-none text-slate-800 dark:text-slate-100 leading-relaxed font-semibold transition-all text-xs px-3.5 py-2.5 resize-y placeholder:text-slate-400 dark:placeholder:text-slate-500"
             />
         </div>
     );
@@ -2219,11 +2219,11 @@ export const DocumentEditor: React.FC = () => {
             </div>
 
             {/* Document Workspace */}
-            <div className="max-w-[860px] mx-auto w-full px-6 py-8 pb-16 print:p-0 print:max-w-none">
+            <div className="max-w-5xl xl:max-w-6xl 2xl:max-w-[1240px] mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 pb-16 print:p-0 print:max-w-none">
                 <div id="print-section" className="bg-white dark:bg-[#111827] rounded-2xl shadow-[0_4px_32px_rgba(0,0,0,0.06)] dark:shadow-[0_12px_40px_rgba(0,0,0,0.4)] border border-slate-200/60 dark:border-slate-800/80 overflow-hidden relative transition-all duration-300">
 
                     {/* Document Header */}
-                    <div className="bg-white dark:bg-[#111827] p-8 flex justify-between items-start transition-colors duration-300">
+                    <div className="bg-white dark:bg-[#111827] p-6 sm:p-8 flex justify-between items-start transition-colors duration-300">
                         <div className="flex flex-col">
                             {/* Document Type Switcher */}
                             <div className="flex items-center gap-2 mb-3.5 print:hidden">
@@ -2652,14 +2652,14 @@ export const DocumentEditor: React.FC = () => {
                         </div>
 
                         {/* Line Items Table */}
-                        <div className="border border-slate-200/60 dark:border-slate-800/80 rounded-2xl overflow-x-auto overflow-y-visible shadow-sm transition-all duration-300 bg-white dark:bg-[#111827]">
-                            <table className="w-full text-sm min-w-[780px]">
+                        <div className="border border-slate-200/60 dark:border-slate-800/80 rounded-2xl overflow-x-auto overflow-y-visible shadow-sm transition-all duration-300 bg-white dark:bg-[#111827] scrollbar-thin">
+                            <table className="w-full text-sm min-w-[880px] lg:min-w-full border-collapse">
                                 <thead>
                                     <tr className="bg-[#091C3B] dark:bg-slate-800 text-white text-xs font-bold uppercase tracking-wider" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-                                        <th className="text-left px-3 py-4 w-10">#</th>
-                                        <th className={`text-left px-4 py-4 ${docData.is_gst === 1 ? 'min-w-[220px]' : 'min-w-[280px]'}`}>Description</th>
+                                        <th className="text-center px-2 py-4 w-12 min-w-[48px] max-w-[48px] sticky left-0 z-20 bg-[#091C3B] dark:bg-slate-800 print:static">#</th>
+                                        <th className={`text-left px-4 py-4 min-w-[280px] lg:min-w-[340px] sticky left-12 z-20 bg-[#091C3B] dark:bg-slate-800 print:static border-r border-slate-700/60 shadow-[4px_0_10px_-2px_rgba(0,0,0,0.25)] print:shadow-none print:border-none`}>Description</th>
                                         {docData.is_gst === 1 && (
-                                            <th className="text-center px-2 py-4 w-28 min-w-[100px]">
+                                            <th className="text-center px-2 py-4 w-28 min-w-[105px]">
                                                 <div className="flex items-center justify-center gap-1">
                                                     <span>HSN/SAC</span>
                                                     <button
@@ -2673,23 +2673,26 @@ export const DocumentEditor: React.FC = () => {
                                                 </div>
                                             </th>
                                         )}
-                                        <th className="text-center px-2 py-4 w-20 min-w-[72px]">Qty</th>
-                                        <th className="text-center px-2 py-4 w-40 min-w-[145px]">Total Days / Km</th>
-                                        <th className="text-right px-2 py-4 w-32 min-w-[115px]">Rate (₹)</th>
+                                        <th className="text-center px-2 py-4 w-20 min-w-[70px]">Qty</th>
+                                        <th className="text-center px-2 py-4 w-36 min-w-[135px]">Total Days / Km</th>
+                                        <th className="text-right px-3 py-4 w-28 min-w-[110px]">Rate (₹)</th>
                                         {docData.is_gst === 1 && (
                                             <th className="text-center px-2 py-4 w-24 min-w-[85px]">GST (%)</th>
                                         )}
-                                        <th className="text-right px-4 py-4 w-32 min-w-[125px]">Amount (₹)</th>
-                                        <th className="w-8 p-0 print:hidden"></th>
+                                        <th className="text-right px-4 py-4 w-32 min-w-[120px]">Amount (₹)</th>
+                                        <th className="w-10 min-w-[40px] p-0 print:hidden text-center"></th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {items.map((item, index) => {
                                         const { num: daysKmNum, unit: daysKmUnit } = getDaysKmParts(item.total_days_km);
+                                        const isEven = index % 2 === 0;
                                         return (
-                                        <tr key={index} className={`group transition-colors border-b border-slate-100 dark:border-slate-800/50 last:border-0 ${index % 2 !== 0 ? 'bg-slate-50/50 dark:bg-slate-800/10' : 'bg-white dark:bg-[#111827]'}`} style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-                                            <td className="px-3 py-4.5 align-middle text-slate-400 dark:text-slate-500 font-bold text-xs">{index + 1}.</td>
-                                            <td className="px-4 py-4.5 align-middle">
+                                        <tr key={index} className={`group transition-colors border-b border-slate-100 dark:border-slate-800/50 last:border-0 ${!isEven ? 'bg-slate-50/70 dark:bg-slate-800/25' : 'bg-white dark:bg-[#111827]'}`} style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+                                            <td className={`px-2 py-3.5 align-middle text-center text-slate-400 dark:text-slate-500 font-bold text-xs w-12 min-w-[48px] max-w-[48px] sticky left-0 z-10 print:static ${!isEven ? 'bg-[#f8fafc] dark:bg-[#151e2e]' : 'bg-white dark:bg-[#111827]'}`}>
+                                                {index + 1}.
+                                            </td>
+                                            <td className={`px-3 sm:px-4 py-3.5 align-middle min-w-[280px] lg:min-w-[340px] sticky left-12 z-10 print:static border-r border-slate-100 dark:border-slate-800 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.04)] print:shadow-none print:border-none ${!isEven ? 'bg-[#f8fafc] dark:bg-[#151e2e]' : 'bg-white dark:bg-[#111827]'}`}>
                                                 <DescriptionEditorCell
                                                     value={item.description}
                                                     onChange={(val) => handleItemChange(index, 'description', val)}
@@ -2697,7 +2700,7 @@ export const DocumentEditor: React.FC = () => {
                                                 />
                                             </td>
                                             {docData.is_gst === 1 && (
-                                                <td className="px-2 py-4.5 align-middle text-center">
+                                                <td className="px-2 py-3.5 align-middle text-center w-28 min-w-[105px]">
                                                     <span className="hidden print:inline font-semibold text-xs font-mono">
                                                         {item.hsn_sac || fi.defaultSacCode || DEFAULT_SAC_CODE}
                                                     </span>
@@ -2735,7 +2738,7 @@ export const DocumentEditor: React.FC = () => {
                                                     </div>
                                                 </td>
                                             )}
-                                            <td className="px-2 py-4.5 align-middle text-center">
+                                            <td className="px-2 py-3.5 align-middle text-center w-20 min-w-[70px]">
                                                 <input
                                                     type="number"
                                                     min="1"
@@ -2747,9 +2750,9 @@ export const DocumentEditor: React.FC = () => {
                                                     className="w-full bg-white dark:bg-slate-800 text-center text-slate-900 dark:text-white font-bold outline-none border border-slate-300 dark:border-slate-700 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 rounded-xl transition-all text-xs px-2 py-2 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none shadow-2xs"
                                                 />
                                             </td>
-                                            <td className="px-2 py-4.5 align-middle text-center print:text-xs">
+                                            <td className="px-2 py-3.5 align-middle text-center w-36 min-w-[135px] print:text-xs">
                                                 <div className="flex items-center justify-center print:hidden">
-                                                    <div className="flex items-stretch w-full max-w-[140px] bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 focus-within:border-orange-500 focus-within:ring-2 focus-within:ring-orange-500/20 rounded-xl overflow-hidden shadow-2xs transition-all">
+                                                    <div className="flex items-stretch w-full max-w-[135px] bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 focus-within:border-orange-500 focus-within:ring-2 focus-within:ring-orange-500/20 rounded-xl overflow-hidden shadow-2xs transition-all">
                                                         <input
                                                             type="number"
                                                             min="0"
@@ -2780,7 +2783,7 @@ export const DocumentEditor: React.FC = () => {
                                                     {item.total_days_km || '1'}
                                                 </span>
                                             </td>
-                                            <td className="px-2 py-4.5 align-middle text-right">
+                                            <td className="px-2.5 py-3.5 align-middle text-right w-28 min-w-[110px]">
                                                 <span className="hidden print:inline font-semibold">
                                                     {Number(item.unit_price || 0) % 1 === 0
                                                         ? Number(item.unit_price || 0).toLocaleString('en-IN')
@@ -2802,11 +2805,11 @@ export const DocumentEditor: React.FC = () => {
                                                 </div>
                                             </td>
                                             {docData.is_gst === 1 && (
-                                                <td className="px-2 py-4.5 align-middle text-center">
+                                                <td className="px-2 py-3.5 align-middle text-center w-24 min-w-[85px]">
                                                     <select
                                                         value={item.tax_rate ?? 0}
                                                         onChange={(e) => handleItemChange(index, 'tax_rate', parseFloat(e.target.value) || 0)}
-                                                        className="w-full bg-white dark:bg-slate-800 text-center text-slate-900 dark:text-white font-bold outline-none border border-slate-300 dark:border-slate-700 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 rounded-xl transition-all text-xs py-2 px-2 cursor-pointer shadow-2xs"
+                                                        className="w-full bg-white dark:bg-slate-800 text-center text-slate-900 dark:text-white font-bold outline-none border border-slate-300 dark:border-slate-700 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 rounded-xl transition-all text-xs py-2 px-1.5 cursor-pointer shadow-2xs"
                                                     >
                                                         <option value="0">0%</option>
                                                         <option value="5">5%</option>
@@ -2816,11 +2819,11 @@ export const DocumentEditor: React.FC = () => {
                                                     </select>
                                                 </td>
                                             )}
-                                            <td className="px-4 py-4.5 align-middle text-right text-[#091C3B] dark:text-white tabular-nums font-black text-xs whitespace-nowrap">
+                                            <td className="px-3 sm:px-4 py-3.5 align-middle text-right text-[#091C3B] dark:text-white tabular-nums font-black text-xs whitespace-nowrap w-32 min-w-[120px]">
                                                 ₹{(parseDaysKm(item.total_days_km) * Number(item.unit_price || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                                             </td>
-                                            <td className="p-0 align-middle print:hidden w-8 text-center">
-                                                <button onClick={() => removeItem(index)} className="p-2 text-slate-300 hover:text-red-500 hover:scale-105 active:scale-95 opacity-0 group-hover:opacity-100 transition-all rounded-lg" title="Remove row">
+                                            <td className="p-0 align-middle print:hidden w-10 min-w-[40px] text-center">
+                                                <button onClick={() => removeItem(index)} className="p-2 text-slate-300 hover:text-red-500 hover:scale-105 active:scale-95 opacity-0 group-hover:opacity-100 transition-all rounded-lg inline-flex items-center justify-center" title="Remove row">
                                                     <Trash2 size={14} />
                                                 </button>
                                             </td>

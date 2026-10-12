@@ -3,7 +3,8 @@ import {
     Send, X, MessageSquare, Bot, Sparkles, User, HelpCircle, Gift, 
     Mic, MicOff, Compass, ExternalLink, Star, MessageCircle, 
     Flame, CheckCircle2, ChevronRight, ShieldCheck, RotateCcw, 
-    Copy, Check, Calendar, MapPin, Tag, ArrowRight, Clock, Award 
+    Copy, Check, Calendar, MapPin, Tag, ArrowRight, Clock, Award,
+    Phone, Mail, Lock
 } from 'lucide-react';
 import { ThinkingOrb } from 'thinking-orbs';
 import { BotAvatar } from 'bot-avatars';
@@ -30,6 +31,14 @@ interface ChatMessage {
     matchedPackages?: MatchedPackage[];
 }
 
+interface TravelerProfile {
+    name: string;
+    phone: string;
+    email?: string;
+    destination?: string;
+    leadId?: string;
+}
+
 export const PublicChatbot: React.FC = () => {
     const [isOpen, setIsOpen] = useState(false);
     const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -48,11 +57,24 @@ export const PublicChatbot: React.FC = () => {
         "💎 Membership Discounts"
     ]);
 
+    // Pre-Chat Lead Gate & Traveler Profile States
+    const [traveler, setTraveler] = useState<TravelerProfile | null>(null);
+    const [isRegistered, setIsRegistered] = useState(false);
+    const [leadName, setLeadName] = useState('');
+    const [leadPhone, setLeadPhone] = useState('');
+    const [leadEmail, setLeadEmail] = useState('');
+    const [leadDest, setLeadDest] = useState('');
+    const [isSubmittingLead, setIsSubmittingLead] = useState(false);
+    const [leadFormError, setLeadFormError] = useState('');
+
+    // Proactive Floating Hook Teaser Bubble State
+    const [showHookTeaser, setShowHookTeaser] = useState(false);
+
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
     const recognitionRef = useRef<any>(null);
 
-    // Initialise session & Hormozi opening greeting
+    // Initialise session, returning lead memory & Hormozi opening greeting
     useEffect(() => {
         let sId = sessionStorage.getItem('shrawello_chatbot_session');
         if (!sId) {
@@ -68,15 +90,42 @@ export const PublicChatbot: React.FC = () => {
         }
         setVisitorId(vId);
 
-        initWelcomeMessage();
+        // Check if returning lead is stored in localStorage
+        const savedLeadStr = localStorage.getItem('shrawello_lead_profile');
+        if (savedLeadStr) {
+            try {
+                const parsed = JSON.parse(savedLeadStr);
+                if (parsed.name && parsed.phone) {
+                    setTraveler(parsed);
+                    setIsRegistered(true);
+                    setLeadName(parsed.name);
+                    setLeadPhone(parsed.phone);
+                    setLeadEmail(parsed.email || '');
+                    initPersonalizedWelcome(parsed.name, parsed.destination);
+                } else {
+                    initGenericWelcome();
+                }
+            } catch {
+                initGenericWelcome();
+            }
+        } else {
+            initGenericWelcome();
+        }
+
+        // Trigger proactive hook teaser bubble after 4.5 seconds
+        const teaserTimer = setTimeout(() => {
+            setShowHookTeaser(true);
+        }, 4500);
+
+        return () => clearTimeout(teaserTimer);
     }, []);
 
-    const initWelcomeMessage = () => {
+    const initGenericWelcome = () => {
         setMessages([
             {
                 id: 'welcome',
                 sender: 'ai',
-                message: `### Welcome to Shrawello Travel Concierge! ✨\n\nI'm your **AI Travel Specialist**. Tell me where you want to travel, your dates & group size, and I'll craft you a **custom VIP day-by-day itinerary** with secret insider perks & early-bird rates in under 30 seconds!\n\n**Who are you traveling with?** Select your travel style below or type your dream destination:`,
+                message: `### Welcome to Shrawello VIP Concierge! ✨\n\nI'm your **Senior DMC Travel Specialist**. Tell me where you want to travel, your dates & group size, and I'll craft you a **custom VIP day-by-day itinerary** with secret insider perks & early-bird wholesale rates in under 15 seconds!\n\n**Who are you traveling with?** Select your travel style below or type your dream destination:`,
                 timestamp: new Date(),
                 suggestions: [
                     "💑 Couple / Honeymoon",
@@ -88,24 +137,127 @@ export const PublicChatbot: React.FC = () => {
         ]);
     };
 
-    // Scroll to bottom when messages or loading changes
-    useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages, isLoading]);
+    const initPersonalizedWelcome = (fullName: string, dest?: string) => {
+        const firstName = fullName.split(' ')[0] || fullName;
+        setMessages([
+            {
+                id: 'welcome',
+                sender: 'ai',
+                message: `### Welcome ${firstName}! 💎\n\nYour **VIP Travel Pass & ₹2,500 Early-Bird Credit** are active! Because you're connecting directly with Shrawello (**Direct Maharashtra DMC**), you receive wholesale pricing with **zero online portal markups**.\n\n${dest ? `I see you're planning a trip to **${dest}**! ` : ''}Tell me about your travel dates and group size, and I'll craft your custom day-by-day VIP itinerary with verified 4-star stays and private sanitized cab in under 15 seconds!\n\n**Select your travel style or tap an option below:**`,
+                timestamp: new Date(),
+                suggestions: dest ? [
+                    `🏔️ 5-Day ${dest} Itinerary`,
+                    `💰 ${dest} Under ₹25k Deal`,
+                    "💑 Couple / Honeymoon Special",
+                    "👨‍👩‍👧 Family with Kids / Parents"
+                ] : [
+                    "🏔️ 5-Day Kashmir Honeymoon",
+                    "🏖️ Goa Beach Getaway Under ₹20k",
+                    "❄️ Manali Family Snow Tour",
+                    "🚗 Book Outstation Cab / Fleet"
+                ]
+            }
+        ]);
+    };
 
-    // Focus input on desktop when opened
-    useEffect(() => {
-        if (isOpen && window.innerWidth > 640) {
-            setTimeout(() => inputRef.current?.focus(), 300);
+    // Pre-Chat Lead Gate Submission (Hormozi $100M Opt-In Bribe)
+    const handlePreChatSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setLeadFormError('');
+
+        const cleanName = leadName.trim();
+        const cleanPhone = leadPhone.trim().replace(/\D/g, '');
+        const cleanEmail = leadEmail.trim();
+
+        if (!cleanName || cleanName.length < 2) {
+            setLeadFormError('Please enter your full name.');
+            return;
         }
-    }, [isOpen]);
+
+        if (!cleanPhone || cleanPhone.length < 10) {
+            setLeadFormError('Please enter a valid 10-digit WhatsApp phone number.');
+            return;
+        }
+
+        setIsSubmittingLead(true);
+
+        try {
+            const res = await fetch('/api/public/leads', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: cleanName,
+                    phone: cleanPhone,
+                    email: cleanEmail || null,
+                    destination: leadDest || 'Custom Tour Inquiry',
+                    source: 'AI Concierge Pre-Chat Gate',
+                    priority: 'High',
+                    type: 'Tour',
+                    status: 'New',
+                    preferences: {
+                        initialDestination: leadDest || 'General',
+                        channel: 'AI Concierge Pre-Chat Gate',
+                        vipPassActivated: true,
+                        voucherCredited: 2500,
+                        sessionId
+                    }
+                })
+            });
+
+            const data = await res.json();
+            const createdLeadId = data?.id || data?.leadId || `LD-${Date.now()}`;
+
+            const newProfile: TravelerProfile = {
+                name: cleanName,
+                phone: cleanPhone,
+                email: cleanEmail,
+                destination: leadDest,
+                leadId: createdLeadId
+            };
+
+            localStorage.setItem('shrawello_lead_profile', JSON.stringify(newProfile));
+            setTraveler(newProfile);
+            setIsRegistered(true);
+            setLeadCaptured(true);
+            setTimeout(() => setLeadCaptured(false), 8000);
+
+            // Update welcome message personalized to this traveler
+            initPersonalizedWelcome(cleanName, leadDest);
+
+            // If traveler picked a destination, auto send their first question!
+            if (leadDest) {
+                setTimeout(() => {
+                    handleSendMessage(`I would like to explore custom tour packages for ${leadDest}!`, newProfile);
+                }, 400);
+            }
+        } catch (err: any) {
+            console.error('Failed to submit pre-chat lead:', err);
+            // Fallback graceful entry so user experience is not blocked
+            const fallbackProfile: TravelerProfile = {
+                name: cleanName,
+                phone: cleanPhone,
+                email: cleanEmail,
+                destination: leadDest
+            };
+            localStorage.setItem('shrawello_lead_profile', JSON.stringify(fallbackProfile));
+            setTraveler(fallbackProfile);
+            setIsRegistered(true);
+            initPersonalizedWelcome(cleanName, leadDest);
+        } finally {
+            setIsSubmittingLead(false);
+        }
+    };
 
     // Reset conversation
     const handleResetChat = () => {
         const newSessionId = `SESS-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
         sessionStorage.setItem('shrawello_chatbot_session', newSessionId);
         setSessionId(newSessionId);
-        initWelcomeMessage();
+        if (traveler?.name) {
+            initPersonalizedWelcome(traveler.name, traveler.destination);
+        } else {
+            initGenericWelcome();
+        }
         setActiveSuggestions([
             "🏔️ 5-Day Kashmir Honeymoon",
             "🏖️ Goa Beach Getaway Under ₹20k",
@@ -162,8 +314,10 @@ export const PublicChatbot: React.FC = () => {
         }
     };
 
-    const handleSendMessage = async (textToSend: string) => {
+    const handleSendMessage = async (textToSend: string, explicitProfile?: TravelerProfile) => {
         if (!textToSend.trim() || isLoading) return;
+
+        const currentProfile = explicitProfile || traveler;
 
         const userMsg: ChatMessage = {
             id: `msg-${Date.now()}`,
@@ -185,7 +339,11 @@ export const PublicChatbot: React.FC = () => {
                 body: JSON.stringify({
                     sessionId,
                     visitorId,
-                    message: textToSend
+                    message: textToSend,
+                    travelerName: currentProfile?.name || '',
+                    travelerPhone: currentProfile?.phone || '',
+                    travelerEmail: currentProfile?.email || '',
+                    leadId: currentProfile?.leadId || null
                 })
             });
 
@@ -244,7 +402,8 @@ export const PublicChatbot: React.FC = () => {
     };
 
     const openWhatsAppHandoff = () => {
-        const waText = encodeURIComponent(`Hi Shrawello Travel Hub! I am exploring tour packages on your website and would love a custom quote with early-bird discounts.`);
+        const nameIntro = traveler?.name ? `I am ${traveler.name}` : `I am exploring tour packages on your website`;
+        const waText = encodeURIComponent(`Hi Shrawello Travel Hub! ${nameIntro} and would love a custom quote with direct DMC early-bird rates.`);
         window.open(`https://wa.me/${COMPANY_WHATSAPP}?text=${waText}`, '_blank');
     };
 
@@ -477,6 +636,17 @@ export const PublicChatbot: React.FC = () => {
                                     <span className="text-[8px] bg-amber-400 text-slate-950 font-black px-1.5 py-0.2 rounded uppercase tracking-wider">
                                         PRO
                                     </span>
+                                    {traveler?.name && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setIsRegistered(false)}
+                                            title="Click to view/edit your VIP profile"
+                                            className="text-[8.5px] bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 px-1.5 py-0.5 rounded-full font-bold flex items-center gap-1 hover:bg-emerald-500/30 transition-all cursor-pointer"
+                                        >
+                                            <User className="size-2.5" />
+                                            <span className="truncate max-w-[65px]">{traveler.name.split(' ')[0]}</span>
+                                        </button>
+                                    )}
                                 </h3>
                                 <p className="text-[10px] text-slate-300/90 font-medium flex items-center gap-1">
                                     <span className="size-1.5 rounded-full bg-emerald-400 inline-block"></span>
@@ -486,14 +656,16 @@ export const PublicChatbot: React.FC = () => {
                         </div>
                         
                         <div className="flex items-center gap-1">
-                            <button
-                                type="button"
-                                onClick={handleResetChat}
-                                title="Reset conversation"
-                                className="p-1.5 rounded-xl hover:bg-white/15 text-slate-300 hover:text-white transition-colors"
-                            >
-                                <RotateCcw className="size-4" />
-                            </button>
+                            {isRegistered && (
+                                <button
+                                    type="button"
+                                    onClick={handleResetChat}
+                                    title="Reset conversation"
+                                    className="p-1.5 rounded-xl hover:bg-white/15 text-slate-300 hover:text-white transition-colors"
+                                >
+                                    <RotateCcw className="size-4" />
+                                </button>
+                            )}
                             <button
                                 type="button"
                                 onClick={openWhatsAppHandoff}
@@ -525,222 +697,433 @@ export const PublicChatbot: React.FC = () => {
                         </span>
                     </div>
 
-                    {/* Chat Messages Body */}
-                    <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/70 dark:bg-slate-950/60">
-                        {messages.map((msg) => (
-                            <div 
-                                key={msg.id} 
-                                className={`flex gap-2.5 max-w-[94%] break-words ${msg.sender === 'user' ? 'ml-auto flex-row-reverse' : ''}`}
-                            >
-                                <div className={`size-7 rounded-full shrink-0 flex items-center justify-center text-white shadow-xs mt-1 overflow-hidden ${msg.sender === 'user' ? 'bg-indigo-600' : 'bg-slate-900'}`}>
-                                    {msg.sender === 'user' ? <User className="size-3.5" /> : <BotAvatar type="ghost" size={26} state="default" />}
+                    {/* Modal Content: Pre-Chat Lead Gate OR Active Chat Interface */}
+                    {!isRegistered ? (
+                        <div className="flex-1 overflow-y-auto p-4 sm:p-5 bg-gradient-to-b from-slate-50 via-white to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 flex flex-col justify-between">
+                            <div>
+                                {/* Hormozi Value Bribe Header */}
+                                <div className="text-center mb-3.5">
+                                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gradient-to-r from-amber-500/15 to-emerald-500/15 border border-amber-500/30 text-amber-700 dark:text-amber-400 text-[10px] font-black uppercase tracking-wider mb-2">
+                                        <Sparkles className="size-3 text-amber-500 animate-pulse" />
+                                        VIP Travel Pass Activation
+                                    </div>
+                                    <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white tracking-tight leading-snug">
+                                        Unlock Direct Wholesale Rates
+                                    </h3>
+                                    <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-1 leading-relaxed max-w-xs mx-auto">
+                                        Skip middleman portal markups. Activate your pass for custom itineraries + an instant <strong className="text-emerald-600 dark:text-emerald-400 font-black">₹2,500 Early-Bird Credit</strong>!
+                                    </p>
                                 </div>
-                                
-                                <div className={`p-3.5 rounded-2xl ${
-                                    msg.sender === 'user' 
-                                        ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-tr-none shadow-md font-medium text-xs' 
-                                        : 'bg-white dark:bg-slate-800 text-slate-850 dark:text-slate-100 border border-slate-200/90 dark:border-slate-700/80 rounded-tl-none shadow-sm'
-                                }`}>
-                                    
-                                    {/* Render formatted message content */}
-                                    {msg.sender === 'user' ? (
-                                        <p className="text-xs leading-relaxed">{msg.message}</p>
-                                    ) : (
-                                        renderRichContent(msg.message)
-                                    )}
 
-                                    {/* Luxury Interactive Package Cards */}
-                                    {msg.matchedPackages && msg.matchedPackages.length > 0 && (
-                                        <div className="mt-3.5 space-y-2.5 pt-2.5 border-t border-slate-100 dark:border-slate-700/80">
-                                            <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-400 flex items-center gap-1">
-                                                <Flame className="size-3 text-amber-500" /> Featured Options & Early-Bird Quotes
-                                            </p>
-                                            {msg.matchedPackages.map((pkg) => (
-                                                <div 
-                                                    key={pkg.id} 
-                                                    className="bg-slate-50 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-700 rounded-2xl p-3 shadow-xs hover:border-blue-500/50 hover:shadow-md transition-all flex flex-col gap-2.5"
+                                {/* Hormozi Value Triad Badges */}
+                                <div className="grid grid-cols-3 gap-2 mb-3.5">
+                                    <div className="bg-white dark:bg-slate-800/80 p-2 rounded-xl border border-slate-200/80 dark:border-slate-700/70 text-center shadow-2xs">
+                                        <Clock className="size-4 text-blue-500 mx-auto mb-1" />
+                                        <p className="text-[9.5px] font-bold text-slate-800 dark:text-slate-200 leading-tight">15-Sec Quote</p>
+                                        <p className="text-[8px] text-slate-400">Day-by-Day VIP</p>
+                                    </div>
+                                    <div className="bg-white dark:bg-slate-800/80 p-2 rounded-xl border border-slate-200/80 dark:border-slate-700/70 text-center shadow-2xs">
+                                        <ShieldCheck className="size-4 text-emerald-500 mx-auto mb-1" />
+                                        <p className="text-[9.5px] font-bold text-slate-800 dark:text-slate-200 leading-tight">Price Match</p>
+                                        <p className="text-[8px] text-slate-400">+₹1,000 Credit</p>
+                                    </div>
+                                    <div className="bg-white dark:bg-slate-800/80 p-2 rounded-xl border border-slate-200/80 dark:border-slate-700/70 text-center shadow-2xs">
+                                        <Award className="size-4 text-amber-500 mx-auto mb-1" />
+                                        <p className="text-[9.5px] font-bold text-slate-800 dark:text-slate-200 leading-tight">Direct DMC</p>
+                                        <p className="text-[8px] text-slate-400">Zero Middlemen</p>
+                                    </div>
+                                </div>
+
+                                {/* Error Banner */}
+                                {leadFormError && (
+                                    <div className="mb-3 p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-[11px] font-semibold flex items-center gap-2">
+                                        <X className="size-3.5 shrink-0" />
+                                        <span>{leadFormError}</span>
+                                    </div>
+                                )}
+
+                                {/* Pre-Chat Lead Capture Form */}
+                                <form onSubmit={handlePreChatSubmit} className="space-y-2.5">
+                                    <div>
+                                        <label className="block text-[10px] font-extrabold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
+                                            Your Full Name *
+                                        </label>
+                                        <div className="relative">
+                                            <User className="size-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                                            <input
+                                                type="text"
+                                                required
+                                                value={leadName}
+                                                onChange={(e) => setLeadName(e.target.value)}
+                                                placeholder="e.g. Rahul Sharma"
+                                                className="w-full pl-9 pr-3 py-2 text-xs rounded-xl bg-white dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 dark:text-white placeholder:text-slate-400 shadow-2xs"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-[10px] font-extrabold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
+                                            WhatsApp Phone Number *
+                                        </label>
+                                        <div className="flex rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 shadow-2xs focus-within:ring-2 focus-within:ring-blue-500">
+                                            <span className="px-2.5 py-2 bg-slate-100 dark:bg-slate-800 text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1 border-r border-slate-200 dark:border-slate-700 shrink-0">
+                                                🇮🇳 +91
+                                            </span>
+                                            <input
+                                                type="tel"
+                                                required
+                                                maxLength={10}
+                                                value={leadPhone}
+                                                onChange={(e) => setLeadPhone(e.target.value.replace(/\D/g, ''))}
+                                                placeholder="10-digit mobile number"
+                                                className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-800/90 focus:outline-none text-slate-900 dark:text-white placeholder:text-slate-400"
+                                            />
+                                        </div>
+                                        <p className="text-[9px] text-slate-400 mt-0.5">
+                                            We'll send your locked early-bird quote & VIP PDF itinerary here.
+                                        </p>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-[10px] font-extrabold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
+                                            Email Address <span className="text-slate-400 lowercase font-normal">(optional)</span>
+                                        </label>
+                                        <div className="relative">
+                                            <Mail className="size-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                                            <input
+                                                type="email"
+                                                value={leadEmail}
+                                                onChange={(e) => setLeadEmail(e.target.value)}
+                                                placeholder="name@example.com"
+                                                className="w-full pl-9 pr-3 py-2 text-xs rounded-xl bg-white dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 dark:text-white placeholder:text-slate-400 shadow-2xs"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-[10px] font-extrabold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
+                                            Where are you dreaming to go?
+                                        </label>
+                                        <div className="flex flex-wrap gap-1.5">
+                                            {[
+                                                "🏔️ Kashmir",
+                                                "🏖️ Goa",
+                                                "❄️ Himachal",
+                                                "🌴 Kerala",
+                                                "🚗 Outstation Cab",
+                                                "✨ Other"
+                                            ].map((dest, i) => (
+                                                <button
+                                                    key={i}
+                                                    type="button"
+                                                    onClick={() => setLeadDest(leadDest === dest ? '' : dest)}
+                                                    className={`px-2.5 py-1 rounded-lg text-[10.5px] font-semibold transition-all border ${
+                                                        leadDest === dest
+                                                            ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
+                                                            : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-blue-400'
+                                                    }`}
                                                 >
-                                                    <div className="flex gap-3 items-center">
-                                                        <div className="size-16 rounded-xl overflow-hidden bg-slate-200 dark:bg-slate-800 shrink-0 relative border border-slate-200 dark:border-slate-700">
-                                                            {pkg.image ? (
-                                                                <img src={pkg.image} alt={pkg.title} className="w-full h-full object-cover" />
-                                                            ) : (
-                                                                <div className="w-full h-full flex items-center justify-center bg-blue-100 dark:bg-blue-900/30 text-blue-600">
-                                                                    <Compass className="size-6" />
-                                                                </div>
-                                                            )}
-                                                            {pkg.tag && (
-                                                                <span className="absolute top-1 left-1 bg-amber-500 text-slate-950 text-[7.5px] font-black px-1.5 py-0.2 rounded shadow-xs">
-                                                                    {pkg.tag}
-                                                                </span>
-                                                            )}
-                                                        </div>
-                                                        <div className="flex-1 min-w-0">
-                                                            <h4 className="font-bold text-xs text-slate-900 dark:text-white truncate">{pkg.title}</h4>
-                                                            <p className="text-[10.5px] text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1.5">
-                                                                <span className="flex items-center gap-0.5"><Clock className="size-2.5" /> {pkg.days} Days</span>
-                                                                <span>•</span>
-                                                                <span className="flex items-center gap-0.5 truncate"><MapPin className="size-2.5" /> {pkg.location}</span>
-                                                                <span className="ml-auto text-amber-500 font-bold flex items-center shrink-0">
-                                                                    <Star className="size-2.5 fill-amber-400 text-amber-400 mr-0.5" /> {pkg.rating || 4.9}
-                                                                </span>
-                                                            </p>
-                                                            <div className="mt-1 flex items-baseline gap-1">
-                                                                <span className="text-sm font-black text-emerald-600 dark:text-emerald-400">
-                                                                    {formatPrice(pkg.price)}
-                                                                </span>
-                                                                <span className="text-[9px] text-slate-400 font-medium">/ all-inclusive</span>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="flex items-center gap-2 pt-1 border-t border-slate-200/60 dark:border-slate-800">
-                                                        <a
-                                                            href={`#/packages/${pkg.id}`}
-                                                            onClick={() => setIsOpen(false)}
-                                                            className="flex-1 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:text-blue-600 dark:hover:text-blue-400 text-[10.5px] font-bold rounded-xl transition-all flex items-center justify-center gap-1 text-center shadow-2xs"
-                                                        >
-                                                            View Details
-                                                            <ExternalLink className="size-2.5" />
-                                                        </a>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleQuickReply(`Let's customize the ${pkg.title} package for me!`)}
-                                                            className="flex-1 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-[10.5px] font-bold rounded-xl shadow-xs hover:opacity-95 transition-all flex items-center justify-center gap-1"
-                                                        >
-                                                            Select & Lock Deal
-                                                            <ArrowRight className="size-3" />
-                                                        </button>
-                                                    </div>
-                                                </div>
+                                                    {dest}
+                                                </button>
                                             ))}
                                         </div>
-                                    )}
+                                    </div>
 
-                                    <span className={`text-[8.5px] block mt-1.5 text-right font-mono ${msg.sender === 'user' ? 'text-white/70' : 'text-slate-400'}`}>
-                                        {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    <button
+                                        type="submit"
+                                        disabled={isSubmittingLead}
+                                        className="w-full mt-3 py-3 px-4 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-700 hover:to-indigo-700 text-white font-extrabold text-xs shadow-md shadow-indigo-500/25 flex items-center justify-center gap-2 transition-all active:scale-98 disabled:opacity-60 cursor-pointer"
+                                    >
+                                        {isSubmittingLead ? (
+                                            <>
+                                                <ThinkingOrb size={20} state="composing" theme="dark" />
+                                                <span>Activating VIP Pass...</span>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Sparkles className="size-3.5 text-amber-300 animate-pulse" />
+                                                <span>Unlock Wholesale Rates & Start Chat</span>
+                                                <ArrowRight className="size-3.5" />
+                                            </>
+                                        )}
+                                    </button>
+                                </form>
+                            </div>
+
+                            {/* Trust Footer */}
+                            <div className="pt-3 border-t border-slate-200/70 dark:border-slate-800 text-center mt-3">
+                                <div className="flex items-center justify-center gap-3 text-[9.5px] text-slate-500 dark:text-slate-400 font-medium">
+                                    <span className="flex items-center gap-1">
+                                        <Lock className="size-2.5 text-emerald-500" /> 100% Privacy
+                                    </span>
+                                    <span>•</span>
+                                    <span className="flex items-center gap-1">
+                                        <ShieldCheck className="size-2.5 text-blue-500" /> Zero Spam
+                                    </span>
+                                    <span>•</span>
+                                    <span className="flex items-center gap-1">
+                                        <Star className="size-2.5 text-amber-500 fill-amber-500" /> 1,200+ Verified
                                     </span>
                                 </div>
+                                {traveler?.name && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsRegistered(true)}
+                                        className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline font-bold mt-1.5 inline-block cursor-pointer"
+                                    >
+                                        Resume previous chat as {traveler.name} →
+                                    </button>
+                                )}
                             </div>
-                        ))}
-
-                        {/* Typing Indicator with ThinkingOrb */}
-                        {isLoading && (
-                            <div className="flex gap-2.5 max-w-[88%] animate-in fade-in duration-200">
-                                <div className="size-7 rounded-full bg-slate-900 flex items-center justify-center text-white shrink-0 mt-1 overflow-hidden shadow-xs">
-                                    <BotAvatar type="ghost" size={26} state="working" />
-                                </div>
-                                <div className="bg-white dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 px-3.5 py-2.5 rounded-2xl rounded-tl-none shadow-sm flex items-center gap-2.5">
-                                    <ThinkingOrb size={20} state="composing" theme="auto" />
-                                    <span className="text-[11px] text-slate-600 dark:text-slate-300 font-medium">
-                                        Advisor is assembling your custom VIP itinerary...
-                                    </span>
-                                </div>
-                            </div>
-                        )}
-                        <div ref={messagesEndRef} />
-                    </div>
-
-                    {/* Dynamic Quick Reply Action Chips (Hormozi Friction-Reducer) */}
-                    {activeSuggestions.length > 0 && (
-                        <div className="px-3 py-2 flex gap-1.5 overflow-x-auto whitespace-nowrap border-t border-slate-100 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 shrink-0 scrollbar-none">
-                            {activeSuggestions.map((sugg, idx) => (
-                                <button 
-                                    key={idx}
-                                    type="button"
-                                    onClick={() => handleQuickReply(sugg)} 
-                                    className="px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/90 hover:bg-blue-50 dark:hover:bg-blue-900/40 hover:border-blue-300 dark:hover:border-blue-600 text-[11px] font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5 transition-all shrink-0 active:scale-95 shadow-2xs"
-                                >
-                                    <Sparkles className="size-2.5 text-blue-500 shrink-0" />
-                                    {sugg}
-                                </button>
-                            ))}
                         </div>
+                    ) : (
+                        <>
+                            {/* Chat Messages Body */}
+                            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/70 dark:bg-slate-950/60">
+                                {messages.map((msg) => (
+                                    <div 
+                                        key={msg.id} 
+                                        className={`flex gap-2.5 max-w-[94%] break-words ${msg.sender === 'user' ? 'ml-auto flex-row-reverse' : ''}`}
+                                    >
+                                        <div className={`size-7 rounded-full shrink-0 flex items-center justify-center text-white shadow-xs mt-1 overflow-hidden ${msg.sender === 'user' ? 'bg-indigo-600' : 'bg-slate-900'}`}>
+                                            {msg.sender === 'user' ? <User className="size-3.5" /> : <BotAvatar type="ghost" size={26} state="default" />}
+                                        </div>
+                                        
+                                        <div className={`p-3.5 rounded-2xl ${
+                                            msg.sender === 'user' 
+                                                ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-tr-none shadow-md font-medium text-xs' 
+                                                : 'bg-white dark:bg-slate-800 text-slate-850 dark:text-slate-100 border border-slate-200/90 dark:border-slate-700/80 rounded-tl-none shadow-sm'
+                                        }`}>
+                                            
+                                            {/* Render formatted message content */}
+                                            {msg.sender === 'user' ? (
+                                                <p className="text-xs leading-relaxed">{msg.message}</p>
+                                            ) : (
+                                                renderRichContent(msg.message)
+                                            )}
+
+                                            {/* Luxury Interactive Package Cards */}
+                                            {msg.matchedPackages && msg.matchedPackages.length > 0 && (
+                                                <div className="mt-3.5 space-y-2.5 pt-2.5 border-t border-slate-100 dark:border-slate-700/80">
+                                                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-400 flex items-center gap-1">
+                                                        <Flame className="size-3 text-amber-500" /> Featured Options & Early-Bird Quotes
+                                                    </p>
+                                                    {msg.matchedPackages.map((pkg) => (
+                                                        <div 
+                                                            key={pkg.id} 
+                                                            className="bg-slate-50 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-700 rounded-2xl p-3 shadow-xs hover:border-blue-500/50 hover:shadow-md transition-all flex flex-col gap-2.5"
+                                                        >
+                                                            <div className="flex gap-3 items-center">
+                                                                <div className="size-16 rounded-xl overflow-hidden bg-slate-200 dark:bg-slate-800 shrink-0 relative border border-slate-200 dark:border-slate-700">
+                                                                    {pkg.image ? (
+                                                                        <img src={pkg.image} alt={pkg.title} className="w-full h-full object-cover" />
+                                                                    ) : (
+                                                                        <div className="w-full h-full flex items-center justify-center bg-blue-100 dark:bg-blue-900/30 text-blue-600">
+                                                                            <Compass className="size-6" />
+                                                                        </div>
+                                                                    )}
+                                                                    {pkg.tag && (
+                                                                        <span className="absolute top-1 left-1 bg-amber-500 text-slate-950 text-[7.5px] font-black px-1.5 py-0.2 rounded shadow-xs">
+                                                                            {pkg.tag}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                                <div className="flex-1 min-w-0">
+                                                                    <h4 className="font-bold text-xs text-slate-900 dark:text-white truncate">{pkg.title}</h4>
+                                                                    <p className="text-[10.5px] text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1.5">
+                                                                        <span className="flex items-center gap-0.5"><Clock className="size-2.5" /> {pkg.days} Days</span>
+                                                                        <span>•</span>
+                                                                        <span className="flex items-center gap-0.5 truncate"><MapPin className="size-2.5" /> {pkg.location}</span>
+                                                                        <span className="ml-auto text-amber-500 font-bold flex items-center shrink-0">
+                                                                            <Star className="size-2.5 fill-amber-400 text-amber-400 mr-0.5" /> {pkg.rating || 4.9}
+                                                                        </span>
+                                                                    </p>
+                                                                    <div className="mt-1 flex items-baseline gap-1">
+                                                                        <span className="text-sm font-black text-emerald-600 dark:text-emerald-400">
+                                                                            {formatPrice(pkg.price)}
+                                                                        </span>
+                                                                        <span className="text-[9px] text-slate-400 font-medium">/ all-inclusive</span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+
+                                                            <div className="flex items-center gap-2 pt-1 border-t border-slate-200/60 dark:border-slate-800">
+                                                                <a
+                                                                    href={`#/packages/${pkg.id}`}
+                                                                    onClick={() => setIsOpen(false)}
+                                                                    className="flex-1 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:text-blue-600 dark:hover:text-blue-400 text-[10.5px] font-bold rounded-xl transition-all flex items-center justify-center gap-1 text-center shadow-2xs"
+                                                                >
+                                                                    View Details
+                                                                    <ExternalLink className="size-2.5" />
+                                                                </a>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleQuickReply(`Let's customize the ${pkg.title} package for me!`)}
+                                                                    className="flex-1 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-[10.5px] font-bold rounded-xl shadow-xs hover:opacity-95 transition-all flex items-center justify-center gap-1"
+                                                                >
+                                                                    Select & Lock Deal
+                                                                    <ArrowRight className="size-3" />
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+
+                                            <span className={`text-[8.5px] block mt-1.5 text-right font-mono ${msg.sender === 'user' ? 'text-white/70' : 'text-slate-400'}`}>
+                                                {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            </span>
+                                        </div>
+                                    </div>
+                                ))}
+
+                                {/* Typing Indicator with ThinkingOrb */}
+                                {isLoading && (
+                                    <div className="flex gap-2.5 max-w-[88%] animate-in fade-in duration-200">
+                                        <div className="size-7 rounded-full bg-slate-900 flex items-center justify-center text-white shrink-0 mt-1 overflow-hidden shadow-xs">
+                                            <BotAvatar type="ghost" size={26} state="working" />
+                                        </div>
+                                        <div className="bg-white dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 px-3.5 py-2.5 rounded-2xl rounded-tl-none shadow-sm flex items-center gap-2.5">
+                                            <ThinkingOrb size={20} state="composing" theme="auto" />
+                                            <span className="text-[11px] text-slate-600 dark:text-slate-300 font-medium">
+                                                Advisor is assembling your custom VIP itinerary...
+                                            </span>
+                                        </div>
+                                    </div>
+                                )}
+                                <div ref={messagesEndRef} />
+                            </div>
+
+                            {/* Dynamic Quick Reply Action Chips (Hormozi Friction-Reducer) */}
+                            {activeSuggestions.length > 0 && (
+                                <div className="px-3 py-2 flex gap-1.5 overflow-x-auto whitespace-nowrap border-t border-slate-100 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 shrink-0 scrollbar-none">
+                                    {activeSuggestions.map((sugg, idx) => (
+                                        <button 
+                                            key={idx}
+                                            type="button"
+                                            onClick={() => handleQuickReply(sugg)} 
+                                            className="px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/90 hover:bg-blue-50 dark:hover:bg-blue-900/40 hover:border-blue-300 dark:hover:border-blue-600 text-[11px] font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5 transition-all shrink-0 active:scale-95 shadow-2xs"
+                                        >
+                                            <Sparkles className="size-2.5 text-blue-500 shrink-0" />
+                                            {sugg}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+
+                            {/* WhatsApp Fast Escalation Bar */}
+                            <div className="px-3.5 py-1.5 bg-slate-100/90 dark:bg-slate-950 border-t border-slate-200/80 dark:border-slate-800 flex items-center justify-between text-[11px] shrink-0">
+                                <span className="text-slate-500 dark:text-slate-400 font-medium flex items-center gap-1">
+                                    <MessageCircle className="size-3 text-emerald-500" /> Prefer chatting with human expert?
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={openWhatsAppHandoff}
+                                    className="font-bold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-0.5"
+                                >
+                                    WhatsApp Concierge <ChevronRight className="size-3" />
+                                </button>
+                            </div>
+
+                            {/* Listening Wave Overlay (When Mic active) */}
+                            {isListening && (
+                                <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-blue-950 text-white border-t border-indigo-500/30 px-3.5 py-2 flex items-center justify-between text-xs font-bold animate-in fade-in duration-200 shrink-0 shadow-inner">
+                                    <div className="flex items-center gap-2.5">
+                                        <div className="size-6 rounded-full bg-rose-500 flex items-center justify-center animate-pulse">
+                                            <Mic className="size-3 text-white" />
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <ThinkingOrb size={20} state="listening" theme="dark" />
+                                            <span className="text-[11px] font-semibold text-indigo-100">
+                                                Listening to your voice... Speak your dream trip
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={toggleVoiceInput}
+                                        className="px-2 py-0.5 text-[10px] font-bold rounded-lg bg-white/20 hover:bg-white/30 text-white transition-colors"
+                                    >
+                                        Stop
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* Input Form Bar */}
+                            <form onSubmit={handleSubmit} className="p-3 border-t border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center gap-2 shrink-0">
+                                <input 
+                                    ref={inputRef}
+                                    type="text" 
+                                    value={input}
+                                    onChange={(e) => setInput(e.target.value)}
+                                    placeholder="Where to? (e.g. 5-day Kashmir trip with family)"
+                                    disabled={isLoading}
+                                    className="flex-1 px-4 py-2.5 border border-slate-200 dark:border-slate-700 rounded-full text-base sm:text-xs bg-slate-50 dark:bg-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all placeholder:text-slate-400"
+                                />
+                                
+                                {/* Browser-Native Speech-to-Text Button */}
+                                <button
+                                    type="button"
+                                    onClick={toggleVoiceInput}
+                                    title={isListening ? "Listening... click to stop" : "Speak your query (Voice Input)"}
+                                    className={`size-9 rounded-full flex items-center justify-center transition-all shrink-0 ${
+                                        isListening 
+                                            ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/40 animate-pulse' 
+                                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                                    }`}
+                                >
+                                    {isListening ? <MicOff className="size-4" /> : <Mic className="size-4" />}
+                                </button>
+
+                                <button 
+                                    type="submit" 
+                                    disabled={isLoading || !input.trim()}
+                                    className="size-9 rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:opacity-40 text-white flex items-center justify-center shadow-md transition-all shrink-0 hover:scale-105 active:scale-95"
+                                    aria-label="Send message"
+                                >
+                                    <Send className="size-4" />
+                                </button>
+                            </form>
+                        </>
                     )}
+                </div>
+            )}
 
-                    {/* WhatsApp Fast Escalation Bar */}
-                    <div className="px-3.5 py-1.5 bg-slate-100/90 dark:bg-slate-950 border-t border-slate-200/80 dark:border-slate-800 flex items-center justify-between text-[11px] shrink-0">
-                        <span className="text-slate-500 dark:text-slate-400 font-medium flex items-center gap-1">
-                            <MessageCircle className="size-3 text-emerald-500" /> Prefer chatting with human expert?
-                        </span>
-                        <button
-                            type="button"
-                            onClick={openWhatsAppHandoff}
-                            className="font-bold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-0.5"
+            {/* Float Button (When closed) with Proactive Hook Teaser */}
+            {!isOpen && (
+                <div className="fixed bottom-6 right-6 z-[9999] flex flex-col items-end gap-2.5">
+                    {/* Proactive Floating Hook Teaser Bubble (Hormozi Pattern Interrupt) */}
+                    {showHookTeaser && (
+                        <div 
+                            onClick={() => { setIsOpen(true); setShowHookTeaser(false); }}
+                            className="bg-slate-900/95 backdrop-blur-md text-white text-xs p-3 px-3.5 rounded-2xl shadow-2xl border border-indigo-500/40 flex items-center gap-2.5 max-w-[275px] animate-in fade-in slide-in-from-bottom-2 duration-300 cursor-pointer hover:border-indigo-400 transition-all hover:scale-102 group"
                         >
-                            WhatsApp Concierge <ChevronRight className="size-3" />
-                        </button>
-                    </div>
-
-                    {/* Listening Wave Overlay (When Mic active) */}
-                    {isListening && (
-                        <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-blue-950 text-white border-t border-indigo-500/30 px-3.5 py-2 flex items-center justify-between text-xs font-bold animate-in fade-in duration-200 shrink-0 shadow-inner">
-                            <div className="flex items-center gap-2.5">
-                                <div className="size-6 rounded-full bg-rose-500 flex items-center justify-center animate-pulse">
-                                    <Mic className="size-3 text-white" />
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <ThinkingOrb size={20} state="listening" theme="dark" />
-                                    <span className="text-[11px] font-semibold text-indigo-100">
-                                        Listening to your voice... Speak your dream trip
-                                    </span>
-                                </div>
+                            <div className="size-7 rounded-xl bg-amber-500/20 text-amber-300 flex items-center justify-center shrink-0">
+                                <Sparkles className="size-4 animate-pulse" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <p className="font-extrabold text-[11px] leading-tight text-white flex items-center gap-1">
+                                    Wholesale DMC Rates <span className="text-[9px] bg-emerald-500/30 text-emerald-300 px-1 py-0.2 rounded font-bold">₹2,500 Off</span>
+                                </p>
+                                <p className="text-[10px] text-slate-300 leading-tight mt-0.5">
+                                    Click to unlock custom VIP itineraries & direct pricing!
+                                </p>
                             </div>
                             <button
                                 type="button"
-                                onClick={toggleVoiceInput}
-                                className="px-2 py-0.5 text-[10px] font-bold rounded-lg bg-white/20 hover:bg-white/30 text-white transition-colors"
+                                onClick={(e) => { e.stopPropagation(); setShowHookTeaser(false); }}
+                                className="p-1 text-slate-400 hover:text-white rounded-lg transition-colors shrink-0"
+                                aria-label="Dismiss hook teaser"
                             >
-                                Stop
+                                <X className="size-3" />
                             </button>
                         </div>
                     )}
 
-                    {/* Input Form Bar */}
-                    <form onSubmit={handleSubmit} className="p-3 border-t border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center gap-2 shrink-0">
-                        <input 
-                            ref={inputRef}
-                            type="text" 
-                            value={input}
-                            onChange={(e) => setInput(e.target.value)}
-                            placeholder="Where to? (e.g. 5-day Kashmir trip with family)"
-                            disabled={isLoading}
-                            className="flex-1 px-4 py-2.5 border border-slate-200 dark:border-slate-700 rounded-full text-base sm:text-xs bg-slate-50 dark:bg-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all placeholder:text-slate-400"
-                        />
-                        
-                        {/* Browser-Native Speech-to-Text Button */}
-                        <button
-                            type="button"
-                            onClick={toggleVoiceInput}
-                            title={isListening ? "Listening... click to stop" : "Speak your query (Voice Input)"}
-                            className={`size-9 rounded-full flex items-center justify-center transition-all shrink-0 ${
-                                isListening 
-                                    ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/40 animate-pulse' 
-                                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-                            }`}
-                        >
-                            {isListening ? <MicOff className="size-4" /> : <Mic className="size-4" />}
-                        </button>
-
-                        <button 
-                            type="submit" 
-                            disabled={isLoading || !input.trim()}
-                            className="size-9 rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:opacity-40 text-white flex items-center justify-center shadow-md transition-all shrink-0 hover:scale-105 active:scale-95"
-                            aria-label="Send message"
-                        >
-                            <Send className="size-4" />
-                        </button>
-                    </form>
-                </div>
-            )}
-
-            {/* Float Button (When closed) */}
-            {!isOpen && (
-                <div className="fixed bottom-6 right-6 z-[9999]">
                     <button 
                         type="button"
-                        onClick={() => setIsOpen(true)}
-                        className="size-16 rounded-full bg-gradient-to-r from-slate-900 via-indigo-950 to-blue-950 hover:scale-105 border-2 border-indigo-500/40 text-white flex items-center justify-center shadow-2xl transition-all duration-300 relative group"
+                        onClick={() => { setIsOpen(true); setShowHookTeaser(false); }}
+                        className="size-16 rounded-full bg-gradient-to-r from-slate-900 via-indigo-950 to-blue-950 hover:scale-105 border-2 border-indigo-500/40 text-white flex items-center justify-center shadow-2xl transition-all duration-300 relative group cursor-pointer"
                         aria-label="Open AI Travel Advisor"
                     >
                         <span className="absolute inset-0 rounded-full bg-indigo-500/25 group-hover:animate-ping -z-10"></span>
@@ -755,7 +1138,7 @@ export const PublicChatbot: React.FC = () => {
 
                         <span className="absolute right-18 scale-0 group-hover:scale-100 bg-slate-900/95 backdrop-blur-md text-white text-[11px] font-bold px-3.5 py-2 rounded-2xl shadow-2xl border border-indigo-500/30 transition-all origin-right flex items-center gap-2 whitespace-nowrap">
                             <Sparkles className="size-3 text-amber-300 animate-pulse" />
-                            Ask AI Travel Concierge
+                            {traveler?.name ? `Resume Concierge (${traveler.name.split(' ')[0]})` : "Unlock Wholesale DMC Rates"}
                         </span>
                     </button>
                 </div>

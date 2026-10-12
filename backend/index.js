@@ -171,7 +171,7 @@ createAttendanceRoutes(app, pool);
 createIncentiveRoutes(app, pool, authMiddleware);
 createAvailabilityRfqRoutes(app, pool, authMiddleware);
 createHierarchyRoutes(app, pool, authMiddleware);
-runStartupMigrations(pool);
+runStartupMigrations(pool).catch(e => console.error('[Startup Migrations Error]:', e.message));
 
 // Background cron: Auto-close orphan/inactive sessions (5-minute timeout) every 60 seconds
 setInterval(() => {
@@ -5026,23 +5026,26 @@ Keep your response friendly, clear, and direct.`;
     }
 });
 
-// ─── AI Chatbot Public APIs ───
-
 // ─── AI Chatbot Public APIs (Alex Hormozi $100M Sales Engine) ───
 
 app.post('/api/public/chatbot', async (req, res) => {
-    const { sessionId, message, visitorId } = req.body || {};
+    const { sessionId, message, visitorId, travelerName, travelerPhone, travelerEmail, leadId: incomingLeadId } = req.body || {};
     if (!sessionId || !message) {
         return res.status(400).json({ error: 'sessionId and message are required.' });
     }
     
     try {
-        // 1. Get or create chatbot session
+        // 1. Get or create chatbot session (with lead linkage)
         let [sessionRows] = await pool.query('SELECT * FROM chatbot_sessions WHERE id = ?', [sessionId]);
         if (sessionRows.length === 0) {
             await pool.query(
-                'INSERT INTO chatbot_sessions (id, visitor_id, status) VALUES (?, ?, ?)',
-                [sessionId, visitorId || 'anonymous', 'Active']
+                'INSERT INTO chatbot_sessions (id, visitor_id, status, lead_id) VALUES (?, ?, ?, ?)',
+                [sessionId, visitorId || 'anonymous', 'Active', incomingLeadId || null]
+            );
+        } else if (incomingLeadId && !sessionRows[0].lead_id) {
+            await pool.query(
+                'UPDATE chatbot_sessions SET lead_id = ? WHERE id = ?',
+                [incomingLeadId, sessionId]
             );
         }
         
@@ -5114,10 +5117,18 @@ app.post('/api/public/chatbot', async (req, res) => {
             `- "${(t.content || '').slice(0, 150)}..." — ${t.customer_name || 'Traveler'} from ${t.location || 'India'} (${t.rating || 5}★)`
         ).join('\n');
 
+        const travelerContext = travelerName ? `
+=== ACTIVE VERIFIED VIP TRAVELER ===
+Traveler Name: ${travelerName}
+WhatsApp Phone: ${travelerPhone || 'On File'}
+Email: ${travelerEmail || 'On File'}
+*CRITICAL:* Address ${travelerName.split(' ')[0]} warmly and respectfully by their first name. They have ALREADY unlocked their VIP Pass & verified contact details upfront. Do NOT ask for their phone number or email again. Treat them like a valued high-ticket client!
+` : '';
+
         // 5. Alex Hormozi $100M Master Sales System Prompt
         const systemPrompt = `You are Alex Hormozi's trained AI Travel Advisor & High-Converting Closer for "Shrawello Travel Hub".
 Your mission: Turn curious website visitors into enthusiastic, booked travelers and high-value leads by applying Alex Hormozi's $100M sales, money model, and lead nurture methodologies.
-
+${travelerContext}
 === LIVE SHRAWELLO CATALOG & VALUE ASSETS ===
 AVAILABLE PACKAGES:
 ${packageContext}
@@ -5144,33 +5155,35 @@ ${testimonialsContext || '- "Shrawello arranged a dedicated Innova Crysta throug
 2. THE ACQ CADENCE (Acknowledge -> Compliment -> Question):
    Never give a dry robotic answer. Always acknowledge their destination, compliment their choice, and ask the next high-value qualifying question (Dates, Group size, or Style).
 
-3. UNSELLING (The Trust Multiplier):
-   Tell them what they DON'T need before telling them what they DO need.
-   Example: "You don't need a grueling 7-day tour if you just want to recharge; our 4-day express route covers the best scenic valleys without wasting 10 hours on bumpy roads."
+3. THE GRAND SLAM OFFER STACK ($100M Offers):
+   Whenever quoting or prescribing a trip, NEVER state a naked price. Frame it as the **Direct DMC Wholesale Rate** vs the retail market price:
+   - Retail Market Value: Rs. 32,000+ (what online portals charge with commissions)
+   - BUNDLED BONUSES (100% Free): Dedicated sanitized cab + verified chauffeur throughout, 4-star boutique stay, breakfast & dinner, 24/7 On-Trip WhatsApp Concierge, and zero-hidden-fee guarantee (fuel, tolls, parking 100% included).
+   - Your Direct DMC Wholesale Rate: Rs. [Actual Price] (You save over Rs. 15,000+).
 
-4. PRESCRIPTION SELLING:
-   Treat your recommendation like a doctor prescribing the only viable solution:
-   "For Kashmir in December, you definitely need a private heated cab and a Shikara stay on Dal Lake. I've baked that into your quote."
+4. RISK-REVERSAL & GUARANTEES:
+   Reassure with Shrawello's 3 guarantees:
+   - Price Match Guarantee: "If you find an identical verified itinerary cheaper, we match it + give you Rs.1,000 credit."
+   - Zero Surprise Charges: "Tolls, parking, driver night charges are 100% covered upfront."
+   - Flexible Rescheduling: "Modify dates up to 7 days before departure with zero penalties."
 
-5. PRICE ANCHORING & FEATURE DOWNSELLS (Never Discount Without a Trade):
-   - Quote the premium all-inclusive experience first to anchor value (e.g. Rs.28,000 for VIP 5-Star).
-   - Then present the Bestseller package (Rs.16,999) as a massive value deal.
-   - If they say "out of budget" or "too costly", NEVER give a naked discount. Perform a Feature Downsell:
-     "We don't lower the quality of your trip, but if we swap the 5-star resort for a highly rated 4-star boutique heritage stay while keeping your private cab, we drop the quote to Rs.13,999. Fair enough?"
-   - Payment Plan: "You only need 30% deposit today to lock in early-bird hotel rates, and the rest before departure."
+5. PRESCRIPTION SELLING & FEATURE DOWNSELLS (Never Discount Without a Trade):
+   - Treat your recommendation like a doctor prescribing the only viable solution.
+   - If they say "out of budget", NEVER give a naked discount. Perform a Feature Downsell:
+     "We never compromise on safety or private cab standards, but if we swap the 5-star resort for a highly rated 4-star boutique heritage stay, we drop the quote to Rs.13,999. Fair trade?"
+   - Payment Plan: "You only need a 30% deposit today to lock in wholesale rates, and the rest before departure."
 
 6. THE ASSUMED CLOSE & A/B CHOICES (BAMFAM):
    - Never ask "Do you want to book?" (invites a "No").
-   - Always offer an A/B choice where both paths advance: "Would you prefer morning airport pickup or afternoon check-in?" / "Should we reserve a private Sedan or a spacious SUV for your group?"
+   - Always offer an A/B choice: "Would you prefer morning airport pickup or afternoon check-in?" / "Should we reserve a private Sedan or a spacious SUV for your group?"
    - 1-10 Temperature Check: If they stall: "On a scale of 1 to 10, how set are you on making this trip happen? What would make it a 10 for you?"
    - Continuity / Membership Pitch: "If you join the Shrawello Silver Club (Rs.2,499/yr), you get an instant Rs.4,000 off this booking + 10% off all future tours for 12 months. You literally profit on day 1!"
 
 === OUTPUT & INTEGRATION GUIDELINES ===
-- CRITICAL: Output ONLY your direct conversational message to the traveler. Do NOT output internal reasoning, planning steps, or meta-commentary (e.g. do not say "We need to respond...").
+- CRITICAL: Output ONLY your direct conversational message to the traveler. Do NOT output internal reasoning, planning steps, or meta-commentary.
 - Keep answers punchy, warm, formatting with bullet points and bold highlights.
 - Linkage: Format package references as markdown links: [Package Title](#/packages/package_id) with their real ID from the list.
-- Lead Capture: When the visitor shares their contact info (Name and Phone/WhatsApp), append this tag at the very end of your response:
-  [CREATE_LEAD: {"name":"Full Name", "phone":"Phone/WhatsApp", "email":"Email or N/A", "destination":"Destination", "budget":"Budget or TBD", "preferences":"Travel preferences, dates, number of travelers, avatar", "score":"Green"}]
+- Lead Capture: If a new phone/contact is shared, append: [CREATE_LEAD: {"name":"Full Name", "phone":"Phone/WhatsApp", "email":"Email or N/A", "destination":"Destination", "budget":"Budget or TBD", "preferences":"Travel preferences, dates, number of travelers, avatar", "score":"Green"}]
 - Quick Suggestions: ALWAYS append 2 to 4 contextual quick reply buttons at the very end in format:
   [SUGGESTIONS: ["🏔️ 5-Day Itinerary", "💰 Under ₹20k Deal", "💬 Chat on WhatsApp"]]
 `;
@@ -13221,8 +13234,16 @@ app.use((err, req, res, next) => {
     });
 });
 
+// Global process crash prevention (essential for Hostinger / Passenger reverse proxy)
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('[Unhandled Rejection at]:', promise, 'reason:', reason);
+});
+process.on('uncaughtException', (err) => {
+    console.error('[Uncaught Exception]:', err);
+});
+
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, '0.0.0.0', async () => {
+app.listen(PORT, async () => {
     console.log(`Server running on port ${PORT}`);
-    syncLocalUploadsToDb();
+    syncLocalUploadsToDb().catch(e => console.error('[Uploads Sync Error]:', e.message));
 });
