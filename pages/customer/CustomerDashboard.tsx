@@ -15,7 +15,8 @@ const DESTINATION_MAP: Record<string, { lat: number; lng: number; x: number; y: 
   'Singapore': { lat: 1.3521, lng: 103.8198, x: 70, y: 64, currency: 'SGD', rate: 62.0, symbol: '$' },
   'Goa': { lat: 15.2993, lng: 74.1240, x: 62, y: 58, currency: 'INR', rate: 1.0, symbol: '₹' },
   'Kerala': { lat: 10.8505, lng: 76.2711, x: 63, y: 62, currency: 'INR', rate: 1.0, symbol: '₹' },
-  'Kashmir': { lat: 34.0837, lng: 74.7973, x: 62, y: 45, currency: 'INR', rate: 1.0, symbol: '₹' }
+  'Kashmir': { lat: 34.0837, lng: 74.7973, x: 62, y: 45, currency: 'INR', rate: 1.0, symbol: '₹' },
+  'Thailand': { lat: 15.8700, lng: 100.9925, x: 68, y: 60, currency: 'THB', rate: 2.45, symbol: '฿' }
 };
 
 const resolveDestination = (name: string) => {
@@ -39,10 +40,10 @@ function ToastContainer({ toasts, onDismiss }: { toasts: ToastMessage[]; onDismi
   const bgMap = { success: '#E8F5E9', error: '#FFEBEE', info: '#E3F2FD' };
   const colorMap = { success: '#2E7D32', error: '#C62828', info: '#1565C0' };
   return (
-    <div className="fixed top-24 right-6 z-[100] space-y-2 max-w-sm w-full pointer-events-none">
+    <div className="fixed top-20 right-6 z-[100] space-y-2 max-w-sm w-full pointer-events-none">
       {toasts.map(t => (
-        <div key={t.id} className="pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-2xl shadow-lg border animate-in slide-in-from-right duration-300"
-          style={{ background: bgMap[t.type], borderColor: `${colorMap[t.type]}20`, color: colorMap[t.type] }}>
+        <div key={t.id} className="pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-2xl shadow-xl border animate-in slide-in-from-right duration-300"
+          style={{ background: bgMap[t.type], borderColor: `${colorMap[t.type]}25`, color: colorMap[t.type] }}>
           <span className="material-symbols-outlined text-[20px] shrink-0">{iconMap[t.type]}</span>
           <span className="text-xs font-bold flex-grow">{t.text}</span>
           <button onClick={() => onDismiss(t.id)} className="shrink-0 opacity-60 hover:opacity-100">
@@ -60,18 +61,18 @@ function ConfirmModal({ open, title, message, onConfirm, onCancel }: {
 }) {
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/55 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95 duration-200">
         <div className="flex items-center gap-3 mb-4">
-          <div className="size-10 bg-red-50 rounded-xl flex items-center justify-center">
-            <span className="material-symbols-outlined text-red-500 text-[22px]">warning</span>
+          <div className="size-10 bg-red-50 rounded-2xl flex items-center justify-center text-red-500">
+            <span className="material-symbols-outlined text-[22px]">warning</span>
           </div>
           <h3 className="font-display font-bold text-base text-slate-900">{title}</h3>
         </div>
-        <p className="text-xs text-slate-500 leading-relaxed mb-5">{message}</p>
+        <p className="text-xs text-slate-600 leading-relaxed mb-6">{message}</p>
         <div className="flex gap-2">
-          <button onClick={onCancel} className="flex-1 py-2.5 border border-[#EDE8DF] text-slate-600 rounded-xl font-bold text-xs hover:bg-slate-50 transition-colors">Cancel</button>
-          <button onClick={onConfirm} className="flex-1 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-xl font-bold text-xs shadow-sm transition-colors">Confirm</button>
+          <button onClick={onCancel} className="flex-1 py-2.5 border border-[#EDE8DF] text-slate-700 rounded-xl font-bold text-xs hover:bg-slate-50 transition-colors">Cancel</button>
+          <button onClick={onConfirm} className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-xs shadow-sm transition-colors">Confirm</button>
         </div>
       </div>
     </div>
@@ -89,6 +90,7 @@ interface Booking {
   pax_count?: number;
   created_at?: string;
   whatsapp_group_url?: string;
+  image?: string;
 }
 
 interface CoTraveler {
@@ -152,59 +154,44 @@ interface Transaction {
   receipt_url?: string;
 }
 
-function StatusPill({ status }: { status: string }) {
-  const map: Record<string, { label: string; bg: string; color: string }> = {
-    confirmed:   { label: 'Confirmed',  bg: '#E8F5E9', color: '#2E7D32' },
-    pending:     { label: 'Pending',    bg: '#FFF8E1', color: '#F57F17' },
-    cancelled:   { label: 'Cancelled',  bg: '#FFEBEE', color: '#C62828' },
-    paid:        { label: 'Paid',       bg: '#E8F5E9', color: '#2E7D32' },
-    deposit:     { label: 'Partial',    bg: '#FFF8E1', color: '#F57F17' },
-    completed:   { label: 'Completed',  bg: '#F3E5F5', color: '#6A1B9A' },
-  };
-  const cfg = map[status?.toLowerCase()] || { label: status, bg: '#F1F5F9', color: '#64748B' };
-  return (
-    <span className="text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider" style={{ background: cfg.bg, color: cfg.color }}>
-      {cfg.label}
-    </span>
-  );
-}
-
 export const CustomerDashboard: React.FC = () => {
   const { customer, logout, refreshCustomer } = useCustomerAuth();
-  const { packages, masterLocations } = useData();
+  const { packages } = useData();
   const navigate = useNavigate();
-  
-  // Tab control
-  type TabType = 'bookings' | 'discovery' | 'rewards' | 'profile' | 'support';
-  const [activeTab, setActiveTab] = useState<TabType>('bookings');
-  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
-  // MindMate redesign states
-  const [activeSubTab, setActiveSubTab] = useState<'bookings' | 'wishlist' | 'travelers' | 'documents' | 'membership'>('bookings');
-  const [selectedItineraryDay, setSelectedItineraryDay] = useState<number>(1);
-  const [ratingFeedback, setRatingFeedback] = useState<number>(5);
-  const [commentFeedback, setCommentFeedback] = useState<string>('');
+  // Primary Tab Control: 'bookings' | 'documents' | 'wishlist' | 'travelers' | 'membership'
+  const [activeSubTab, setActiveSubTab] = useState<'bookings' | 'documents' | 'wishlist' | 'travelers' | 'membership'>('bookings');
+  
+  // Secondary drawer & modal states
   const [showProfileModal, setShowProfileModal] = useState<boolean>(false);
   const [showSupportModal, setShowSupportModal] = useState<boolean>(false);
-  
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showChecklistModal, setShowChecklistModal] = useState(false);
+  const [showPayModal, setShowPayModal] = useState(false);
+  const [showCommandPalette, setShowCommandPalette] = useState(false);
+  const [commandQuery, setCommandQuery] = useState('');
+  const [showNotificationDropdown, setShowNotificationDropdown] = useState(false);
+  const [showEmergencySOS, setShowEmergencySOS] = useState(false);
+  const [showToolsDrawer, setShowToolsDrawer] = useState(false);
+
   // Toast & Confirm state
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [confirmState, setConfirmState] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
-  
+
   const showToast = useCallback((type: 'success' | 'error' | 'info', text: string) => {
     const id = ++toastIdCounter;
     setToasts(prev => [...prev, { id, type, text }]);
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
   }, []);
-  
+
   const dismissToast = useCallback((id: number) => {
     setToasts(prev => prev.filter(t => t.id !== id));
   }, []);
-  
+
   const showConfirm = useCallback((title: string, message: string, onConfirm: () => void) => {
     setConfirmState({ open: true, title, message, onConfirm });
   }, []);
-  
+
   const closeConfirm = useCallback(() => {
     setConfirmState({ open: false, title: '', message: '', onConfirm: () => {} });
   }, []);
@@ -217,157 +204,80 @@ export const CustomerDashboard: React.FC = () => {
   const [referralLoading, setReferralLoading] = useState(false);
   const [docUploading, setDocUploading] = useState(false);
 
-  // ── Membership State ──
-  const [myMembership, setMyMembership] = useState<any>(null);
-  const [loadingMembership, setLoadingMembership] = useState(false);
-  const [publicPlans, setPublicPlans] = useState<any[]>([]);
-  const [loadingPlans, setLoadingPlans] = useState(false);
-  const [membershipRequestLoading, setMembershipRequestLoading] = useState(false);
-  const [razorpayLoading, setRazorpayLoading] = useState(false);
-  const [membershipMsg, setMembershipMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [selectedPlanId, setSelectedPlanId] = useState('');
-  const [selectedBillingCycle, setSelectedBillingCycle] = useState<'Monthly' | 'Quarterly' | '6 Months' | 'Yearly'>('Yearly');
-  const [showMembershipJoinModal, setShowMembershipJoinModal] = useState(false);
-  const [joiningPlan, setJoiningPlan] = useState<any>(null);
-
-  // ── AI Packing Checklist States ──
-  const [showChecklistModal, setShowChecklistModal] = useState(false);
-  const [packingChecklist, setPackingChecklist] = useState<any>(null);
-  const [isGeneratingChecklist, setIsGeneratingChecklist] = useState(false);
-  const [isSavingChecklist, setIsSavingChecklist] = useState(false);
-  const [packingWeather, setPackingWeather] = useState('Mild/Mixed');
-  const [packingActivity, setPackingActivity] = useState('Moderate');
-  const [packingCategory, setPackingCategory] = useState('Leisure');
-  const [selectedAiModel, setSelectedAiModel] = useState<string>('meta-llama/llama-3.3-70b-instruct:free');
-  const [checklistReasoning, setChecklistReasoning] = useState<string | null>(null);
-  const [checklistModelUsed, setChecklistModelUsed] = useState<string>('OpenRouter Free AI');
-  const [customItemName, setCustomItemName] = useState('');
-  const [customItemCategory, setCustomItemCategory] = useState('Clothing');
-
-  // ── Add-On Marketplace States ──
-  const [purchasedAddons, setPurchasedAddons] = useState<any[]>([]);
-  const [loadingPurchasedAddons, setLoadingPurchasedAddons] = useState(false);
-  const [isPurchasingAddon, setIsPurchasingAddon] = useState<string | null>(null);
-  const [showConfirmAddonModal, setShowConfirmAddonModal] = useState<any>(null);
-
-  // ── Countdown & Currency States ──
-  const [countdown, setCountdown] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0, active: false });
-  const [inrAmount, setInrAmount] = useState('1000');
-
-  // ── New Command Palette & Interactive Portal Upgrade States ──
-  const [showCommandPalette, setShowCommandPalette] = useState(false);
-  const [commandQuery, setCommandQuery] = useState('');
-  const [showFlightDetailsModal, setShowFlightDetailsModal] = useState(false);
-  const [showPassportStampsModal, setShowPassportStampsModal] = useState(false);
-  const [activityPollVotes, setActivityPollVotes] = useState<Record<string, number>>({
-    'Scuba Diving & Coral Reef': 3,
-    'Mount Batur Sunrise Trek': 2,
-    'VIP Beach Club Cabana': 4
-  });
-  const [userVotedOption, setUserVotedOption] = useState<string | null>('VIP Beach Club Cabana');
-  const [travelDnaTags, setTravelDnaTags] = useState<string[]>(['5-Star Luxury', 'Window Seat', 'Vegetarian']);
-  
   // Data States
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loadingBookings, setLoadingBookings] = useState(true);
-  
   const [wishlist, setWishlist] = useState<any[]>([]);
   const [loadingWishlist, setLoadingWishlist] = useState(false);
-  
   const [coTravelers, setCoTravelers] = useState<CoTraveler[]>([]);
   const [loadingCoTravelers, setLoadingCoTravelers] = useState(false);
-  
   const [documents, setDocuments] = useState<DocVaultItem[]>([]);
   const [loadingDocs, setLoadingDocs] = useState(false);
-  
   const [loyaltyPoints, setLoyaltyPoints] = useState(0);
   const [referralCode, setReferralCode] = useState('');
   const [loyaltyLogs, setLoyaltyLogs] = useState<LoyaltyPointsLog[]>([]);
   const [referralRecords, setReferralRecords] = useState<ReferralRecord[]>([]);
   const [loadingLoyalty, setLoadingLoyalty] = useState(false);
-
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [loadingChat, setLoadingChat] = useState(false);
-
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
-  const [showNotificationDropdown, setShowNotificationDropdown] = useState(false);
-  const [anniversaryPromo, setAnniversaryPromo] = useState<{ title: string; code: string; description: string } | null>(null);
 
-  // Forms States
-  const [isEditingProfile, setIsEditingProfile] = useState(false);
-  const [profileForm, setProfileForm] = useState({
-    name: '',
-    phone: '',
-    whatsapp: '',
-    address: '',
-    dob: ''
-  });
-  const [profileMsg, setProfileMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  
-  // Preferences State
-  const [preferences, setPreferences] = useState({
-    destinations: '',
-    dietary: 'None',
-    budget: 'Standard',
-    hotelType: '3 Star Standard'
-  });
-  const [preferencesMsg, setPreferencesMsg] = useState<string | null>(null);
+  // Membership State
+  const [myMembership, setMyMembership] = useState<any>(null);
+  const [loadingMembership, setLoadingMembership] = useState(false);
+  const [publicPlans, setPublicPlans] = useState<any[]>([]);
+  const [loadingPlans, setLoadingPlans] = useState(false);
+  const [razorpayLoading, setRazorpayLoading] = useState(false);
 
-  // Password Form
-  const [passwordForm, setPasswordForm] = useState({ oldPassword: '', newPassword: '' });
-  const [passwordMsg, setPasswordMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  // AI Packing Checklist
+  const [packingChecklist, setPackingChecklist] = useState<any>(null);
+  const [isGeneratingChecklist, setIsGeneratingChecklist] = useState(false);
+  const [packingWeather, setPackingWeather] = useState('Mild/Mixed');
+  const [packingActivity, setPackingActivity] = useState('Moderate');
+  const [packingCategory, setPackingCategory] = useState('Leisure');
+  const [selectedAiModel, setSelectedAiModel] = useState<string>('meta-llama/llama-3.3-70b-instruct:free');
 
-  // CoTraveler Add Form
-  const [coTravelerForm, setCoTravelerForm] = useState({ name: '', relation: 'Friend', phone: '', passport_no: '', dob: '' });
-  const [coTravelerError, setCoTravelerError] = useState<string | null>(null);
-  const [editingCoTravelerId, setEditingCoTravelerId] = useState<number | null>(null);
-
-  // Doc Vault Add Form
-  const [docType, setDocType] = useState('Passport');
-  const [docFile, setDocFile] = useState<File | null>(null);
-  const [docUploadError, setDocUploadError] = useState<string | null>(null);
-  const [showUploadModal, setShowUploadModal] = useState(false);
-
-  // Referral Invite Email Form
-  const [referralEmail, setReferralEmail] = useState('');
-  const [referralMsg, setReferralMsg] = useState<string | null>(null);
-
-  // Quick Quote Form
-  const [quoteForm, setQuoteForm] = useState({
-    destination: '',
-    date: '',
-    travelers: '2 Adults',
-    budget: 'Standard'
-  });
-  const [quoteSuccess, setQuoteSuccess] = useState<string | null>(null);
-  const [quoteLoading, setQuoteLoading] = useState(false);
+  // Currency Converter State
+  const [inrAmount, setInrAmount] = useState('10000');
+  const [targetCurrency, setTargetCurrency] = useState('AED');
 
   // Active Booking & Financial Summary State
   const [activeBookingTransactions, setActiveBookingTransactions] = useState<Transaction[]>([]);
-  const [showPayModal, setShowPayModal] = useState(false);
+  const [countdown, setCountdown] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0, active: false });
+  const [selectedItineraryDay, setSelectedItineraryDay] = useState<number>(1);
+  const [docCategoryFilter, setDocCategoryFilter] = useState<string>('All');
+
+  // Form States
+  const [profileForm, setProfileForm] = useState({ name: '', phone: '', whatsapp: '', address: '', dob: '' });
+  const [preferences, setPreferences] = useState({ destinations: '', dietary: 'None', budget: 'Standard', hotelType: '3 Star Standard' });
+  const [passwordForm, setPasswordForm] = useState({ oldPassword: '', newPassword: '' });
+  const [coTravelerForm, setCoTravelerForm] = useState({ name: '', relation: 'Friend', phone: '', passport_no: '', dob: '' });
+  const [editingCoTravelerId, setEditingCoTravelerId] = useState<number | null>(null);
+  const [docType, setDocType] = useState('Passport');
+  const [docFile, setDocFile] = useState<File | null>(null);
+  const [referralEmail, setReferralEmail] = useState('');
+  const [quoteForm, setQuoteForm] = useState({ destination: '', date: '', travelers: '2 Adults', budget: 'Standard' });
+  const [quoteLoading, setQuoteLoading] = useState(false);
   const [payForm, setPayForm] = useState({ amount: '', method: 'UPI / GPay / PhonePe', reference: '', notes: '' });
   const [payFile, setPayFile] = useState<File | null>(null);
   const [payLoading, setPayLoading] = useState(false);
-  const [payError, setPayError] = useState<string | null>(null);
-
-  // Coupon State
-  const [couponCode, setCouponCode] = useState('');
-  const [couponLoading, setCouponLoading] = useState(false);
-  const [couponMsg, setCouponMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [ratingFeedback, setRatingFeedback] = useState<number>(5);
+  const [commentFeedback, setCommentFeedback] = useState<string>('');
+  const [reviewLoading, setReviewLoading] = useState(false);
 
   const handleLogout = () => {
     logout();
     navigate('/customer/login', { replace: true });
   };
 
-  // Determine active booking
+  // ── Determine active booking ──
   const activeBooking = useMemo(() => {
     if (bookings.length === 0) return null;
     return bookings.find(b => b.status?.toLowerCase() === 'confirmed' || b.status?.toLowerCase() === 'pending') || bookings[0] || null;
   }, [bookings]);
 
-  // Calculate net paid from transactions
+  // Net paid & Balance due
   const netPaid = useMemo(() => {
     return activeBookingTransactions
       .filter(t => t.status?.toLowerCase() === 'verified')
@@ -379,7 +289,33 @@ export const CustomerDashboard: React.FC = () => {
     return Math.max(0, Number(activeBooking.total_price || 0) - netPaid);
   }, [activeBooking, netPaid]);
 
-  // 1. Fetch Bookings
+  // Total spent calculation
+  const totalSpent = useMemo(() => {
+    return bookings
+      .filter(b => b.status?.toLowerCase() === 'completed' || b.status?.toLowerCase() === 'confirmed')
+      .reduce((sum, b) => sum + Number(b.total_price || 0), 0);
+  }, [bookings]);
+
+  const completedTripsCount = useMemo(() => {
+    return bookings.filter(b => b.status?.toLowerCase() === 'completed').length;
+  }, [bookings]);
+
+  // VIP Tier Information
+  const vipTierInfo = useMemo(() => {
+    const total = totalSpent || loyaltyPoints * 10;
+    if (total >= 100000) {
+      return { tier: 'Diamond VIP', badgeColor: '#D97706', gradient: 'from-amber-400 via-yellow-300 to-amber-600', nextTier: 'Max Tier', progress: 100 };
+    } else if (total >= 50000) {
+      return { tier: 'Platinum VIP', badgeColor: '#475569', gradient: 'from-slate-400 via-slate-200 to-slate-600', nextTier: 'Diamond VIP', progress: Math.round((total / 100000) * 100) };
+    } else if (total >= 20000) {
+      return { tier: 'Gold VIP', badgeColor: '#CA8A04', gradient: 'from-yellow-400 via-amber-300 to-yellow-600', nextTier: 'Platinum VIP', progress: Math.round((total / 50000) * 100) };
+    } else if (total >= 5000) {
+      return { tier: 'Silver VIP', badgeColor: '#64748B', gradient: 'from-gray-300 via-slate-200 to-gray-400', nextTier: 'Gold VIP', progress: Math.round((total / 20000) * 100) };
+    }
+    return { tier: 'Bronze Member', badgeColor: '#92400E', gradient: 'from-amber-700 via-amber-600 to-amber-900', nextTier: 'Silver VIP', progress: Math.round((total / 5000) * 100) };
+  }, [totalSpent, loyaltyPoints]);
+
+  // ── 1. Fetch Bookings ──
   const fetchBookings = useCallback(async () => {
     setLoadingBookings(true);
     try {
@@ -435,7 +371,6 @@ export const CustomerDashboard: React.FC = () => {
   // Save Packing Checklist to DB
   const handleSavePackingChecklist = async (itemsList: any) => {
     if (!activeBooking) return;
-    setIsSavingChecklist(true);
     try {
       const token = localStorage.getItem(CUSTOMER_JWT_KEY);
       const res = await fetch(`${API_BASE}/api/customer/bookings/${activeBooking.id}/packing-checklist`, {
@@ -447,24 +382,19 @@ export const CustomerDashboard: React.FC = () => {
         body: JSON.stringify({ items: itemsList })
       });
       if (res.ok) {
-        showToast('success', 'Packing checklist saved successfully!');
+        showToast('success', 'Packing checklist updated!');
         setPackingChecklist(itemsList);
-      } else {
-        showToast('error', 'Failed to save packing checklist.');
       }
     } catch (err) {
       console.error(err);
       showToast('error', 'Failed to save packing checklist.');
-    } finally {
-      setIsSavingChecklist(false);
     }
   };
 
-  // Generate Packing Checklist using Free OpenRouter AI Models or Reasoning Engine
+  // Generate Packing Checklist using AI
   const handleGenerateChecklistAI = async () => {
     if (!activeBooking) return;
     setIsGeneratingChecklist(true);
-    setChecklistReasoning(null);
     try {
       const dest = activeBooking.package_name || activeBooking.destination || 'Destination';
       const days = (activeBooking as any).durationDays || (activeBooking as any).pax_count || 5;
@@ -479,93 +409,23 @@ export const CustomerDashboard: React.FC = () => {
       );
 
       if (generated && generated.items && Array.isArray(generated.items)) {
-        setChecklistReasoning(generated.reasoning || null);
-        setChecklistModelUsed(generated.modelUsed || selectedAiModel);
         await handleSavePackingChecklist(generated.items);
       } else if (generated && Array.isArray(generated)) {
         await handleSavePackingChecklist(generated);
-      } else {
-        showToast('error', 'AI returned an invalid format. Please try again.');
       }
     } catch (err: any) {
-      console.error(err);
       showToast('error', err.message || 'Failed to generate checklist.');
     } finally {
       setIsGeneratingChecklist(false);
     }
   };
 
-  // Fetch purchased add-ons from DB
-  const fetchPurchasedAddons = useCallback(async () => {
-    if (!activeBooking) return;
-    setLoadingPurchasedAddons(true);
-    try {
-      const token = localStorage.getItem(CUSTOMER_JWT_KEY);
-      const res = await fetch(`${API_BASE}/api/customer/bookings/${activeBooking.id}/purchased-addons`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setPurchasedAddons(data || []);
-      }
-    } catch (err) {
-      console.warn('Failed to fetch purchased add-ons:', err);
-    } finally {
-      setLoadingPurchasedAddons(false);
-    }
-  }, [activeBooking]);
-
-  // Purchase an add-on
-  const handlePurchaseAddon = async (addon: { id: string, label: string, price: number }) => {
-    if (!activeBooking) return;
-    setIsPurchasingAddon(addon.id);
-    try {
-      const token = localStorage.getItem(CUSTOMER_JWT_KEY);
-      const res = await fetch(`${API_BASE}/api/customer/bookings/${activeBooking.id}/addons`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          addonId: addon.id,
-          label: addon.label,
-          price: addon.price
-        })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        showToast('success', data.message || `Purchased ${addon.label} successfully!`);
-        await fetchBookings();
-        await fetchTransactions();
-        await fetchPurchasedAddons();
-        setShowConfirmAddonModal(null);
-      } else {
-        showToast('error', data.error || 'Failed to purchase add-on.');
-      }
-    } catch (err) {
-      console.error(err);
-      showToast('error', 'Failed to purchase add-on.');
-    } finally {
-      setIsPurchasingAddon(null);
-    }
-  };
- 
-  useEffect(() => {
-    if (activeBooking) {
-      fetchTransactions();
-      fetchPackingChecklist();
-      fetchPurchasedAddons();
-    }
-  }, [activeBooking, fetchTransactions, fetchPackingChecklist, fetchPurchasedAddons]);
-
-  // Countdown Timer Update Hook
+  // Countdown Timer Hook
   useEffect(() => {
     if (!activeBooking || !activeBooking.travel_date) {
       setCountdown(prev => ({ ...prev, active: false }));
       return;
     }
-
     const updateTimer = () => {
       const targetTime = new Date(activeBooking.travel_date).getTime();
       const now = new Date().getTime();
@@ -581,13 +441,12 @@ export const CustomerDashboard: React.FC = () => {
         setCountdown({ days, hours, minutes, seconds, active: true });
       }
     };
-
     updateTimer();
     const interval = setInterval(updateTimer, 1000);
     return () => clearInterval(interval);
   }, [activeBooking]);
 
-  // Global Keyboard Listener for Command Palette (Ctrl+K or Cmd+K)
+  // Global Keyboard Listener for Command Palette
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
@@ -596,114 +455,13 @@ export const CustomerDashboard: React.FC = () => {
       }
       if (e.key === 'Escape') {
         setShowCommandPalette(false);
-        setShowFlightDetailsModal(false);
-        setShowPassportStampsModal(false);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Ambient Theme Gradient based on local time of day
-  const ambientTheme = useMemo(() => {
-    const hr = new Date().getHours();
-    if (hr >= 5 && hr < 12) {
-      return {
-        label: 'Golden Sunrise',
-        bg: 'from-[#FFF9E6] via-[#FFF3D6] to-[#FFE8B3]',
-        badgeBg: 'bg-amber-100 text-amber-900 border-amber-300',
-        textColor: 'text-amber-950',
-        subTextColor: 'text-amber-900/80',
-        icon: 'wb_sunny',
-        accentColor: '#D97706'
-      };
-    } else if (hr >= 12 && hr < 17) {
-      return {
-        label: 'Sunny Afternoon',
-        bg: 'from-[#E0F2FE] via-[#F0F9FF] to-[#FFF7ED]',
-        badgeBg: 'bg-sky-100 text-sky-900 border-sky-300',
-        textColor: 'text-slate-900',
-        subTextColor: 'text-slate-600',
-        icon: 'light_mode',
-        accentColor: '#0284C7'
-      };
-    } else if (hr >= 17 && hr < 21) {
-      return {
-        label: 'Sunset Dusk',
-        bg: 'from-[#FFF3E0] via-[#F3E5F5] to-[#E8EAF6]',
-        badgeBg: 'bg-purple-100 text-purple-900 border-purple-300',
-        textColor: 'text-slate-900',
-        subTextColor: 'text-purple-900/70',
-        icon: 'wb_twilight',
-        accentColor: '#9333EA'
-      };
-    } else {
-      return {
-        label: 'Celestial Night',
-        bg: 'from-[#0F172A] via-[#1E1B4B] to-[#311B92]',
-        badgeBg: 'bg-indigo-950 text-amber-300 border-amber-500/40',
-        textColor: 'text-white',
-        subTextColor: 'text-slate-300',
-        icon: 'dark_mode',
-        accentColor: '#F59E0B'
-      };
-    }
-  }, []);
-
-  // Derived stats
-  const completedTripsCount = useMemo(() => {
-    return bookings.filter(b => b.status?.toLowerCase() === 'completed').length;
-  }, [bookings]);
-
-  const totalSpent = useMemo(() => {
-    return bookings.reduce((sum, b) => sum + Number(b.total_price || 0), 0);
-  }, [bookings]);
-
-  // Derived VIP Tier & Benefits
-  const vipTierInfo = useMemo(() => {
-    const total = totalSpent || loyaltyPoints * 10;
-    if (total >= 100000) {
-      return { tier: 'Diamond VIP', color: 'from-amber-300 via-yellow-300 to-amber-500', nextTier: 'Max Tier', progress: 100, remaining: 0 };
-    } else if (total >= 50000) {
-      return { tier: 'Platinum VIP', color: 'from-slate-300 via-slate-100 to-slate-400', nextTier: 'Diamond VIP', progress: Math.round((total / 100000) * 100), remaining: 100000 - total };
-    } else if (total >= 20000) {
-      return { tier: 'Gold VIP', color: 'from-yellow-400 via-amber-300 to-yellow-600', nextTier: 'Platinum VIP', progress: Math.round((total / 50000) * 100), remaining: 50000 - total };
-    } else if (total >= 5000) {
-      return { tier: 'Silver VIP', color: 'from-gray-300 via-slate-200 to-gray-400', nextTier: 'Gold VIP', progress: Math.round((total / 20000) * 100), remaining: 20000 - total };
-    }
-    return { tier: 'Bronze Member', color: 'from-amber-700 via-amber-600 to-amber-800', nextTier: 'Silver VIP', progress: Math.round((total / 5000) * 100), remaining: 5000 - total };
-  }, [totalSpent, loyaltyPoints]);
-
-  // Virtual Passport Stamps derived from completed bookings
-  const passportStamps = useMemo(() => {
-    const baseStamps = [
-      { id: '1', code: 'GOA', name: 'Goa Coastline', date: '14 JAN 2025', icon: 'beach_access', color: '#0EA5E9', status: 'ENTRANCE SEAL' },
-      { id: '2', code: 'DXB', name: 'Dubai Emirates', date: '04 DEC 2024', icon: 'location_city', color: '#D97706', status: 'VERIFIED IMMIGRATION' },
-      { id: '3', code: 'DPS', name: 'Bali Indonesia', date: '18 AUG 2024', icon: 'nature_people', color: '#10B981', status: 'STAMP APPROVED' }
-    ];
-    if (completedTripsCount > 0) {
-      return baseStamps.slice(0, Math.min(baseStamps.length, completedTripsCount + 1));
-    }
-    return baseStamps;
-  }, [completedTripsCount]);
-
-  // Gamified Achievement Badges
-  const achievementBadges = useMemo(() => {
-    const hasBookings = bookings.length > 0;
-    const hasCoTravelers = coTravelers.length > 0;
-    const hasReferrals = referralRecords.length > 0;
-    const isVip = loyaltyPoints >= 500;
-
-    return [
-      { id: 'first_escape', title: 'First Escape', desc: 'Booked first journey with Shrawello', icon: 'flight_takeoff', unlocked: hasBookings, progress: hasBookings ? 100 : 0 },
-      { id: 'island_hopper', title: 'Island Hopper', desc: 'Explored island & tropical beach retreats', icon: 'surfing', unlocked: true, progress: 100 },
-      { id: 'luxury_aficionado', title: 'Luxury Aficionado', desc: 'Unlocked 5-Star VIP experiences', icon: 'stars', unlocked: isVip, progress: isVip ? 100 : 60 },
-      { id: 'squad_captain', title: 'Squad Captain', desc: 'Added 2+ co-travelers to your vault', icon: 'diversity_3', unlocked: hasCoTravelers, progress: hasCoTravelers ? 100 : (coTravelers.length / 2) * 100 },
-      { id: 'ambassador', title: 'Brand Ambassador', desc: 'Referred friends to Shrawello Hub', icon: 'volunteer_activism', unlocked: hasReferrals, progress: hasReferrals ? 100 : 25 }
-    ];
-  }, [bookings, coTravelers, referralRecords, loyaltyPoints]);
-
-  // 2. Fetch Wishlist
+  // ── Fetch Wishlist ──
   const fetchWishlist = async () => {
     setLoadingWishlist(true);
     try {
@@ -712,8 +470,8 @@ export const CustomerDashboard: React.FC = () => {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {
-        const data = await res.json() as any;
-        setWishlist(data);
+        const data = await res.json();
+        setWishlist(Array.isArray(data) ? data : []);
       }
     } catch {
       setWishlist([]);
@@ -725,23 +483,29 @@ export const CustomerDashboard: React.FC = () => {
   const handleRemoveWishlist = async (pkgId: string) => {
     try {
       const token = localStorage.getItem(CUSTOMER_JWT_KEY);
-      const res = await fetch(`${API_BASE}/api/customer/wishlist/toggle`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ packageId: pkgId })
+      const res = await fetch(`${API_BASE}/api/customer/wishlist/${pkgId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {
-        fetchWishlist();
+        setWishlist(prev => prev.filter(w => w.id !== pkgId));
+        showToast('info', 'Removed from Wishlist');
       }
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      showToast('error', err.message);
     }
   };
 
-  // 3. Fetch CoTravelers
+  // Derive wishlist packages details
+  const wishlistPackages = useMemo(() => {
+    if (!packages || packages.length === 0) return [];
+    return wishlist.map(w => {
+      const matched = packages.find(p => p.id === w.id);
+      return matched || w;
+    });
+  }, [wishlist, packages]);
+
+  // ── Fetch Co-Travelers ──
   const fetchCoTravelers = async () => {
     setLoadingCoTravelers(true);
     try {
@@ -750,8 +514,8 @@ export const CustomerDashboard: React.FC = () => {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {
-        const data = await res.json() as any;
-        setCoTravelers(data);
+        const data = await res.json();
+        setCoTravelers(Array.isArray(data) ? data : []);
       }
     } catch {
       setCoTravelers([]);
@@ -762,64 +526,35 @@ export const CustomerDashboard: React.FC = () => {
 
   const handleAddCoTraveler = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!coTravelerForm.name.trim() || coTravelerLoading) return;
-    setCoTravelerError(null);
+    if (!coTravelerForm.name.trim()) return;
     setCoTravelerLoading(true);
     try {
       const token = localStorage.getItem(CUSTOMER_JWT_KEY);
-      const isEdit = editingCoTravelerId !== null;
-      const url = isEdit
-        ? `${API_BASE}/api/customer/co-travelers/${editingCoTravelerId}`
-        : `${API_BASE}/api/customer/co-travelers`;
-      
+      const isEditing = editingCoTravelerId !== null;
+      const url = isEditing ? `${API_BASE}/api/customer/co-travelers/${editingCoTravelerId}` : `${API_BASE}/api/customer/co-travelers`;
       const res = await fetch(url, {
-        method: isEdit ? 'PUT' : 'POST',
+        method: isEditing ? 'PUT' : 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(coTravelerForm)
       });
-      if (!res.ok) throw new Error(isEdit ? 'Failed to update co-traveler' : 'Failed to add co-traveler');
-      
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to save co-traveler');
+      showToast('success', isEditing ? 'Co-traveler updated!' : 'Co-traveler added!');
       setCoTravelerForm({ name: '', relation: 'Friend', phone: '', passport_no: '', dob: '' });
       setEditingCoTravelerId(null);
       fetchCoTravelers();
-      showToast('success', isEdit ? 'Co-traveler updated successfully!' : 'Co-traveler added successfully!');
     } catch (err: any) {
-      setCoTravelerError(err.message);
+      showToast('error', err.message);
     } finally {
       setCoTravelerLoading(false);
     }
   };
 
-  const handleEditClick = (traveler: any) => {
-    const formatLocalIso = (dateStr?: string) => {
-        if (!dateStr) return '';
-        const d = new Date(dateStr);
-        if (isNaN(d.getTime())) return '';
-        if (d.getFullYear() <= 1900) return '';
-        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    };
-
-    setEditingCoTravelerId(traveler.id);
-    setCoTravelerForm({
-      name: traveler.name,
-      relation: traveler.relation || 'Friend',
-      phone: traveler.phone || '',
-      passport_no: traveler.passport_no || '',
-      dob: formatLocalIso(traveler.dob)
-    });
-  };
-
-  const handleCancelEdit = () => {
-    setEditingCoTravelerId(null);
-    setCoTravelerForm({ name: '', relation: 'Friend', phone: '', passport_no: '', dob: '' });
-  };
-
   const handleDeleteCoTraveler = (cid: number) => {
-    showConfirm('Delete Co-Traveler', 'Are you sure you want to remove this traveler? This action cannot be undone.', async () => {
-      closeConfirm();
+    showConfirm('Delete Co-Traveler', 'Are you sure you want to delete this co-traveler?', async () => {
       try {
         const token = localStorage.getItem(CUSTOMER_JWT_KEY);
         const res = await fetch(`${API_BASE}/api/customer/co-travelers/${cid}`, {
@@ -827,16 +562,17 @@ export const CustomerDashboard: React.FC = () => {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         if (res.ok) {
+          showToast('info', 'Co-traveler deleted');
           fetchCoTravelers();
-          showToast('success', 'Co-traveler removed.');
         }
-      } catch (err) {
-        showToast('error', 'Failed to delete co-traveler.');
+      } catch (err: any) {
+        showToast('error', err.message);
       }
+      closeConfirm();
     });
   };
 
-  // 4. Fetch Documents
+  // ── Fetch Documents ──
   const fetchDocuments = async () => {
     setLoadingDocs(true);
     try {
@@ -846,7 +582,7 @@ export const CustomerDashboard: React.FC = () => {
       });
       if (res.ok) {
         const data = await res.json();
-        setDocuments(data);
+        setDocuments(Array.isArray(data) ? data : []);
       }
     } catch {
       setDocuments([]);
@@ -857,39 +593,34 @@ export const CustomerDashboard: React.FC = () => {
 
   const handleDocUpload = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!docFile) {
-      setDocUploadError('Please select a file.');
-      return;
-    }
-    if (docUploading) return;
-    setDocUploadError(null);
+    if (!docFile) return;
     setDocUploading(true);
     try {
       const token = localStorage.getItem(CUSTOMER_JWT_KEY);
       const formData = new FormData();
+      formData.append('document', docFile);
       formData.append('doc_type', docType);
-      formData.append('file', docFile);
 
       const res = await fetch(`${API_BASE}/api/customer/documents`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
         body: formData
       });
-      if (!res.ok) throw new Error('Failed to upload document.');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Upload failed');
+      showToast('success', 'Document vaulted securely!');
       setDocFile(null);
       setShowUploadModal(false);
       fetchDocuments();
-      showToast('success', 'Document uploaded to secure vault!');
     } catch (err: any) {
-      setDocUploadError(err.message);
+      showToast('error', err.message);
     } finally {
       setDocUploading(false);
     }
   };
 
   const handleDeleteDoc = (docId: string) => {
-    showConfirm('Delete Document', 'Remove this document from your secure vault? This cannot be undone.', async () => {
-      closeConfirm();
+    showConfirm('Delete Document', 'Are you sure you want to delete this document from your vault?', async () => {
       try {
         const token = localStorage.getItem(CUSTOMER_JWT_KEY);
         const res = await fetch(`${API_BASE}/api/customer/documents/${docId}`, {
@@ -897,16 +628,17 @@ export const CustomerDashboard: React.FC = () => {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         if (res.ok) {
+          showToast('info', 'Document removed');
           fetchDocuments();
-          showToast('success', 'Document removed.');
         }
-      } catch (err) {
-        showToast('error', 'Failed to delete document.');
+      } catch (err: any) {
+        showToast('error', err.message);
       }
+      closeConfirm();
     });
   };
 
-  // 5. Fetch Loyalty & Referrals
+  // ── Fetch Loyalty & Referrals ──
   const fetchLoyalty = async () => {
     setLoadingLoyalty(true);
     try {
@@ -917,12 +649,12 @@ export const CustomerDashboard: React.FC = () => {
       if (res.ok) {
         const data = await res.json();
         setLoyaltyPoints(data.points || 0);
-        setReferralCode(data.referral_code);
-        setLoyaltyLogs(data.history || []);
+        setReferralCode(data.referral_code || '');
+        setLoyaltyLogs(data.logs || []);
         setReferralRecords(data.referrals || []);
       }
     } catch {
-      // fallback
+      setLoyaltyPoints(0);
     } finally {
       setLoadingLoyalty(false);
     }
@@ -930,12 +662,11 @@ export const CustomerDashboard: React.FC = () => {
 
   const handleSendReferral = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!referralEmail.trim() || referralLoading) return;
-    setReferralMsg(null);
+    if (!referralEmail.trim()) return;
     setReferralLoading(true);
     try {
       const token = localStorage.getItem(CUSTOMER_JWT_KEY);
-      const res = await fetch(`${API_BASE}/api/customer/referral`, {
+      const res = await fetch(`${API_BASE}/api/customer/referral/invite`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -944,22 +675,20 @@ export const CustomerDashboard: React.FC = () => {
         body: JSON.stringify({ email: referralEmail.trim() })
       });
       const data = await res.json();
-      if (res.ok) {
-        showToast('success', 'Referral invitation sent successfully!');
-        setReferralEmail('');
-        fetchLoyalty();
-      } else {
-        setReferralMsg(data.error || 'Failed to send referral.');
-      }
-    } catch {
-      setReferralMsg('Error logging referral.');
+      if (!res.ok) throw new Error(data.error || 'Failed to send invite');
+      showToast('success', 'Invitation email sent successfully!');
+      setReferralEmail('');
+      fetchLoyalty();
+    } catch (err: any) {
+      showToast('error', err.message);
     } finally {
       setReferralLoading(false);
     }
   };
 
-  // 6. Fetch Chat Messages
+  // ── Fetch Chat ──
   const fetchChat = useCallback(async () => {
+    setLoadingChat(true);
     try {
       const token = localStorage.getItem(CUSTOMER_JWT_KEY);
       const res = await fetch(`${API_BASE}/api/customer/chat`, {
@@ -967,16 +696,20 @@ export const CustomerDashboard: React.FC = () => {
       });
       if (res.ok) {
         const data = await res.json();
-        setChatMessages(data);
+        setChatMessages(Array.isArray(data) ? data : []);
       }
     } catch {
-      // silent
+      setChatMessages([]);
+    } finally {
+      setLoadingChat(false);
     }
   }, []);
 
   const handleSendChatMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!chatInput.trim()) return;
+    const msg = chatInput.trim();
+    setChatInput('');
     try {
       const token = localStorage.getItem(CUSTOMER_JWT_KEY);
       const res = await fetch(`${API_BASE}/api/customer/chat`, {
@@ -985,37 +718,17 @@ export const CustomerDashboard: React.FC = () => {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ message: chatInput })
-      });
-      if (res.ok) {
-        setChatInput('');
-        fetchChat();
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const triggerHumanHandover = async () => {
-    try {
-      const token = localStorage.getItem(CUSTOMER_JWT_KEY);
-      const res = await fetch(`${API_BASE}/api/customer/chat`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ message: "I want to speak to a human agent" })
+        body: JSON.stringify({ message: msg })
       });
       if (res.ok) {
         fetchChat();
       }
     } catch (err) {
-      console.error(err);
+      console.warn(err);
     }
   };
 
-  // 7. Fetch Notifications & Anniversary Promo
+  // ── Fetch Notifications ──
   const fetchNotifications = async () => {
     try {
       const token = localStorage.getItem(CUSTOMER_JWT_KEY);
@@ -1024,19 +737,10 @@ export const CustomerDashboard: React.FC = () => {
       });
       if (res.ok) {
         const data = await res.json();
-        setNotifications(data);
-      }
-      
-      // Birthday promo
-      const promoRes = await fetch(`${API_BASE}/api/customer/special-offers`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (promoRes.ok) {
-        const pData = await promoRes.json();
-        setAnniversaryPromo(pData.promo);
+        setNotifications(Array.isArray(data) ? data : []);
       }
     } catch {
-      // silent
+      setNotifications([]);
     }
   };
 
@@ -1044,57 +748,16 @@ export const CustomerDashboard: React.FC = () => {
     try {
       const token = localStorage.getItem(CUSTOMER_JWT_KEY);
       await fetch(`${API_BASE}/api/customer/notifications/mark-read`, {
-        method: 'POST',
+        method: 'PUT',
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      fetchNotifications();
+      setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
     } catch (err) {
-      console.error(err);
+      console.warn(err);
     }
   };
 
-  // Initialize
-  useEffect(() => {
-    fetchBookings();
-    fetchNotifications();
-    
-    // Polling — pause when tab is hidden
-    const int = setInterval(() => {
-      if (document.hidden) return;
-      fetchNotifications();
-      if (showSupportModal) fetchChat();
-    }, 12000);
-    return () => clearInterval(int);
-  }, [fetchBookings, showSupportModal, fetchChat]);
-
-  // Fetch chat messages immediately when support modal is opened
-  useEffect(() => {
-    if (showSupportModal) {
-      fetchChat();
-    }
-  }, [showSupportModal, fetchChat]);
-
-  // Close notification dropdown on outside click
-  useEffect(() => {
-    if (!showNotificationDropdown) return;
-    const handler = (e: MouseEvent) => {
-      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
-        setShowNotificationDropdown(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [showNotificationDropdown]);
-
-  // Sub-tab load triggers
-  useEffect(() => {
-    if (activeSubTab === 'wishlist') fetchWishlist();
-    if (activeSubTab === 'travelers') { fetchCoTravelers(); }
-    if (activeSubTab === 'documents') fetchDocuments();
-    if (activeSubTab === 'membership') { fetchMyMembership(); fetchPublicPlans(); }
-  }, [activeSubTab]);
-
-  // ── Membership API calls ──
+  // ── Membership API ──
   const fetchMyMembership = async () => {
     setLoadingMembership(true);
     try {
@@ -1106,64 +769,43 @@ export const CustomerDashboard: React.FC = () => {
         const data = await res.json();
         setMyMembership(data);
       }
-    } catch { setMyMembership(null); }
-    finally { setLoadingMembership(false); }
+    } catch {
+      setMyMembership(null);
+    } finally {
+      setLoadingMembership(false);
+    }
   };
 
   const fetchPublicPlans = async () => {
-    if (publicPlans.length > 0) return; // cached
+    if (publicPlans.length > 0) return;
     setLoadingPlans(true);
     try {
       const res = await fetch(`${API_BASE}/api/public/membership-plans`);
       if (res.ok) setPublicPlans(await res.json());
-    } catch { setPublicPlans([]); }
-    finally { setLoadingPlans(false); }
-  };
-
-  const handleRequestMembership = async (plan: any, cycle: string) => {
-    setMembershipRequestLoading(true);
-    setMembershipMsg(null);
-    try {
-      const token = localStorage.getItem(CUSTOMER_JWT_KEY);
-      const res = await fetch(`${API_BASE}/api/customer/membership/request`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ planId: plan.id, billingCycle: cycle })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Request failed');
-      setMembershipMsg({ type: 'success', text: data.message });
-      setShowMembershipJoinModal(false);
-      await fetchMyMembership();
-      showToast('success', 'Membership request submitted!');
-    } catch (err: any) {
-      setMembershipMsg({ type: 'error', text: err.message });
-    } finally { setMembershipRequestLoading(false); }
+    } catch {
+      setPublicPlans([]);
+    } finally {
+      setLoadingPlans(false);
+    }
   };
 
   const handlePayAndJoinMembership = async (plan: any, cycle: string) => {
-    if (!plan) return;
+    const token = localStorage.getItem(CUSTOMER_JWT_KEY);
+    if (!token) return;
     setRazorpayLoading(true);
-    setMembershipMsg(null);
     try {
-      const token = localStorage.getItem(CUSTOMER_JWT_KEY);
-      if (!token) throw new Error('You must be logged in.');
-
-      // 1. Create Razorpay order on backend
-      const res = await fetch(`${API_BASE}/api/customer/membership/razorpay/create-order`, {
+      const orderRes = await fetch(`${API_BASE}/api/customer/membership/razorpay/create-order`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ planId: plan.id, billingCycle: cycle })
       });
-      const orderData = await res.json();
-      if (!res.ok) throw new Error(orderData.error || 'Failed to create payment order.');
+      const orderData = await orderRes.json();
+      if (!orderRes.ok) throw new Error(orderData.error || 'Failed to create payment order');
 
-      // Check if Razorpay script is loaded
       if (!(window as any).Razorpay) {
-        throw new Error('Razorpay SDK failed to load. Please try again.');
+        throw new Error('Razorpay SDK failed to load. Please refresh.');
       }
 
-      // 2. Open Razorpay checkout modal
       const options = {
         key: import.meta.env.VITE_RAZORPAY_KEY_ID,
         amount: orderData.amount,
@@ -1173,7 +815,6 @@ export const CustomerDashboard: React.FC = () => {
         order_id: orderData.order_id,
         handler: async function (response: any) {
           try {
-            setRazorpayLoading(true);
             const verifyRes = await fetch(`${API_BASE}/api/customer/membership/razorpay/verify-payment`, {
               method: 'POST',
               headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -1188,13 +829,10 @@ export const CustomerDashboard: React.FC = () => {
             });
             const verifyData = await verifyRes.json();
             if (!verifyRes.ok) throw new Error(verifyData.error || 'Signature verification failed.');
-            
-            showToast('success', 'Payment successful! Membership activated.');
-            setShowMembershipJoinModal(false);
+            showToast('success', 'Welcome to Shrawello VIP Membership!');
             await fetchMyMembership();
-          } catch (verifyErr: any) {
-            setMembershipMsg({ type: 'error', text: verifyErr.message });
-            showToast('error', verifyErr.message);
+          } catch (err: any) {
+            showToast('error', err.message);
           } finally {
             setRazorpayLoading(false);
           }
@@ -1204,87 +842,20 @@ export const CustomerDashboard: React.FC = () => {
           email: customer?.email || '',
           contact: customer?.phone || ''
         },
-        theme: {
-          color: plan.color || '#C9732A'
-        },
-        modal: {
-          ondismiss: function () {
-            setRazorpayLoading(false);
-          }
-        }
+        theme: { color: '#C9732A' }
       };
 
       const rzp = new (window as any).Razorpay(options);
-      rzp.on('payment.failed', function (response: any) {
-        setRazorpayLoading(false);
-        const failReason = response?.error?.description || 'Payment failed. Please try again.';
-        setMembershipMsg({ type: 'error', text: failReason });
-        showToast('error', failReason);
-      });
       rzp.open();
     } catch (err: any) {
-      setMembershipMsg({ type: 'error', text: err.message });
       showToast('error', err.message);
       setRazorpayLoading(false);
     }
   };
 
-  const handleCancelMembership = async () => {
-    showConfirm(
-      'Cancel Membership',
-      'Are you sure you want to cancel your membership? This action cannot be undone.',
-      async () => {
-        try {
-          const token = localStorage.getItem(CUSTOMER_JWT_KEY);
-          const res = await fetch(`${API_BASE}/api/customer/membership`, {
-            method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${token}` }
-          });
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.error || 'Failed');
-          showToast('success', data.message);
-          setMyMembership(null);
-          setMembershipMsg(null);
-        } catch (err: any) {
-          showToast('error', err.message);
-        }
-        closeConfirm();
-      }
-    );
-  };
-
-  const handleWithdrawUpgradeRequest = async (requestId: string) => {
-    showConfirm(
-      'Withdraw Upgrade Request',
-      'Are you sure you want to withdraw your upgrade request?',
-      async () => {
-        try {
-          const token = localStorage.getItem(CUSTOMER_JWT_KEY);
-          const res = await fetch(`${API_BASE}/api/customer/membership?id=${requestId}`, {
-            method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${token}` }
-          });
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.error || 'Failed');
-          showToast('success', data.message);
-          await fetchMyMembership();
-        } catch (err: any) {
-          showToast('error', err.message);
-        }
-        closeConfirm();
-      }
-    );
-  };
-
-  // Always load loyalty and membership on mount
+  // ── Profile and Preferences ──
   useEffect(() => {
-    fetchLoyalty();
-    fetchMyMembership();
-  }, []);
-
-  // Profile modal: sync form from customer
-  useEffect(() => {
-    if (showProfileModal && customer) {
+    if (customer) {
       setProfileForm({
         name: customer.name || '',
         phone: customer.phone || '',
@@ -1292,120 +863,78 @@ export const CustomerDashboard: React.FC = () => {
         address: customer.address || '',
         dob: customer.dob || ''
       });
-      let savedPrefs = { destinations: '', dietary: 'None', budget: 'Standard', hotelType: '3 Star Standard' };
       if (customer.travel_preferences) {
         try {
-          savedPrefs = typeof customer.travel_preferences === 'string'
+          const parsed = typeof customer.travel_preferences === 'string'
             ? JSON.parse(customer.travel_preferences)
             : customer.travel_preferences;
-        } catch {
-          // fallback
-        }
+          setPreferences(parsed);
+        } catch {}
       }
-      setPreferences(savedPrefs);
     }
-  }, [showProfileModal, customer]);
+  }, [customer]);
 
-  // Handle Edit profile
   const handleProfileSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setProfileMsg(null);
     try {
       const token = localStorage.getItem(CUSTOMER_JWT_KEY);
       const res = await fetch(`${API_BASE}/api/customer/profile`, {
         method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(profileForm)
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to update profile');
-      setProfileMsg({ type: 'success', text: 'Profile details saved successfully!' });
-      setIsEditingProfile(false);
+      if (!res.ok) throw new Error('Failed to update profile');
       refreshCustomer();
-      showToast('success', 'Profile updated!');
+      showToast('success', 'Profile details updated!');
+      setShowProfileModal(false);
     } catch (err: any) {
-      setProfileMsg({ type: 'error', text: err.message });
+      showToast('error', err.message);
     }
   };
 
-  // Handle Preferences
-  const handlePreferencesSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setPreferencesMsg(null);
-    try {
-      const token = localStorage.getItem(CUSTOMER_JWT_KEY);
-      const res = await fetch(`${API_BASE}/api/customer/preferences`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ travel_preferences: preferences })
-      });
-      if (!res.ok) throw new Error('Failed to update preferences');
-      setPreferencesMsg('Preferences saved successfully!');
-      refreshCustomer();
-    } catch {
-      setPreferencesMsg('Error saving preferences.');
-    }
-  };
-
-  // Handle change password
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    setPasswordMsg(null);
     if (!passwordForm.oldPassword || !passwordForm.newPassword) return;
     try {
       const token = localStorage.getItem(CUSTOMER_JWT_KEY);
       const res = await fetch(`${API_BASE}/api/customer/change-password`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(passwordForm)
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Password update failed');
-      setPasswordMsg({ type: 'success', text: 'Password updated successfully!' });
+      showToast('success', 'Password updated successfully!');
       setPasswordForm({ oldPassword: '', newPassword: '' });
-      showToast('success', 'Password changed successfully!');
+      setShowProfileModal(false);
     } catch (err: any) {
-      setPasswordMsg({ type: 'error', text: err.message });
+      showToast('error', err.message);
     }
   };
 
-  // Quick Quote Submission
+  // Quick Quote
   const handleRequestQuote = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!quoteForm.destination.trim()) return;
     setQuoteLoading(true);
-    setQuoteSuccess(null);
     try {
       const token = localStorage.getItem(CUSTOMER_JWT_KEY);
       const res = await fetch(`${API_BASE}/api/customer/enquiries`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: customer?.name || 'Customer Portal user',
+          name: customer?.name || 'Customer User',
           email: customer?.email,
           phone: customer?.phone,
           destination: quoteForm.destination.trim(),
           travel_date: quoteForm.date,
           pax: quoteForm.travelers,
           budget: quoteForm.budget,
-          message: `Custom quick quote request. Travelers: ${quoteForm.travelers}. Budget: ${quoteForm.budget}.`
+          message: `Portal request: ${quoteForm.travelers}, ${quoteForm.budget}`
         })
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to submit quote request');
-      setQuoteSuccess('Quote request submitted successfully! Our agents will contact you shortly.');
+      if (!res.ok) throw new Error('Failed to submit quote request');
+      showToast('success', 'Trip request sent! Concierge will connect with you.');
       setQuoteForm({ destination: '', date: '', travelers: '2 Adults', budget: 'Standard' });
     } catch (err: any) {
       showToast('error', err.message);
@@ -1414,16 +943,14 @@ export const CustomerDashboard: React.FC = () => {
     }
   };
 
-  // Rewards Payment Upload Submit
+  // Balance Payment Upload
   const handlePaymentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeBooking) return;
-    if (!payForm.amount || !payForm.reference) {
-      setPayError('Please enter amount and reference.');
+    if (!activeBooking || !payForm.amount || !payForm.reference) {
+      showToast('error', 'Please enter amount and reference.');
       return;
     }
     setPayLoading(true);
-    setPayError(null);
     try {
       const token = localStorage.getItem(CUSTOMER_JWT_KEY);
       const formData = new FormData();
@@ -1438,89 +965,33 @@ export const CustomerDashboard: React.FC = () => {
         headers: { 'Authorization': `Bearer ${token}` },
         body: formData
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to log receipt.');
-      
+      if (!res.ok) throw new Error('Failed to log payment.');
+      showToast('success', 'Payment proof submitted for verification!');
       setShowPayModal(false);
       setPayForm({ amount: '', method: 'UPI / GPay / PhonePe', reference: '', notes: '' });
       setPayFile(null);
       fetchTransactions();
-      showToast('success', 'Receipt uploaded! Staff verification pending.');
     } catch (err: any) {
-      setPayError(err.message);
+      showToast('error', err.message);
     } finally {
       setPayLoading(false);
     }
   };
 
-  // Apply Coupon (Rewards tab)
-  const handleApplyCoupon = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!activeBooking || !couponCode.trim()) return;
-    setCouponLoading(true);
-    setCouponMsg(null);
-    try {
-      const token = localStorage.getItem(CUSTOMER_JWT_KEY);
-      const res = await fetch(`${API_BASE}/api/customer/bookings/${activeBooking.id}/apply-coupon`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ couponCode: couponCode.trim() })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to apply coupon');
-      setCouponMsg({ type: 'success', text: data.message });
-      setCouponCode('');
-      fetchBookings();
-    } catch (err: any) {
-      setCouponMsg({ type: 'error', text: err.message });
-    } finally {
-      setCouponLoading(false);
-    }
-  };
-
-  const unreadCount = notifications.filter(n => !n.is_read).length;
-  const initials = customer?.name?.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() || 'TR';
-
-  // Derive wishlist package cards details
-  const wishlistPackages = useMemo(() => {
-    if (!packages || packages.length === 0) return [];
-    return wishlist.map(w => {
-      const matched = packages.find(p => p.id === w.id);
-      return matched || w;
-    });
-  }, [wishlist, packages]);
-
-  const [reviewSubmitted, setReviewSubmitted] = useState(false);
-  const [reviewLoading, setReviewLoading] = useState(false);
-
-  const handleReviewSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!activeBooking) {
-      showToast('error', 'No active booking to submit feedback for.');
-      return;
-    }
+  // Review submission
+  const handleReviewSubmit = async (bookingId: string) => {
     setReviewLoading(true);
     try {
       const token = localStorage.getItem(CUSTOMER_JWT_KEY);
-      const res = await fetch(`${API_BASE}/api/customer/reviews`, {
+      const res = await fetch(`${API_BASE}/api/customer/bookings/${bookingId}/review`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          bookingId: activeBooking.id,
-          rating: ratingFeedback,
-          reviewText: commentFeedback || "Travel reflection rating"
-        })
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rating: ratingFeedback, comment: commentFeedback })
       });
-      if (!res.ok) throw new Error('Failed to submit feedback');
-      setReviewSubmitted(true);
+      if (!res.ok) throw new Error('Failed to submit review');
+      showToast('success', 'Thank you for your feedback!');
       setCommentFeedback('');
-      showToast('success', 'Thank you for your travel reflection feedback!');
+      fetchBookings();
     } catch (err: any) {
       showToast('error', err.message);
     } finally {
@@ -1528,6 +999,34 @@ export const CustomerDashboard: React.FC = () => {
     }
   };
 
+  // Initial data loading on mount
+  useEffect(() => {
+    fetchBookings();
+    fetchNotifications();
+    fetchLoyalty();
+    fetchMyMembership();
+  }, [fetchBookings]);
+
+  // Tab change effect
+  useEffect(() => {
+    if (activeSubTab === 'wishlist') fetchWishlist();
+    if (activeSubTab === 'travelers') fetchCoTravelers();
+    if (activeSubTab === 'documents') fetchDocuments();
+    if (activeSubTab === 'membership') { fetchMyMembership(); fetchPublicPlans(); }
+  }, [activeSubTab]);
+
+  useEffect(() => {
+    if (activeBooking) {
+      fetchTransactions();
+      fetchPackingChecklist();
+    }
+  }, [activeBooking, fetchTransactions, fetchPackingChecklist]);
+
+  // Unread count
+  const unreadCount = notifications.filter(n => !n.is_read).length;
+  const initials = customer?.name?.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() || 'TR';
+
+  // Greeting based on time of day
   const greetingWord = useMemo(() => {
     const hr = new Date().getHours();
     if (hr < 12) return 'Good morning';
@@ -1535,144 +1034,123 @@ export const CustomerDashboard: React.FC = () => {
     return 'Good evening';
   }, []);
 
-  // Dynamic itinerary from active booking (falls back to placeholder if no itinerary data)
-  const itineraryHighlights = useMemo(() => {
-    // Try to derive from active booking's itinerary data if available
-    if (activeBooking && (activeBooking as any).itinerary && Array.isArray((activeBooking as any).itinerary)) {
-      return (activeBooking as any).itinerary.map((item: any, i: number) => ({
-        day: i + 1,
-        title: item.title || `Day ${i + 1}`,
-        desc: item.description || item.desc || 'Details pending confirmation.'
-      }));
-    }
-    // Derive day count from travel dates
-    const dayCount = (() => {
-      if (activeBooking?.travel_date && (activeBooking as any).end_date) {
-        const start = new Date(activeBooking.travel_date);
-        const end = new Date((activeBooking as any).end_date);
-        const diff = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-        return Math.max(1, diff);
-      }
-      return 0;
-    })();
-    if (dayCount > 0) {
-      return Array.from({ length: dayCount }, (_, i) => ({
-        day: i + 1,
-        title: `Day ${i + 1}`,
-        desc: 'Detailed itinerary will be shared by your trip coordinator before departure.'
-      }));
-    }
-    return [];
-  }, [activeBooking]);
-
-  const selectedDayInfo = useMemo(() => {
-    return itineraryHighlights.find(h => h.day === selectedItineraryDay) || itineraryHighlights[0];
-  }, [selectedItineraryDay, itineraryHighlights]);
-
-  // Payment percentage calculation
-  const paymentPercent = useMemo(() => {
-    if (!activeBooking || !activeBooking.total_price) return 0;
-    return Math.min(100, Math.round((netPaid / activeBooking.total_price) * 100));
-  }, [activeBooking, netPaid]);
+  // Filtered documents
+  const filteredDocuments = useMemo(() => {
+    if (docCategoryFilter === 'All') return documents;
+    return documents.filter(d => d.doc_type?.toLowerCase() === docCategoryFilter.toLowerCase());
+  }, [documents, docCategoryFilter]);
 
   return (
-    <div className="min-h-screen bg-[#FBF7F0] text-slate-800 font-sans antialiased overflow-x-hidden flex flex-col">
-      
-      {/* ── HEADER NAVIGATION ── */}
-      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-[#EDE8DF] h-20 px-6 sm:px-8 flex items-center justify-between shadow-sm">
-        <div className="flex items-center gap-4">
-          <Link to="/" className="flex items-center gap-2">
-            <span className="font-display font-black text-xl sm:text-2xl tracking-tight text-[#2D6A4F]">
-              Shrawello Travel Hub
+    <div className="min-h-screen bg-[#FDFBF7] text-slate-800 font-sans flex flex-col pb-20 md:pb-12">
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+      <ConfirmModal
+        open={confirmState.open}
+        title={confirmState.title}
+        message={confirmState.message}
+        onConfirm={confirmState.onConfirm}
+        onCancel={closeConfirm}
+      />
+
+      {/* ── 1. LUXURY FLOATING HEADER ── */}
+      <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-[#EDE8DF] h-20 px-4 sm:px-8 flex items-center justify-between shadow-xs">
+        {/* Brand Logo & VIP status */}
+        <div className="flex items-center gap-3">
+          <Link to="/" className="flex items-center gap-2 group">
+            <span className="font-display font-black text-xl sm:text-2xl tracking-tight text-[#2D6A4F] group-hover:text-[#1e4835] transition-colors">
+              Shrawello
+            </span>
+            <span className="text-xs font-bold tracking-widest uppercase px-2 py-0.5 rounded-full bg-[#C9732A]/10 text-[#C9732A] hidden sm:inline-block">
+              Travel Hub
             </span>
           </Link>
           {myMembership && myMembership.status === 'Active' && (
-            <span 
-              className="hidden sm:inline-flex items-center gap-1.5 text-[10px] font-black uppercase px-2.5 py-0.5 rounded border"
-              style={{ 
-                backgroundColor: `${myMembership.color || '#CD7F32'}15`, 
-                color: myMembership.color || '#CD7F32', 
-                borderColor: `${myMembership.color || '#CD7F32'}30` 
-              }}
-            >
-              <span className="material-symbols-outlined text-[12px]">workspace_premium</span>
+            <span className="hidden lg:inline-flex items-center gap-1 text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full border border-amber-300 bg-amber-50 text-amber-900">
+              <span className="material-symbols-outlined text-[12px] text-amber-600">workspace_premium</span>
               {myMembership.tier} Member
             </span>
           )}
         </div>
 
-        {/* Center navigation pills (desktop) */}
-        <nav className="hidden md:flex items-center bg-[#F5EDE0]/60 p-1 rounded-full border border-[#EDE8DF]">
+        {/* Desktop Center Navigation Pills */}
+        <nav className="hidden md:flex items-center bg-[#F4EFEA] p-1.5 rounded-full border border-[#EDE8DF] shadow-inner">
           {([
-            { key: 'bookings', label: 'Dashboard', icon: 'dashboard' },
+            { key: 'bookings', label: 'My Trips', icon: 'flight_takeoff' },
+            { key: 'documents', label: 'Vault', icon: 'folder_shared' },
             { key: 'wishlist', label: 'Wishlist', icon: 'favorite' },
             { key: 'travelers', label: 'Co-Travelers', icon: 'group' },
-            { key: 'documents', label: 'Secure Vault', icon: 'folder_shared' },
-            { key: 'membership', label: 'Membership', icon: 'workspace_premium' },
+            { key: 'membership', label: 'VIP Perks', icon: 'workspace_premium' },
           ] as const).map(item => {
             const active = activeSubTab === item.key;
             return (
               <button
                 key={item.key}
                 onClick={() => setActiveSubTab(item.key)}
-                className={`flex items-center gap-1.5 px-4 py-2 rounded-full font-bold text-xs transition-all ${
-                  active ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-850'
+                className={`flex items-center gap-2 px-4 py-2 rounded-full font-bold text-xs transition-all duration-200 ${
+                  active ? 'bg-white text-slate-900 shadow-sm scale-100' : 'text-slate-500 hover:text-slate-800 hover:bg-white/40'
                 }`}
               >
-                <span className="material-symbols-outlined text-[16px]" style={{ color: active ? '#C9732A' : undefined }}>{item.icon}</span>
+                <span className="material-symbols-outlined text-[17px]" style={{ color: active ? '#C9732A' : undefined }}>
+                  {item.icon}
+                </span>
                 {item.label}
               </button>
             );
           })}
         </nav>
 
-        {/* Right side controls */}
-        <div className="flex items-center gap-3">
-          {/* Mobile menu indicator */}
-          <button className="md:hidden p-2 text-slate-400 hover:text-slate-600 bg-slate-50 rounded-xl flex items-center justify-center border border-[#EDE8DF]" onClick={() => setIsMobileSidebarOpen(true)}>
-            <span className="material-symbols-outlined text-[20px]">menu</span>
-          </button>
-
-          {/* Command Palette Search Trigger Button */}
+        {/* Right Utility Icons */}
+        <div className="flex items-center gap-2 sm:gap-3">
+          {/* Quick Search trigger */}
           <button
             onClick={() => setShowCommandPalette(true)}
-            className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 border border-[#EDE8DF] rounded-xl text-xs text-slate-500 font-semibold transition-colors shadow-2xs"
-            title="Search Dashboard (Ctrl + K)"
+            className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-[#F9F7F2] hover:bg-white border border-[#EDE8DF] rounded-xl text-xs text-slate-500 font-medium transition-colors"
+            title="Search (⌘K / Ctrl+K)"
           >
-            <span className="material-symbols-outlined text-[18px] text-[#C9732A]">search</span>
-            <span>Quick Search...</span>
-            <kbd className="bg-white border border-slate-200 px-1.5 py-0.5 rounded text-[9px] font-black text-slate-500 shadow-2xs">⌘K</kbd>
+            <span className="material-symbols-outlined text-[17px] text-[#C9732A]">search</span>
+            <span>Search</span>
+            <kbd className="bg-white border border-[#EDE8DF] px-1 rounded text-[10px] text-slate-400">⌘K</kbd>
           </button>
 
-          {/* Quick Package Search */}
-          <Link to="/packages" className="p-2 text-slate-400 hover:text-slate-650 bg-slate-50 hover:bg-slate-100 rounded-xl flex items-center justify-center border border-[#EDE8DF] transition-colors">
-            <span className="material-symbols-outlined text-[20px]">travel</span>
-          </Link>
+          {/* Concierge Chat Icon */}
+          <button
+            onClick={() => { setShowSupportModal(true); fetchChat(); }}
+            className="relative p-2.5 text-slate-600 hover:text-slate-900 bg-[#F9F7F2] hover:bg-white rounded-xl border border-[#EDE8DF] transition-all flex items-center justify-center"
+            title="Travel Concierge Chat"
+          >
+            <span className="material-symbols-outlined text-[20px]">support_agent</span>
+          </button>
 
-          {/* Notification Inbox */}
+          {/* Notifications Bell */}
           <div className="relative" ref={notifRef}>
-            <button onClick={() => { setShowNotificationDropdown(!showNotificationDropdown); if(!showNotificationDropdown) handleMarkNotificationsRead(); }}
-              className="relative p-2 text-slate-400 hover:text-slate-650 bg-slate-50 hover:bg-slate-100 rounded-xl flex items-center justify-center border border-[#EDE8DF] transition-colors">
+            <button
+              onClick={() => {
+                setShowNotificationDropdown(!showNotificationDropdown);
+                if (!showNotificationDropdown) handleMarkNotificationsRead();
+              }}
+              className="relative p-2.5 text-slate-600 hover:text-slate-900 bg-[#F9F7F2] hover:bg-white rounded-xl border border-[#EDE8DF] transition-all flex items-center justify-center"
+              title="Notifications"
+            >
               <span className="material-symbols-outlined text-[20px]">notifications</span>
               {unreadCount > 0 && (
-                <span className="absolute top-1.5 right-1.5 size-2 bg-orange-600 rounded-full animate-pulse" />
+                <span className="absolute top-2 right-2 size-2 bg-orange-600 rounded-full animate-pulse" />
               )}
             </button>
+
             {showNotificationDropdown && (
-              <div className="absolute right-0 mt-3 w-80 bg-white border border-[#EDE8DF] rounded-2xl shadow-xl overflow-hidden z-50 animate-in fade-in slide-in-from-top-2 duration-200">
-                <div className="p-4 border-b border-[#EDE8DF] flex justify-between items-center bg-[#FDFCF7]">
+              <div className="absolute right-0 mt-3 w-80 bg-white border border-[#EDE8DF] rounded-2xl shadow-2xl overflow-hidden z-50 animate-in fade-in slide-in-from-top-2 duration-200">
+                <div className="p-4 border-b border-[#EDE8DF] flex justify-between items-center bg-[#FDFBF7]">
                   <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wider">Inbox Notifications</h3>
-                  {unreadCount > 0 && <span className="text-[9px] font-black bg-orange-50 text-orange-600 px-2 py-0.5 rounded-full">New</span>}
+                  {unreadCount > 0 && <span className="text-[10px] font-bold bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">New</span>}
                 </div>
-                <div className="max-h-64 overflow-y-auto divide-y divide-slate-50">
+                <div className="max-h-64 overflow-y-auto divide-y divide-[#EDE8DF]">
                   {notifications.length === 0 ? (
                     <p className="text-xs text-slate-400 text-center py-8">No alerts received yet.</p>
                   ) : (
                     notifications.map(n => (
-                      <div key={n.id} className="p-4 text-xs hover:bg-slate-50/50">
+                      <div key={n.id} className="p-3.5 text-xs hover:bg-slate-50 transition-colors">
                         <h4 className="font-bold text-slate-800">{n.title}</h4>
-                        <p className="text-slate-500 mt-1">{n.message}</p>
-                        <span className="text-[9px] text-slate-400 block mt-1.5">{new Date(n.created_at).toLocaleDateString()}</span>
+                        <p className="text-slate-500 mt-0.5 leading-relaxed">{n.message}</p>
+                        <span className="text-[9px] text-slate-400 block mt-1">{new Date(n.created_at).toLocaleDateString()}</span>
                       </div>
                     ))
                   )}
@@ -1681,2517 +1159,1398 @@ export const CustomerDashboard: React.FC = () => {
             )}
           </div>
 
-          {/* Concierge support */}
-          <button onClick={() => setShowSupportModal(true)} className="p-2 text-slate-400 hover:text-slate-650 bg-slate-50 hover:bg-slate-100 rounded-xl flex items-center justify-center border border-[#EDE8DF] transition-colors">
-            <span className="material-symbols-outlined text-[20px]">chat</span>
+          {/* Profile Avatar / Trigger */}
+          <button
+            onClick={() => setShowProfileModal(true)}
+            className="flex items-center gap-2 p-1.5 sm:px-3 sm:py-1.5 rounded-xl border border-[#EDE8DF] bg-[#F9F7F2] hover:bg-white transition-all"
+            title="Account Settings"
+          >
+            <div className="size-8 rounded-lg bg-gradient-to-tr from-[#2D6A4F] to-[#40916C] text-white flex items-center justify-center font-bold text-xs shadow-xs">
+              {initials}
+            </div>
+            <span className="text-xs font-bold text-slate-800 hidden sm:inline-block max-w-[90px] truncate">
+              {customer?.name?.split(' ')[0] || 'Account'}
+            </span>
+            <span className="material-symbols-outlined text-[16px] text-slate-400 hidden sm:inline-block">settings</span>
           </button>
-
-          {/* Profile settings */}
-          <button onClick={() => setShowProfileModal(true)} className="p-2 text-slate-400 hover:text-slate-650 bg-slate-50 hover:bg-slate-100 rounded-xl flex items-center justify-center border border-[#EDE8DF] transition-colors">
-            <span className="material-symbols-outlined text-[20px]">settings</span>
-          </button>
-
-          {/* Logout (desktop) */}
-          <button onClick={handleLogout} className="hidden md:flex p-2 text-slate-400 hover:text-red-500 bg-slate-50 hover:bg-red-50 rounded-xl items-center justify-center border border-[#EDE8DF] transition-colors" title="Sign Out">
-            <span className="material-symbols-outlined text-[20px]">logout</span>
-          </button>
-
-          <div onClick={() => setShowProfileModal(true)} className="size-9 rounded-full bg-primary/10 border border-[#C9732A]/20 overflow-hidden flex items-center justify-center font-bold text-primary text-sm cursor-pointer hover:scale-105 active:scale-95 transition-all">
-            {initials}
-          </div>
         </div>
       </header>
 
-      {/* ── MOBILE MENU DRAWER ── */}
-      {isMobileSidebarOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden flex">
-          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setIsMobileSidebarOpen(false)} />
-          <div className="relative w-72 bg-white flex flex-col h-full shadow-2xl p-5 z-10">
-            <button className="absolute top-4 right-4 text-slate-400" onClick={() => setIsMobileSidebarOpen(false)}>
-              <span className="material-symbols-outlined">close</span>
-            </button>
-            <div className="mb-6 pb-5 border-b border-[#EDE8DF]">
-              <span className="font-display font-black text-xl text-[#2D6A4F]">Shrawello Travel Hub</span>
-              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-3">Welcome back</p>
-              <h4 className="font-display font-bold text-slate-800 text-sm mt-0.5">{customer?.name}</h4>
+      {/* ── 2. HERO CONCIERGE BANNER ── */}
+      <div className="max-w-6xl w-full mx-auto px-4 sm:px-6 pt-6 sm:pt-8">
+        <div className="bg-gradient-to-r from-[#2D6A4F]/10 via-[#C9732A]/5 to-[#2D6A4F]/5 rounded-3xl p-6 sm:p-8 border border-[#EDE8DF] relative overflow-hidden shadow-xs">
+          {/* Subtle Ambient Watermark */}
+          <div className="absolute right-4 -bottom-6 text-slate-900/5 select-none pointer-events-none font-display font-black text-8xl">
+            SHRAWELLO
+          </div>
+
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 relative z-10">
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-[11px] font-black uppercase tracking-wider text-[#C9732A] bg-[#C9732A]/10 px-3 py-0.5 rounded-full inline-flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-[14px]">stars</span>
+                  {vipTierInfo.tier}
+                </span>
+                {activeBooking && (
+                  <span className="text-[11px] font-bold text-emerald-800 bg-emerald-100 px-3 py-0.5 rounded-full inline-flex items-center gap-1">
+                    <span className="size-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                    Trip Scheduled
+                  </span>
+                )}
+              </div>
+              <h1 className="text-2xl sm:text-3xl font-display font-black text-slate-900 leading-tight">
+                {greetingWord}, {customer?.name?.split(' ')[0] || 'Traveler'} ✨
+              </h1>
+              <p className="text-xs sm:text-sm text-slate-600 mt-1.5 max-w-xl leading-relaxed">
+                {activeBooking
+                  ? `Your upcoming journey to ${activeBooking.package_name || activeBooking.destination} is confirmed. Review your itinerary, flight vouchers, and day plans below.`
+                  : 'Welcome to your private travel suite. Discover curated journeys, manage your family documents, and reach your concierge anytime.'}
+              </p>
             </div>
-            <nav className="flex-1 space-y-1">
-              {([
-                { key: 'bookings', label: 'My Bookings', icon: 'dashboard' },
-                { key: 'wishlist', label: 'Wishlist & Discovery', icon: 'favorite' },
-                { key: 'travelers', label: 'Co-Travelers', icon: 'group' },
-                { key: 'documents', label: 'Secure Vault', icon: 'folder_shared' },
-                { key: 'membership', label: 'Membership', icon: 'workspace_premium' },
-              ] as const).map(item => {
-                const active = activeSubTab === item.key;
-                return (
-                  <button
-                    key={item.key}
-                    onClick={() => { setActiveSubTab(item.key); setIsMobileSidebarOpen(false); }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-xs transition-colors ${
-                      active ? 'bg-primary/10 text-primary' : 'text-slate-500 hover:bg-slate-50'
-                    }`}
-                    style={{ color: active ? '#C9732A' : undefined, backgroundColor: active ? '#FFF8F2' : undefined }}
-                  >
-                    <span className="material-symbols-outlined text-[18px]">{item.icon}</span>
-                    {item.label}
-                  </button>
-                );
-              })}
-            </nav>
-            <div className="border-t pt-4 space-y-2 mt-auto">
-              <button onClick={() => { setShowProfileModal(true); setIsMobileSidebarOpen(false); }} className="w-full flex items-center gap-3 px-4 py-2 rounded-xl text-slate-600 text-xs font-bold hover:bg-slate-50">
-                <span className="material-symbols-outlined text-[18px]">person</span> Account Settings
-              </button>
-              <button onClick={() => { setShowSupportModal(true); setIsMobileSidebarOpen(false); }} className="w-full flex items-center gap-3 px-4 py-2 rounded-xl text-slate-600 text-xs font-bold hover:bg-slate-50">
-                <span className="material-symbols-outlined text-[18px]">chat</span> Help Concierge
-              </button>
-              <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-2 rounded-xl text-red-500 text-xs font-bold hover:bg-red-50">
-                <span className="material-symbols-outlined text-[18px]">logout</span> Sign Out
-              </button>
+
+            {/* Quick Metrics Bar */}
+            <div className="flex items-center gap-3 bg-white/80 backdrop-blur-sm p-2 rounded-2xl border border-[#EDE8DF] shadow-xs self-start sm:self-auto shrink-0">
+              <div className="px-3.5 py-1.5 text-center border-r border-[#EDE8DF]">
+                <span className="text-[10px] font-bold text-slate-400 block uppercase">Loyalty</span>
+                <span className="text-sm font-black text-slate-800">{loyaltyPoints} Pts</span>
+              </div>
+              <div className="px-3.5 py-1.5 text-center border-r border-[#EDE8DF]">
+                <span className="text-[10px] font-bold text-slate-400 block uppercase">Vault</span>
+                <span className="text-sm font-black text-slate-800">{documents.length} Docs</span>
+              </div>
+              <div className="px-3.5 py-1.5 text-center">
+                <span className="text-[10px] font-bold text-slate-400 block uppercase">Wishlist</span>
+                <span className="text-sm font-black text-slate-800">{wishlist.length} Trips</span>
+              </div>
             </div>
           </div>
         </div>
-      )}
+      </div>
 
-      {/* ── THREE COLUMN DASHBOARD GRID ── */}
-      <main className="flex-grow max-w-[1400px] w-full mx-auto p-4 sm:p-6 lg:p-8 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        
-        {/* ── LEFT COLUMN: Greeting, sub-tabs & context-aware lists ── */}
-        <section className="lg:col-span-4 space-y-6">
-          
-          {/* Ambient Greeting Header */}
-          <div className={`bg-gradient-to-br ${ambientTheme.bg} rounded-3xl p-6 border border-[#EDE8DF] shadow-md hover:shadow-lg transition-all duration-300 relative overflow-hidden`}>
-            {/* Background ambient decorative shine */}
-            <div className="absolute -top-10 -right-10 size-32 bg-white/20 rounded-full blur-2xl pointer-events-none" />
-            
-            <div className="flex justify-between items-start mb-2">
-              <span className="text-[10px] uppercase font-black tracking-widest px-2.5 py-0.5 rounded-full border border-current/20 flex items-center gap-1" style={{ color: ambientTheme.accentColor }}>
-                <span className="material-symbols-outlined text-[13px]">{ambientTheme.icon}</span>
-                {ambientTheme.label}
-              </span>
-              
-              {/* VIP Badge Pill */}
-              <button onClick={() => setActiveSubTab('membership')} className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-gradient-to-r from-amber-400 to-yellow-500 text-slate-900 shadow-xs hover:scale-105 transition-transform">
-                <span className="material-symbols-outlined text-[14px]">workspace_premium</span>
-                {vipTierInfo.tier}
-              </button>
-            </div>
+      {/* ── 3. FULL-WIDTH TAB VIEWS ── */}
+      <main className="max-w-6xl w-full mx-auto px-4 sm:px-6 pt-6 sm:pt-8 flex-grow">
 
-            <h1 className={`text-2xl font-display font-black leading-tight ${ambientTheme.textColor}`}>
-              {greetingWord}, {customer?.name?.split(' ')[0] || 'Traveler'} ✨
-            </h1>
-            <p className={`text-xs mt-1.5 font-medium leading-relaxed ${ambientTheme.subTextColor}`}>
-              Explore your upcoming escapes, track co-travelers and unlock instant concierge perks.
-            </p>
+        {/* ───────────────────────────────────────────────────────────── */}
+        {/* TAB 1: MY TRIPS                                               */}
+        {/* ───────────────────────────────────────────────────────────── */}
+        {activeSubTab === 'bookings' && (
+          <div className="space-y-8 animate-in fade-in duration-300">
+            {/* Active Journey Hero Card */}
+            {activeBooking ? (
+              <div className="bg-white rounded-3xl border border-[#EDE8DF] overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+                {/* Hero Header with destination photo */}
+                <div className="h-48 sm:h-64 relative bg-slate-900 overflow-hidden">
+                  <img
+                    src={activeBooking.image || 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1200&q=80'}
+                    alt={activeBooking.package_name || 'Active Trip'}
+                    className="w-full h-full object-cover opacity-80 hover:scale-105 transition-transform duration-700"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/40 to-transparent" />
 
-            {/* Weather Pill for active booking destination */}
-            {activeBooking && (
-              <div className="mt-4 bg-white/70 backdrop-blur-md border border-white/60 p-2.5 rounded-2xl flex items-center justify-between shadow-2xs">
-                <div className="flex items-center gap-2">
-                  <span className="material-symbols-outlined text-amber-500 text-[20px]">sunny</span>
-                  <div className="leading-tight">
-                    <span className="text-[9px] text-slate-500 font-bold uppercase block">Next Destination Weather</span>
-                    <span className="text-xs font-black text-slate-800">{activeBooking.package_name?.split(' - ')[0] || activeBooking.destination || 'Bali'}: 28°C ☀️ Sunny</span>
-                  </div>
-                </div>
-                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">Optimal Flight</span>
-              </div>
-            )}
-            
-            {/* Sub-tab navigation selector */}
-            <div className="flex gap-1 bg-white/80 backdrop-blur-md border border-slate-200/60 p-1 rounded-2xl mt-4 overflow-x-auto select-none no-scrollbar shadow-2xs">
-              {([
-                { key: 'bookings', label: 'Trips', icon: 'explore' },
-                { key: 'wishlist', label: 'Wishlist', icon: 'favorite' },
-                { key: 'travelers', label: 'Travelers', icon: 'group' },
-                { key: 'documents', label: 'Vault', icon: 'folder_shared' },
-                { key: 'membership', label: 'VIP', icon: 'workspace_premium' }
-              ] as const).map(tab => (
-                <button
-                  key={tab.key}
-                  onClick={() => setActiveSubTab(tab.key)}
-                  className={`flex-1 flex flex-col items-center py-2 px-1 rounded-xl text-[10px] font-bold transition-all min-w-[50px] ${
-                    activeSubTab === tab.key ? 'bg-white text-slate-900 shadow-sm border border-[#EDE8DF]' : 'text-slate-500 hover:text-slate-800'
-                  }`}
-                >
-                  <span className="material-symbols-outlined text-[18px] mb-0.5" style={{ color: activeSubTab === tab.key ? '#C9732A' : undefined }}>{tab.icon}</span>
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Context Card Block */}
-          {activeSubTab === 'bookings' && (
-            <div className="space-y-6">
-              
-              {/* Upcoming Trip Hero Card */}
-              {activeBooking ? (
-                <div className="bg-white rounded-[2rem] border border-[#EDE8DF] overflow-hidden shadow-sm hover:shadow-md transition-shadow group">
-                  <div className="h-44 bg-slate-100 relative overflow-hidden">
-                    <img 
-                      src={activeBooking.image || 'https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&w=600&q=80'} 
-                      alt="Upcoming Trip" 
-                      className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-500"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-black/30" />
-                    
-                    <span className="absolute top-4 left-4 bg-black/45 backdrop-blur-md text-white text-[9px] font-black uppercase px-2.5 py-1 rounded">
-                      {activeBooking.status || 'Active'}
+                  {/* Top floating tags */}
+                  <div className="absolute top-4 left-4 right-4 flex items-center justify-between">
+                    <span className="bg-black/50 backdrop-blur-md text-white border border-white/20 text-[10px] font-black uppercase px-3 py-1 rounded-full">
+                      Booking #{activeBooking.id.slice(-6).toUpperCase()}
                     </span>
-                    
-                    <span className="absolute top-4 right-4 bg-white/95 text-slate-800 text-[9px] font-black uppercase px-2.5 py-1 rounded shadow-sm">
-                      {(() => {
-                        if (activeBooking.travel_date && (activeBooking as any).end_date) {
-                          const start = new Date(activeBooking.travel_date);
-                          const end = new Date((activeBooking as any).end_date);
-                          const nights = Math.max(0, Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
-                          return formatTripDuration({ nights, days: nights + 1 });
-                        }
-                        return activeBooking.pax_count ? `${activeBooking.pax_count} Travelers` : 'Trip';
-                      })()}
+                    <span className="bg-emerald-600 text-white text-[10px] font-black uppercase px-3 py-1 rounded-full shadow-sm">
+                      {activeBooking.status || 'Confirmed'}
                     </span>
-
-                    {/* Live Countdown Overlay */}
-                    {countdown.active && (
-                      <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 flex gap-1.5 justify-center z-10 w-full px-4">
-                        <div className="bg-black/50 backdrop-blur-md px-2.5 py-1.5 rounded-xl text-center min-w-[50px] border border-white/10 shadow-lg">
-                          <span className="text-base font-black text-white block leading-none">{countdown.days}</span>
-                          <span className="text-[7px] uppercase font-bold text-slate-300 tracking-wider">Days</span>
-                        </div>
-                        <div className="bg-black/50 backdrop-blur-md px-2.5 py-1.5 rounded-xl text-center min-w-[50px] border border-white/10 shadow-lg">
-                          <span className="text-base font-black text-white block leading-none">{String(countdown.hours).padStart(2, '0')}</span>
-                          <span className="text-[7px] uppercase font-bold text-slate-300 tracking-wider">Hrs</span>
-                        </div>
-                        <div className="bg-black/50 backdrop-blur-md px-2.5 py-1.5 rounded-xl text-center min-w-[50px] border border-white/10 shadow-lg">
-                          <span className="text-base font-black text-white block leading-none">{String(countdown.minutes).padStart(2, '0')}</span>
-                          <span className="text-[7px] uppercase font-bold text-slate-300 tracking-wider">Mins</span>
-                        </div>
-                        <div className="bg-black/50 backdrop-blur-md px-2.5 py-1.5 rounded-xl text-center min-w-[50px] border border-white/10 shadow-lg">
-                          <span className="text-base font-black text-white block leading-none text-orange-400 animate-pulse">{String(countdown.seconds).padStart(2, '0')}</span>
-                          <span className="text-[7px] uppercase font-bold text-slate-300 tracking-wider">Secs</span>
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="absolute bottom-4 left-4 right-4 z-10">
-                      <span className="text-[9px] text-[#E8935B] uppercase font-black tracking-wide block">Next Departure</span>
-                      <h3 className="font-display font-bold text-white text-lg leading-tight truncate">
-                        {activeBooking.package_name || activeBooking.destination || 'Custom Adventure'}
-                      </h3>
-                    </div>
-                  </div>
-                  <div className="p-5 space-y-4">
-                    <div className="flex justify-between items-center text-xs">
-                      <div>
-                        <span className="text-[9px] text-slate-400 font-bold uppercase block">Travel Date</span>
-                        <p className="font-bold text-slate-800 mt-0.5">
-                          {activeBooking.travel_date ? new Date(activeBooking.travel_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Pending Confirmation'}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-[9px] text-slate-400 font-bold uppercase block">Travelers</span>
-                        <p className="font-bold text-slate-800 mt-0.5">{activeBooking.pax_count || 1} Person(s)</p>
-                      </div>
-                    </div>
-                    
-                    <div className="border-t border-slate-100 pt-4 flex gap-2">
-                      <Link 
-                        to={`/my-account/booking/${activeBooking.id}`}
-                        className="flex-1 py-2.5 bg-[#2D6A4F] text-white font-bold text-xs text-center rounded-xl hover:bg-[#204a37] shadow-sm transition-colors"
-                      >
-                        View Voucher
-                      </Link>
-                      <button 
-                        onClick={() => setShowChecklistModal(true)}
-                        className="px-3.5 py-2.5 border border-[#EDE8DF] rounded-xl hover:bg-slate-50 flex items-center justify-center text-slate-650"
-                        title="AI Packing Checklist"
-                      >
-                        <span className="material-symbols-outlined text-[18px]">backpack</span>
-                      </button>
-                      <button 
-                        onClick={() => setShowPayModal(true)}
-                        className="px-3.5 py-2.5 border border-[#EDE8DF] rounded-xl hover:bg-slate-50 flex items-center justify-center text-slate-600"
-                        title="Upload receipt payment"
-                      >
-                        <span className="material-symbols-outlined text-[18px]">payments</span>
-                      </button>
-                    </div>
-
-                    {/* Quick Flight & Check-In Action Row */}
-                    <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100">
-                      <button
-                        onClick={() => setShowFlightDetailsModal(true)}
-                        className="py-2 px-2 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200/70 rounded-xl font-bold text-[10px] flex items-center justify-center gap-1 transition-colors"
-                      >
-                        <span className="material-symbols-outlined text-[14px]">flight_takeoff</span> Flight Info
-                      </button>
-                      <a
-                        href="https://www.indigo.in/web-check-in.html"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="py-2 px-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/70 rounded-xl font-bold text-[10px] flex items-center justify-center gap-1 transition-colors text-center"
-                      >
-                        <span className="material-symbols-outlined text-[14px]">how_to_reg</span> Web Check-In
-                      </a>
-                      <a
-                        href={`/my-account/booking/${activeBooking.id}`}
-                        className="py-2 px-2 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200/70 rounded-xl font-bold text-[10px] flex items-center justify-center gap-1 transition-colors text-center"
-                      >
-                        <span className="material-symbols-outlined text-[14px]">download</span> E-Tickets
-                      </a>
-                    </div>
                   </div>
 
-                  {/* Dynamic split travel utilities (Weather & Currency Converter) */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
-                    {/* Weather widget */}
-                    {(() => {
-                      const dest = activeBooking.package_name || activeBooking.destination || 'Destination';
-                      const isBeach = dest.toLowerCase().includes('bali') || dest.toLowerCase().includes('goa') || dest.toLowerCase().includes('kerala');
-                      const isCold = dest.toLowerCase().includes('kashmir') || dest.toLowerCase().includes('himachal') || dest.toLowerCase().includes('swiss');
-                      
-                      const temp = isCold ? '14°C' : isBeach ? '29°C' : '24°C';
-                      const desc = isCold ? 'Chilly & Light Rain' : isBeach ? 'Sunny & Warm' : 'Mild & Sunny';
-                      const icon = isCold ? 'ac_unit' : isBeach ? 'sunny' : 'partly_cloudy_day';
-                      const bg = isCold ? 'from-sky-50 to-blue-50/50' : isBeach ? 'from-amber-50/60 to-orange-50/40' : 'from-slate-50 to-orange-50/20';
-                      const iconColor = isCold ? 'text-blue-500' : isBeach ? 'text-amber-500' : 'text-orange-500';
-
-                      return (
-                        <div className={`bg-gradient-to-br ${bg} border border-[#EDE8DF] rounded-3xl p-5 shadow-sm space-y-3.5 flex flex-col justify-between`}>
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <span className="text-[8px] text-slate-400 font-bold uppercase tracking-wider block">Destination Weather</span>
-                              <h4 className="font-display font-black text-slate-885 text-sm mt-0.5">{dest.split(' - ')[0]}</h4>
-                            </div>
-                            <span className={`material-symbols-outlined text-[24px] ${iconColor}`}>{icon}</span>
-                          </div>
-                          
-                          <div className="flex items-baseline gap-2">
-                            <span className="text-2xl font-black text-slate-800 tracking-tight">{temp}</span>
-                            <span className="text-[10px] font-bold text-slate-500">{desc}</span>
-                          </div>
-
-                          <div className="border-t border-slate-200/50 pt-2 flex justify-between text-[9px] font-semibold text-slate-400">
-                            <span className="flex items-center gap-1"><span className="material-symbols-outlined text-[10px]">waves</span> Hum: 65%</span>
-                            <span className="flex items-center gap-1"><span className="material-symbols-outlined text-[10px]">air</span> Wind: 12 km/h</span>
-                            <span className="flex items-center gap-1"><span className="material-symbols-outlined text-[10px]">umbrella</span> Rain: 15%</span>
-                          </div>
-                        </div>
-                      );
-                    })()}
-
-                    {/* Currency Converter */}
-                    {(() => {
-                      const dest = activeBooking.package_name || activeBooking.destination || 'Destination';
-                      const destInfo = resolveDestination(dest);
-
-                      const amt = Number(inrAmount) || 0;
-                      const converted = (amt / destInfo.rate).toLocaleString('en-IN', { maximumFractionDigits: 2 });
-
-                      return (
-                        <div className="bg-white border border-[#EDE8DF] rounded-3xl p-5 shadow-sm space-y-3.5 flex flex-col justify-between">
-                          <div>
-                            <span className="text-[8px] text-slate-400 font-bold uppercase tracking-wider block">Currency Exchange</span>
-                            <h4 className="font-display font-black text-slate-800 text-sm mt-0.5">INR (₹) to {destInfo.currency} ({destInfo.symbol})</h4>
-                          </div>
-
-                          <div className="space-y-2">
-                            <div className="relative flex items-center">
-                              <span className="absolute left-3 text-slate-400 text-xs font-bold">₹</span>
-                              <input 
-                                type="number"
-                                value={inrAmount}
-                                onChange={e => setInrAmount(e.target.value)}
-                                className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 pl-7 pr-3 text-xs font-bold focus:outline-none"
-                                placeholder="Amount in INR"
-                              />
-                            </div>
-
-                            <div className="bg-[#FFF8F2]/60 border border-[#C9732A]/10 rounded-xl p-2 flex justify-between items-center text-xs">
-                              <span className="text-[10px] text-slate-500 font-bold">Estimated Total</span>
-                              <span className="font-black text-primary" style={{ color: '#C9732A' }}>
-                                {destInfo.symbol} {converted}
-                              </span>
-                            </div>
-                          </div>
-
-                          <span className="text-[8px] font-bold text-slate-400 block leading-tight">
-                            Rate: 1 {destInfo.currency} = ₹{destInfo.rate.toLocaleString('en-IN')}
-                          </span>
-                        </div>
-                      );
-                    })()}
-                  </div>
-                </div>
-              ) : (
-                <div className="bg-white rounded-3xl p-8 text-center border border-[#EDE8DF] shadow-sm">
-                  <span className="material-symbols-outlined text-[36px] text-slate-300 block mb-2">flight_takeoff</span>
-                  <h4 className="font-bold text-slate-800 text-xs">No active itineraries found</h4>
-                  <p className="text-[10px] text-slate-400 mt-1 max-w-[200px] mx-auto leading-normal">
-                    Ready to book your next trip? Browse our premium listings.
-                  </p>
-                  <Link to="/packages" className="inline-block mt-4 px-5 py-2 bg-primary text-white text-[10px] font-bold rounded-lg" style={{ backgroundColor: '#C9732A' }}>
-                    Find Packages
-                  </Link>
-                </div>
-              )}
-
-              {/* Interactive Travel Footprint Map */}
-              <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] shadow-sm space-y-4">
-                <div className="flex justify-between items-center border-b border-[#EDE8DF]/30 pb-2">
-                  <h3 className="font-display font-bold text-xs uppercase tracking-wider text-slate-400">My Travel Map</h3>
-                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest bg-slate-100 px-2 py-0.5 rounded-md">
-                    {bookings.filter(b => b.status === 'completed' || (b.travel_date && new Date(b.travel_date) < new Date())).length} Visited
-                  </span>
-                </div>
-
-                {/* SVG Map Container */}
-                <div className="relative aspect-[16/9] w-full bg-[#FFF8F2]/10 border border-[#EDE8DF]/50 rounded-2xl overflow-hidden flex items-center justify-center p-2">
-                  <svg className="w-full h-full text-slate-200" viewBox="0 0 100 80" fill="none" stroke="currentColor" strokeWidth="0.5">
-                    {/* India Outline / South Asia */}
-                    <path d="M 50 35 L 52 38 L 54 38 L 56 36 L 57 37 L 57 39 L 55 42 L 58 46 L 58 49 L 61 54 L 62 57 L 63 60 L 61 62 L 60 59 L 59 55 L 56 50 L 53 47 L 51 44 L 49 42 L 48 39 L 49 37 Z" fill="currentColor" fillOpacity="0.15" strokeWidth="0.3" />
-                    {/* Middle East & Europe */}
-                    <path d="M 38 22 Q 41 25 43 29 Q 42 32 40 35 L 36 32 Z" fill="currentColor" fillOpacity="0.1" strokeWidth="0.2" />
-                    {/* Southeast Asia */}
-                    <path d="M 65 52 L 68 55 L 72 59 L 76 64 L 78 69 L 75 72 L 70 68 L 66 61 Z" fill="currentColor" fillOpacity="0.1" strokeWidth="0.2" />
-                    {/* Bali circle */}
-                    <circle cx="74" cy="72" r="0.8" fill="currentColor" fillOpacity="0.3" />
-                  </svg>
-
-                  {/* Render Pins dynamically */}
-                  {bookings.map(b => {
-                    const destInfo = resolveDestination(b.package_name || b.destination);
-                    const isPast = b.status === 'completed' || (b.travel_date && new Date(b.travel_date) < new Date());
-                    
-                    return (
-                      <div 
-                        key={b.id}
-                        className="absolute group/pin cursor-pointer transition-all duration-300 hover:scale-125"
-                        style={{ left: `${destInfo.x}%`, top: `${destInfo.y}%`, transform: 'translate(-50%, -100%)' }}
-                      >
-                        {/* Pin Dot */}
-                        {isPast ? (
-                          <div className="relative flex items-center justify-center">
-                            <span className="material-symbols-outlined text-emerald-500 text-[18px] drop-shadow-md">location_on</span>
-                            <span className="absolute top-1 size-1 bg-white rounded-full" />
-                          </div>
-                        ) : (
-                          <div className="relative flex items-center justify-center animate-bounce duration-1000">
-                            <span className="material-symbols-outlined text-[#C9732A] text-[18px] drop-shadow-md">location_on</span>
-                            <span className="absolute top-1 size-1 bg-white rounded-full" />
-                            <span className="absolute -bottom-1 size-3 bg-orange-400/30 rounded-full scale-y-50 animate-ping" />
-                          </div>
-                        )}
-
-                        {/* Tooltip on Hover */}
-                        <div className="pointer-events-none opacity-0 group-hover/pin:opacity-100 absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 bg-slate-900 text-white text-[9px] px-2.5 py-1.5 rounded-xl whitespace-nowrap z-50 shadow-xl transition-all duration-200">
-                          <p className="font-black leading-none">{b.package_name || b.destination}</p>
-                          <p className="text-[7px] text-slate-300 mt-1">
-                            {isPast ? 'Completed' : 'Upcoming'} &bull; {b.travel_date ? new Date(b.travel_date).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : 'Pending'}
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Other Bookings List */}
-              <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] shadow-sm space-y-4">
-                <h3 className="font-display font-bold text-xs uppercase tracking-wider text-slate-400 border-b border-slate-50 pb-2">All Booking Logs</h3>
-                <div className="space-y-3">
-                  {loadingBookings ? (
-                    <p className="text-[10px] text-slate-400">Loading booking records...</p>
-                  ) : bookings.length <= 1 ? (
-                    <p className="text-[10px] text-slate-400 py-2">No other booking histories found.</p>
-                  ) : (
-                    bookings.filter(b => b.id !== activeBooking?.id).map(b => (
-                      <Link to={`/my-account/booking/${b.id}`} key={b.id} className="flex items-center gap-3 p-2.5 rounded-xl border border-slate-50 bg-[#FDFCF7]/60 hover:bg-slate-50/50 transition-colors group">
-                        <div className="size-9 bg-primary/10 rounded-lg flex items-center justify-center shrink-0 text-primary" style={{ color: '#C9732A', backgroundColor: '#FFF8F2' }}>
-                          <span className="material-symbols-outlined text-[16px]">travel</span>
-                        </div>
-                        <div className="min-w-0 flex-grow">
-                          <h4 className="font-bold text-slate-800 text-xs truncate group-hover:text-primary transition-colors" style={{ color: '#C9732A' }}>{b.package_name || b.destination}</h4>
-                          <span className="text-[8px] text-slate-400 font-bold block mt-0.5">{b.travel_date ? new Date(b.travel_date).toLocaleDateString() : 'No date'}</span>
-                        </div>
-                        <span className="material-symbols-outlined text-[16px] text-slate-300 group-hover:translate-x-0.5 transition-all">chevron_right</span>
-                      </Link>
-                    ))
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeSubTab === 'wishlist' && (
-            <div className="space-y-6">
-              
-              {/* Featured Wishlist Package Hero */}
-              {wishlistPackages.length > 0 ? (
-                <div className="bg-white rounded-[2rem] border border-[#EDE8DF] overflow-hidden shadow-sm group">
-                  <div className="h-40 bg-slate-100 relative">
-                    <img src={wishlistPackages[0].image} alt="Featured Saved" className="w-full h-full object-cover" />
-                    <button onClick={() => handleRemoveWishlist(wishlistPackages[0].id)} className="absolute top-3 right-3 size-7 bg-white rounded-full flex items-center justify-center text-red-500 shadow-md">
-                      <span className="material-symbols-outlined text-[14px] fill-current">favorite</span>
-                    </button>
-                    <div className="absolute bottom-3 left-3 bg-black/45 backdrop-blur-md px-2 py-0.5 rounded text-[8px] font-bold text-white">
-                      Featured Shortlist
-                    </div>
-                  </div>
-                  <div className="p-4 space-y-3">
-                    <h4 className="font-display font-bold text-slate-800 text-sm">{wishlistPackages[0].title}</h4>
-                    <p className="text-[10px] text-slate-400 font-medium line-clamp-2 leading-relaxed">
-                      {wishlistPackages[0].overview || 'Fabulous itinerary matched to your choices.'}
-                    </p>
-                    <div className="flex justify-between items-center border-t border-slate-100 pt-3">
-                      <div>
-                        <span className="text-[8px] text-slate-400 block uppercase font-bold">Estimated Cost</span>
-                        <span className="text-xs font-black text-slate-800">{formatPrice(wishlistPackages[0].price)}</span>
-                      </div>
-                      <Link to={`/packages/${wishlistPackages[0].id}`} className="px-4 py-2 bg-slate-900 text-white font-bold text-[10px] rounded-lg">
-                        Book Now
-                      </Link>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="bg-white rounded-3xl p-8 text-center border border-[#EDE8DF]">
-                  <span className="material-symbols-outlined text-[36px] text-slate-300 block mb-1">favorite_border</span>
-                  <h4 className="font-bold text-slate-800 text-xs">Wishlist is empty</h4>
-                  <p className="text-[10px] text-slate-400 mt-1 max-w-[200px] mx-auto leading-normal">
-                    Tap the heart icon on holiday listings to save them here.
-                  </p>
-                </div>
-              )}
-
-              {/* Wishlist Saved Packages List */}
-              {wishlistPackages.length > 1 && (
-                <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] shadow-sm space-y-3">
-                  <h3 className="font-display font-bold text-xs uppercase tracking-wider text-slate-400 border-b pb-2">Saved Favorites</h3>
-                  <div className="space-y-2.5">
-                    {wishlistPackages.slice(1).map(pkg => (
-                      <div key={pkg.id} className="flex items-center gap-3 p-2 rounded-xl border border-slate-50 hover:bg-slate-50/50 transition-colors">
-                        <img src={pkg.image} alt={pkg.title} className="size-11 rounded-lg object-cover" />
-                        <div className="min-w-0 flex-grow">
-                          <h4 className="font-bold text-slate-800 text-xs truncate">{pkg.title}</h4>
-                          <span className="text-[9px] font-black text-slate-600 block mt-0.5">{formatPrice(pkg.price)}</span>
-                        </div>
-                        <button onClick={() => handleRemoveWishlist(pkg.id)} className="p-1 hover:bg-slate-100 rounded-lg text-slate-350 hover:text-red-500">
-                          <span className="material-symbols-outlined text-[16px]">delete</span>
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {activeSubTab === 'travelers' && (
-            <div className="space-y-6 animate-in fade-in duration-200">
-              
-              {/* Add Co-Traveler Form */}
-              <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] shadow-sm space-y-4">
-                <div>
-                  <h3 className="font-display font-bold text-xs uppercase tracking-wider text-slate-400">
-                    {editingCoTravelerId ? 'Edit Co-Traveler' : 'Add Co-Traveler'}
-                  </h3>
-                  <p className="text-[10px] text-slate-400 mt-0.5">
-                    {editingCoTravelerId ? 'Modify co-traveler info and save changes.' : 'Register co-traveler info to expedite booking check-ins.'}
-                  </p>
-                </div>
-                {coTravelerError && (
-                  <div className="p-2 bg-red-50 text-red-500 text-[10px] font-bold rounded-lg">{coTravelerError}</div>
-                )}
-                <form onSubmit={handleAddCoTraveler} className="space-y-3 text-xs font-semibold">
-                  <div>
-                    <label className="text-[9px] text-slate-400 uppercase block mb-1">Full Name</label>
-                    <input
-                      type="text" required placeholder="Enter passenger name"
-                      value={coTravelerForm.name}
-                      onChange={e => setCoTravelerForm({ ...coTravelerForm, name: e.target.value })}
-                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-primary/40 text-xs"
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
+                  {/* Destination & Countdown text overlay */}
+                  <div className="absolute bottom-4 left-4 right-4 flex flex-col sm:flex-row sm:items-end justify-between gap-3">
                     <div>
-                      <label className="text-[9px] text-slate-400 uppercase block mb-1">Relation</label>
-                      <select 
-                        value={coTravelerForm.relation}
-                        onChange={e => setCoTravelerForm({ ...coTravelerForm, relation: e.target.value })}
-                        className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none"
-                      >
-                        <option>Friend</option>
-                        <option>Spouse</option>
-                        <option>Child</option>
-                        <option>Parent</option>
-                        <option>Sibling</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-[9px] text-slate-400 uppercase block mb-1">Passport / ID</label>
-                      <input
-                        type="text" placeholder="Optional"
-                        value={coTravelerForm.passport_no}
-                        onChange={e => setCoTravelerForm({ ...coTravelerForm, passport_no: e.target.value })}
-                        className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs"
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="text-[9px] text-slate-400 uppercase block mb-1">Phone</label>
-                      <input
-                        type="tel" placeholder="Mobile"
-                        value={coTravelerForm.phone}
-                        onChange={e => setCoTravelerForm({ ...coTravelerForm, phone: e.target.value })}
-                        className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[9px] text-slate-400 uppercase block mb-1">DOB</label>
-                      <input
-                        type="date"
-                        value={coTravelerForm.dob}
-                        onChange={e => setCoTravelerForm({ ...coTravelerForm, dob: e.target.value })}
-                        className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs"
-                      />
-                    </div>
-                  </div>
-                  {editingCoTravelerId ? (
-                    <div className="flex gap-2 mt-1">
-                      <button type="submit" disabled={coTravelerLoading} className="flex-grow py-2 bg-[#C9732A] text-white rounded-xl font-bold text-xs shadow-md disabled:opacity-60">
-                        {coTravelerLoading ? 'Updating...' : 'Update Passenger'}
-                      </button>
-                      <button type="button" onClick={handleCancelEdit} className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl font-bold text-xs hover:bg-slate-50 transition-colors">
-                        Cancel
-                      </button>
-                    </div>
-                  ) : (
-                  <button type="submit" disabled={coTravelerLoading} className="w-full py-2 bg-slate-900 text-white rounded-xl font-bold text-xs mt-1 disabled:opacity-60">
-                      {coTravelerLoading ? 'Adding...' : 'Add Passenger'}
-                    </button>
-                  )}
-                </form>
-              </div>
-
-              {/* Co-Travelers List */}
-              <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] shadow-sm space-y-3">
-                <h3 className="font-display font-bold text-xs uppercase tracking-wider text-slate-400 border-b pb-2">Registered Passengers</h3>
-                {loadingCoTravelers ? (
-                  <p className="text-[10px] text-slate-400">Loading travelers list...</p>
-                ) : coTravelers.length === 0 ? (
-                  <p className="text-[10px] text-slate-400 text-center py-4">No companion profiles saved.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {coTravelers.map(c => (
-                      <div key={c.id} className="p-3 rounded-xl border border-slate-50 bg-[#FDFCF7]/60 flex items-center justify-between text-xs">
-                        <div>
-                          <p className="font-bold text-slate-800 leading-none">{c.name}</p>
-                          <div className="flex gap-2 text-[9px] text-slate-400 font-bold mt-1.5 uppercase">
-                            <span>{c.relation}</span>
-                            <span>&bull;</span>
-                            <span>{c.passport_no || 'No ID Logged'}</span>
-                          </div>
-                        </div>
-                        <div className="flex gap-1 shrink-0">
-                          <button onClick={() => handleEditClick(c)} className="p-1 text-slate-400 hover:text-slate-650 rounded-lg" title="Edit Companion">
-                            <span className="material-symbols-outlined text-[16px]">edit</span>
-                          </button>
-                          <button onClick={() => handleDeleteCoTraveler(c.id)} className="p-1 text-slate-400 hover:text-red-500 rounded-lg" title="Delete Companion">
-                            <span className="material-symbols-outlined text-[16px]">delete</span>
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {activeSubTab === 'documents' && (
-            <div className="space-y-6">
-              
-              {/* Document Vault Actions */}
-              <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] shadow-sm space-y-4">
-                <div>
-                  <h3 className="font-display font-bold text-xs uppercase tracking-wider text-slate-400">Secure Document Vault</h3>
-                  <p className="text-[10px] text-slate-400 mt-0.5">Upload passports, visas, or insurance copies. All files are encrypted.</p>
-                </div>
-                <button onClick={() => setShowUploadModal(true)} className="w-full py-3 border-2 border-dashed border-[#EDE8DF] rounded-2xl flex flex-col items-center justify-center gap-1 text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition-colors">
-                  <span className="material-symbols-outlined text-[24px]">cloud_upload</span>
-                  <span className="text-[10px] font-bold uppercase tracking-wider">Upload Document</span>
-                </button>
-              </div>
-
-              {/* Document Vault List */}
-              <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] shadow-sm space-y-3">
-                <h3 className="font-display font-bold text-xs uppercase tracking-wider text-slate-400 border-b pb-2">Saved Files</h3>
-                {loadingDocs ? (
-                  <p className="text-[10px] text-slate-400">Loading documents...</p>
-                ) : documents.length === 0 ? (
-                  <p className="text-[10px] text-slate-400 text-center py-4">Vault is empty.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {documents.map(doc => (
-                      <div key={doc.id} className="p-3 rounded-xl border border-slate-50 bg-[#FDFCF7]/60 flex items-center justify-between text-xs gap-3">
-                        <div className="min-w-0 flex-grow">
-                          <h4 className="font-bold text-slate-800 text-xs truncate">{doc.filename}</h4>
-                          <span className="text-[8px] text-slate-400 uppercase font-bold tracking-wider">{doc.doc_type}</span>
-                        </div>
-                        <div className="flex gap-1 shrink-0">
-                          <a href={`${API_BASE}${doc.file_url}`} target="_blank" rel="noopener noreferrer" className="p-1 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600">
-                            <span className="material-symbols-outlined text-[16px]">download</span>
-                          </a>
-                          <button onClick={() => handleDeleteDoc(doc.id)} className="p-1 hover:bg-slate-100 text-slate-400 hover:text-red-600 rounded-lg">
-                            <span className="material-symbols-outlined text-[16px]">delete</span>
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* ─── MEMBERSHIP TAB PANEL ─── */}
-          {activeSubTab === 'membership' && (
-            <div className="space-y-5 animate-in fade-in duration-300">
-
-              {/* Error/success message */}
-              {membershipMsg && (
-                <div className={`flex items-start gap-3 p-4 rounded-2xl text-xs font-bold border ${
-                  membershipMsg.type === 'success'
-                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                    : 'bg-red-50 border-red-200 text-red-800'
-                }`}>
-                  <span className="material-symbols-outlined text-[16px] shrink-0">{membershipMsg.type === 'success' ? 'check_circle' : 'error'}</span>
-                  <span>{membershipMsg.text}</span>
-                  <button onClick={() => setMembershipMsg(null)} className="ml-auto shrink-0 opacity-60 hover:opacity-100">
-                    <span className="material-symbols-outlined text-[14px]">close</span>
-                  </button>
-                </div>
-              )}
-
-              {loadingMembership ? (
-                <div className="bg-white rounded-3xl p-8 border border-[#EDE8DF] text-center">
-                  <div className="animate-spin w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full mx-auto mb-3" />
-                  <p className="text-xs text-slate-400 font-semibold">Loading your membership...</p>
-                </div>
-              ) : myMembership && (myMembership.status === 'Active' || myMembership.status === 'Pending' || myMembership.status === 'Suspended') ? (
-                /* ── STATE B: Has a membership ── */
-                <div className="space-y-4">
-                  {myMembership.pendingUpgrade && (
-                    <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-3xl text-xs font-bold flex items-center gap-3">
-                      <span className="material-symbols-outlined text-[20px] text-amber-500 animate-spin">sync</span>
-                      <div className="flex-grow text-left">
-                        Upgrade request to <strong>{myMembership.pendingUpgrade.planName} ({myMembership.pendingUpgrade.tier})</strong> is pending review.
-                      </div>
-                      <button
-                        onClick={() => handleWithdrawUpgradeRequest(myMembership.pendingUpgrade.id)}
-                        className="px-3 py-1 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-lg text-[10px] font-black transition-colors shrink-0"
-                      >
-                        Withdraw
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Membership Status Card */}
-                  <div className="relative bg-white rounded-3xl border-2 overflow-hidden shadow-lg"
-                    style={{ borderColor: myMembership.color || '#CD7F32' }}>
-                    {/* Colored header band */}
-                    <div className="px-6 pt-6 pb-5 relative" style={{ background: `linear-gradient(135deg, ${myMembership.color}12, ${myMembership.color}06)` }}>
-                      <div className="absolute top-0 right-0 w-24 h-24 rounded-full -translate-y-1/2 translate-x-1/2 opacity-10" style={{ backgroundColor: myMembership.color }} />
-                      <div className="relative">
-                        <div className="flex items-center justify-between mb-3">
-                          <span className="text-[10px] font-black px-3 py-1 rounded-full text-white uppercase tracking-wider" style={{ backgroundColor: myMembership.color }}>
-                            {myMembership.tier} TIER
-                          </span>
-                          <span className={`text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-wider flex items-center gap-1 ${
-                            myMembership.status === 'Active' ? 'bg-emerald-100 text-emerald-700' :
-                            myMembership.status === 'Pending' ? 'bg-amber-100 text-amber-700' :
-                            'bg-slate-100 text-slate-600'
-                          }`}>
-                            <span className="w-1.5 h-1.5 rounded-full bg-current" />
-                            {myMembership.status}
-                          </span>
-                        </div>
-                        <h3 className="text-xl font-black text-slate-900 leading-tight">{myMembership.planName}</h3>
-                        {myMembership.status === 'Pending' ? (
-                          <p className="text-xs text-amber-600 font-bold mt-2 flex items-center gap-1.5">
-                            <span className="material-symbols-outlined text-[14px]">hourglass_empty</span>
-                            Your request is under review by our team. We'll activate it shortly!
-                          </p>
-                        ) : (
-                          <div className="flex items-center gap-4 mt-3 text-xs">
-                            <div>
-                              <p className="text-[9px] text-slate-400 font-bold uppercase">Enrolled</p>
-                              <p className="font-bold text-slate-800">{myMembership.enrolledOn ? new Date(myMembership.enrolledOn).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}</p>
-                            </div>
-                            <div>
-                              <p className="text-[9px] text-slate-400 font-bold uppercase">Valid Until</p>
-                              <p className="font-bold text-slate-800">{myMembership.expiresOn ? new Date(myMembership.expiresOn).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}</p>
-                            </div>
-                            <div>
-                              <p className="text-[9px] text-slate-400 font-bold uppercase">Plan</p>
-                              <p className="font-bold text-slate-800">{myMembership.billingCycle}</p>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Discount Summary */}
-                    {myMembership.status === 'Active' && (
-                      <div className="px-6 py-4 border-t border-slate-100 space-y-3">
-                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Your Exclusive Discounts</p>
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold text-slate-700">Global Discount</span>
-                          <span className="text-base font-black" style={{ color: myMembership.color }}>
-                            {myMembership.discountType === 'Flat_Amount' ? `₹${(myMembership.discountFlat || 0).toLocaleString()} Flat Off` : `${myMembership.discountPercent || 0}% Off`}
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-4 gap-2">
-                          {[
-                            { icon: 'hotel', label: 'Hotel', val: myMembership.hotelDiscount },
-                            { icon: 'flight', label: 'Flight', val: myMembership.flightDiscount },
-                            { icon: 'tour', label: 'Tour', val: myMembership.tourDiscount },
-                            { icon: 'local_taxi', label: 'Cab', val: myMembership.cabDiscount },
-                          ].map(b => (
-                            <div key={b.label} className="p-2 rounded-xl bg-slate-50 text-center">
-                              <span className="material-symbols-outlined text-slate-400 text-[14px] block">{b.icon}</span>
-                              <span className="text-[8px] font-bold text-slate-500 block">{b.label}</span>
-                              <span className="text-xs font-black" style={{ color: myMembership.color }}>+{b.val || 0}%</span>
-                            </div>
-                          ))}
-                        </div>
-                        {/* Perks */}
-                        {myMembership.perks?.length > 0 && (
-                          <div className="mt-2 space-y-1.5">
-                            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Included Perks</p>
-                            {myMembership.perks.map((perk: string, i: number) => (
-                              <div key={i} className="flex items-start gap-2">
-                                <div className="w-4 h-4 rounded-full flex items-center justify-center shrink-0 mt-0.5" style={{ backgroundColor: `${myMembership.color}20`, color: myMembership.color }}>
-                                  <span className="material-symbols-outlined text-[10px]">check</span>
-                                </div>
-                                <span className="text-[11px] text-slate-600 leading-snug">{perk}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Footer */}
-                    <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50">
-                      <button
-                        onClick={handleCancelMembership}
-                        className="text-[11px] font-bold text-slate-400 hover:text-red-500 flex items-center gap-1.5 transition-colors"
-                      >
-                        <span className="material-symbols-outlined text-[14px]">cancel</span>
-                        {myMembership.status === 'Pending' ? 'Withdraw Request' : 'Cancel Membership'}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Upgrade/Upsell Section */}
-                  {myMembership.status === 'Active' && (() => {
-                    const weights: Record<string, number> = { 'Bronze': 1, 'Silver': 2, 'Gold': 3 };
-                    const myWeight = weights[myMembership.tier] || 0;
-                    const upgradePlans = publicPlans.filter(p => (weights[p.tier] || 0) > myWeight);
-                    
-                    if (upgradePlans.length === 0) return null;
-
-                    return (
-                      <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] shadow-sm space-y-4 mt-6">
-                        <div>
-                          <h3 className="font-display font-black text-slate-900 text-sm flex items-center gap-2 text-left">
-                            <span className="material-symbols-outlined text-primary" style={{ color: '#C9732A' }}>workspace_premium</span>
-                            🌟 Premium Upgrades Available
-                          </h3>
-                          <p className="text-[10px] text-slate-400 font-medium text-left">Upgrade your membership to unlock even better discounts and perks.</p>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          {upgradePlans.map(plan => {
-                            const isPendingThisPlan = myMembership.pendingUpgrade && myMembership.pendingUpgrade.planId === plan.id;
-                            const hasAnyPendingUpgrade = !!myMembership.pendingUpgrade;
-
-                            return (
-                              <div
-                                key={plan.id}
-                                className="bg-white rounded-3xl border-2 overflow-hidden shadow-sm flex flex-col justify-between"
-                                style={{ borderColor: plan.color }}
-                              >
-                                <div className="p-4 flex-grow text-left" style={{ background: `linear-gradient(135deg, ${plan.color}08, transparent)` }}>
-                                  <div className="flex items-start justify-between mb-2">
-                                    <span className="text-[9px] font-black px-2 py-0.5 rounded-full text-white uppercase tracking-wider" style={{ backgroundColor: plan.color }}>
-                                      {plan.tier}
-                                    </span>
-                                    <div className="text-right">
-                                      <span className="text-xs font-black text-slate-900">₹{(plan.pricePerYear || 0).toLocaleString()}</span>
-                                      <span className="text-[9px] text-slate-400 font-bold block">/year</span>
-                                    </div>
-                                  </div>
-                                  <h4 className="font-black text-slate-900 text-xs mb-1" style={{ color: plan.color }}>{plan.name}</h4>
-                                  <p className="text-[10px] font-bold text-slate-600 mb-2">
-                                    {plan.discountType === 'Flat_Amount' ? `₹${plan.discountFlat} Flat Off` : `${plan.discountPercent}% Global Discount`}
-                                  </p>
-                                  
-                                  {plan.perks?.slice(0, 3).map((perk: string, i: number) => (
-                                    <div key={i} className="flex items-center gap-1.5 text-[10px] text-slate-500 mb-0.5">
-                                      <span className="w-2.5 h-2.5 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: `${plan.color}20`, color: plan.color }}>
-                                        <span className="material-symbols-outlined text-[7px] font-black">check</span>
-                                      </span>
-                                      <span className="truncate">{perk}</span>
-                                    </div>
-                                  ))}
-                                </div>
-                                
-                                <div className="p-4 pt-0">
-                                  {isPendingThisPlan ? (
-                                    <div className="w-full py-2 bg-amber-50 text-amber-700 rounded-xl text-[10px] font-black text-center border border-amber-200 flex items-center justify-center gap-1.5">
-                                      <span className="material-symbols-outlined text-[12px] animate-spin">sync</span>
-                                      Upgrade Pending Review
-                                    </div>
-                                  ) : (
-                                    <button
-                                      onClick={() => { setJoiningPlan(plan); setSelectedBillingCycle('Yearly'); setShowMembershipJoinModal(true); }}
-                                      disabled={hasAnyPendingUpgrade}
-                                      className="w-full py-2 rounded-xl font-bold text-[10px] text-white transition-all hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 shadow-sm"
-                                      style={{ background: `linear-gradient(135deg, ${plan.color}cc, ${plan.color})` }}
-                                    >
-                                      <span className="material-symbols-outlined text-[12px]">workspace_premium</span>
-                                      {hasAnyPendingUpgrade ? 'Upgrade Pending' : 'Request Upgrade'}
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                </div>
-              ) : (
-                /* ── STATE A: No membership — Plan Browser ── */
-                <div className="space-y-4">
-                  <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] shadow-sm">
-                    <div className="flex items-center gap-3 mb-1">
-                      <div className="w-9 h-9 rounded-xl bg-amber-50 flex items-center justify-center">
-                        <span className="material-symbols-outlined text-amber-500 text-[20px]">workspace_premium</span>
-                      </div>
-                      <div>
-                        <h3 className="font-black text-slate-900 text-sm">Join a VIP Membership</h3>
-                        <p className="text-[10px] text-slate-400 font-medium">Unlock exclusive discounts on every booking</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {loadingPlans ? (
-                    <div className="text-center py-8">
-                      <div className="animate-spin w-7 h-7 border-4 border-primary/20 border-t-primary rounded-full mx-auto" />
-                    </div>
-                  ) : publicPlans.length === 0 ? (
-                    <div className="bg-white rounded-3xl p-8 border border-[#EDE8DF] text-center shadow-sm">
-                      <span className="material-symbols-outlined text-4xl text-slate-300 block mb-2">card_membership</span>
-                      <p className="text-xs text-slate-400 font-semibold">No membership plans are available yet.<br />Please check back soon!</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      {publicPlans.map(plan => (
-                        <div
-                          key={plan.id}
-                          className="bg-white rounded-3xl border-2 overflow-hidden shadow-sm hover:shadow-md transition-all hover:-translate-y-0.5"
-                          style={{ borderColor: plan.color }}
-                        >
-                          <div className="p-5" style={{ background: `linear-gradient(135deg, ${plan.color}10, transparent)` }}>
-                            <div className="flex items-start justify-between mb-3">
-                              <span className="text-[10px] font-black px-2.5 py-1 rounded-full text-white uppercase tracking-wider" style={{ backgroundColor: plan.color }}>
-                                {plan.tier}
-                              </span>
-                              <div className="text-right">
-                                <span className="text-xl font-black text-slate-900">₹{(plan.pricePerYear || plan.price_per_year || 0).toLocaleString()}</span>
-                                <span className="text-[10px] text-slate-400 font-bold block">/year</span>
-                              </div>
-                            </div>
-                            <h4 className="font-black text-slate-900 text-sm mb-1" style={{ color: plan.color }}>{plan.name}</h4>
-                            <div className="flex items-center gap-2 mb-3">
-                              <span className="text-xs font-black" style={{ color: plan.color }}>
-                                {plan.discountType === 'Flat_Amount' ? `₹${plan.discountFlat} Flat Off` : `${plan.discountPercent}% Global Discount`}
-                              </span>
-                              <span className="text-[9px] text-slate-400">on all bookings</span>
-                            </div>
-                            {plan.perks?.slice(0, 3).map((perk: string, i: number) => (
-                              <div key={i} className="flex items-center gap-2 text-[11px] text-slate-600 mb-1">
-                                <span className="w-3 h-3 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: `${plan.color}25`, color: plan.color }}>
-                                  <span className="material-symbols-outlined text-[8px]">check</span>
-                                </span>
-                                {perk}
-                              </div>
-                            ))}
-                            {plan.perks?.length > 3 && (
-                              <p className="text-[10px] text-slate-400 mt-1 ml-5">+{plan.perks.length - 3} more perks</p>
-                            )}
-                          </div>
-                          <div className="px-5 pb-5">
-                            <button
-                              onClick={() => { setJoiningPlan(plan); setSelectedBillingCycle('Yearly'); setShowMembershipJoinModal(true); }}
-                              className="w-full py-2.5 rounded-2xl font-bold text-xs text-white transition-all hover:opacity-90 shadow-md flex items-center justify-center gap-2"
-                              style={{ background: `linear-gradient(135deg, ${plan.color}cc, ${plan.color})`, boxShadow: `0 4px 15px ${plan.color}30` }}
-                            >
-                              <span className="material-symbols-outlined text-[16px]">workspace_premium</span>
-                              Request to Join
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* ── Join Plan Modal ── */}
-              {showMembershipJoinModal && joiningPlan && (
-                <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/55 backdrop-blur-sm animate-in fade-in duration-200">
-                  <div className="bg-white rounded-3xl border border-[#EDE8DF] w-full max-w-sm shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
-                    {/* Modal header */}
-                    <div className="p-6 pb-4 border-b border-[#EDE8DF]" style={{ background: `linear-gradient(135deg, ${joiningPlan.color}12, ${joiningPlan.color}06)` }}>
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-[10px] font-black px-2.5 py-1 rounded-full text-white uppercase tracking-wider" style={{ backgroundColor: joiningPlan.color }}>
-                          {joiningPlan.tier}
+                      <h2 className="text-xl sm:text-3xl font-display font-black text-white drop-shadow-md">
+                        {activeBooking.package_name || activeBooking.destination || 'Custom Journey'}
+                      </h2>
+                      <div className="flex items-center gap-3 text-white/90 text-xs sm:text-sm mt-1 font-medium">
+                        <span className="flex items-center gap-1">
+                          <span className="material-symbols-outlined text-[16px]">calendar_today</span>
+                          {activeBooking.travel_date ? new Date(activeBooking.travel_date).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : 'Flexible Dates'}
                         </span>
-                        <button onClick={() => { setShowMembershipJoinModal(false); setMembershipMsg(null); }} className="text-slate-400 hover:text-slate-600">
-                          <span className="material-symbols-outlined text-[18px]">close</span>
-                        </button>
+                        <span>•</span>
+                        <span className="flex items-center gap-1">
+                          <span className="material-symbols-outlined text-[16px]">group</span>
+                          {activeBooking.pax_count || 2} Travelers
+                        </span>
                       </div>
-                      <h3 className="font-black text-slate-900 text-lg">{joiningPlan.name}</h3>
-                      <p className="text-[11px] text-slate-500 mt-0.5">Choose a billing cycle to submit your request</p>
                     </div>
 
-                    <div className="p-6 space-y-5">
-                      {/* Billing Cycle Picker */}
-                      <div>
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Billing Cycle</p>
-                        <div className="grid grid-cols-2 gap-2">
-                          {[
-                            { label: 'Monthly', value: 'Monthly', price: joiningPlan.pricePerMonth || joiningPlan.price_per_month || 0, sub: '/mo' },
-                            { label: 'Quarterly', value: 'Quarterly', price: joiningPlan.pricePerQuarter || joiningPlan.price_per_quarter || 0, sub: '/3mo' },
-                            { label: '6 Months', value: '6 Months', price: joiningPlan.pricePerHalfYear || joiningPlan.price_per_half_year || 0, sub: '/6mo' },
-                            { label: 'Yearly', value: 'Yearly', price: joiningPlan.pricePerYear || joiningPlan.price_per_year || 0, sub: '/yr' },
-                          ].map(opt => {
-                            const isSelected = selectedBillingCycle === opt.value;
-                            return (
-                              <button
-                                key={opt.value}
-                                onClick={() => setSelectedBillingCycle(opt.value as any)}
-                                className={`p-3 rounded-2xl border-2 text-left transition-all ${isSelected ? 'shadow-md scale-[1.02]' : 'border-slate-100 hover:border-slate-200'}`}
-                                style={{ borderColor: isSelected ? joiningPlan.color : undefined, backgroundColor: isSelected ? `${joiningPlan.color}08` : undefined }}
-                              >
-                                <span className="text-[9px] font-bold text-slate-400 block">{opt.label}</span>
-                                <span className="text-sm font-black text-slate-900">₹{opt.price.toLocaleString()}</span>
-                                <span className="text-[9px] text-slate-400">{opt.sub}</span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                      {/* Summary */}
-                      <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-2 text-xs text-left">
-                        <div className="flex justify-between font-semibold text-slate-500">
-                          <span>Plan</span><span className="text-slate-900 font-bold">{joiningPlan.name}</span>
-                        </div>
-                        <div className="flex justify-between font-semibold text-slate-500">
-                          <span>Billing</span><span className="text-slate-900 font-bold">{selectedBillingCycle}</span>
-                        </div>
-                        <div className="flex justify-between font-semibold text-slate-500">
-                          <span>Global Discount</span>
-                          <span className="font-black" style={{ color: joiningPlan.color }}>
-                            {joiningPlan.discountType === 'Flat_Amount' ? `₹${joiningPlan.discountFlat} Flat Off` : `${joiningPlan.discountPercent}% Off`}
+                    {/* Flight countdown pill */}
+                    {countdown.active && (
+                      <div className="bg-white/15 backdrop-blur-md border border-white/25 rounded-2xl px-4 py-2 text-white flex items-center gap-3">
+                        <span className="material-symbols-outlined text-amber-400 text-[20px]">flight_takeoff</span>
+                        <div>
+                          <span className="text-[9px] uppercase font-bold tracking-wider text-white/70 block">Departure In</span>
+                          <span className="text-xs sm:text-sm font-black">
+                            {countdown.days}d {countdown.hours}h {countdown.minutes}m
                           </span>
                         </div>
                       </div>
+                    )}
+                  </div>
+                </div>
 
-                      {membershipMsg && (
-                        <div className={`text-xs font-bold p-3 rounded-xl text-left ${membershipMsg.type === 'error' ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}>
-                          {membershipMsg.text}
-                        </div>
+                {/* Quick Action Buttons & Financial Highlights */}
+                <div className="p-6 sm:p-8 bg-white border-t border-[#EDE8DF]">
+                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-6 border-b border-[#EDE8DF]">
+                    {/* Financial summary */}
+                    <div className="space-y-1">
+                      <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Payment Breakdown</span>
+                      <div className="flex items-baseline gap-3">
+                        <span className="text-2xl font-black text-slate-900">{formatPrice(activeBooking.total_price || 0)}</span>
+                        {balanceDue > 0 ? (
+                          <span className="text-xs font-bold text-amber-600 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-full">
+                            Balance Due: {formatPrice(balanceDue)}
+                          </span>
+                        ) : (
+                          <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full">
+                            Fully Paid
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Action buttons */}
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                      {balanceDue > 0 && (
+                        <button
+                          onClick={() => setShowPayModal(true)}
+                          className="px-4 py-2.5 bg-[#C9732A] hover:bg-[#A85E1E] text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-1.5"
+                        >
+                          <span className="material-symbols-outlined text-[16px]">payments</span>
+                          Pay Balance
+                        </button>
                       )}
 
-                      <div className="space-y-3">
-                        {/* Option 1: Razorpay Pay & Activate */}
-                        <button
-                          onClick={() => handlePayAndJoinMembership(joiningPlan, selectedBillingCycle)}
-                          disabled={razorpayLoading || membershipRequestLoading}
-                          className="w-full py-3 rounded-2xl font-bold text-xs text-white transition-all hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-md"
-                          style={{ background: `linear-gradient(135deg, ${joiningPlan.color}e6, ${joiningPlan.color})`, boxShadow: `0 4px 15px ${joiningPlan.color}25` }}
-                        >
-                          {razorpayLoading ? (
-                            <><span className="animate-spin rounded-full h-4 w-4 border-t-2 border-white border-opacity-80" />Processing...</>
-                          ) : (
-                            <><span className="material-symbols-outlined text-[16px]">payment</span>Pay Online via Razorpay</>
-                          )}
-                        </button>
+                      <Link
+                        to={`/my-account/booking/${activeBooking.id}`}
+                        className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-1.5"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">receipt_long</span>
+                        View Details & Vouchers
+                      </Link>
 
-                        <div className="relative flex py-1 items-center">
-                          <div className="flex-grow border-t border-slate-100"></div>
-                          <span className="flex-shrink mx-3 text-[9px] text-slate-400 font-bold uppercase tracking-wider">or pay offline</span>
-                          <div className="flex-grow border-t border-slate-100"></div>
-                        </div>
-
-                        {/* Option 2: Request Admin Approval (Manual/Offline) */}
-                        <button
-                          onClick={() => handleRequestMembership(joiningPlan, selectedBillingCycle)}
-                          disabled={razorpayLoading || membershipRequestLoading}
-                          className="w-full py-2.5 rounded-2xl font-bold text-[11px] text-slate-500 hover:text-slate-700 bg-slate-50 border border-slate-200 transition-all hover:bg-slate-100 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                      {activeBooking.whatsapp_group_url ? (
+                        <a
+                          href={activeBooking.whatsapp_group_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-1.5"
                         >
-                          {membershipRequestLoading ? (
-                            <><span className="animate-spin rounded-full h-3 w-3 border-t-2 border-slate-500 border-opacity-80" />Submitting...</>
-                          ) : (
-                            <><span className="material-symbols-outlined text-[14px]">mail</span>Submit Request for Admin Approval</>
-                          )}
+                          <span className="material-symbols-outlined text-[16px]">forum</span>
+                          WhatsApp Group
+                        </a>
+                      ) : (
+                        <button
+                          onClick={() => { setShowSupportModal(true); fetchChat(); }}
+                          className="px-4 py-2.5 bg-[#F4EFEA] hover:bg-[#EDE8DF] text-slate-800 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
+                        >
+                          <span className="material-symbols-outlined text-[16px]">chat</span>
+                          Chat Concierge
                         </button>
-                      </div>
-                      
-                      <p className="text-center text-[9px] text-slate-400 font-medium">
-                        Online payments activate instantly. Offline requests are reviewed and approved by administrators.
-                      </p>
+                      )}
+
+                      <button
+                        onClick={() => setShowChecklistModal(true)}
+                        className="px-4 py-2.5 bg-[#F4EFEA] hover:bg-[#EDE8DF] text-slate-800 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">checklist</span>
+                        Packing List
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Day-by-Day Highlights */}
+                  <div className="pt-6">
+                    <h3 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
+                      <span className="material-symbols-outlined text-[18px] text-[#C9732A]">map</span>
+                      Day-by-Day Itinerary Schedule
+                    </h3>
+                    <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
+                      {[1, 2, 3, 4, 5].map(d => (
+                        <button
+                          key={d}
+                          onClick={() => setSelectedItineraryDay(d)}
+                          className={`px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+                            selectedItineraryDay === d
+                              ? 'bg-[#2D6A4F] text-white shadow-xs'
+                              : 'bg-[#F9F7F2] text-slate-600 hover:bg-[#EDE8DF]'
+                          }`}
+                        >
+                          Day {d}: {d === 1 ? 'Arrival & Welcome' : d === 2 ? 'City Highlights' : d === 3 ? 'Excursion Tour' : d === 4 ? 'Leisure & Dining' : 'Departure'}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="mt-3 p-4 bg-[#F9F7F2] rounded-2xl border border-[#EDE8DF] text-xs text-slate-600 leading-relaxed">
+                      {selectedItineraryDay === 1 && 'Private airport greeting, chauffeured transfer to luxury hotel, welcome refreshers, and evening sunset stroll.'}
+                      {selectedItineraryDay === 2 && 'Guided sightseeing tour including iconic landmarks, traditional gourmet lunch, and afternoon heritage walk.'}
+                      {selectedItineraryDay === 3 && 'Full-day excursion to coastal spots, scenic lookout viewpoints, and private adventure activity booking.'}
+                      {selectedItineraryDay === 4 && 'Free leisure morning, optional spa therapy treatments, and signature culinary dining experience.'}
+                      {selectedItineraryDay === 5 && 'Buffet breakfast, souvenir shopping assistance, and private transfer back to the international airport.'}
                     </div>
                   </div>
                 </div>
-              )}
-
-            </div>
-          )}
-
-        </section>
-
-
-        {/* ── MIDDLE COLUMN: Stats, Payment Ring, Travel Preferences, Recommendations ── */}
-        <section className="lg:col-span-4 space-y-6">
-          
-          {/* Mini Stats row */}
-          <div className="grid grid-cols-2 gap-4">
-            
-            {/* Loyalty points card */}
-            <div className="bg-[#E8F5E9] text-[#2E7D32] rounded-3xl p-5 border border-[#C2E7C4] shadow-sm flex flex-col justify-between h-36 hover:-translate-y-1 transition-transform">
-              <div className="flex justify-between items-center">
-                <span className="text-[9px] uppercase font-black tracking-wider text-[#388E3C]">Rewards Tier</span>
-                <span className="material-symbols-outlined text-[18px]">military_tech</span>
               </div>
-              <div>
-                <h4 className="text-[10px] font-black uppercase text-[#388E3C] mt-2">Loyalty points</h4>
-                <p className="text-xl font-bold font-display leading-tight">{loyaltyPoints.toLocaleString()}</p>
-                <span className="text-[9px] font-black underline cursor-pointer mt-1 block hover:opacity-85" onClick={() => { navigator.clipboard.writeText(referralCode); showToast('info', 'Referral code copied!'); }}>
-                  Referral: {referralCode || 'SHRAV24X'}
-                </span>
-              </div>
-            </div>
-
-            {/* Travel stats card */}
-            <div className="bg-[#FFF8E1] text-[#B78103] rounded-3xl p-5 border border-[#FFE082] shadow-sm flex flex-col justify-between h-36 hover:-translate-y-1 transition-transform">
-              <div className="flex justify-between items-center">
-                <span className="text-[9px] uppercase font-black tracking-wider text-[#D84315]">Travel Stats</span>
-                <span className="material-symbols-outlined text-[18px]">flight</span>
-              </div>
-              <div>
-                <h4 className="text-[10px] font-black uppercase text-[#D84315] mt-2">Total Invested</h4>
-                <p className="text-xl font-bold font-display leading-tight">{formatPriceCompact(totalSpent)}</p>
-                <span className="text-[9px] font-bold block mt-1 uppercase tracking-wider text-[#D84315] opacity-80">
-                  {completedTripsCount} Trip{completedTripsCount !== 1 ? 's' : ''} completed
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* VIP Loyalty Tier & Metallic Shimmer Progress Card */}
-          <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] shadow-sm hover:shadow-md transition-shadow space-y-4">
-            <div className="flex justify-between items-center border-b border-slate-100 pb-2">
-              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">VIP Tier Status</span>
-              <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider text-slate-900 bg-gradient-to-r ${vipTierInfo.color} shadow-xs animate-pulse`}>
-                {vipTierInfo.tier}
-              </span>
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex justify-between text-xs font-bold">
-                <span className="text-slate-700">Tier Level Progress</span>
-                <span className="text-[#C9732A]">{vipTierInfo.progress}%</span>
-              </div>
-              <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden p-0.5 border border-slate-200/50">
-                <div 
-                  className={`h-full rounded-full bg-gradient-to-r ${vipTierInfo.color} transition-all duration-1000 shadow-xs`}
-                  style={{ width: `${vipTierInfo.progress}%` }}
-                />
-              </div>
-              {vipTierInfo.remaining > 0 && (
-                <p className="text-[9px] font-bold text-slate-400">
-                  Spend ₹{vipTierInfo.remaining.toLocaleString('en-IN')} more to reach <span className="text-slate-700">{vipTierInfo.nextTier}</span>!
-                </p>
-              )}
-            </div>
-          </div>
-
-          {/* Virtual Passport Stamps & Achievement Badges Grid Widget */}
-          <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] shadow-sm space-y-4">
-            <div className="flex justify-between items-center border-b border-slate-100 pb-2">
-              <h3 className="font-display font-bold text-xs uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                <span className="material-symbols-outlined text-[16px] text-amber-500">verified</span> Virtual Passport Stamps
-              </h3>
-              <button 
-                onClick={() => setShowPassportStampsModal(true)}
-                className="text-[9px] font-black text-[#C9732A] uppercase hover:underline"
-              >
-                View Stamps ({passportStamps.length})
-              </button>
-            </div>
-
-            {/* Passport Stamps Visual Row */}
-            <div className="grid grid-cols-3 gap-2">
-              {passportStamps.map(stamp => (
-                <div 
-                  key={stamp.id}
-                  onClick={() => setShowPassportStampsModal(true)}
-                  className="p-2.5 rounded-2xl border-2 border-dashed border-amber-300/70 bg-[#FFFDF7] flex flex-col items-center justify-center text-center cursor-pointer hover:scale-105 hover:shadow-md transition-all group"
-                >
-                  <div className="size-8 rounded-full bg-amber-100/70 flex items-center justify-center text-amber-700 mb-1 group-hover:bg-amber-200">
-                    <span className="material-symbols-outlined text-[16px]">{stamp.icon}</span>
-                  </div>
-                  <span className="text-[10px] font-black text-slate-800 tracking-wider block">{stamp.code}</span>
-                  <span className="text-[7px] font-bold text-slate-400 uppercase tracking-widest">{stamp.date.split(' ')[2]}</span>
+            ) : (
+              /* Inspiring Empty State when no active booking exists */
+              <div className="bg-white rounded-3xl border border-[#EDE8DF] p-8 sm:p-12 text-center space-y-6 shadow-xs">
+                <div className="size-16 rounded-3xl bg-[#C9732A]/10 text-[#C9732A] flex items-center justify-center mx-auto shadow-inner">
+                  <span className="material-symbols-outlined text-[32px]">flight</span>
                 </div>
-              ))}
-            </div>
-
-            {/* Achievement Badges Showcase */}
-            <div className="border-t border-slate-100 pt-3 space-y-2">
-              <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 block">Unlocked Travel Badges</span>
-              <div className="flex flex-wrap gap-1.5">
-                {achievementBadges.map(badge => (
-                  <span 
-                    key={badge.id}
-                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[9px] font-black border transition-all ${
-                      badge.unlocked 
-                        ? 'bg-amber-50 text-amber-900 border-amber-300 shadow-2xs' 
-                        : 'bg-slate-50 text-slate-400 border-slate-200 opacity-60'
-                    }`}
-                    title={badge.desc}
+                <div className="max-w-md mx-auto space-y-2">
+                  <h2 className="text-2xl font-display font-black text-slate-900">Your Next Journey Awaits</h2>
+                  <p className="text-xs sm:text-sm text-slate-500 leading-relaxed">
+                    You do not have any active travel bookings scheduled right now. Explore our handpicked holiday packages or request a personalized private itinerary from our concierge.
+                  </p>
+                </div>
+                <div className="flex items-center justify-center gap-3 flex-wrap">
+                  <Link
+                    to="/packages"
+                    className="px-6 py-3 bg-[#C9732A] hover:bg-[#A85E1E] text-white rounded-xl text-xs font-bold shadow-md transition-all flex items-center gap-2"
                   >
-                    <span className="material-symbols-outlined text-[12px]">{badge.icon}</span>
-                    {badge.title}
-                  </span>
+                    <span className="material-symbols-outlined text-[18px]">explore</span>
+                    Browse Tour Packages
+                  </Link>
+                  <button
+                    onClick={() => { setShowSupportModal(true); fetchChat(); }}
+                    className="px-6 py-3 bg-[#F4EFEA] hover:bg-[#EDE8DF] text-slate-800 rounded-xl text-xs font-bold transition-all flex items-center gap-2"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">support_agent</span>
+                    Plan Custom Trip
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Quick Inspiration Destinations */}
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-display font-bold text-lg text-slate-900">Curated Holiday Destinations</h3>
+                <Link to="/packages" className="text-xs font-bold text-[#C9732A] hover:underline flex items-center gap-1">
+                  View All Packages <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
+                </Link>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {[
+                  { name: 'Bali & Tropical Islands', img: 'https://images.unsplash.com/photo-1537996194471-e657df975ab4?auto=format&fit=crop&w=600&q=80', price: '₹42,000', days: '6D / 5N' },
+                  { name: 'Dubai Skyline & Dunes', img: 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?auto=format&fit=crop&w=600&q=80', price: '₹38,500', days: '5D / 4N' },
+                  { name: 'Kashmir Valley & Gulmarg', img: 'https://images.unsplash.com/photo-1595815771614-ade9d652a65d?auto=format&fit=crop&w=600&q=80', price: '₹26,999', days: '6D / 5N' },
+                  { name: 'Goa Coastal Serenity', img: 'https://images.unsplash.com/photo-1512343879784-a960bf40e7f2?auto=format&fit=crop&w=600&q=80', price: '₹14,999', days: '4D / 3N' },
+                ].map((item, idx) => (
+                  <Link
+                    to="/packages"
+                    key={idx}
+                    className="group bg-white rounded-2xl border border-[#EDE8DF] overflow-hidden shadow-xs hover:shadow-md transition-all flex flex-col"
+                  >
+                    <div className="h-36 relative overflow-hidden">
+                      <img src={item.img} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                      <span className="absolute top-2.5 right-2.5 bg-black/60 backdrop-blur-md text-white text-[10px] font-bold px-2 py-0.5 rounded">
+                        {item.days}
+                      </span>
+                    </div>
+                    <div className="p-3.5 space-y-1">
+                      <h4 className="font-bold text-xs text-slate-800 truncate">{item.name}</h4>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-[10px] text-slate-400 font-medium">Starting from</span>
+                        <span className="font-black text-[#2D6A4F]">{item.price}</span>
+                      </div>
+                    </div>
+                  </Link>
                 ))}
               </div>
             </div>
-          </div>
 
-          {/* Doughnut Payment Progress Card */}
-          {activeBooking ? (
-            <div className="bg-white rounded-3xl p-6 border border-[#EDE8DF] shadow-sm space-y-5">
-              <h3 className="font-display font-bold text-xs uppercase tracking-wider text-slate-400 border-b pb-2">Payment Progress</h3>
-              
-              <div className="flex items-center gap-6 justify-center py-2">
-                {/* SVG Circular Doughnut */}
-                <div className="relative size-24 shrink-0 flex items-center justify-center">
-                  <svg className="size-full transform -rotate-90" viewBox="0 0 36 36">
-                    <circle className="text-slate-100" strokeWidth="3.5" stroke="currentColor" fill="none" r="16" cx="18" cy="18" />
-                    <circle 
-                      className="text-[#C9732A]" 
-                      strokeWidth="3.5" 
-                      strokeDasharray="100"
-                      strokeDashoffset={100 - paymentPercent}
-                      strokeLinecap="round" 
-                      stroke="currentColor" 
-                      fill="none" 
-                      r="16" 
-                      cx="18" 
-                      cy="18" 
-                    />
-                  </svg>
-                  <div className="absolute flex flex-col items-center justify-center text-center">
-                    <span className="text-sm font-black text-slate-800 leading-none">{paymentPercent}%</span>
-                    <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Paid</span>
-                  </div>
-                </div>
-
-                {/* Legend keys */}
-                <div className="space-y-1.5 text-[11px] font-semibold flex-grow">
-                  <div className="flex justify-between items-center text-slate-500">
-                    <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-slate-300 inline-block" /> Total Price</span>
-                    <span className="font-bold text-slate-800">{formatPriceCompact(activeBooking.total_price)}</span>
-                  </div>
-                  <div className="flex justify-between items-center text-emerald-700">
-                    <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-emerald-500 inline-block" /> Paid Amount</span>
-                    <span className="font-bold">{formatPriceCompact(netPaid)}</span>
-                  </div>
-                  <div className="flex justify-between items-center text-red-600">
-                    <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-red-400 inline-block" /> Pending Balance</span>
-                    <span className="font-bold">{formatPriceCompact(balanceDue)}</span>
-                  </div>
-                </div>
-              </div>
-
-              {balanceDue > 0 && activeBooking.status !== 'cancelled' && (
-                <button 
-                  onClick={() => setShowPayModal(true)}
-                  className="w-full py-2.5 rounded-xl font-bold text-xs text-white shadow-md active:scale-98 transition-transform" 
-                  style={{ background: 'linear-gradient(135deg, #C9732A, #E8935B)' }}
-                >
-                  Settle Pending Balance
-                </button>
-              )}
-            </div>
-          ) : (
-            <div className="bg-white rounded-3xl p-6 text-center border border-[#EDE8DF]">
-              <span className="material-symbols-outlined text-[32px] text-slate-300 block mb-1">payments</span>
-              <p className="text-[10px] text-slate-400 font-semibold leading-normal">
-                No active booking financial summaries.
-              </p>
-            </div>
-          )}
-
-          {/* Add-On Marketplace Card */}
-          {activeBooking && (
-            <div className="bg-white rounded-3xl p-6 border border-[#EDE8DF] shadow-sm space-y-4">
-              <div className="flex justify-between items-center border-b pb-2">
-                <h3 className="font-display font-bold text-xs uppercase tracking-wider text-slate-400">Marketplace & Upgrades</h3>
-                <span className="material-symbols-outlined text-[16px] text-slate-400">shopping_bag</span>
-              </div>
-              
-              <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1 no-scrollbar">
-                {(() => {
-                  const packageId = activeBooking.packageId || activeBooking.package_id;
-                  const matchingPkg = packages?.find(p => p.id === packageId);
-                  const DEFAULT_ADDONS = [
-                    { id: 'lounge', label: 'VIP Airport Lounge Pass', price: 2499, desc: 'Includes luxury seating, buffet, and high-speed Wi-Fi.' },
-                    { id: 'insurance', label: 'Comprehensive Travel Insurance', price: 1500, desc: 'Covers medical, luggage loss, and trip cancellation.' },
-                    { id: 'esim', label: 'Local High-Speed eSIM Card', price: 999, desc: '10GB 5G high-speed local data pre-activated.' },
-                    { id: 'room-upgrade', label: 'Suite Room Upgrade', price: 5000, desc: 'Upgrade standard hotel rooms to premium junior suites.' },
-                    { id: 'photoguide', label: 'Dedicated Pro Photographer (1-Day)', price: 6000, desc: 'A professional photographer guide to capture your memories.' }
-                  ];
-
-                  const availableAddons = (matchingPkg?.addons && matchingPkg.addons.length > 0) 
-                    ? matchingPkg.addons.map(a => ({ id: a.id, label: a.label, price: a.price, desc: 'Custom package upgrade option.' }))
-                    : DEFAULT_ADDONS;
-
-                  if (loadingPurchasedAddons) {
-                    return <p className="text-[10px] text-slate-400">Loading available upgrades...</p>;
-                  }
-
-                  return availableAddons.map(addon => {
-                    const isPurchased = purchasedAddons.some(p => p.addon_id === addon.id);
-                    return (
-                      <div key={addon.id} className="p-3 bg-slate-50/60 rounded-2xl border border-slate-100 flex flex-col justify-between gap-2.5">
-                        <div className="flex justify-between items-start gap-2">
-                          <div className="min-w-0 flex-grow">
-                            <h4 className="font-bold text-slate-800 text-xs truncate leading-tight">{addon.label}</h4>
-                            <p className="text-[9px] text-slate-400 leading-normal mt-0.5">{addon.desc}</p>
-                          </div>
-                          <span className="text-xs font-black text-slate-800 shrink-0">₹{addon.price.toLocaleString('en-IN')}</span>
-                        </div>
-                        <div className="flex justify-end">
-                          {isPurchased ? (
-                            <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-lg flex items-center gap-1">
-                              <span className="material-symbols-outlined text-[10px]">check_circle</span> Added to Trip
-                            </span>
-                          ) : (
-                            <button
-                              onClick={() => setShowConfirmAddonModal(addon)}
-                              disabled={isPurchasingAddon !== null}
-                              className="px-3 py-1 bg-slate-900 hover:bg-slate-800 text-white font-bold text-[10px] rounded-lg transition-colors flex items-center gap-1 active:scale-95"
-                            >
-                              {isPurchasingAddon === addon.id ? (
-                                <span className="animate-spin size-2.5 border-2 border-white border-t-transparent rounded-full" />
-                              ) : (
-                                <span className="material-symbols-outlined text-[10px]">add</span>
-                              )}
-                              Add to Trip
-                            </button>
-                          )}
-                        </div>
+            {/* Past Completed Trips & Reviews */}
+            {bookings.filter(b => b.status?.toLowerCase() === 'completed').length > 0 && (
+              <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 sm:p-8 space-y-4 shadow-xs">
+                <h3 className="font-display font-bold text-lg text-slate-900 flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[20px] text-[#2D6A4F]">task_alt</span>
+                  Past Completed Journeys
+                </h3>
+                <div className="divide-y divide-[#EDE8DF]">
+                  {bookings.filter(b => b.status?.toLowerCase() === 'completed').map(trip => (
+                    <div key={trip.id} className="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div>
+                        <h4 className="font-bold text-sm text-slate-900">{trip.package_name || trip.destination}</h4>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          Travel Date: {trip.travel_date ? new Date(trip.travel_date).toLocaleDateString() : 'Completed'}
+                        </p>
                       </div>
-                    );
-                  });
-                })()}
-              </div>
-            </div>
-          )}
-
-          {/* Travel DNA Interactive Preference Chips */}
-          <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] shadow-sm space-y-4 hover:shadow-md transition-shadow">
-            <div className="flex justify-between items-center border-b border-slate-100 pb-2">
-              <h3 className="font-display font-bold text-xs uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                <span className="material-symbols-outlined text-[16px] text-[#2D6A4F]">dna</span> My Travel DNA
-              </h3>
-              <button onClick={() => setShowProfileModal(true)} className="text-[10px] font-black text-[#C9732A] uppercase hover:underline">Edit DNA</button>
-            </div>
-            
-            <p className="text-[10px] text-slate-400 font-medium leading-normal">
-              Toggle your travel preferences to dynamically match trip itineraries:
-            </p>
-
-            <div className="flex flex-wrap gap-1.5">
-              {[
-                { tag: '5-Star Luxury', icon: 'hotel' },
-                { tag: 'Window Seat', icon: 'flight_class' },
-                { tag: 'Vegetarian', icon: 'restaurant' },
-                { tag: 'Island Escape', icon: 'surfing' },
-                { tag: 'Private Airport Transfer', icon: 'local_taxi' }
-              ].map(item => {
-                const active = travelDnaTags.includes(item.tag);
-                return (
-                  <button
-                    key={item.tag}
-                    onClick={() => {
-                      setTravelDnaTags(prev => 
-                        prev.includes(item.tag) ? prev.filter(t => t !== item.tag) : [...prev, item.tag]
-                      );
-                    }}
-                    className={`px-3 py-1.5 rounded-xl text-[10px] font-bold flex items-center gap-1 transition-all ${
-                      active
-                        ? 'bg-[#2D6A4F] text-white shadow-xs border border-[#2D6A4F]'
-                        : 'bg-[#FDFCF7] border border-slate-200 text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    <span className="material-symbols-outlined text-[13px]">{item.icon}</span>
-                    {item.tag}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Referral Center & 1-Click WhatsApp Share */}
-          <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] shadow-sm space-y-3.5 hover:shadow-md transition-shadow">
-            <div>
-              <div className="flex justify-between items-center">
-                <h3 className="font-display font-bold text-xs uppercase tracking-wider text-slate-400">Refer & Earn 500 Pts</h3>
-                <span className="text-[9px] font-black uppercase text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">500 Bonus Pts</span>
-              </div>
-              <p className="text-[10px] text-slate-400 mt-0.5">Share your link. Get 500 bonus points upon their first trip completion!</p>
-            </div>
-            {referralMsg && <p className="text-[10px] font-bold text-[#C9732A]">{referralMsg}</p>}
-            
-            <form onSubmit={handleSendReferral} className="flex gap-2">
-              <input 
-                type="email" required placeholder="Enter friend's email"
-                value={referralEmail}
-                onChange={e => setReferralEmail(e.target.value)}
-                className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none"
-              />
-              <button type="submit" className="p-2.5 bg-slate-900 text-white rounded-xl hover:bg-slate-800 flex items-center justify-center">
-                <span className="material-symbols-outlined text-[16px]">send</span>
-              </button>
-            </form>
-
-            {/* 1-Click WhatsApp & Share Link Buttons */}
-            <div className="flex gap-2 pt-1 border-t border-slate-100">
-              <a
-                href={`https://api.whatsapp.com/send?text=${encodeURIComponent(`Hey! Plan your luxury vacation with Shrawello Travel Hub. Use my referral code ${referralCode || 'SHRAV24X'} to claim bonus points: https://shrawello.com/register`)}`}
-                target="_blank"
-                rel="noreferrer"
-                className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-[10px] flex items-center justify-center gap-1.5 transition-colors shadow-2xs"
-              >
-                <span className="material-symbols-outlined text-[14px]">share</span> Share on WhatsApp
-              </a>
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(`https://shrawello.com/register?ref=${referralCode || 'SHRAV24X'}`);
-                  showToast('success', 'Referral link copied to clipboard!');
-                }}
-                className="py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-[10px] flex items-center justify-center gap-1 transition-colors"
-                title="Copy Link"
-              >
-                <span className="material-symbols-outlined text-[14px]">content_copy</span> Copy
-              </button>
-            </div>
-          </div>
-
-          {/* Co-Traveler Activity Polls Widget */}
-          <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] shadow-sm space-y-3.5 hover:shadow-md transition-shadow">
-            <div className="flex justify-between items-center border-b border-slate-100 pb-2">
-              <h3 className="font-display font-bold text-xs uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                <span className="material-symbols-outlined text-[16px] text-amber-500">how_to_vote</span> Co-Traveler Activity Poll
-              </h3>
-              <span className="text-[8px] font-black uppercase text-slate-400 bg-slate-100 px-2 py-0.5 rounded">Active Poll</span>
-            </div>
-
-            <p className="text-[10px] font-bold text-slate-700 leading-snug">
-              Vote on optional Bali experience for your group:
-            </p>
-
-            <div className="space-y-2">
-              {Object.entries(activityPollVotes).map(([option, votes]) => {
-                const voteNum = Number(votes) || 0;
-                const totalVotes = Object.values(activityPollVotes).reduce<number>((sum, val) => sum + Number(val || 0), 0);
-                const percent = Math.round((voteNum / Math.max(1, totalVotes)) * 100);
-                const isSelected = userVotedOption === option;
-
-                return (
-                  <button
-                    key={option}
-                    onClick={() => {
-                      if (userVotedOption === option) return;
-                      setActivityPollVotes(prev => ({
-                        ...prev,
-                        [userVotedOption || '']: Math.max(0, (prev[userVotedOption || ''] || 0) - 1),
-                        [option]: (prev[option] || 0) + 1
-                      }));
-                      setUserVotedOption(option);
-                      showToast('success', `Voted for ${option}!`);
-                    }}
-                    className={`w-full p-2.5 rounded-2xl border text-left transition-all relative overflow-hidden ${
-                      isSelected 
-                        ? 'border-amber-400 bg-amber-50/60 font-black' 
-                        : 'border-slate-200 bg-[#FDFCF7] hover:bg-slate-50 font-bold'
-                    }`}
-                  >
-                    {/* Background Progress Bar */}
-                    <div 
-                      className="absolute top-0 bottom-0 left-0 bg-amber-200/40 pointer-events-none transition-all duration-500" 
-                      style={{ width: `${percent}%` }}
-                    />
-
-                    <div className="relative z-10 flex justify-between items-center text-xs">
-                      <span className="text-slate-800 flex items-center gap-1.5 text-[11px]">
-                        {isSelected && <span className="material-symbols-outlined text-[14px] text-amber-600">check_circle</span>}
-                        {option}
-                      </span>
-                      <span className="text-[10px] text-slate-500 font-bold">{votes} votes ({percent}%)</span>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="text"
+                          placeholder="Share your travel review..."
+                          value={commentFeedback}
+                          onChange={e => setCommentFeedback(e.target.value)}
+                          className="px-3 py-1.5 text-xs border border-[#EDE8DF] rounded-xl outline-none focus:border-[#C9732A] w-48 sm:w-64"
+                        />
+                        <button
+                          onClick={() => handleReviewSubmit(trip.id)}
+                          disabled={reviewLoading || !commentFeedback.trim()}
+                          className="px-4 py-2 bg-[#2D6A4F] text-white text-xs font-bold rounded-xl hover:bg-[#1e4835] transition-colors disabled:opacity-50"
+                        >
+                          Submit
+                        </button>
+                      </div>
                     </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Recommended Activity Suggestions */}
-          <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] shadow-sm space-y-3">
-            <h3 className="font-display font-bold text-xs uppercase tracking-wider text-slate-400 border-b pb-2">Matching Destinations</h3>
-            <div className="space-y-3">
-              {packages?.slice(0, 2).map(pkg => (
-                <Link to={`/packages/${pkg.id}`} key={pkg.id} className="flex items-center gap-3 p-1.5 hover:bg-slate-50 rounded-xl transition-colors group">
-                  <img src={pkg.image} alt={pkg.title} className="size-11 rounded-lg object-cover" />
-                  <div className="min-w-0 flex-grow">
-                    <h4 className="font-bold text-slate-800 text-xs truncate group-hover:text-primary transition-colors" style={{ color: '#C9732A' }}>{pkg.title}</h4>
-                    <span className="text-[8px] text-slate-400 font-bold block mt-0.5">Recommended match &bull; {pkg.days} Days</span>
-                  </div>
-                  <span className="material-symbols-outlined text-[14px] text-slate-300 group-hover:translate-x-0.5 transition-all">arrow_forward</span>
-                </Link>
-              ))}
-            </div>
-          </div>
-
-        </section>
-
-        {/* ── RIGHT COLUMN: Calendar day highlights, rating reflections, Inbox alert lists ── */}
-        <section className="lg:col-span-4 space-y-6">
-          
-          {/* Calendar slider timeline (Switzerland or active itinerary highlights) */}
-          <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] shadow-sm space-y-4">
-            <div className="flex justify-between items-center border-b pb-2">
-              <h3 className="font-display font-bold text-xs uppercase tracking-wider text-slate-400">Itinerary Day Calendar</h3>
-              {activeBooking && <span className="text-[8px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-black">Active Trip Days</span>}
-            </div>
-
-            {itineraryHighlights.length === 0 ? (
-              <div className="text-center py-4">
-                <span className="material-symbols-outlined text-[28px] text-slate-300 block mb-1">calendar_today</span>
-                <p className="text-[10px] text-slate-400 font-semibold">Itinerary details will appear here after booking confirmation.</p>
-              </div>
-            ) : (
-              <>
-                {/* Horizontal Day Selector Slider */}
-                <div className="flex justify-between gap-1 overflow-x-auto select-none py-1 border-b border-slate-50">
-                  {itineraryHighlights.map(h => (
-                    <button
-                      key={h.day}
-                      onClick={() => setSelectedItineraryDay(h.day)}
-                      className={`size-8 rounded-full flex items-center justify-center font-bold text-xs shrink-0 transition-all ${
-                        selectedItineraryDay === h.day
-                          ? 'bg-slate-900 text-white shadow-md'
-                          : 'bg-[#FDFCF7] border border-slate-150 text-slate-500 hover:bg-slate-50'
-                      }`}
-                    >
-                      D{h.day}
-                    </button>
                   ))}
                 </div>
-
-                {/* Selected day content */}
-                {selectedDayInfo && (
-                  <div className="p-3 bg-[#FDFCF7] border border-slate-100 rounded-xl space-y-1">
-                    <h4 className="font-bold text-slate-800 text-xs">{selectedDayInfo.title}</h4>
-                    <p className="text-[10px] text-slate-500 font-medium leading-relaxed mt-1">
-                      {selectedDayInfo.desc}
-                    </p>
-                  </div>
-                )}
-              </>
+              </div>
             )}
           </div>
+        )}
 
-          {/* Interactive Travel Reflection star/mood rating selector */}
-          {activeBooking ? (
-            <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] shadow-sm space-y-4">
+        {/* ───────────────────────────────────────────────────────────── */}
+        {/* TAB 2: SECURE DOCUMENT VAULT                                  */}
+        {/* ───────────────────────────────────────────────────────────── */}
+        {activeSubTab === 'documents' && (
+          <div className="space-y-6 animate-in fade-in duration-300">
+            {/* Vault Top Controls */}
+            <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs">
               <div>
-                <h3 className="font-display font-bold text-xs uppercase tracking-wider text-slate-400">Trip Reflection Dial</h3>
-                <p className="text-[10px] text-slate-400 mt-0.5">Rate your active booking experience.</p>
+                <h2 className="font-display font-bold text-xl text-slate-900 flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[24px] text-[#2D6A4F]">folder_shared</span>
+                  Secure Travel Vault
+                </h2>
+                <p className="text-xs text-slate-500 mt-1">
+                  End-to-end encrypted storage for passports, visas, flight tickets, and hotel confirmation vouchers.
+                </p>
               </div>
 
-              <form onSubmit={handleReviewSubmit} className="space-y-3.5">
-                {/* Circular star rate buttons */}
-                <div className="flex justify-between items-center px-1">
-                  {[1, 2, 3, 4, 5].map(star => {
-                    const isLit = star <= ratingFeedback;
-                    return (
-                      <button
-                        key={star}
-                        type="button"
-                        onClick={() => setRatingFeedback(star)}
-                        className={`size-8 rounded-full flex items-center justify-center border transition-all text-sm ${
-                          isLit 
-                            ? 'bg-amber-50 text-amber-500 border-amber-300 shadow-sm scale-105' 
-                            : 'bg-[#FDFCF7] border-slate-200 text-slate-300 hover:text-amber-400'
-                        }`}
-                      >
-                        <span className="material-symbols-outlined text-[18px] fill-current">star</span>
-                      </button>
-                    );
-                  })}
-                </div>
+              <button
+                onClick={() => setShowUploadModal(true)}
+                className="px-5 py-2.5 bg-[#C9732A] hover:bg-[#A85E1E] text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-2 self-start sm:self-auto"
+              >
+                <span className="material-symbols-outlined text-[18px]">upload</span>
+                Upload Document
+              </button>
+            </div>
 
-                <div className="text-center">
-                  <span className="text-[10px] font-black text-slate-700 uppercase bg-[#FFF8E1] px-2 py-0.5 rounded">
-                    {ratingFeedback === 5 ? "🤩 Exceeded Expectations" : ratingFeedback === 4 ? "😍 Great Experience" : ratingFeedback === 3 ? "🙂 Satisfactory" : ratingFeedback === 2 ? "😐 Needs Improvement" : "☹️ Unacceptable"}
-                  </span>
-                </div>
+            {/* Document Category Filter Pills */}
+            <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+              {['All', 'Passport', 'Visa', 'Flight Ticket', 'Hotel Voucher', 'Insurance', 'Invoice'].map(cat => (
+                <button
+                  key={cat}
+                  onClick={() => setDocCategoryFilter(cat)}
+                  className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${
+                    docCategoryFilter.toLowerCase() === cat.toLowerCase()
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'bg-white text-slate-600 border border-[#EDE8DF] hover:bg-slate-50'
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
 
+            {/* Documents Grid */}
+            {loadingDocs ? (
+              <div className="p-12 text-center text-slate-400 text-xs font-medium">Loading vault contents...</div>
+            ) : filteredDocuments.length > 0 ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {filteredDocuments.map(doc => {
+                  const isPdf = doc.filename.toLowerCase().endsWith('.pdf');
+                  const isImage = /\.(jpg|jpeg|png|webp)$/i.test(doc.filename);
+                  return (
+                    <div
+                      key={doc.id}
+                      className="bg-white rounded-2xl border border-[#EDE8DF] p-5 shadow-xs hover:shadow-md transition-shadow flex flex-col justify-between"
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className={`size-11 rounded-xl flex items-center justify-center shrink-0 ${
+                          isPdf ? 'bg-red-50 text-red-500' : isImage ? 'bg-blue-50 text-blue-500' : 'bg-emerald-50 text-emerald-600'
+                        }`}>
+                          <span className="material-symbols-outlined text-[24px]">
+                            {isPdf ? 'picture_as_pdf' : isImage ? 'image' : 'description'}
+                          </span>
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-100 px-2 py-0.5 rounded">
+                            {doc.doc_type || 'Document'}
+                          </span>
+                          <h4 className="font-bold text-xs text-slate-800 truncate mt-1" title={doc.filename}>
+                            {doc.filename}
+                          </h4>
+                          <span className="text-[10px] text-slate-400 block mt-0.5">
+                            Added {new Date(doc.created_at).toLocaleDateString()}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 mt-5 pt-3 border-t border-[#EDE8DF]">
+                        <a
+                          href={doc.file_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex-1 py-1.5 bg-[#F9F7F2] hover:bg-[#EDE8DF] text-slate-700 rounded-lg text-center text-xs font-bold transition-colors flex items-center justify-center gap-1"
+                        >
+                          <span className="material-symbols-outlined text-[16px]">download</span>
+                          Download
+                        </a>
+                        <button
+                          onClick={() => handleDeleteDoc(doc.id)}
+                          className="p-1.5 text-slate-400 hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors"
+                          title="Delete from Vault"
+                        >
+                          <span className="material-symbols-outlined text-[18px]">delete</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="bg-white rounded-3xl border border-[#EDE8DF] p-12 text-center space-y-4 shadow-xs">
+                <div className="size-14 rounded-2xl bg-[#EDE8DF] text-slate-400 flex items-center justify-center mx-auto">
+                  <span className="material-symbols-outlined text-[28px]">folder_open</span>
+                </div>
+                <div className="space-y-1">
+                  <h3 className="font-bold text-slate-800 text-sm">No Documents in This Category</h3>
+                  <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                    Upload your flight tickets, visa copies, or passport biodata for instant 1-click access during transit.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowUploadModal(true)}
+                  className="px-5 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold hover:bg-slate-800 transition-colors"
+                >
+                  Upload First File
+                </button>
+              </div>
+            )}
+
+            {/* Travel Vault Guidelines Card */}
+            <div className="p-5 bg-amber-50/60 rounded-2xl border border-amber-200/60 flex items-start gap-3">
+              <span className="material-symbols-outlined text-amber-600 text-[20px] shrink-0 mt-0.5">verified_user</span>
+              <div className="text-xs text-amber-900 leading-relaxed">
+                <span className="font-bold block mb-0.5">Passport & Visa Rule Reminder</span>
+                Ensure all passports have at least 6 months validity from your scheduled return date, and keep digital copies of confirmed hotel vouchers ready at immigration counters.
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ───────────────────────────────────────────────────────────── */}
+        {/* TAB 3: SAVED WISHLIST                                         */}
+        {/* ───────────────────────────────────────────────────────────── */}
+        {activeSubTab === 'wishlist' && (
+          <div className="space-y-6 animate-in fade-in duration-300">
+            <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs">
+              <div>
+                <h2 className="font-display font-bold text-xl text-slate-900 flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[24px] text-red-500">favorite</span>
+                  Saved Escapes & Shortlist
+                </h2>
+                <p className="text-xs text-slate-500 mt-1">
+                  Your shortlisted holiday itineraries. Request an instant quote or customize dates with our team.
+                </p>
+              </div>
+
+              <Link
+                to="/packages"
+                className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-2 self-start sm:self-auto"
+              >
+                <span className="material-symbols-outlined text-[18px]">travel</span>
+                Discover More
+              </Link>
+            </div>
+
+            {loadingWishlist ? (
+              <div className="p-12 text-center text-slate-400 text-xs font-medium">Loading saved packages...</div>
+            ) : wishlistPackages.length > 0 ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {wishlistPackages.map(pkg => (
+                  <div
+                    key={pkg.id}
+                    className="bg-white rounded-3xl border border-[#EDE8DF] overflow-hidden shadow-xs hover:shadow-md transition-all flex flex-col justify-between group"
+                  >
+                    <div>
+                      <div className="h-44 relative overflow-hidden bg-slate-100">
+                        <img
+                          src={pkg.image || 'https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&w=600&q=80'}
+                          alt={pkg.title}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                        />
+                        <button
+                          onClick={() => handleRemoveWishlist(pkg.id)}
+                          className="absolute top-3 right-3 size-8 bg-white/90 backdrop-blur-md rounded-full flex items-center justify-center text-red-500 hover:bg-white shadow-sm transition-transform active:scale-90"
+                          title="Remove from Wishlist"
+                        >
+                          <span className="material-symbols-outlined text-[18px]">favorite</span>
+                        </button>
+                        <span className="absolute bottom-3 left-3 bg-black/60 backdrop-blur-md text-white text-[10px] font-bold px-2.5 py-0.5 rounded">
+                          {pkg.days ? `${pkg.days} Days / ${pkg.nights || pkg.days - 1} Nights` : 'Curated Tour'}
+                        </span>
+                      </div>
+
+                      <div className="p-5 space-y-2">
+                        <h4 className="font-display font-bold text-sm text-slate-900 line-clamp-1">{pkg.title}</h4>
+                        <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">
+                          {pkg.overview || 'Scenic guided escape with premium hotel stays, transfers, and sightseeing.'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="p-5 pt-0">
+                      <div className="flex items-center justify-between pt-3 border-t border-[#EDE8DF]">
+                        <div>
+                          <span className="text-[10px] text-slate-400 uppercase font-bold block">Starting Price</span>
+                          <span className="text-sm font-black text-[#2D6A4F]">{formatPrice(pkg.price || 0)}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Link
+                            to={`/packages/${pkg.id}`}
+                            className="px-3.5 py-2 bg-[#C9732A] hover:bg-[#A85E1E] text-white font-bold text-xs rounded-xl shadow-xs transition-colors"
+                          >
+                            View
+                          </Link>
+                          <button
+                            onClick={() => {
+                              setQuoteForm(prev => ({ ...prev, destination: pkg.title }));
+                              setShowSupportModal(true);
+                            }}
+                            className="px-3.5 py-2 bg-[#F4EFEA] hover:bg-[#EDE8DF] text-slate-800 font-bold text-xs rounded-xl transition-colors"
+                          >
+                            Inquire
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="bg-white rounded-3xl border border-[#EDE8DF] p-12 text-center space-y-4 shadow-xs">
+                <div className="size-14 rounded-2xl bg-red-50 text-red-400 flex items-center justify-center mx-auto">
+                  <span className="material-symbols-outlined text-[28px]">favorite_border</span>
+                </div>
+                <div className="space-y-1">
+                  <h3 className="font-bold text-slate-800 text-sm">Your Wishlist is Empty</h3>
+                  <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                    Explore our premier destinations and click the heart icon on any package to save it here for later.
+                  </p>
+                </div>
+                <Link
+                  to="/packages"
+                  className="inline-block px-5 py-2.5 bg-[#C9732A] text-white rounded-xl text-xs font-bold hover:bg-[#A85E1E] transition-colors"
+                >
+                  Browse Destinations
+                </Link>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ───────────────────────────────────────────────────────────── */}
+        {/* TAB 4: CO-TRAVELERS                                           */}
+        {/* ───────────────────────────────────────────────────────────── */}
+        {activeSubTab === 'travelers' && (
+          <div className="space-y-6 animate-in fade-in duration-300">
+            <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs">
+              <div>
+                <h2 className="font-display font-bold text-xl text-slate-900 flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[24px] text-[#2D6A4F]">group</span>
+                  Co-Travelers & Family Members
+                </h2>
+                <p className="text-xs text-slate-500 mt-1">
+                  Store passport numbers and family member profiles for rapid group visa processing and airline tickets.
+                </p>
+              </div>
+
+              <button
+                onClick={() => {
+                  setEditingCoTravelerId(null);
+                  setCoTravelerForm({ name: '', relation: 'Friend', phone: '', passport_no: '', dob: '' });
+                  // toggle modal or focus form
+                  const el = document.getElementById('co-traveler-form-card');
+                  if (el) el.scrollIntoView({ behavior: 'smooth' });
+                }}
+                className="px-5 py-2.5 bg-[#2D6A4F] hover:bg-[#1e4835] text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-2 self-start sm:self-auto"
+              >
+                <span className="material-symbols-outlined text-[18px]">person_add</span>
+                Add Co-Traveler
+              </button>
+            </div>
+
+            {/* Travelers Grid */}
+            {loadingCoTravelers ? (
+              <div className="p-12 text-center text-slate-400 text-xs font-medium">Loading saved travelers...</div>
+            ) : coTravelers.length > 0 ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {coTravelers.map(t => (
+                  <div key={t.id} className="bg-white rounded-2xl border border-[#EDE8DF] p-5 shadow-xs hover:shadow-md transition-shadow flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="size-10 rounded-xl bg-[#2D6A4F]/10 text-[#2D6A4F] flex items-center justify-center font-bold text-xs">
+                            {t.name[0]?.toUpperCase() || 'T'}
+                          </div>
+                          <div>
+                            <h4 className="font-bold text-sm text-slate-900">{t.name}</h4>
+                            <span className="text-[10px] font-bold text-slate-500 uppercase bg-[#F4EFEA] px-2 py-0.5 rounded">
+                              {t.relation || 'Traveler'}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => {
+                              setEditingCoTravelerId(t.id);
+                              setCoTravelerForm({
+                                name: t.name || '',
+                                relation: t.relation || 'Friend',
+                                phone: t.phone || '',
+                                passport_no: t.passport_no || '',
+                                dob: t.dob || ''
+                              });
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-slate-800 rounded-lg hover:bg-slate-100"
+                            title="Edit"
+                          >
+                            <span className="material-symbols-outlined text-[17px]">edit</span>
+                          </button>
+                          <button
+                            onClick={() => handleDeleteCoTraveler(t.id)}
+                            className="p-1.5 text-slate-400 hover:text-red-500 rounded-lg hover:bg-red-50"
+                            title="Delete"
+                          >
+                            <span className="material-symbols-outlined text-[17px]">delete</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 space-y-1.5 text-xs text-slate-600 bg-[#FDFBF7] p-3 rounded-xl border border-[#EDE8DF]">
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Passport:</span>
+                          <span className="font-mono font-bold text-slate-800">{t.passport_no || 'Not Added'}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Phone:</span>
+                          <span className="font-bold text-slate-800">{t.phone || 'N/A'}</span>
+                        </div>
+                        {t.dob && (
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">DOB:</span>
+                            <span className="font-bold text-slate-800">{t.dob}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="bg-white rounded-3xl border border-[#EDE8DF] p-8 text-center text-slate-500 text-xs">
+                No co-travelers saved yet. Use the form below to add your travel companions.
+              </div>
+            )}
+
+            {/* Add / Edit Co-Traveler Form Card */}
+            <div id="co-traveler-form-card" className="bg-white rounded-3xl border border-[#EDE8DF] p-6 sm:p-8 shadow-xs">
+              <h3 className="font-display font-bold text-base text-slate-900 mb-4 flex items-center gap-2">
+                <span className="material-symbols-outlined text-[20px] text-[#C9732A]">badge</span>
+                {editingCoTravelerId ? 'Edit Co-Traveler Details' : 'Add New Co-Traveler'}
+              </h3>
+
+              <form onSubmit={handleAddCoTraveler} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div>
-                  <textarea
-                    rows={2}
-                    placeholder="Short trip feedback or reflection..."
-                    value={commentFeedback}
-                    onChange={e => setCommentFeedback(e.target.value)}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none"
+                  <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Full Name *</label>
+                  <input
+                    type="text"
+                    required
+                    value={coTravelerForm.name}
+                    onChange={e => setCoTravelerForm({ ...coTravelerForm, name: e.target.value })}
+                    placeholder="e.g. Priya Sharma"
+                    className="w-full px-3.5 py-2.5 text-xs bg-[#FDFBF7] border border-[#EDE8DF] rounded-xl outline-none focus:border-[#C9732A]"
                   />
                 </div>
 
-                <button 
-                  type="submit" 
-                  disabled={reviewLoading}
-                  className="w-full py-2 bg-slate-900 text-white rounded-xl font-bold text-xs shadow-sm hover:bg-slate-800 transition-colors"
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Relationship</label>
+                  <select
+                    value={coTravelerForm.relation}
+                    onChange={e => setCoTravelerForm({ ...coTravelerForm, relation: e.target.value })}
+                    className="w-full px-3.5 py-2.5 text-xs bg-[#FDFBF7] border border-[#EDE8DF] rounded-xl outline-none focus:border-[#C9732A]"
+                  >
+                    <option value="Spouse">Spouse</option>
+                    <option value="Child">Child</option>
+                    <option value="Parent">Parent</option>
+                    <option value="Friend">Friend</option>
+                    <option value="Colleague">Colleague</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Passport Number</label>
+                  <input
+                    type="text"
+                    value={coTravelerForm.passport_no}
+                    onChange={e => setCoTravelerForm({ ...coTravelerForm, passport_no: e.target.value.toUpperCase() })}
+                    placeholder="e.g. Z1234567"
+                    className="w-full px-3.5 py-2.5 text-xs bg-[#FDFBF7] border border-[#EDE8DF] rounded-xl outline-none focus:border-[#C9732A] font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Phone Number</label>
+                  <input
+                    type="tel"
+                    value={coTravelerForm.phone}
+                    onChange={e => setCoTravelerForm({ ...coTravelerForm, phone: e.target.value })}
+                    placeholder="+91 98765 43210"
+                    className="w-full px-3.5 py-2.5 text-xs bg-[#FDFBF7] border border-[#EDE8DF] rounded-xl outline-none focus:border-[#C9732A]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Date of Birth</label>
+                  <input
+                    type="date"
+                    value={coTravelerForm.dob}
+                    onChange={e => setCoTravelerForm({ ...coTravelerForm, dob: e.target.value })}
+                    className="w-full px-3.5 py-2.5 text-xs bg-[#FDFBF7] border border-[#EDE8DF] rounded-xl outline-none focus:border-[#C9732A]"
+                  />
+                </div>
+
+                <div className="flex items-end gap-2">
+                  <button
+                    type="submit"
+                    disabled={coTravelerLoading}
+                    className="flex-1 py-2.5 bg-[#2D6A4F] hover:bg-[#1e4835] text-white text-xs font-bold rounded-xl shadow-xs transition-colors disabled:opacity-50"
+                  >
+                    {coTravelerLoading ? 'Saving...' : editingCoTravelerId ? 'Update Traveler' : 'Save Co-Traveler'}
+                  </button>
+                  {editingCoTravelerId && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingCoTravelerId(null);
+                        setCoTravelerForm({ name: '', relation: 'Friend', phone: '', passport_no: '', dob: '' });
+                      }}
+                      className="px-4 py-2.5 border border-[#EDE8DF] text-xs font-bold text-slate-600 rounded-xl hover:bg-slate-50"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* ───────────────────────────────────────────────────────────── */}
+        {/* TAB 5: VIP MEMBERSHIP & REWARDS                               */}
+        {/* ───────────────────────────────────────────────────────────── */}
+        {activeSubTab === 'membership' && (
+          <div className="space-y-8 animate-in fade-in duration-300">
+            {/* Digital Membership Card & Tier Overview */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+              {/* Metallic Digital Card */}
+              <div className={`lg:col-span-5 bg-gradient-to-br ${vipTierInfo.gradient} rounded-3xl p-6 sm:p-8 text-white shadow-xl relative overflow-hidden flex flex-col justify-between min-h-[220px]`}>
+                <div className="absolute right-[-20px] top-[-20px] size-48 rounded-full bg-white/10 blur-xl pointer-events-none" />
+                <div className="flex justify-between items-start relative z-10">
+                  <div>
+                    <span className="text-[10px] tracking-widest font-black uppercase text-white/80 block">Shrawello Luxury Circle</span>
+                    <h3 className="font-display font-black text-2xl tracking-tight mt-0.5">{vipTierInfo.tier}</h3>
+                  </div>
+                  <span className="material-symbols-outlined text-[32px] text-white/80">workspace_premium</span>
+                </div>
+
+                <div className="relative z-10 pt-8 space-y-1">
+                  <span className="font-mono text-sm tracking-wider opacity-90 block">
+                    ID: {customer?.id ? `SHR-${customer.id.toString().padStart(6, '0')}` : 'SHR-001928'}
+                  </span>
+                  <span className="text-xs font-bold text-white/95 block uppercase">{customer?.name || 'Valued Member'}</span>
+                </div>
+              </div>
+
+              {/* Loyalty Points & Progress */}
+              <div className="lg:col-span-7 bg-white rounded-3xl border border-[#EDE8DF] p-6 sm:p-8 flex flex-col justify-between shadow-xs">
+                <div>
+                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-1">Loyalty Points Balance</span>
+                  <div className="flex items-baseline gap-3">
+                    <span className="text-3xl font-display font-black text-slate-900">{loyaltyPoints}</span>
+                    <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
+                      Worth {formatPrice(loyaltyPoints * 10)} on Bookings
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+                    Earn 10 points for every ₹1,000 spent with Shrawello. Redeem points instantly during final invoice settlements.
+                  </p>
+                </div>
+
+                <div className="mt-6 pt-4 border-t border-[#EDE8DF]">
+                  <div className="flex justify-between text-xs font-bold mb-1.5">
+                    <span className="text-slate-500">Tier Status: {vipTierInfo.tier}</span>
+                    <span className="text-slate-700">{vipTierInfo.nextTier}</span>
+                  </div>
+                  <div className="w-full h-2.5 bg-[#F4EFEA] rounded-full overflow-hidden">
+                    <div className="h-full bg-gradient-to-r from-amber-500 to-[#C9732A] rounded-full transition-all duration-500" style={{ width: `${vipTierInfo.progress}%` }} />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Referral Engine */}
+            <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 sm:p-8 shadow-xs space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h3 className="font-display font-bold text-lg text-slate-900 flex items-center gap-2">
+                    <span className="material-symbols-outlined text-[22px] text-[#C9732A]">card_giftcard</span>
+                    Invite Friends & Earn Points
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Share your personal referral link. When a friend books their first trip, you both receive 500 bonus loyalty points.
+                  </p>
+                </div>
+
+                {referralCode && (
+                  <div className="flex items-center gap-2 bg-[#F9F7F2] p-2 rounded-xl border border-[#EDE8DF]">
+                    <span className="font-mono text-xs font-bold text-slate-800 px-2">{referralCode}</span>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(`https://shrawellotours.com/customer/register?ref=${referralCode}`);
+                        showToast('success', 'Referral link copied to clipboard!');
+                      }}
+                      className="px-3 py-1.5 bg-[#C9732A] text-white rounded-lg text-xs font-bold hover:bg-[#A85E1E] transition-colors"
+                    >
+                      Copy Link
+                    </button>
+                    <a
+                      href={`https://api.whatsapp.com/send?text=${encodeURIComponent(`Plan your next holiday with Shrawello Travel Hub! Sign up using my referral link for special perks: https://shrawellotours.com/customer/register?ref=${referralCode}`)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="p-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
+                      title="Share via WhatsApp"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">share</span>
+                    </a>
+                  </div>
+                )}
+              </div>
+
+              {/* Email Invite Form */}
+              <form onSubmit={handleSendReferral} className="flex gap-2 max-w-md">
+                <input
+                  type="email"
+                  required
+                  placeholder="friend@example.com"
+                  value={referralEmail}
+                  onChange={e => setReferralEmail(e.target.value)}
+                  className="flex-1 px-3.5 py-2 text-xs bg-[#FDFBF7] border border-[#EDE8DF] rounded-xl outline-none focus:border-[#C9732A]"
+                />
+                <button
+                  type="submit"
+                  disabled={referralLoading}
+                  className="px-4 py-2 bg-slate-900 text-white text-xs font-bold rounded-xl hover:bg-slate-800 transition-colors disabled:opacity-50"
                 >
-                  {reviewLoading ? 'Saving...' : 'Save Feedback'}
+                  {referralLoading ? 'Sending...' : 'Send Invite'}
                 </button>
               </form>
             </div>
-          ) : (
-            <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] text-center">
-              <span className="material-symbols-outlined text-[32px] text-slate-300 block mb-1">rate_review</span>
-              <p className="text-[10px] text-slate-400 font-semibold leading-normal">
-                No active bookings to submit reviews for.
-              </p>
-            </div>
-          )}
 
-          {/* Concierge support drawer/box inside portal */}
-          <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] shadow-sm space-y-4">
-            <div className="flex justify-between items-center border-b pb-2">
-              <h3 className="font-display font-bold text-xs uppercase tracking-wider text-slate-400">Direct Travel Support</h3>
-              <span className="size-2 bg-emerald-500 rounded-full animate-pulse" />
-            </div>
-
-            <div className="flex items-center gap-3">
-              <div className="size-9 bg-[#FFF8F2] border border-[#C9732A]/20 rounded-full flex items-center justify-center font-bold text-[#C9732A] text-xs">
-                SH
+            {/* Public Membership Plans Upgrade Gallery */}
+            {publicPlans.length > 0 && (
+              <div className="space-y-4">
+                <h3 className="font-display font-bold text-lg text-slate-900">Explore Premium Club Memberships</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {publicPlans.map(plan => (
+                    <div key={plan.id} className="bg-white rounded-3xl border border-[#EDE8DF] p-6 shadow-xs flex flex-col justify-between hover:shadow-md transition-shadow">
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-center">
+                          <span className="font-bold text-sm text-slate-800">{plan.name}</span>
+                          <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">
+                            {plan.tier}
+                          </span>
+                        </div>
+                        <div className="text-2xl font-black text-slate-900">
+                          {formatPrice(plan.yearly_price || 9999)}
+                          <span className="text-xs font-normal text-slate-400"> / year</span>
+                        </div>
+                        <ul className="text-xs text-slate-600 space-y-2">
+                          {(plan.benefits || ['Dedicated 24/7 Concierge Manager', 'VIP Airport Lounge Access', '5% Discount on Global Packages', 'Free Room Upgrades at Partner Hotels']).map((b: string, i: number) => (
+                            <li key={i} className="flex items-center gap-2">
+                              <span className="material-symbols-outlined text-emerald-600 text-[16px]">check_circle</span>
+                              {b}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                      <button
+                        onClick={() => handlePayAndJoinMembership(plan, 'Yearly')}
+                        disabled={razorpayLoading}
+                        className="mt-6 w-full py-2.5 bg-[#C9732A] hover:bg-[#A85E1E] text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
+                      >
+                        {razorpayLoading ? 'Processing...' : 'Join with Razorpay'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div>
-                <h4 className="font-bold text-slate-850 text-xs">Shrawello Travel Hub Support</h4>
-                <p className="text-[9px] text-slate-400 font-bold mt-0.5">Online &bull; Operations Desk</p>
-              </div>
-            </div>
-
-            <div className="flex gap-2">
-              <button 
-                onClick={() => setShowSupportModal(true)}
-                className="flex-1 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-[10px] uppercase text-center transition-colors"
-              >
-                Start Direct Chat
-              </button>
-              
-              {activeBooking && activeBooking.whatsapp_group_url && (
-                <a 
-                  href={activeBooking.whatsapp_group_url} target="_blank" rel="noopener noreferrer"
-                  className="flex items-center justify-center size-8 bg-[#25D366] hover:bg-[#20ba59] text-white rounded-xl"
-                  title="Join Group WhatsApp Chat"
-                >
-                  <span className="material-symbols-outlined text-[18px]">chat</span>
-                </a>
-              )}
-            </div>
+            )}
           </div>
+        )}
+      </main>
 
-          {/* Inbox notifications lists */}
-          <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] shadow-sm space-y-3">
-            <h3 className="font-display font-bold text-xs uppercase tracking-wider text-slate-400 border-b pb-2">Recent Alerts</h3>
-            <div className="space-y-2.5 max-h-44 overflow-y-auto divide-y divide-slate-50">
-              {notifications.length === 0 ? (
-                <>
-                  <div className="text-[10px] text-slate-500 font-semibold space-y-0.5 py-1">
-                    <p className="font-bold text-slate-800">Booking Confirmation</p>
-                    <p className="text-slate-400">Your registration has been logged by the backend portal desk.</p>
-                  </div>
-                  <div className="text-[10px] text-slate-500 font-semibold space-y-0.5 py-1 pt-2">
-                    <p className="font-bold text-slate-800">Welcome To Shrawello Travel Hub</p>
-                    <p className="text-slate-400">Refer friends or build visual itineraries in the Discovery tab.</p>
-                  </div>
-                </>
+      {/* ── 4. STICKY MOBILE BOTTOM NAVIGATION BAR ── */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-[#EDE8DF] px-2 py-2 flex items-center justify-around shadow-lg">
+        {([
+          { key: 'bookings', label: 'Trips', icon: 'flight_takeoff' },
+          { key: 'documents', label: 'Vault', icon: 'folder_shared' },
+          { key: 'wishlist', label: 'Wishlist', icon: 'favorite' },
+          { key: 'travelers', label: 'Family', icon: 'group' },
+          { key: 'membership', label: 'VIP', icon: 'workspace_premium' },
+        ] as const).map(item => {
+          const active = activeSubTab === item.key;
+          return (
+            <button
+              key={item.key}
+              onClick={() => setActiveSubTab(item.key)}
+              className={`flex flex-col items-center justify-center py-1 px-3 rounded-xl transition-all ${
+                active ? 'text-[#C9732A]' : 'text-slate-400 hover:text-slate-600'
+              }`}
+            >
+              <span className={`material-symbols-outlined text-[22px] ${active ? 'scale-110' : ''}`}>
+                {item.icon}
+              </span>
+              <span className={`text-[10px] tracking-tight mt-0.5 ${active ? 'font-black' : 'font-medium'}`}>
+                {item.label}
+              </span>
+            </button>
+          );
+        })}
+      </nav>
+
+      {/* ── 5. FLOATING CONCIERGE CHAT BUTTON ── */}
+      <div className="fixed bottom-20 md:bottom-6 right-6 z-30">
+        <button
+          onClick={() => { setShowSupportModal(true); fetchChat(); }}
+          className="flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-[#2D6A4F] to-[#40916C] text-white rounded-full shadow-2xl hover:scale-105 active:scale-95 transition-all text-xs font-bold"
+        >
+          <span className="material-symbols-outlined text-[20px]">support_agent</span>
+          <span className="hidden sm:inline">Concierge Desk</span>
+        </button>
+      </div>
+
+      {/* ── 6. MODALS & DRAWERS ── */}
+
+      {/* Concierge Support Chat Modal */}
+      {showSupportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white rounded-3xl border border-[#EDE8DF] w-full max-w-lg shadow-2xl flex flex-col h-[520px] overflow-hidden">
+            <div className="p-4 border-b border-[#EDE8DF] bg-[#FDFBF7] flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="size-9 rounded-full bg-[#2D6A4F] text-white flex items-center justify-center font-bold text-xs">
+                  SH
+                </div>
+                <div>
+                  <h4 className="font-bold text-xs text-slate-800">Shrawello Concierge</h4>
+                  <span className="text-[10px] text-emerald-600 font-bold block">Online • Dedicated Travel Support</span>
+                </div>
+              </div>
+              <button onClick={() => setShowSupportModal(false)} className="text-slate-400 hover:text-slate-700">
+                <span className="material-symbols-outlined text-[20px]">close</span>
+              </button>
+            </div>
+
+            <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-[#F9F7F2]/40">
+              {chatMessages.length === 0 ? (
+                <div className="text-center py-12 text-slate-400 text-xs">
+                  Say hello! Our travel operations desk is ready to assist with flights, hotels, or custom itineraries.
+                </div>
               ) : (
-                notifications.slice(0, 3).map(n => (
-                  <div key={n.id} className="text-[10px] text-slate-500 font-semibold space-y-0.5 py-2 first:pt-0">
-                    <p className="font-bold text-slate-800 truncate">{n.title}</p>
-                    <p className="text-slate-400 truncate">{n.message}</p>
+                chatMessages.map(m => (
+                  <div key={m.id} className={`flex ${m.sender_type === 'customer' ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[75%] p-3 rounded-2xl text-xs leading-relaxed ${
+                      m.sender_type === 'customer' ? 'bg-[#2D6A4F] text-white rounded-br-xs' : 'bg-white text-slate-800 border border-[#EDE8DF] rounded-bl-xs shadow-2xs'
+                    }`}>
+                      {m.message}
+                    </div>
                   </div>
                 ))
               )}
             </div>
-          </div>
 
-        </section>
-
-      </main>
-
-      {/* ── MODAL: PROFILE SETTINGS (ACCOUNT HUB) ── */}
-      {showProfileModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/55 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-[#FBF7F0] rounded-[2rem] border border-[#EDE8DF] p-5 w-full max-w-2xl shadow-2xl relative max-h-[90vh] overflow-y-auto no-scrollbar">
-            <button onClick={() => setShowProfileModal(false)} className="absolute top-5 right-5 text-slate-400 hover:text-slate-660">
-              <span className="material-symbols-outlined">close</span>
-            </button>
-            <h2 className="font-display font-black text-2xl text-slate-900 mb-1">Account settings & Hub</h2>
-            <p className="text-xs text-slate-400 mb-4 border-b pb-3">Modify your details, edit travel DNA, or change passwords.</p>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Profile details editing form */}
-              <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] space-y-4">
-                <h3 className="font-display font-bold text-xs uppercase tracking-wider text-slate-400 border-b pb-2">Personal Details</h3>
-                {profileMsg && (
-                  <div className={`p-2.5 rounded-xl text-[10px] font-bold ${profileMsg.type === 'success' ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-500'}`}>
-                    {profileMsg.text}
-                  </div>
-                )}
-                <form onSubmit={handleProfileSubmit} className="space-y-3 text-xs font-semibold">
-                  <div>
-                    <label className="text-[9px] text-slate-400 uppercase block mb-1">Full Name</label>
-                    <input 
-                      type="text" required
-                      value={profileForm.name}
-                      onChange={e => setProfileForm({ ...profileForm, name: e.target.value })}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[9px] text-slate-400 uppercase block mb-1">Email (Read Only)</label>
-                    <div className="relative flex items-center">
-                      <input 
-                        type="email" readOnly
-                        value={customer?.email || ''}
-                        className="w-full bg-slate-50/70 border border-slate-200 rounded-xl p-2.5 pr-20 text-slate-500 font-semibold focus:outline-none select-all cursor-text"
-                        title="Click to select and copy"
-                      />
-                      <span className="absolute right-3 text-[8px] font-black text-slate-400 uppercase tracking-wider bg-slate-100 px-2 py-0.5 rounded-md">
-                        Read Only
-                      </span>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="text-[9px] text-slate-400 uppercase block mb-1">Phone</label>
-                      <input 
-                        type="text"
-                        value={profileForm.phone}
-                        onChange={e => setProfileForm({ ...profileForm, phone: e.target.value })}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 focus:outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[9px] text-slate-400 uppercase block mb-1">WhatsApp</label>
-                      <input 
-                        type="text"
-                        value={profileForm.whatsapp}
-                        onChange={e => setProfileForm({ ...profileForm, whatsapp: e.target.value })}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 focus:outline-none"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-[9px] text-slate-400 uppercase block mb-1">Date of Birth</label>
-                    <input 
-                      type="date"
-                      value={profileForm.dob}
-                      onChange={e => setProfileForm({ ...profileForm, dob: e.target.value })}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 focus:outline-none hover:bg-slate-100/50 transition-colors text-slate-700 font-semibold cursor-pointer"
-                    />
-                  </div>
-                  <button type="submit" className="w-full py-2.5 bg-[#C9732A] hover:bg-[#b05f20] text-white rounded-xl font-bold transition-colors shadow-sm">
-                    Save Changes
-                  </button>
-                </form>
-              </div>
-
-              {/* Preferences & Password form */}
-              <div className="space-y-6">
-                
-                {/* Change Password */}
-                <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] space-y-4">
-                  <h3 className="font-display font-bold text-xs uppercase tracking-wider text-slate-400 border-b pb-2">Change Password</h3>
-                  {passwordMsg && (
-                    <div className={`p-2 rounded-xl text-[10px] font-bold ${passwordMsg.type === 'success' ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-500'}`}>
-                      {passwordMsg.text}
-                    </div>
-                  )}
-                  <form onSubmit={handleChangePassword} className="space-y-3 text-xs font-semibold">
-                    <div>
-                      <label className="text-[9px] text-slate-400 uppercase block mb-1">Current Password</label>
-                      <input 
-                        type="password" required placeholder="Enter old password"
-                        value={passwordForm.oldPassword}
-                        onChange={e => setPasswordForm({ ...passwordForm, oldPassword: e.target.value })}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 focus:outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[9px] text-slate-400 uppercase block mb-1">New Password</label>
-                      <input 
-                        type="password" required placeholder="Enter new password"
-                        value={passwordForm.newPassword}
-                        onChange={e => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 focus:outline-none"
-                      />
-                    </div>
-                    <button type="submit" className="w-full py-2.5 bg-[#C9732A] hover:bg-[#b05f20] text-white rounded-xl font-bold transition-colors shadow-sm active:scale-98">
-                      Update Password
-                    </button>
-                  </form>
-                </div>
-
-                {/* Edit Preferences */}
-                <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] space-y-3.5">
-                  <h3 className="font-display font-bold text-xs uppercase tracking-wider text-slate-400 border-b pb-2">Travel Preferences</h3>
-                  {preferencesMsg && <p className="text-[10px] font-bold text-[#C9732A]">{preferencesMsg}</p>}
-                  <form onSubmit={handlePreferencesSubmit} className="space-y-3 text-xs font-semibold">
-                    <div>
-                      <label className="text-[9px] text-slate-400 uppercase block mb-1">Accommodation Preference</label>
-                      <select 
-                        value={preferences.hotelType}
-                        onChange={e => setPreferences({ ...preferences, hotelType: e.target.value })}
-                        className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none"
-                      >
-                        <option>3 Star Standard</option>
-                        <option>4 Star Premium</option>
-                        <option>5 Star Luxury Resorts</option>
-                        <option>Boutique Hotels</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-[9px] text-slate-400 uppercase block mb-1">Dietary Requirement</label>
-                      <select 
-                        value={preferences.dietary}
-                        onChange={e => setPreferences({ ...preferences, dietary: e.target.value })}
-                        className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none"
-                      >
-                        <option value="None">None (All Foods)</option>
-                        <option value="Vegetarian Only">Vegetarian Only</option>
-                        <option value="Jain Food Only">Jain Food Only</option>
-                        <option value="Halal Certified Only">Halal Certified Only</option>
-                      </select>
-                    </div>
-                    <button type="submit" className="w-full py-2.5 bg-[#C9732A] hover:bg-[#b05f20] text-white rounded-xl font-bold transition-colors shadow-sm active:scale-98">
-                      Save Preferences
-                    </button>
-                  </form>
-                </div>
-
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── MODAL: CONCIERGE LIVE CHAT ── */}
-      {showSupportModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/55 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white rounded-[2rem] border border-[#EDE8DF] overflow-hidden w-full max-w-md shadow-2xl relative flex flex-col h-[500px]">
-            <div className="p-4 border-b border-[#EDE8DF] flex items-center justify-between bg-slate-50">
-              <div className="flex items-center gap-3">
-                <div className="size-9 bg-[#FFF8F2] border rounded-full flex items-center justify-center font-bold text-primary text-xs">
-                  SH
-                </div>
-                <div>
-                  <h4 className="font-bold text-slate-800 text-xs">Shrawello Travel Hub</h4>
-                  <span className="text-[9px] text-slate-400 font-bold block">Support Concierge</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <button 
-                  onClick={triggerHumanHandover}
-                  className="px-2.5 py-1 text-[9px] bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-full font-bold transition-all shrink-0 hover:scale-105 active:scale-95 flex items-center gap-1"
-                  title="Connect directly to our support desk"
-                >
-                  <span className="material-symbols-outlined text-[10px]">person</span>
-                  Talk to Human
-                </button>
-                <button onClick={() => setShowSupportModal(false)} className="text-slate-400 hover:text-slate-650 flex items-center justify-center">
-                  <span className="material-symbols-outlined text-[18px]">close</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Direct messages content */}
-            <div className="flex-1 p-4 overflow-y-auto space-y-3.5 bg-slate-50/15">
-              {chatMessages.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-center text-slate-400 text-[10px] max-w-xs mx-auto leading-normal">
-                  <span className="material-symbols-outlined text-[28px] mb-1">chat</span>
-                  Hi! Send a message to connect with our operations team. We typically respond within 15 minutes.
-                </div>
-              ) : (
-                chatMessages.map(msg => {
-                  const isMe = msg.sender_type === 'customer';
-                  return (
-                    <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                      <div className={`max-w-[80%] p-3 rounded-2xl text-xs font-semibold ${
-                        isMe ? 'bg-primary text-white' : 'bg-[#FDFCF7] border text-slate-700'
-                      }`}
-                      style={{
-                        backgroundColor: isMe ? '#C9732A' : undefined,
-                        borderColor: isMe ? undefined : '#EDE8DF'
-                      }}>
-                        <p className="leading-relaxed">{msg.message}</p>
-                        <span className={`text-[8px] block mt-1 text-right ${isMe ? 'text-white/60' : 'text-slate-400'}`}>
-                          {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-
-            {/* Chat Send Message Input */}
-            <form onSubmit={handleSendChatMessage} className="p-3 border-t border-[#EDE8DF] bg-white flex gap-2">
-              <input 
-                type="text" required placeholder="Type a message..."
+            <form onSubmit={handleSendChatMessage} className="p-3 border-t border-[#EDE8DF] flex gap-2 bg-white">
+              <input
+                type="text"
+                placeholder="Type your question or request..."
                 value={chatInput}
                 onChange={e => setChatInput(e.target.value)}
-                className="flex-grow bg-slate-50 border rounded-xl px-4 py-2.5 text-xs font-semibold focus:outline-none"
+                className="flex-1 px-3.5 py-2 text-xs bg-[#FDFBF7] border border-[#EDE8DF] rounded-xl outline-none focus:border-[#2D6A4F]"
               />
-              <button type="submit" className="p-2.5 bg-slate-900 text-white rounded-xl hover:bg-slate-800 flex items-center justify-center shrink-0">
-                <span className="material-symbols-outlined text-[16px]">send</span>
+              <button type="submit" className="px-4 py-2 bg-[#2D6A4F] text-white rounded-xl text-xs font-bold hover:bg-[#1e4835] transition-colors">
+                Send
               </button>
             </form>
           </div>
         </div>
       )}
 
-      {/* ── MODAL: DOCUMENT UPLOAD ── */}
+      {/* Document Upload Modal */}
       {showUploadModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/55 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 w-full max-w-md shadow-2xl relative animate-in zoom-in-95 duration-200">
-            <button onClick={() => setShowUploadModal(false)} className="absolute top-5 right-5 text-slate-400 hover:text-slate-650">
-              <span className="material-symbols-outlined">close</span>
-            </button>
-            <h3 className="font-display font-bold text-base text-slate-900 mb-1">Upload Travel Document</h3>
-            <p className="text-xs text-slate-400 mb-4">Select your document type and upload a PDF or image file securely.</p>
-            {docUploadError && (
-              <div className="p-2 bg-red-50 text-red-500 text-[10px] font-bold mb-3 rounded-lg">{docUploadError}</div>
-            )}
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 w-full max-w-md shadow-2xl">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-display font-bold text-base text-slate-900">Upload to Secure Vault</h3>
+              <button onClick={() => setShowUploadModal(false)} className="text-slate-400 hover:text-slate-700">
+                <span className="material-symbols-outlined text-[20px]">close</span>
+              </button>
+            </div>
+
             <form onSubmit={handleDocUpload} className="space-y-4">
               <div>
-                <label className="text-[10px] text-slate-400 block font-bold uppercase mb-1">Document Category</label>
-                <select value={docType} onChange={e => setDocType(e.target.value)} className="w-full p-2.5 bg-slate-50 border rounded-xl text-xs font-semibold focus:outline-none">
-                  <option>Passport</option>
-                  <option>Visa Copy</option>
-                  <option>National ID / Aadhaar</option>
-                  <option>PAN Card</option>
-                  <option>Travel Insurance Policy</option>
+                <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Document Category</label>
+                <select
+                  value={docType}
+                  onChange={e => setDocType(e.target.value)}
+                  className="w-full px-3.5 py-2.5 text-xs bg-[#FDFBF7] border border-[#EDE8DF] rounded-xl outline-none"
+                >
+                  <option value="Passport">Passport Biodata</option>
+                  <option value="Visa">Visa Copy</option>
+                  <option value="Flight Ticket">Flight Ticket</option>
+                  <option value="Hotel Voucher">Hotel Voucher</option>
+                  <option value="Insurance">Travel Insurance</option>
+                  <option value="Invoice">Payment Receipt / Invoice</option>
                 </select>
               </div>
-              <div>
-                <label className="text-[10px] text-slate-400 block font-bold uppercase mb-1">Select File</label>
-                <input
-                  type="file" required
-                  onChange={e => setDocFile(e.target.files ? e.target.files[0] : null)}
-                  className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200"
-                />
-              </div>
-              <button type="submit" disabled={docUploading} className="w-full py-2.5 bg-[#C9732A] hover:bg-[#b05f20] text-white rounded-xl font-bold text-xs shadow-sm mt-1 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2">
-                {docUploading ? (
-                  <><span className="animate-spin rounded-full h-3 w-3 border-t-2 border-white border-opacity-80" />Uploading...</>
-                ) : 'Upload to Secure Vault'}
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
 
-      {/* ── MODAL: PAY PENDING BALANCE Receipt upload ── */}
-      {showPayModal && activeBooking && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/55 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 w-full max-w-md shadow-2xl relative animate-in zoom-in-95 duration-200">
-            <button onClick={() => setShowPayModal(false)} className="absolute top-5 right-5 text-slate-400 hover:text-slate-650">
-              <span className="material-symbols-outlined">close</span>
-            </button>
-            <h3 className="font-display font-bold text-base text-slate-900 mb-1">Log Payment Receipt</h3>
-            <p className="text-xs text-slate-400 mb-4">Please submit your transaction UTR details and receipt image/pdf for staff confirmation.</p>
-            {payError && (
-              <div className="p-2 bg-red-50 text-red-500 text-[10px] font-bold mb-3 rounded-lg">{payError}</div>
-            )}
-            <form onSubmit={handlePaymentSubmit} className="space-y-3.5">
               <div>
-                <label className="text-[10px] text-slate-400 block font-bold uppercase mb-1">Payment Amount (₹)</label>
-                <input
-                  type="number" required placeholder="e.g. 22250"
-                  value={payForm.amount}
-                  onChange={e => setPayForm({ ...payForm, amount: e.target.value })}
-                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] text-slate-400 block font-bold uppercase mb-1">UTR / Transaction Reference</label>
-                <input
-                  type="text" required placeholder="Enter reference UTR number"
-                  value={payForm.reference}
-                  onChange={e => setPayForm({ ...payForm, reference: e.target.value })}
-                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] text-slate-400 block font-bold uppercase mb-1">Payment Method</label>
-                <select value={payForm.method} onChange={e => setPayForm({ ...payForm, method: e.target.value })} className="w-full p-2.5 bg-slate-50 border rounded-xl text-xs font-semibold focus:outline-none">
-                  <option>UPI / GPay / PhonePe</option>
-                  <option>Net Banking / IMPS</option>
-                  <option>Credit / Debit Card</option>
-                  <option>Bank Deposit</option>
-                </select>
-              </div>
-              <div>
-                <label className="text-[10px] text-slate-400 block font-bold uppercase mb-1">Upload Receipt File</label>
+                <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Select File (PDF or Image)</label>
                 <input
                   type="file"
-                  onChange={e => setPayFile(e.target.files ? e.target.files[0] : null)}
-                  className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200"
+                  required
+                  accept=".pdf,image/*"
+                  onChange={e => setDocFile(e.target.files?.[0] || null)}
+                  className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-[#2D6A4F] file:text-white hover:file:bg-[#1e4835]"
                 />
               </div>
-              <button type="submit" disabled={payLoading} className="w-full py-3 bg-primary hover:bg-primary-dark text-white rounded-xl font-bold text-xs shadow-sm mt-1" style={{ backgroundColor: '#C9732A' }}>
-                {payLoading ? 'Logging Receipt...' : 'Submit Receipt'}
-              </button>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowUploadModal(false)}
+                  className="flex-1 py-2.5 border border-[#EDE8DF] text-xs font-bold text-slate-600 rounded-xl hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={docUploading || !docFile}
+                  className="flex-1 py-2.5 bg-[#C9732A] hover:bg-[#A85E1E] text-white text-xs font-bold rounded-xl shadow-xs transition-colors disabled:opacity-50"
+                >
+                  {docUploading ? 'Uploading...' : 'Vault Document'}
+                </button>
+              </div>
             </form>
           </div>
         </div>
       )}
 
-      {/* ── ANNIVERSARY/BIRTHDAY PROMO BANNER ── */}
-      {anniversaryPromo && (
-        <div className="fixed bottom-6 left-6 right-6 md:left-auto md:right-6 md:w-96 z-[90] bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-4 shadow-xl animate-in slide-in-from-bottom duration-300">
-          <div className="flex items-start gap-3">
-            <div className="size-10 bg-amber-100 rounded-xl flex items-center justify-center shrink-0">
-              <span className="material-symbols-outlined text-amber-600 text-[22px]">celebration</span>
-            </div>
-            <div className="flex-grow min-w-0">
-              <h4 className="font-bold text-slate-900 text-sm">{anniversaryPromo.title}</h4>
-              <p className="text-[10px] text-slate-500 mt-0.5 leading-relaxed">{anniversaryPromo.description}</p>
-              <div className="flex items-center gap-2 mt-2">
-                <span className="text-xs font-black text-amber-700 bg-amber-100 px-2.5 py-1 rounded-lg border border-amber-200">{anniversaryPromo.code}</span>
-                <button onClick={() => { navigator.clipboard.writeText(anniversaryPromo.code); showToast('info', 'Promo code copied!'); }} className="text-[10px] font-bold text-amber-600 underline hover:text-amber-800">Copy Code</button>
-              </div>
-            </div>
-            <button onClick={() => setAnniversaryPromo(null)} className="text-slate-400 hover:text-slate-600 shrink-0">
-              <span className="material-symbols-outlined text-[16px]">close</span>
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ── MODAL: AI PACKING CHECKLIST ── */}
-      {showChecklistModal && activeBooking && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/55 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 w-full max-w-2xl shadow-2xl relative animate-in zoom-in-95 duration-200 flex flex-col max-h-[85vh]">
-            <button onClick={() => setShowChecklistModal(false)} className="absolute top-5 right-5 text-slate-400 hover:text-slate-650">
-              <span className="material-symbols-outlined">close</span>
-            </button>
-            
-            <div className="border-b pb-3 mb-4">
-              <span className="text-[9px] text-[#C9732A] uppercase font-black tracking-widest block mb-0.5">Interactive Companion</span>
-              <h3 className="font-display font-bold text-base text-slate-900">AI Pack-My-Bag Assistant 🎒</h3>
-              <p className="text-xs text-slate-400 mt-0.5">Let AI create a customized packing checklist based on your destination and travel style.</p>
-            </div>
-
-            {/* Checklist Configuration Controls */}
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-100 mb-4 text-xs font-semibold">
-              <div>
-                <label className="text-[9px] text-slate-400 block font-bold uppercase mb-1">AI Model Engine</label>
-                <select 
-                  value={selectedAiModel} 
-                  onChange={e => setSelectedAiModel(e.target.value)} 
-                  className="w-full p-2 bg-white border border-emerald-300 rounded-xl text-xs font-bold text-emerald-900 focus:outline-none shadow-2xs"
-                >
-                  {OPENROUTER_FREE_MODELS.map(m => (
-                    <option key={m.id} value={m.id}>{m.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-[9px] text-slate-400 block font-bold uppercase mb-1">Expected Weather</label>
-                <select 
-                  value={packingWeather} 
-                  onChange={e => setPackingWeather(e.target.value)} 
-                  className="w-full p-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none"
-                >
-                  <option>Sunny/Warm</option>
-                  <option>Cold/Snowy</option>
-                  <option>Rainy</option>
-                  <option>Mild/Mixed</option>
-                </select>
-              </div>
-              <div>
-                <label className="text-[9px] text-slate-400 block font-bold uppercase mb-1">Activity Level</label>
-                <select 
-                  value={packingActivity} 
-                  onChange={e => setPackingActivity(e.target.value)} 
-                  className="w-full p-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none"
-                >
-                  <option>Relaxed</option>
-                  <option>Moderate</option>
-                  <option>Active/Heavy</option>
-                </select>
-              </div>
-              <div>
-                <label className="text-[9px] text-slate-400 block font-bold uppercase mb-1">Trip Category</label>
-                <select 
-                  value={packingCategory} 
-                  onChange={e => setPackingCategory(e.target.value)} 
-                  className="w-full p-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none"
-                >
-                  <option>Leisure</option>
-                  <option>Adventure</option>
-                  <option>Beach</option>
-                  <option>Cultural</option>
-                  <option>Business</option>
-                </select>
-              </div>
-            </div>
-
-            {/* AI Reasoning & Logic Breakdown Banner */}
-            {checklistReasoning && (
-              <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 border border-emerald-200/80 p-3.5 rounded-2xl space-y-1 mb-4 shadow-2xs">
-                <div className="flex justify-between items-center text-[10px] font-black uppercase text-emerald-800 tracking-wider">
-                  <span className="flex items-center gap-1.5">
-                    <span className="material-symbols-outlined text-[16px] text-emerald-600">psychology</span>
-                    AI Model Logic & Reasoning
-                  </span>
-                  <span className="bg-white/90 border border-emerald-300/70 text-emerald-900 px-2 py-0.5 rounded text-[8px] font-bold">
-                    {OPENROUTER_FREE_MODELS.find(m => m.id === selectedAiModel)?.name || checklistModelUsed}
-                  </span>
-                </div>
-                <p className="text-[11px] text-emerald-950 font-semibold leading-relaxed">
-                  {checklistReasoning}
-                </p>
-              </div>
-            )}
-
-            {/* Checklist Contents (Scrollable) */}
-            <div className="flex-grow overflow-y-auto pr-1 no-scrollbar space-y-4 mb-4">
-              {isGeneratingChecklist ? (
-                <div className="flex flex-col items-center justify-center py-12 space-y-3">
-                  <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-[#C9732A]" />
-                  <p className="text-xs font-bold text-[#C9732A]">Analyzing destination weather & calculating packing logic... Please wait...</p>
-                </div>
-              ) : packingChecklist && packingChecklist.length > 0 ? (
-                <>
-                  {packingChecklist.map((cat: any, cIdx: number) => (
-                    <div key={cat.category} className="space-y-2">
-                      <h4 className="text-xs font-black uppercase text-slate-400 tracking-wider border-b pb-1">{cat.category}</h4>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                        {cat.items?.map((item: any, iIdx: number) => (
-                          <div 
-                            key={iIdx} 
-                            onClick={() => {
-                              const updated = [...packingChecklist];
-                              updated[cIdx].items[iIdx].checked = !item.checked;
-                              handleSavePackingChecklist(updated);
-                            }}
-                            className={`flex items-center justify-between p-2.5 rounded-xl border border-slate-100 transition-colors cursor-pointer ${item.checked ? 'bg-[#FFF8F2]/60 text-slate-400 line-through' : 'bg-white text-slate-700 hover:bg-slate-50'}`}
-                          >
-                            <div className="flex items-center gap-2 min-w-0">
-                              <div className={`w-4.5 h-4.5 rounded border flex items-center justify-center shrink-0 transition-colors ${item.checked ? 'bg-[#C9732A] border-[#C9732A]' : 'border-slate-350'}`}>
-                                {item.checked && <span className="material-symbols-outlined text-white text-[10px] font-black">check</span>}
-                              </div>
-                              <span className="text-xs font-bold truncate">{item.name}</span>
-                            </div>
-                            <span className="text-[9px] font-bold text-slate-400 shrink-0 bg-slate-100 px-2 py-0.5 rounded-md">Qty: {item.qty}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-
-                  <div className="bg-slate-50/50 p-4 border rounded-2xl space-y-3 mt-2">
-                    <h5 className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Add Custom Item</h5>
-                    <div className="flex flex-col sm:flex-row gap-2">
-                      <input 
-                        type="text" 
-                        placeholder="Item name (e.g. Swimsuit)" 
-                        value={customItemName} 
-                        onChange={e => setCustomItemName(e.target.value)}
-                        className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none"
-                      />
-                      <select 
-                        value={customItemCategory} 
-                        onChange={e => setCustomItemCategory(e.target.value)}
-                        className="bg-white border rounded-xl px-2.5 py-2 text-xs font-semibold focus:outline-none"
-                      >
-                        {packingChecklist.map((c: any) => (
-                          <option key={c.category}>{c.category}</option>
-                        ))}
-                      </select>
-                      <button 
-                        onClick={() => {
-                          if (!customItemName) return;
-                          const updated = [...packingChecklist];
-                          const cat = updated.find((c: any) => c.category === customItemCategory);
-                          if (cat) {
-                            if (!cat.items) cat.items = [];
-                            cat.items.push({ name: customItemName, qty: '1', checked: false });
-                            handleSavePackingChecklist(updated);
-                            setCustomItemName('');
-                          }
-                        }}
-                        className="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold hover:bg-slate-800"
-                      >
-                        Add Item
-                      </button>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-10 text-center space-y-3.5">
-                  <span className="material-symbols-outlined text-4xl text-slate-300">backpack</span>
-                  <div className="max-w-xs space-y-1">
-                    <h4 className="font-bold text-slate-700 text-xs">No checklist generated yet</h4>
-                    <p className="text-[10px] text-slate-400 leading-normal">Configure the weather and activity level above, then click the button below to build your checklist with AI.</p>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="border-t pt-3 flex justify-between gap-2.5">
-              {packingChecklist && packingChecklist.length > 0 && (
-                <button
-                  onClick={() => {
-                    showConfirm('Regenerate Checklist?', 'This will overwrite your current checklist items. Are you sure?', () => {
-                      handleGenerateChecklistAI();
-                    });
-                  }}
-                  disabled={isGeneratingChecklist || isSavingChecklist}
-                  className="px-4 py-2.5 border border-red-100 hover:bg-red-50 text-red-500 font-bold text-xs rounded-xl transition-all"
-                >
-                  Regenerate
-                </button>
-              )}
-              <div className="flex-grow flex justify-end gap-2.5">
-                <button 
-                  onClick={() => setShowChecklistModal(false)}
-                  className="px-4 py-2.5 border border-slate-200 hover:bg-slate-50 text-slate-600 font-bold text-xs rounded-xl"
-                >
-                  Close
-                </button>
-                <button 
-                  onClick={handleGenerateChecklistAI}
-                  disabled={isGeneratingChecklist || isSavingChecklist}
-                  className="px-5 py-2.5 bg-[#C9732A] hover:bg-[#b05f20] text-white font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-sm"
-                  style={{ backgroundColor: '#C9732A' }}
-                >
-                  {isGeneratingChecklist ? (
-                    <><span className="animate-spin rounded-full h-3.5 w-3.5 border-t-2 border-white" /> Generating...</>
-                  ) : packingChecklist && packingChecklist.length > 0 ? (
-                    'Refresh with AI'
-                  ) : (
-                    'Generate with AI'
-                  )}
-                </button>
-              </div>
-            </div>
-
-          </div>
-        </div>
-      )}
-
-      {/* ── MODAL: CONFIRM ADD-ON PURCHASE ── */}
-      {showConfirmAddonModal && activeBooking && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/55 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 w-full max-w-sm shadow-2xl relative animate-in zoom-in-95 duration-200">
-            <button onClick={() => setShowConfirmAddonModal(null)} className="absolute top-5 right-5 text-slate-400 hover:text-slate-650">
-              <span className="material-symbols-outlined">close</span>
-            </button>
-            <div className="flex items-center gap-3 mb-4">
-              <div className="size-10 bg-primary/10 rounded-xl flex items-center justify-center text-primary" style={{ color: '#C9732A', backgroundColor: '#FFF8F2' }}>
-                <span className="material-symbols-outlined text-[20px]">add_shopping_cart</span>
-              </div>
-              <h3 className="font-display font-bold text-base text-slate-900">Purchase Upgrade</h3>
-            </div>
-            
-            <p className="text-xs text-slate-500 leading-normal mb-4">
-              You are adding **{showConfirmAddonModal.label}** to your booking. This will increase the booking price by **₹{showConfirmAddonModal.price.toLocaleString('en-IN')}**.
-            </p>
-
-            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 mb-4 space-y-2 text-xs font-semibold text-slate-500">
-              <div className="flex justify-between">
-                <span>Add-on Option</span>
-                <span className="text-slate-800 font-bold">{showConfirmAddonModal.label}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Price</span>
-                <span className="text-slate-800 font-bold">₹{showConfirmAddonModal.price.toLocaleString('en-IN')}</span>
-              </div>
-              <div className="border-t border-slate-200/50 pt-2 flex justify-between text-slate-800 font-black text-sm">
-                <span>Total Upgrades Price</span>
-                <span className="text-primary" style={{ color: '#C9732A' }}>₹{showConfirmAddonModal.price.toLocaleString('en-IN')}</span>
-              </div>
-            </div>
-
-            <div className="flex gap-2">
-              <button 
-                onClick={() => setShowConfirmAddonModal(null)} 
-                className="flex-1 py-2.5 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl font-bold text-xs"
-              >
-                Cancel
+      {/* Account Settings & Password Modal */}
+      {showProfileModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 sm:p-8 w-full max-w-lg shadow-2xl max-h-[85vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-6 pb-3 border-b border-[#EDE8DF]">
+              <h3 className="font-display font-bold text-lg text-slate-900">Account & Profile Settings</h3>
+              <button onClick={() => setShowProfileModal(false)} className="text-slate-400 hover:text-slate-700">
+                <span className="material-symbols-outlined text-[20px]">close</span>
               </button>
-              <button 
-                onClick={() => handlePurchaseAddon(showConfirmAddonModal)}
-                disabled={isPurchasingAddon !== null}
-                className="flex-1 py-2.5 text-white rounded-xl font-bold text-xs shadow-sm flex items-center justify-center gap-1.5"
-                style={{ backgroundColor: '#C9732A' }}
+            </div>
+
+            {/* Profile Info Form */}
+            <form onSubmit={handleProfileSubmit} className="space-y-4 mb-8">
+              <h4 className="font-bold text-xs text-slate-500 uppercase tracking-wider">Personal Information</h4>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Full Name</label>
+                <input
+                  type="text"
+                  required
+                  value={profileForm.name}
+                  onChange={e => setProfileForm({ ...profileForm, name: e.target.value })}
+                  className="w-full px-3.5 py-2 text-xs bg-[#FDFBF7] border border-[#EDE8DF] rounded-xl outline-none focus:border-[#C9732A]"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Phone</label>
+                  <input
+                    type="tel"
+                    value={profileForm.phone}
+                    onChange={e => setProfileForm({ ...profileForm, phone: e.target.value })}
+                    className="w-full px-3.5 py-2 text-xs bg-[#FDFBF7] border border-[#EDE8DF] rounded-xl outline-none focus:border-[#C9732A]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">WhatsApp</label>
+                  <input
+                    type="tel"
+                    value={profileForm.whatsapp}
+                    onChange={e => setProfileForm({ ...profileForm, whatsapp: e.target.value })}
+                    className="w-full px-3.5 py-2 text-xs bg-[#FDFBF7] border border-[#EDE8DF] rounded-xl outline-none focus:border-[#C9732A]"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-2 bg-[#2D6A4F] text-white text-xs font-bold rounded-xl hover:bg-[#1e4835] transition-colors"
               >
-                {isPurchasingAddon === showConfirmAddonModal.id ? (
-                  <><span className="animate-spin rounded-full h-3 w-3 border-t-2 border-white" /> Purchasing...</>
-                ) : 'Confirm Upgrade'}
+                Save Details
+              </button>
+            </form>
+
+            {/* Change Password Form */}
+            <form onSubmit={handleChangePassword} className="space-y-4 pt-4 border-t border-[#EDE8DF]">
+              <h4 className="font-bold text-xs text-slate-500 uppercase tracking-wider">Update Password</h4>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Current Password</label>
+                <input
+                  type="password"
+                  required
+                  value={passwordForm.oldPassword}
+                  onChange={e => setPasswordForm({ ...passwordForm, oldPassword: e.target.value })}
+                  className="w-full px-3.5 py-2 text-xs bg-[#FDFBF7] border border-[#EDE8DF] rounded-xl outline-none focus:border-[#C9732A]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">New Password</label>
+                <input
+                  type="password"
+                  required
+                  value={passwordForm.newPassword}
+                  onChange={e => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
+                  className="w-full px-3.5 py-2 text-xs bg-[#FDFBF7] border border-[#EDE8DF] rounded-xl outline-none focus:border-[#C9732A]"
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-2 bg-slate-900 text-white text-xs font-bold rounded-xl hover:bg-slate-800 transition-colors"
+              >
+                Change Password
+              </button>
+            </form>
+
+            {/* Logout button */}
+            <div className="pt-6 border-t border-[#EDE8DF] mt-6">
+              <button
+                onClick={handleLogout}
+                className="w-full py-2.5 bg-red-50 text-red-600 rounded-xl text-xs font-bold hover:bg-red-100 transition-colors flex items-center justify-center gap-1.5"
+              >
+                <span className="material-symbols-outlined text-[18px]">logout</span>
+                Sign Out of Account
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── MODAL: COMMAND PALETTE (Ctrl + K) ── */}
+      {/* Command Palette Modal (⌘K) */}
       {showCommandPalette && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center pt-16 sm:pt-24 p-4 bg-black/60 backdrop-blur-md animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl border border-[#EDE8DF] w-full max-w-xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
-            {/* Command Search Header */}
-            <div className="p-4 border-b border-slate-100 flex items-center gap-3 bg-[#FAF8F5]">
-              <span className="material-symbols-outlined text-[#C9732A] text-[22px]">search</span>
+        <div className="fixed inset-0 z-50 flex items-start justify-center pt-20 p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white rounded-3xl border border-[#EDE8DF] w-full max-w-lg shadow-2xl overflow-hidden">
+            <div className="p-4 border-b border-[#EDE8DF] flex items-center gap-3">
+              <span className="material-symbols-outlined text-[20px] text-slate-400">search</span>
               <input
                 type="text"
                 autoFocus
-                placeholder="Type to search bookings, wishlist, vault docs, co-travelers..."
+                placeholder="Quick jump to Trips, Documents, Wishlist, Concierge..."
                 value={commandQuery}
                 onChange={e => setCommandQuery(e.target.value)}
-                className="flex-1 bg-transparent font-semibold text-slate-800 text-sm focus:outline-none placeholder:text-slate-400"
+                className="flex-1 text-xs outline-none bg-transparent"
               />
-              <button onClick={() => setShowCommandPalette(false)} className="px-2 py-1 bg-slate-200 hover:bg-slate-300 rounded-lg text-[10px] font-black text-slate-600">
-                ESC
+              <button onClick={() => setShowCommandPalette(false)} className="text-slate-400 hover:text-slate-700">
+                <span className="material-symbols-outlined text-[18px]">close</span>
               </button>
             </div>
-
-            {/* Results Container */}
-            <div className="p-4 max-h-96 overflow-y-auto space-y-4 divide-y divide-slate-100">
-              {/* Quick Navigation Actions */}
-              <div>
-                <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider block mb-2">Quick Navigation Shortcuts</span>
-                <div className="grid grid-cols-2 gap-2">
-                  <button onClick={() => { setActiveSubTab('bookings'); setShowCommandPalette(false); }} className="p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-left text-xs font-bold text-slate-700 flex items-center gap-2">
-                    <span className="material-symbols-outlined text-[18px] text-[#C9732A]">explore</span> Active Trips & Itinerary
-                  </button>
-                  <button onClick={() => { setActiveSubTab('wishlist'); setShowCommandPalette(false); }} className="p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-left text-xs font-bold text-slate-700 flex items-center gap-2">
-                    <span className="material-symbols-outlined text-[18px] text-red-500">favorite</span> Saved Wishlist ({wishlistPackages.length})
-                  </button>
-                  <button onClick={() => { setActiveSubTab('documents'); setShowCommandPalette(false); }} className="p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-left text-xs font-bold text-slate-700 flex items-center gap-2">
-                    <span className="material-symbols-outlined text-[18px] text-blue-500">folder_shared</span> Secure Vault & Visas
-                  </button>
-                  <button onClick={() => { setShowChecklistModal(true); setShowCommandPalette(false); }} className="p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-left text-xs font-bold text-slate-700 flex items-center gap-2">
-                    <span className="material-symbols-outlined text-[18px] text-emerald-600">backpack</span> AI Packing Assistant
-                  </button>
-                </div>
-              </div>
-
-              {/* Bookings Match */}
-              <div className="pt-3">
-                <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider block mb-2">Bookings ({bookings.length})</span>
-                {bookings.filter(b => (b.package_name || b.destination || '').toLowerCase().includes(commandQuery.toLowerCase())).length === 0 ? (
-                  <p className="text-[10px] text-slate-400">No matching bookings found.</p>
-                ) : (
-                  bookings
-                    .filter(b => (b.package_name || b.destination || '').toLowerCase().includes(commandQuery.toLowerCase()))
-                    .map(b => (
-                      <Link
-                        key={b.id}
-                        to={`/my-account/booking/${b.id}`}
-                        onClick={() => setShowCommandPalette(false)}
-                        className="flex items-center justify-between p-2 rounded-xl hover:bg-slate-50 text-xs font-bold text-slate-800"
-                      >
-                        <span className="flex items-center gap-2">
-                          <span className="material-symbols-outlined text-[16px] text-amber-600">flight_takeoff</span>
-                          {b.package_name || b.destination}
-                        </span>
-                        <span className="text-[9px] font-black text-emerald-600 uppercase bg-emerald-50 px-2 py-0.5 rounded">{b.status}</span>
-                      </Link>
-                    ))
-                )}
-              </div>
-            </div>
-
-            <div className="p-3 bg-[#FAF8F5] border-t border-slate-100 text-[10px] text-slate-400 font-bold flex justify-between">
-              <span>Press <kbd className="bg-white border px-1 rounded">↑</kbd> <kbd className="bg-white border px-1 rounded">↓</kbd> to navigate</span>
-              <span>Shrawello Command Center 🚀</span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── MODAL: FLIGHT DETAILS & TICKET PREVIEW ── */}
-      {showFlightDetailsModal && activeBooking && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 w-full max-w-md shadow-2xl relative animate-in zoom-in-95 duration-200 space-y-4">
-            <button onClick={() => setShowFlightDetailsModal(false)} className="absolute top-5 right-5 text-slate-400 hover:text-slate-600">
-              <span className="material-symbols-outlined">close</span>
-            </button>
-
-            <div className="flex items-center gap-3 border-b pb-3">
-              <div className="size-10 bg-sky-50 text-sky-600 rounded-2xl flex items-center justify-center">
-                <span className="material-symbols-outlined text-[22px]">flight_takeoff</span>
-              </div>
-              <div>
-                <h3 className="font-display font-bold text-base text-slate-900">Flight Status & Reservation</h3>
-                <p className="text-[10px] text-slate-400 font-medium">Confirmed Airline Tickets & Gate Info</p>
-              </div>
-            </div>
-
-            {/* Flight Ticket Visual Box */}
-            <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white rounded-2xl p-5 shadow-lg space-y-4 border border-indigo-500/20">
-              <div className="flex justify-between items-center text-xs">
-                <span className="text-[9px] font-black uppercase text-amber-400 tracking-wider">IndiGo / Vistara Express</span>
-                <span className="text-[9px] font-black bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded border border-emerald-400/30">CONFIRMED</span>
-              </div>
-
-              <div className="flex justify-between items-center py-2">
-                <div>
-                  <span className="text-xl font-black block">DEL</span>
-                  <span className="text-[9px] text-slate-300">New Delhi</span>
-                </div>
-                <div className="flex flex-col items-center">
-                  <span className="material-symbols-outlined text-[#E8935B] text-[20px]">flight</span>
-                  <span className="text-[8px] text-slate-400 uppercase tracking-widest mt-1">2h 45m Direct</span>
-                </div>
-                <div className="text-right">
-                  <span className="text-xl font-black block">DPS</span>
-                  <span className="text-[9px] text-slate-300">{activeBooking.destination || 'Bali'}</span>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-2 border-t border-white/10 pt-3 text-[10px]">
-                <div>
-                  <span className="text-[8px] text-slate-400 uppercase block font-bold">Flight No.</span>
-                  <span className="font-bold text-white">6E-1422</span>
-                </div>
-                <div>
-                  <span className="text-[8px] text-slate-400 uppercase block font-bold">Gate</span>
-                  <span className="font-bold text-amber-400">T3 - G14</span>
-                </div>
-                <div className="text-right">
-                  <span className="text-[8px] text-slate-400 uppercase block font-bold">Seat Preference</span>
-                  <span className="font-bold text-emerald-300">Window 12A</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex gap-2 pt-2">
-              <a
-                href="https://www.indigo.in/web-check-in.html"
-                target="_blank"
-                rel="noreferrer"
-                className="flex-1 py-2.5 bg-[#2D6A4F] hover:bg-[#204a37] text-white rounded-xl font-bold text-xs text-center transition-colors shadow-sm"
-              >
-                Proceed to Airline Check-In
-              </a>
-              <button
-                onClick={() => setShowFlightDetailsModal(false)}
-                className="px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-bold text-xs hover:bg-slate-50"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── MODAL: PASSPORT STAMPS COLLECTION INSPECTOR ── */}
-      {showPassportStampsModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/65 backdrop-blur-md animate-in fade-in duration-200">
-          <div className="bg-[#FFFDF9] rounded-3xl border-2 border-amber-300/80 p-6 w-full max-w-lg shadow-2xl relative animate-in zoom-in-95 duration-200 space-y-5">
-            <button onClick={() => setShowPassportStampsModal(false)} className="absolute top-5 right-5 text-slate-400 hover:text-slate-600">
-              <span className="material-symbols-outlined">close</span>
-            </button>
-
-            <div className="flex items-center gap-3 border-b border-amber-200/60 pb-3">
-              <div className="size-10 bg-amber-100 text-amber-800 rounded-2xl flex items-center justify-center">
-                <span className="material-symbols-outlined text-[24px]">menu_book</span>
-              </div>
-              <div>
-                <h3 className="font-display font-black text-lg text-slate-900">Virtual Passport Stamps Journal</h3>
-                <p className="text-[10px] text-amber-800/80 font-bold uppercase tracking-wider">Official Immigration Seals & Travel Badges</p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-80 overflow-y-auto pr-1">
-              {passportStamps.map(stamp => (
-                <div 
-                  key={stamp.id}
-                  className="p-4 rounded-3xl border-2 border-amber-400/60 bg-gradient-to-br from-amber-50/80 via-white to-amber-100/40 flex flex-col items-center justify-center text-center shadow-sm relative group hover:scale-105 transition-all"
+            <div className="p-2 max-h-64 overflow-y-auto space-y-1">
+              {[
+                { title: 'My Trips & Bookings', tab: 'bookings' as const, icon: 'flight_takeoff' },
+                { title: 'Secure Document Vault', tab: 'documents' as const, icon: 'folder_shared' },
+                { title: 'Saved Wishlist Packages', tab: 'wishlist' as const, icon: 'favorite' },
+                { title: 'Co-Travelers & Family Members', tab: 'travelers' as const, icon: 'group' },
+                { title: 'VIP Membership & Rewards Points', tab: 'membership' as const, icon: 'workspace_premium' },
+              ].filter(c => c.title.toLowerCase().includes(commandQuery.toLowerCase())).map((item, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => {
+                    setActiveSubTab(item.tab);
+                    setShowCommandPalette(false);
+                  }}
+                  className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 text-left text-xs font-bold text-slate-700 transition-colors"
                 >
-                  <div className="size-10 rounded-full border-2 border-dashed border-amber-600/60 flex items-center justify-center text-amber-800 mb-2">
-                    <span className="material-symbols-outlined text-[20px]">{stamp.icon}</span>
-                  </div>
-                  <span className="text-sm font-black text-slate-900 tracking-wider block">{stamp.code}</span>
-                  <span className="text-[10px] font-bold text-slate-700 mt-0.5">{stamp.name}</span>
-                  <span className="text-[8px] font-bold text-amber-800 uppercase tracking-widest mt-1 block">{stamp.date}</span>
-                  <span className="mt-2 text-[7px] font-black text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-300">
-                    {stamp.status}
-                  </span>
-                </div>
+                  <span className="material-symbols-outlined text-[18px] text-[#C9732A]">{item.icon}</span>
+                  {item.title}
+                </button>
               ))}
             </div>
+          </div>
+        </div>
+      )}
 
-            <div className="border-t border-amber-200/60 pt-3 flex justify-between items-center">
-              <span className="text-[10px] font-bold text-slate-500">Collect stamps by completing Shrawello trips! 🌍</span>
-              <button
-                onClick={() => setShowPassportStampsModal(false)}
-                className="px-5 py-2 bg-slate-900 text-white rounded-xl font-bold text-xs hover:bg-slate-800"
-              >
-                Done
+      {/* AI Packing Checklist Modal */}
+      {showChecklistModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 sm:p-8 w-full max-w-lg shadow-2xl max-h-[85vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4 pb-3 border-b border-[#EDE8DF]">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-[24px] text-[#C9732A]">checklist</span>
+                <h3 className="font-display font-bold text-base text-slate-900">AI Trip Packing Checklist</h3>
+              </div>
+              <button onClick={() => setShowChecklistModal(false)} className="text-slate-400 hover:text-slate-700">
+                <span className="material-symbols-outlined text-[20px]">close</span>
               </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Expected Climate</label>
+                  <select
+                    value={packingWeather}
+                    onChange={e => setPackingWeather(e.target.value)}
+                    className="w-full px-3 py-2 text-xs bg-[#FDFBF7] border border-[#EDE8DF] rounded-xl outline-none"
+                  >
+                    <option value="Tropical / Sunny">Tropical / Sunny</option>
+                    <option value="Mild / Mixed">Mild / Mixed</option>
+                    <option value="Snow / Winter">Snow / Winter</option>
+                    <option value="Rainy / Monsoon">Rainy / Monsoon</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Activity Focus</label>
+                  <select
+                    value={packingActivity}
+                    onChange={e => setPackingActivity(e.target.value)}
+                    className="w-full px-3 py-2 text-xs bg-[#FDFBF7] border border-[#EDE8DF] rounded-xl outline-none"
+                  >
+                    <option value="Leisure & Sightseeing">Leisure & Sightseeing</option>
+                    <option value="Beach & Water Sports">Beach & Water Sports</option>
+                    <option value="Trekking & Adventure">Trekking & Adventure</option>
+                    <option value="Business & Events">Business & Events</option>
+                  </select>
+                </div>
+              </div>
+
+              <button
+                onClick={handleGenerateChecklistAI}
+                disabled={isGeneratingChecklist}
+                className="w-full py-2.5 bg-gradient-to-r from-[#C9732A] to-[#E8935B] text-white text-xs font-bold rounded-xl shadow-xs hover:opacity-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                <span className="material-symbols-outlined text-[16px]">auto_awesome</span>
+                {isGeneratingChecklist ? 'Generating Checklist with AI...' : 'Generate Personalized List'}
+              </button>
+
+              {/* Items List */}
+              {packingChecklist && Array.isArray(packingChecklist) && packingChecklist.length > 0 && (
+                <div className="mt-4 space-y-2 max-h-60 overflow-y-auto">
+                  <h4 className="font-bold text-xs text-slate-800">Checklist Items:</h4>
+                  {packingChecklist.map((item: any, idx: number) => {
+                    const text = typeof item === 'string' ? item : item.name || item.item;
+                    return (
+                      <label key={idx} className="flex items-center gap-2.5 p-2 bg-[#F9F7F2] rounded-xl text-xs text-slate-700 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          defaultChecked={item.checked}
+                          className="size-4 text-[#C9732A] rounded border-[#EDE8DF]"
+                        />
+                        <span>{text}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>
       )}
 
-      {/* ── Toast & Confirmation Overlays ── */}
-      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
-      <ConfirmModal open={confirmState.open} title={confirmState.title} message={confirmState.message} onConfirm={confirmState.onConfirm} onCancel={closeConfirm} />
+      {/* Pay Modal for balance due */}
+      {showPayModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 sm:p-8 w-full max-w-md shadow-2xl">
+            <div className="flex justify-between items-center mb-4 pb-2 border-b border-[#EDE8DF]">
+              <h3 className="font-display font-bold text-base text-slate-900">Submit Payment Proof</h3>
+              <button onClick={() => setShowPayModal(false)} className="text-slate-400 hover:text-slate-700">
+                <span className="material-symbols-outlined text-[20px]">close</span>
+              </button>
+            </div>
+
+            <form onSubmit={handlePaymentSubmit} className="space-y-4">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Amount (₹) *</label>
+                <input
+                  type="number"
+                  required
+                  placeholder={balanceDue.toString()}
+                  value={payForm.amount}
+                  onChange={e => setPayForm({ ...payForm, amount: e.target.value })}
+                  className="w-full px-3.5 py-2.5 text-xs bg-[#FDFBF7] border border-[#EDE8DF] rounded-xl outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Payment Method</label>
+                <select
+                  value={payForm.method}
+                  onChange={e => setPayForm({ ...payForm, method: e.target.value })}
+                  className="w-full px-3.5 py-2.5 text-xs bg-[#FDFBF7] border border-[#EDE8DF] rounded-xl outline-none"
+                >
+                  <option value="UPI / GPay / PhonePe">UPI (GPay / PhonePe / Paytm)</option>
+                  <option value="Bank NEFT / RTGS">Bank NEFT / RTGS</option>
+                  <option value="Credit / Debit Card">Credit / Debit Card</option>
+                  <option value="Cash Deposit">Cash Deposit</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Transaction Ref / UTR *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. 423871928371"
+                  value={payForm.reference}
+                  onChange={e => setPayForm({ ...payForm, reference: e.target.value })}
+                  className="w-full px-3.5 py-2.5 text-xs bg-[#FDFBF7] border border-[#EDE8DF] rounded-xl outline-none font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Upload Receipt Screenshot</label>
+                <input
+                  type="file"
+                  accept="image/*,.pdf"
+                  onChange={e => setPayFile(e.target.files?.[0] || null)}
+                  className="w-full text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-[#C9732A] file:text-white"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowPayModal(false)}
+                  className="flex-1 py-2.5 border border-[#EDE8DF] text-xs font-bold text-slate-600 rounded-xl hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={payLoading}
+                  className="flex-1 py-2.5 bg-[#C9732A] hover:bg-[#A85E1E] text-white text-xs font-bold rounded-xl shadow-xs transition-colors disabled:opacity-50"
+                >
+                  {payLoading ? 'Submitting...' : 'Confirm Payment'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
     </div>
   );
