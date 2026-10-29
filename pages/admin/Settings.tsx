@@ -1378,11 +1378,14 @@ const IntegrationsSection: React.FC = () => {
               ) : (
                 <>
                   <option value="openrouter/free">🌟 [RECOMMENDED FREE] OpenRouter Auto-Free Router</option>
-                  <option value="google/gemma-4-31b-it:free">✨ [FREE] Google Gemma 4 31B</option>
-                  <option value="meta-llama/llama-3.3-70b-instruct:free">✨ [FREE] Llama 3.3 70B Instruct</option>
-                  <option value="deepseek/deepseek-r1:free">✨ [FREE] DeepSeek R1 Reasoning</option>
-                  <option value="qwen/qwen-2.5-72b-instruct:free">✨ [FREE] Qwen 2.5 72B Instruct</option>
-                  <option value="mistralai/mistral-small-24b-instruct-2501:free">✨ [FREE] Mistral Small 24B</option>
+                  <option value="nvidia/nemotron-3-ultra-550b-a55b:free">✨ [FREE] NVIDIA Nemotron 3 Ultra 550B (1M Context)</option>
+                  <option value="google/gemma-4-26b-a4b-it:free">✨ [FREE] Google Gemma 4 26B MoE (Fast & Smart)</option>
+                  <option value="google/gemma-4-31b-it:free">✨ [FREE] Google Gemma 4 31B (Creative Copy)</option>
+                  <option value="nvidia/nemotron-3.5-super-vl:free">✨ [FREE] NVIDIA Nemotron 3.5 Super VL (Multimodal Vision)</option>
+                  <option value="nvidia/nemotron-3.5-lightning:free">✨ [FREE] NVIDIA Nemotron 3.5 Lightning (Sub-Second Speed)</option>
+                  <option value="recursive/flint-v1.0:free">✨ [FREE] Recursive Flint (Strict JSON & Agent)</option>
+                  <option value="thinkingmachines/inkling:free">✨ [FREE] Thinking Machines Inkling 975B (Deep Logic)</option>
+                  <option value="dots-studio/dots-3-note-preview:free">✨ [FREE] Dots 3 Note (Voucher & Rate Card Summaries)</option>
                 </>
 
               )}

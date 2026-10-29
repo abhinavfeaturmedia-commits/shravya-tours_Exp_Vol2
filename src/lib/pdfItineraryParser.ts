@@ -186,13 +186,13 @@ async function callAiWithPrompt(prompt: string, pdfBase64?: string): Promise<{ t
     const candidateModels = [
       (config.defaultModel || 'openrouter/free').replace(/^["']|["']$/g, '').trim(),
       'openrouter/free',
-      'google/gemma-4-31b-it:free',
+      'nvidia/nemotron-3.5-super-vl:free',
+      'nvidia/nemotron-3-ultra-550b-a55b:free',
       'google/gemma-4-26b-a4b-it:free',
-      'meta-llama/llama-3.3-70b-instruct:free',
-      'qwen/qwen-2.5-72b-instruct:free',
-      'nvidia/nemotron-3-super-120b-a12b:free',
-      'deepseek/deepseek-r1:free',
-      'mistralai/mistral-small-24b-instruct-2501:free'
+      'google/gemma-4-31b-it:free',
+      'dots-studio/dots-3-note-preview:free',
+      'recursive/flint-v1.0:free',
+      'nvidia/nemotron-3.5-lightning:free'
     ];
     const uniqueModels = Array.from(new Set(candidateModels.filter(Boolean)));
 

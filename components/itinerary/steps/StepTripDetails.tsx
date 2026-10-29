@@ -1,13 +1,36 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useItinerary } from '../ItineraryContext';
 import { useData } from '../../../context/DataContext';
-import { MapPin, Calendar, Users, Globe, Plus, X, ArrowRight, Check, Image, Upload, Sparkles, ChevronDown, Search, Loader2, Compass, CheckCircle2, Sun, Moon, BedDouble, Utensils, Hotel, Coffee, FileText } from 'lucide-react';
-import { MasterLocation, MasterLocationType, RoomSharingType, ROOM_SHARING_OPTIONS, MealPlanCode, MEAL_PLAN_DESCRIPTIONS } from '../../../types';
+import { MapPin, Calendar, Users, Globe, Plus, X, ArrowRight, Check, Image, Upload, Sparkles, ChevronDown, Search, Loader2, Compass, CheckCircle2, Sun, Moon, BedDouble, Utensils, Hotel, Coffee, FileText, BookOpen, Layers, ExternalLink, Trash2 } from 'lucide-react';
+import { MasterLocation, MasterLocationType, RoomSharingType, ROOM_SHARING_OPTIONS, MealPlanCode, MEAL_PLAN_DESCRIPTIONS, MasterTermsTemplate } from '../../../types';
 import { ImageUpload } from '../../ui/ImageUpload';
 import { api } from '../../../src/lib/api';
 import { generateInclusionsExclusions } from '../../../src/lib/gemini';
 import { PdfItineraryImportModal } from '../modals/PdfItineraryImportModal';
 import { toast } from 'sonner';
+
+// Helper to convert HTML templates from Masters to clean, formatted plain text with bullets
+function cleanHtmlToPlainText(html: string): string {
+    if (!html) return '';
+    let text = html;
+    // Format <li> items with clean bullets
+    text = text.replace(/<li[^>]*>/gi, '• ');
+    text = text.replace(/<\/li>/gi, '\n');
+    // Block elements to newlines
+    text = text.replace(/<\/(p|div|tr|h[1-6]|ul|ol)>/gi, '\n');
+    text = text.replace(/<br\s*\/?>/gi, '\n');
+    // Strip remaining tags
+    text = text.replace(/<[^>]+>/g, '');
+    // Decode common HTML entities
+    text = text.replace(/&nbsp;/g, ' ')
+               .replace(/&amp;/g, '&')
+               .replace(/&lt;/g, '<')
+               .replace(/&gt;/g, '>')
+               .replace(/&quot;/g, '"')
+               .replace(/&#39;/g, "'");
+    // Collapse excess whitespace and empty lines
+    return text.split('\n').map(l => l.trimEnd()).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
 
 interface Props {
     onDone?: () => void;
@@ -15,10 +38,92 @@ interface Props {
 
 export const StepTripDetails: React.FC<Props> = ({ onDone }) => {
     const { tripDetails, updateTripDetails, items } = useItinerary();
-    const { masterLocations, addMasterLocation, masterMealPlans } = useData();
+    const { masterLocations, addMasterLocation, masterMealPlans, masterTermsTemplates } = useData();
     const [isGeneratingIncExc, setIsGeneratingIncExc] = useState(false);
     const [showQuickAddModal, setShowQuickAddModal] = useState(false);
     const [showPdfImportModal, setShowPdfImportModal] = useState(false);
+
+    // Terms & Conditions from Masters state
+    const [showTermsModal, setShowTermsModal] = useState(false);
+    const [termsSearch, setTermsSearch] = useState('');
+    const [termsFilterCat, setTermsFilterCat] = useState<string>('All');
+    const [selectedTemplateIds, setSelectedTemplateIds] = useState<string[]>([]);
+
+    const activeTermsTemplates = (masterTermsTemplates || []).filter(t => t.status === 'Active');
+
+    const isTemplateInTerms = (tmpl: MasterTermsTemplate) => {
+        const current = tripDetails.termsAndConditions || '';
+        if (!current.trim()) return false;
+        const cleanContent = cleanHtmlToPlainText(tmpl.content);
+        const titleLine = `${tmpl.title}:`;
+        return current.includes(cleanContent) || (tmpl.title && current.includes(titleLine));
+    };
+
+    const handleToggleSingleTemplate = (tmpl: MasterTermsTemplate) => {
+        const cleanContent = cleanHtmlToPlainText(tmpl.content);
+        const tmplBlock = `${tmpl.title}:\n${cleanContent}`;
+        const current = tripDetails.termsAndConditions || '';
+
+        if (current.includes(tmplBlock)) {
+            const next = current.replace(tmplBlock, '').replace(/\n{3,}/g, '\n\n').trim();
+            updateTripDetails({ termsAndConditions: next });
+            toast.info(`Removed "${tmpl.title}"`);
+        } else if (current.includes(cleanContent)) {
+            const next = current.replace(cleanContent, '').replace(/\n{3,}/g, '\n\n').trim();
+            updateTripDetails({ termsAndConditions: next });
+            toast.info(`Removed "${tmpl.title}"`);
+        } else {
+            const next = current.trim() ? `${current.trim()}\n\n${tmplBlock}` : tmplBlock;
+            updateTripDetails({ termsAndConditions: next });
+            toast.success(`Appended "${tmpl.title}"`);
+        }
+    };
+
+    const handleLoadDefaultTerms = (mode: 'append' | 'replace' = 'append') => {
+        const defaults = activeTermsTemplates.filter(t => t.isDefault);
+        if (defaults.length === 0) {
+            toast.info('No default policy templates found in Masters.');
+            return;
+        }
+
+        const combinedDefaults = defaults.map(t => `${t.title}:\n${cleanHtmlToPlainText(t.content)}`).join('\n\n');
+        const current = tripDetails.termsAndConditions || '';
+
+        if (mode === 'replace' || !current.trim()) {
+            updateTripDetails({ termsAndConditions: combinedDefaults });
+            toast.success(`Loaded ${defaults.length} default policies from Masters`);
+        } else {
+            const toAppend = defaults.filter(d => !isTemplateInTerms(d));
+            if (toAppend.length === 0) {
+                toast.info('All default policies are already in this itinerary.');
+                return;
+            }
+            const appendText = toAppend.map(t => `${t.title}:\n${cleanHtmlToPlainText(t.content)}`).join('\n\n');
+            updateTripDetails({ termsAndConditions: `${current.trim()}\n\n${appendText}` });
+            toast.success(`Appended ${toAppend.length} default policies`);
+        }
+    };
+
+    const handleApplySelectedTemplates = (mode: 'append' | 'replace' = 'append') => {
+        const chosen = activeTermsTemplates.filter(t => selectedTemplateIds.includes(t.id));
+        if (chosen.length === 0) {
+            toast.error('Please select at least one template');
+            return;
+        }
+
+        const combined = chosen.map(t => `${t.title}:\n${cleanHtmlToPlainText(t.content)}`).join('\n\n');
+        const current = tripDetails.termsAndConditions || '';
+
+        if (mode === 'replace' || !current.trim()) {
+            updateTripDetails({ termsAndConditions: combined });
+            toast.success(`Applied ${chosen.length} templates`);
+        } else {
+            updateTripDetails({ termsAndConditions: `${current.trim()}\n\n${combined}` });
+            toast.success(`Appended ${chosen.length} templates`);
+        }
+        setShowTermsModal(false);
+        setSelectedTemplateIds([]);
+    };
 
     const handleQuickAddLocation = async (name: string, type: MasterLocationType = 'City', region: string = 'India', country: string = 'India'): Promise<string | null> => {
         if (!name.trim()) return null;
@@ -128,6 +233,7 @@ export const StepTripDetails: React.FC<Props> = ({ onDone }) => {
         tripDetails.destination
     );
     const hasDates = Boolean(tripDetails.startDate);
+    const hasTerms = Boolean(tripDetails.termsAndConditions && tripDetails.termsAndConditions.trim().length > 0);
 
     const destinationNames = (tripDetails.destinations && tripDetails.destinations.length > 0)
         ? tripDetails.destinations
@@ -791,6 +897,149 @@ export const StepTripDetails: React.FC<Props> = ({ onDone }) => {
                         </div>
                     </div>
 
+                    {/* CARD 5: Package Terms & Conditions */}
+                    <div className="bg-white rounded-2xl p-5 sm:p-6 border border-stone-200 shadow-xs space-y-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-stone-100 pb-3.5">
+                            <div className="flex items-center gap-2.5">
+                                <div className="size-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center border border-amber-200/60">
+                                    <FileText size={17} />
+                                </div>
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <h3 className="text-sm font-black text-stone-900">Package Terms & Conditions</h3>
+                                        {hasTerms && (
+                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                                Active
+                                            </span>
+                                        )}
+                                    </div>
+                                    <p className="text-[11px] text-stone-400">Choose standard policies from Masters or specify package-specific terms.</p>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+                                <button
+                                    type="button"
+                                    onClick={() => handleLoadDefaultTerms('append')}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl text-xs font-bold transition-all border border-stone-200 active:scale-95"
+                                    title="Load active default policies configured in Master Settings"
+                                >
+                                    <Sparkles size={12} className="text-amber-500" />
+                                    <span>Load Defaults</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const applied = activeTermsTemplates.filter(t => isTemplateInTerms(t)).map(t => t.id);
+                                        setSelectedTemplateIds(applied);
+                                        setShowTermsModal(true);
+                                    }}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95"
+                                >
+                                    <BookOpen size={12} />
+                                    <span>Choose from Masters</span>
+                                    {activeTermsTemplates.length > 0 && (
+                                        <span className="bg-amber-600/90 text-white px-1.5 py-0.2 rounded-full text-[10px]">
+                                            {activeTermsTemplates.length}
+                                        </span>
+                                    )}
+                                </button>
+                                {hasTerms && (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            if (window.confirm("Are you sure you want to clear all terms and conditions for this package?")) {
+                                                updateTripDetails({ termsAndConditions: '' });
+                                                toast.info("Terms cleared");
+                                            }
+                                        }}
+                                        className="p-1.5 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                                        title="Clear terms"
+                                    >
+                                        <Trash2 size={14} />
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Quick Master Template Pills */}
+                        {activeTermsTemplates.length > 0 && (
+                            <div className="space-y-1.5">
+                                <div className="flex items-center justify-between text-[11px] font-bold text-stone-500">
+                                    <span className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-stone-400">
+                                        <Layers size={11} /> Quick-Toggle Master Policies
+                                    </span>
+                                    <a
+                                        href="#/admin/masters?tab=terms"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-[11px] text-amber-600 hover:text-amber-700 font-semibold flex items-center gap-1 hover:underline"
+                                    >
+                                        Manage Masters <ExternalLink size={10} />
+                                    </a>
+                                </div>
+                                <div className="flex flex-wrap gap-1.5">
+                                    {activeTermsTemplates.map(tmpl => {
+                                        const applied = isTemplateInTerms(tmpl);
+                                        return (
+                                            <button
+                                                key={tmpl.id}
+                                                type="button"
+                                                onClick={() => handleToggleSingleTemplate(tmpl)}
+                                                className={`flex items-center gap-1.5 text-xs font-bold px-2.5 py-1.5 rounded-xl border transition-all ${
+                                                    applied
+                                                        ? 'bg-emerald-50 text-emerald-800 border-emerald-300 shadow-2xs'
+                                                        : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100 hover:border-stone-300'
+                                                }`}
+                                                title={applied ? `Click to remove "${tmpl.title}"` : `Click to append "${tmpl.title}"`}
+                                            >
+                                                {applied ? (
+                                                    <Check size={12} className="text-emerald-600 stroke-[3]" />
+                                                ) : (
+                                                    <Plus size={12} className="text-stone-400" />
+                                                )}
+                                                <span>{tmpl.title}</span>
+                                                {tmpl.isDefault && (
+                                                    <span className={`text-[9px] px-1 py-0.2 rounded font-black ${applied ? 'bg-emerald-200/60 text-emerald-900' : 'bg-stone-200 text-stone-600'}`}>
+                                                        Default
+                                                    </span>
+                                                )}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Textarea for Terms */}
+                        <div className="space-y-1.5">
+                            <div className="flex items-center justify-between text-[11px] font-bold text-stone-500">
+                                <span>Package Policy & Disclaimer Text</span>
+                                <span className="text-[10px] text-stone-400">
+                                    {tripDetails.termsAndConditions?.length || 0} characters
+                                </span>
+                            </div>
+                            <textarea
+                                value={tripDetails.termsAndConditions || ''}
+                                onChange={e => updateTripDetails({ termsAndConditions: e.target.value })}
+                                rows={6}
+                                placeholder={`e.g.\n1. Booking Advance: 25% payment required upon confirmation.\n2. Cancellation Policy: 15-30 days prior gives 50% refund. Less than 15 days is non-refundable.\n3. Valid government photo ID is mandatory for all travelers at hotel check-in.\n4. Sightseeing depends on weather & local administration rules.`}
+                                className="w-full text-xs font-medium text-stone-800 bg-stone-50/60 border border-stone-200 rounded-xl p-3 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all leading-relaxed placeholder:text-stone-400 font-mono resize-y min-h-[120px]"
+                            />
+                            <div className="flex items-center justify-between text-[10px] text-stone-400 pt-0.5">
+                                <span>Included in Customer Proposal PDFs, Interactive Web Itinerary, and Invoices.</span>
+                                {!tripDetails.termsAndConditions?.trim() && activeTermsTemplates.length > 0 && (
+                                    <button
+                                        type="button"
+                                        onClick={() => handleLoadDefaultTerms('replace')}
+                                        className="text-amber-600 font-bold hover:underline"
+                                    >
+                                        + Click here to prefill with default Master terms
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
                     {/* Mobile CTA */}
                     <div className="lg:hidden pt-2">
                         <button
@@ -897,6 +1146,14 @@ export const StepTripDetails: React.FC<Props> = ({ onDone }) => {
                                         )}
                                         <span className={hasDates ? 'text-stone-700 font-bold' : 'text-stone-400'}>Start Date Picked</span>
                                     </div>
+                                    <div className="flex items-center gap-2">
+                                        {hasTerms ? (
+                                            <Check size={14} className="text-emerald-600 stroke-[3]" />
+                                        ) : (
+                                            <span className="size-3.5 rounded-full border border-stone-300 inline-block" />
+                                        )}
+                                        <span className={hasTerms ? 'text-stone-700 font-bold' : 'text-stone-400'}>Terms & Conditions Set</span>
+                                    </div>
                                 </div>
                             </div>
 
@@ -951,6 +1208,193 @@ export const StepTripDetails: React.FC<Props> = ({ onDone }) => {
                 isOpen={showPdfImportModal}
                 onClose={() => setShowPdfImportModal(false)}
             />
+
+            {/* Master Terms Selection Modal */}
+            {showTermsModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+                    <div className="bg-white rounded-3xl border border-stone-200 shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+                        {/* Modal Header */}
+                        <div className="p-5 border-b border-stone-100 flex items-center justify-between bg-stone-50/50">
+                            <div className="flex items-center gap-3">
+                                <div className="size-10 rounded-2xl bg-amber-500 text-white flex items-center justify-center shadow-xs">
+                                    <BookOpen size={20} />
+                                </div>
+                                <div>
+                                    <h3 className="text-base font-black text-stone-900">Master Terms & Conditions</h3>
+                                    <p className="text-xs text-stone-400">Select pre-configured policy templates from Masters to insert into this package.</p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => setShowTermsModal(false)}
+                                className="p-2 text-stone-400 hover:text-stone-700 hover:bg-stone-100 rounded-xl transition-colors"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        {/* Filter & Search Bar */}
+                        <div className="p-4 border-b border-stone-100 space-y-3 bg-white">
+                            <div className="relative">
+                                <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-400" />
+                                <input
+                                    type="text"
+                                    value={termsSearch}
+                                    onChange={e => setTermsSearch(e.target.value)}
+                                    placeholder="Search policy name, cancellation rules, payment terms..."
+                                    className="w-full pl-9 pr-8 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
+                                />
+                                {termsSearch && (
+                                    <button
+                                        onClick={() => setTermsSearch('')}
+                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600"
+                                    >
+                                        <X size={13} />
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* Categories */}
+                            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs hide-scrollbar">
+                                {['All', 'Booking & Payment', 'Cancellation Policy', 'Travel Insurance', 'Pricing & Inclusions', 'Other'].map(cat => {
+                                    const isSelected = termsFilterCat === cat;
+                                    return (
+                                        <button
+                                            key={cat}
+                                            type="button"
+                                            onClick={() => setTermsFilterCat(cat)}
+                                            className={`px-2.5 py-1 rounded-lg font-bold text-xs whitespace-nowrap transition-all ${
+                                                isSelected
+                                                    ? 'bg-stone-900 text-white'
+                                                    : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+                                            }`}
+                                        >
+                                            {cat}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        {/* Template List */}
+                        <div className="p-4 overflow-y-auto space-y-3 flex-1 bg-stone-50/30">
+                            {activeTermsTemplates
+                                .filter(t => {
+                                    if (termsFilterCat !== 'All' && t.category !== termsFilterCat) return false;
+                                    if (termsSearch.trim()) {
+                                        const query = termsSearch.toLowerCase();
+                                        const matchTitle = t.title?.toLowerCase().includes(query);
+                                        const matchContent = cleanHtmlToPlainText(t.content).toLowerCase().includes(query);
+                                        const matchCat = t.category?.toLowerCase().includes(query);
+                                        return matchTitle || matchContent || matchCat;
+                                    }
+                                    return true;
+                                })
+                                .map(tmpl => {
+                                    const isChecked = selectedTemplateIds.includes(tmpl.id);
+                                    const alreadyInTerms = isTemplateInTerms(tmpl);
+                                    const cleanContent = cleanHtmlToPlainText(tmpl.content);
+
+                                    return (
+                                        <div
+                                            key={tmpl.id}
+                                            onClick={() => {
+                                                setSelectedTemplateIds(prev =>
+                                                    prev.includes(tmpl.id) ? prev.filter(id => id !== tmpl.id) : [...prev, tmpl.id]
+                                                );
+                                            }}
+                                            className={`p-3.5 rounded-2xl border transition-all cursor-pointer ${
+                                                isChecked
+                                                    ? 'bg-amber-500/5 border-amber-400 shadow-xs'
+                                                    : 'bg-white border-stone-200 hover:border-stone-300 hover:bg-stone-50/50'
+                                            }`}
+                                        >
+                                            <div className="flex items-start gap-3">
+                                                <div className="mt-0.5">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isChecked}
+                                                        onChange={() => {}} // handled by parent div click
+                                                        className="rounded border-stone-300 text-amber-500 focus:ring-amber-500 h-4 w-4 cursor-pointer"
+                                                    />
+                                                </div>
+                                                <div className="flex-1 min-w-0 space-y-1">
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        <h4 className="text-xs font-black text-stone-900">{tmpl.title}</h4>
+                                                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-stone-100 text-stone-600 border border-stone-200">
+                                                            {tmpl.category}
+                                                        </span>
+                                                        {tmpl.isDefault && (
+                                                            <span className="text-[9px] font-black px-1.5 py-0.2 rounded bg-amber-100 text-amber-800">
+                                                                Default
+                                                            </span>
+                                                        )}
+                                                        {alreadyInTerms && (
+                                                            <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 flex items-center gap-0.5">
+                                                                <Check size={10} /> In Itinerary
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <p className="text-[11px] text-stone-500 font-mono whitespace-pre-line line-clamp-3 bg-stone-50 p-2 rounded-xl border border-stone-100">
+                                                        {cleanContent || 'No content preview available'}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+
+                            {activeTermsTemplates.length === 0 && (
+                                <div className="text-center py-12 space-y-3">
+                                    <FileText size={32} className="mx-auto text-stone-300" />
+                                    <p className="text-xs text-stone-500 font-bold">No Terms & Conditions templates found in Masters.</p>
+                                    <a
+                                        href="#/admin/masters?tab=terms"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 text-white rounded-xl text-xs font-bold hover:bg-amber-600 transition-colors"
+                                    >
+                                        <Plus size={12} /> Create Templates in Masters
+                                    </a>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Modal Footer */}
+                        <div className="p-4 border-t border-stone-100 bg-white flex flex-col sm:flex-row items-center justify-between gap-3">
+                            <div className="text-xs font-bold text-stone-500">
+                                {selectedTemplateIds.length} of {activeTermsTemplates.length} templates selected
+                            </div>
+                            <div className="flex items-center gap-2 w-full sm:w-auto">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowTermsModal(false)}
+                                    className="flex-1 sm:flex-none px-4 py-2 border border-stone-200 text-stone-600 hover:bg-stone-50 text-xs font-bold rounded-xl transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={selectedTemplateIds.length === 0}
+                                    onClick={() => handleApplySelectedTemplates('replace')}
+                                    className="flex-1 sm:flex-none px-3.5 py-2 border border-amber-300 text-amber-700 hover:bg-amber-50 text-xs font-bold rounded-xl transition-all disabled:opacity-50"
+                                    title="Replace all existing terms with selected templates"
+                                >
+                                    Replace All
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={selectedTemplateIds.length === 0}
+                                    onClick={() => handleApplySelectedTemplates('append')}
+                                    className="flex-1 sm:flex-none px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl shadow-xs transition-all disabled:opacity-50 active:scale-95 flex items-center justify-center gap-1.5"
+                                >
+                                    <Plus size={13} />
+                                    <span>Append to Terms</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

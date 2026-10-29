@@ -2109,7 +2109,10 @@ export const api = {
         try {
             const res = await crud.getAll('expenses', { order: 'date', asc: false });
             const list = Array.isArray(res) ? res : (res?.data || []);
-            return list.map((e: any) => ({
+            // Vendor payments are direct booking fulfillment COGS, not corporate OPEX
+            return list
+                .filter((e: any) => !e.title?.startsWith('Vendor Payment') && !e.notes?.includes('Vendor:'))
+                .map((e: any) => ({
                 id: String(e.id),
                 title: e.title || '',
                 amount: typeof e.amount === 'number' ? e.amount : parseFloat(e.amount) || 0,

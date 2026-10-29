@@ -560,10 +560,12 @@ export const InteractiveItinerary: React.FC = () => {
                     </section>
 
                     {/* Terms note */}
-                    <section className="bg-stone-100 rounded-2xl px-5 py-4">
-                        <p className="text-stone-500 text-xs leading-relaxed">
-                            <span className="font-black text-stone-700">Terms & Validity: </span>
-                            This proposal is valid for 7 days from the date of sharing. Prices are subject to availability at the time of booking. By accepting this proposal, you agree to our standard booking and cancellation policy.
+                    <section className="bg-stone-100 rounded-2xl px-5 py-4 border border-stone-200/60">
+                        <div className="flex items-center gap-2 mb-1.5">
+                            <span className="font-black text-xs text-stone-800 uppercase tracking-wider">Terms & Conditions:</span>
+                        </div>
+                        <p className="text-stone-600 text-xs leading-relaxed whitespace-pre-line">
+                            {pkg.terms_and_conditions || 'This proposal is valid for 7 days from the date of sharing. Prices are subject to availability at the time of booking. By accepting this proposal, you agree to our standard booking and cancellation policy.'}
                         </p>
                     </section>
                 </div>

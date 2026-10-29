@@ -4,6 +4,7 @@ import { useCustomerAuth, CUSTOMER_JWT_KEY } from '../../context/CustomerAuthCon
 import { useData } from '../../context/DataContext';
 import { getLocationName, formatPrice, formatPriceCompact, formatTripDuration } from '../../utils/packageUtils';
 import { generatePackingChecklist, OPENROUTER_FREE_MODELS } from '../../src/lib/gemini';
+import { InteractiveIndiaExplorer } from '../../components/customer/InteractiveIndiaExplorer';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -236,7 +237,7 @@ export const CustomerDashboard: React.FC = () => {
   const [packingWeather, setPackingWeather] = useState('Mild/Mixed');
   const [packingActivity, setPackingActivity] = useState('Moderate');
   const [packingCategory, setPackingCategory] = useState('Leisure');
-  const [selectedAiModel, setSelectedAiModel] = useState<string>('meta-llama/llama-3.3-70b-instruct:free');
+  const [selectedAiModel, setSelectedAiModel] = useState<string>('openrouter/free');
 
   // Currency Converter State
   const [inrAmount, setInrAmount] = useState('10000');
@@ -1423,10 +1424,13 @@ export const CustomerDashboard: React.FC = () => {
               </div>
             )}
 
+            {/* Interactive India Travel Circuits & Map Explorer */}
+            <InteractiveIndiaExplorer onOpenConcierge={() => { setShowSupportModal(true); fetchChat(); }} />
+
             {/* Quick Inspiration Destinations */}
             <div>
               <div className="flex items-center justify-between mb-4">
-                <h3 className="font-display font-bold text-lg text-slate-900">Curated Holiday Destinations</h3>
+                <h3 className="font-display font-bold text-lg text-slate-900">Curated International & Regional Escapes</h3>
                 <Link to="/packages" className="text-xs font-bold text-[#C9732A] hover:underline flex items-center gap-1">
                   View All Packages <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
                 </Link>

@@ -2246,6 +2246,14 @@ export const PackageDetail: React.FC = () => {
                     {cancellationPolicy.guidelines}
                   </p>
                 </div>
+                {tour.terms_and_conditions && (
+                  <div className="mt-4 p-4 bg-amber-50/50 dark:bg-amber-950/20 rounded-xl border border-amber-200/70 dark:border-amber-800/50">
+                    <span className="text-[10px] font-black uppercase text-amber-800 dark:text-amber-400 tracking-wider block mb-1">Package Terms & Conditions</span>
+                    <p className="text-xs text-slate-700 dark:text-slate-350 whitespace-pre-line leading-relaxed font-medium">
+                      {tour.terms_and_conditions}
+                    </p>
+                  </div>
+                )}
               </section>
 
               {/* Payment Policy (PDF Page 2 reference) */}

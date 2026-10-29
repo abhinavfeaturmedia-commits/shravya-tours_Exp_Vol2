@@ -471,6 +471,7 @@ export const AdminDashboard: React.FC = () => {
         // Add unpaid/pending office OPEX to payables
         (expenses || []).forEach(exp => {
             if (exp.status === 'Cancelled' || exp.status === 'Rejected') return;
+            if (exp.title?.startsWith('Vendor Payment') || exp.notes?.includes('Vendor:')) return;
             if (exp.status === 'Pending' || exp.status === 'Unpaid') {
                 payables += Number(exp.amount) || 0;
             }
@@ -790,6 +791,7 @@ export const AdminDashboard: React.FC = () => {
         // Add operating expenses (OPEX)
         (expenses || []).forEach(exp => {
             if (exp.status === 'Cancelled' || exp.status === 'Rejected') return;
+            if (exp.title?.startsWith('Vendor Payment') || exp.notes?.includes('Vendor:')) return;
             if (!exp.date) return;
             const d = new Date(exp.date);
             const expYear = d.getFullYear();

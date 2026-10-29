@@ -984,19 +984,21 @@ async function callOpenRouterAI(messages, systemPrompt) {
         try { apiKey = JSON.parse(apiKey); } catch (e) { apiKey = apiKey.replace(/^["']|["']$/g, ''); }
     }
     
-    let model = config.defaultModel || 'google/gemma-4-26b-a4b-it:free';
+    let model = config.defaultModel || 'openrouter/free';
     if (typeof model === 'string') {
         try { model = JSON.parse(model); } catch (e) { model = model.replace(/^["']|["']$/g, ''); }
     }
 
     // Tested 2026 high-intelligence free models cascade with instant failover
     const modelsToTry = [
-        'nvidia/nemotron-3-ultra-550b-a55b:free',
+        model,
         'openrouter/free',
+        'nvidia/nemotron-3.5-lightning:free',
+        'nvidia/nemotron-3-ultra-550b-a55b:free',
         'google/gemma-4-26b-a4b-it:free',
-        'nvidia/nemotron-3-super-120b-a12b:free',
-        'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
-        model
+        'google/gemma-4-31b-it:free',
+        'nvidia/nemotron-3.5-super-vl:free',
+        'recursive/flint-v1.0:free'
     ];
     const uniqueModels = Array.from(new Set(modelsToTry.filter(Boolean)));
 

@@ -22,7 +22,9 @@ export const Expenses: React.FC = () => {
     const categories = ['Rent', 'Salaries', 'Software', 'Marketing', 'Office Supplies', 'Utilities', 'Other'];
 
     const filteredExpenses = useMemo(() => {
-        return expenses.filter(e => filterCategory === 'All' || e.category === filterCategory);
+        return expenses
+            .filter(e => !e.title?.startsWith('Vendor Payment') && !e.notes?.includes('Vendor:'))
+            .filter(e => filterCategory === 'All' || e.category === filterCategory);
     }, [expenses, filterCategory]);
 
     const stats = useMemo(() => {

@@ -179,8 +179,8 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
     const [dayMeta, setDayMeta] = useState<Record<number, DayMeta>>(savedDraft?.dayMeta || {});
     const [currency, setCurrency] = useState<CurrencyCode>(savedDraft?.currency || 'INR');
     const [taxConfig, setTaxConfig] = useState<TaxConfig>(savedDraft?.taxConfig || DEFAULT_TAX_CONFIG);
-    const [packageMarkupPercent, setPackageMarkupPercent] = useState<number>(savedDraft?.packageMarkupPercent || 0);
-    const [packageMarkupFlat, setPackageMarkupFlat] = useState<number>(savedDraft?.packageMarkupFlat || 0);
+    const [packageMarkupPercent, setPackageMarkupPercent] = useState<number>(Number(savedDraft?.packageMarkupPercent) || 0);
+    const [packageMarkupFlat, setPackageMarkupFlat] = useState<number>(Number(savedDraft?.packageMarkupFlat) || 0);
     const [editPackageId, setEditPackageId] = useState<string | undefined>(savedDraft?.editPackageId || undefined);
     const [faqs, setFaqs] = useState<FAQItem[]>(savedDraft?.faqs || []);
 
@@ -215,48 +215,65 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
         localStorage.setItem('itinerary_draft', JSON.stringify(draft));
     }, [step, items, dayMeta, currency, taxConfig, packageMarkupPercent, packageMarkupFlat, editPackageId, tripDetails, faqs]);
 
-    // Currency helpers
-    const convertCurrency = useCallback((amountInINR: number): number => {
-        return Math.round(amountInINR * CURRENCY_RATES[currency]);
+    // Currency helpers (strict number coercion to banish NaN)
+    const convertCurrency = useCallback((amountInINR: number | string): number => {
+        const num = Number(amountInINR);
+        const safeAmount = isNaN(num) ? 0 : num;
+        const rate = CURRENCY_RATES[currency] || 1;
+        return Math.round(safeAmount * rate);
     }, [currency]);
 
-    const formatCurrency = useCallback((amount: number): string => {
-        const converted = Math.round(convertCurrency(amount));
-        return `${CURRENCY_SYMBOLS[currency]}${converted.toLocaleString('en-IN')}`;
+    const formatCurrency = useCallback((amount: number | string): string => {
+        const num = Number(amount);
+        const safeAmount = isNaN(num) ? 0 : num;
+        const converted = Math.round(convertCurrency(safeAmount));
+        const symbol = CURRENCY_SYMBOLS[currency] || '₹';
+        return `${symbol}${converted.toLocaleString('en-IN')}`;
     }, [currency, convertCurrency]);
 
     // Calculate totals
     const subtotal = useMemo(() => {
-        return items.filter(i => i.type !== 'note' && i.type !== 'other').reduce((sum, item) => sum + (item.sellPrice || 0), 0);
+        return items
+            .filter(i => i.type !== 'note' && i.type !== 'other')
+            .reduce((sum, item) => sum + (Number(item.sellPrice) || 0), 0);
     }, [items]);
 
     // Package-level markup: applied on top of item subtotal, before tax
     const packageMarkupAmount = useMemo(() => {
-        return Math.round(subtotal * (packageMarkupPercent / 100)) + packageMarkupFlat;
+        const safeSubtotal = Number(subtotal) || 0;
+        const safePercent = Number(packageMarkupPercent) || 0;
+        const safeFlat = Number(packageMarkupFlat) || 0;
+        return Math.round(safeSubtotal * (safePercent / 100)) + safeFlat;
     }, [subtotal, packageMarkupPercent, packageMarkupFlat]);
 
-    const preTaxTotal = useMemo(() => subtotal + packageMarkupAmount, [subtotal, packageMarkupAmount]);
+    const preTaxTotal = useMemo(() => {
+        return (Number(subtotal) || 0) + (Number(packageMarkupAmount) || 0);
+    }, [subtotal, packageMarkupAmount]);
 
     const taxAmount = useMemo(() => {
-        const { cgstPercent, sgstPercent, igstPercent, tcsPercent, gstOnTotal } = taxConfig;
+        const { cgstPercent, sgstPercent, igstPercent, tcsPercent, gstOnTotal } = taxConfig || {};
 
         // When the "Apply GST" checkbox is off, no tax applies at all
         if (!gstOnTotal) return 0;
 
-        const taxableBase = preTaxTotal; // GST on the full pre-tax total
-        const cgst = taxableBase * (cgstPercent / 100);
-        const sgst = taxableBase * (sgstPercent / 100);
-        const igst = taxableBase * (igstPercent / 100);
-        const tcs  = taxableBase * (tcsPercent  / 100);
+        const taxableBase = Number(preTaxTotal) || 0; // GST on the full pre-tax total
+        const cgst = taxableBase * ((Number(cgstPercent) || 0) / 100);
+        const sgst = taxableBase * ((Number(sgstPercent) || 0) / 100);
+        const igst = taxableBase * ((Number(igstPercent) || 0) / 100);
+        const tcs  = taxableBase * ((Number(tcsPercent)  || 0) / 100);
 
         return Math.round((cgst + sgst + igst + tcs) * 100) / 100;
     }, [preTaxTotal, taxConfig]);
 
-    const grandTotal = useMemo(() => preTaxTotal + taxAmount, [preTaxTotal, taxAmount]);
+    const grandTotal = useMemo(() => {
+        const safePreTax = Number(preTaxTotal) || 0;
+        const safeTax = Number(taxAmount) || 0;
+        return Math.round((safePreTax + safeTax) * 100) / 100;
+    }, [preTaxTotal, taxAmount]);
 
-    const setPackageMarkup = useCallback((percent: number, flat: number) => {
-        setPackageMarkupPercent(percent);
-        setPackageMarkupFlat(flat);
+    const setPackageMarkup = useCallback((percent: number | string, flat: number | string) => {
+        setPackageMarkupPercent(Number(percent) || 0);
+        setPackageMarkupFlat(Number(flat) || 0);
     }, []);
 
     const updateTripDetails = useCallback((details: Partial<TripDetails>) => {
@@ -430,6 +447,7 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
             // Fix 1.4: ensure gallery is always an array
             setTripDetails({
                 ...pkg.builderData.tripDetails,
+                termsAndConditions: pkg.builderData.tripDetails?.termsAndConditions || pkg.terms_and_conditions || '',
                 gallery: pkg.builderData.tripDetails?.gallery ?? [],
             });
             // Fix 1.1: recalculate sellPrice — master prices may have changed since last save
@@ -445,8 +463,8 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
             setDayMeta(pkg.builderData.dayMeta || {});
             setCurrency(pkg.builderData.currency || 'INR');
             setTaxConfig(pkg.builderData.taxConfig || DEFAULT_TAX_CONFIG);
-            setPackageMarkupPercent(pkg.builderData.packageMarkupPercent || 0);
-            setPackageMarkupFlat(pkg.builderData.packageMarkupFlat || 0);
+            setPackageMarkupPercent(Number(pkg.builderData.packageMarkupPercent) || 0);
+            setPackageMarkupFlat(Number(pkg.builderData.packageMarkupFlat) || 0);
             setFaqs(pkg.builderData.faqs || []);
         } else {
             // Legacy migration — best effort
@@ -469,7 +487,8 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
                 adults: guests,
                 children: 0,
                 included: pkg.included || ['Premium accommodation', 'Daily breakfast & dinner', 'Private transfers', 'Entry tickets', 'Expert guide'],
-                notIncluded: pkg.notIncluded || ['Airfare (International)', 'Personal expenses', 'Camera fees', 'Optional activities', 'Insurance']
+                notIncluded: pkg.notIncluded || ['Airfare (International)', 'Personal expenses', 'Camera fees', 'Optional activities', 'Insurance'],
+                termsAndConditions: pkg.terms_and_conditions || ''
             });
 
             const newItems: ItineraryItem[] = (pkg.itinerary || []).map((dayObj: any) => ({
@@ -486,7 +505,8 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
                 order: 0
             }));
             setItems(newItems);
-            setPackageMarkupFlat(pkg.price || 0);
+            setPackageMarkupFlat(Number(pkg.price) || 0);
+            setPackageMarkupPercent(0);
             setFaqs([]);
         }
     }, []);

@@ -40,16 +40,17 @@ const getActiveFreeOpenRouterModels = async (): Promise<string[]> => {
     }
     return [
         'openrouter/free',
-        'google/gemma-4-31b-it:free',
-        'google/gemma-4-26b-a4b-it:free',
-        'openai/gpt-oss-20b:free',
-        'nvidia/nemotron-3-super-120b-a12b:free',
         'nvidia/nemotron-3-ultra-550b-a55b:free',
+        'google/gemma-4-26b-a4b-it:free',
+        'google/gemma-4-31b-it:free',
+        'nvidia/nemotron-3.5-super-vl:free',
         'nvidia/nemotron-3.5-lightning:free',
-        'meta-llama/llama-3.3-70b-instruct:free',
-        'deepseek/deepseek-r1:free',
-        'qwen/qwen-2.5-72b-instruct:free',
-        'mistralai/mistral-small-24b-instruct-2501:free'
+        'recursive/flint-v1.0:free',
+        'thinkingmachines/inkling:free',
+        'dots-studio/dots-3-note-preview:free',
+        'liquid/lfm-2.5-2.6b:free',
+        'xingchen-agi/xing4.0-29b-a4b:free',
+        'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free'
     ];
 };
 
@@ -118,16 +119,15 @@ const getAIResponse = async (prompt: string, imageBase64?: string) => {
 
         // Add hardcoded high-quality free fallbacks
         modelsToTry.push(
-            'google/gemma-4-31b-it:free',
-            'google/gemma-4-26b-a4b-it:free',
-            'openai/gpt-oss-20b:free',
-            'nvidia/nemotron-3-super-120b-a12b:free',
+            'openrouter/free',
             'nvidia/nemotron-3-ultra-550b-a55b:free',
+            'google/gemma-4-26b-a4b-it:free',
+            'google/gemma-4-31b-it:free',
+            'nvidia/nemotron-3.5-super-vl:free',
             'nvidia/nemotron-3.5-lightning:free',
-            'meta-llama/llama-3.3-70b-instruct:free',
-            'deepseek/deepseek-r1:free',
-            'qwen/qwen-2.5-72b-instruct:free',
-            'mistralai/mistral-small-24b-instruct-2501:free'
+            'recursive/flint-v1.0:free',
+            'thinkingmachines/inkling:free',
+            'dots-studio/dots-3-note-preview:free'
         );
 
         // Deduplicate while maintaining priority
@@ -928,13 +928,17 @@ export const generateWeeklyStandupSummary = async (logs: any[], staffNamesMap: R
 
 // List of available free OpenRouter models & Smart Engine
 export const OPENROUTER_FREE_MODELS = [
-  { id: 'nvidia/nemotron-3-ultra-550b-a55b:free', name: 'NVIDIA Nemotron 3 Ultra 550B (1M Context Free)', provider: 'OpenRouter' },
-  { id: 'google/gemma-4-26b-a4b-it:free', name: 'Google Gemma 4 26B (Free High Quality)', provider: 'OpenRouter' },
-  { id: 'google/gemma-4-31b-it:free', name: 'Google Gemma 4 31B (Free High Quality)', provider: 'OpenRouter' },
-  { id: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free', name: 'NVIDIA Nemotron Nano Omni (Free Reasoning)', provider: 'OpenRouter' },
-  { id: 'nvidia/nemotron-3-super-120b-a12b:free', name: 'NVIDIA Nemotron 3 Super 120B (Free AI)', provider: 'OpenRouter' },
-  { id: 'openrouter/free', name: 'OpenRouter Dynamic Free Router (Auto Load-Balance)', provider: 'OpenRouter' },
-  { id: 'smart-logic-engine', name: 'Instant Smart Reasoning Engine', provider: 'Deterministic AI' }
+  { id: 'openrouter/free', name: '🌟 OpenRouter Dynamic Free Router (Auto Load-Balance & Failover)', provider: 'OpenRouter' },
+  { id: 'nvidia/nemotron-3-ultra-550b-a55b:free', name: '🧠 NVIDIA Nemotron 3 Ultra 550B (1M Context, Frontier Reasoning)', provider: 'NVIDIA' },
+  { id: 'google/gemma-4-26b-a4b-it:free', name: '⚡ Google Gemma 4 26B MoE (Fast & High Intelligence)', provider: 'Google DeepMind' },
+  { id: 'google/gemma-4-31b-it:free', name: '✍️ Google Gemma 4 31B (Creative Proposals & Marketing Copy)', provider: 'Google DeepMind' },
+  { id: 'nvidia/nemotron-3.5-super-vl:free', name: '👁️ NVIDIA Nemotron 3.5 Super VL (Vision & Document/PDF Parsing)', provider: 'NVIDIA' },
+  { id: 'nvidia/nemotron-3.5-lightning:free', name: '🚀 NVIDIA Nemotron 3.5 Lightning (Ultra-Fast 1M Context)', provider: 'NVIDIA' },
+  { id: 'recursive/flint-v1.0:free', name: '🎯 Recursive Flint (Precision Agent & Strict JSON Schema)', provider: 'Recursive' },
+  { id: 'thinkingmachines/inkling:free', name: '🌐 Thinking Machines Inkling 975B (Deep Consultation & Logic)', provider: 'Thinking Machines' },
+  { id: 'dots-studio/dots-3-note-preview:free', name: '📋 Dots 3 Note (Voucher & Rate Card Summarization)', provider: 'Dots Studio' },
+  { id: 'liquid/lfm-2.5-2.6b:free', name: '⏱️ LiquidAI LFM 2.6B (Instant Intent & Destination Extraction)', provider: 'Liquid AI' },
+  { id: 'smart-logic-engine', name: '⚙️ Instant Smart Reasoning Engine (Offline Travel Logic)', provider: 'Deterministic AI' }
 ];
 
 // Offline / Fallback Smart Reasoning & Logic Engine
@@ -1122,8 +1126,13 @@ export const generatePackingChecklist = async (
       try {
         text = await callOpenRouterDirect(selectedModel);
       } catch (err) {
-        console.warn(`[AI] Selected model ${selectedModel} failed, trying LLaMA 3.3 70B free fallback:`, err);
-        text = await callOpenRouterDirect('meta-llama/llama-3.3-70b-instruct:free');
+        console.warn(`[AI] Selected model ${selectedModel} failed, trying OpenRouter dynamic free router fallback:`, err);
+        try {
+          text = await callOpenRouterDirect('openrouter/free');
+        } catch (orErr) {
+          console.warn("[AI] Dynamic router failed, trying Gemma 4 26B fallback:", orErr);
+          text = await callOpenRouterDirect('google/gemma-4-26b-a4b-it:free');
+        }
       }
     } else {
       // Direct call fallback

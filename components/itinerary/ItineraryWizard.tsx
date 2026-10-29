@@ -36,8 +36,9 @@ const NAV_ITEMS: SidebarItem[] = [
 
 // ─── Tier Badge ───────────────────────────────────────────────────────────────
 function getTier(grandTotal: number): { label: string; cls: string } {
-    if (grandTotal > 200000) return { label: 'HIGH-END TIER',  cls: 'bg-amber-50 text-amber-700 border border-amber-300' };
-    if (grandTotal > 50000)  return { label: 'MID-RANGE TIER', cls: 'bg-blue-50 text-blue-700 border border-blue-300'   };
+    const val = Number(grandTotal) || 0;
+    if (val > 200000) return { label: 'HIGH-END TIER',  cls: 'bg-amber-50 text-amber-700 border border-amber-300' };
+    if (val > 50000)  return { label: 'MID-RANGE TIER', cls: 'bg-blue-50 text-blue-700 border border-blue-300'   };
     return                          { label: 'BUDGET TIER',    cls: 'bg-emerald-50 text-emerald-700 border border-emerald-300' };
 }
 

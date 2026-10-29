@@ -708,7 +708,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setFollowUps(fups);
         if (inv && Object.keys(inv).length > 0) setInventory(inv);
         if (Array.isArray(vends)) setVendors(vends);
-        if (Array.isArray(exps)) setExpenses(exps);
+        if (Array.isArray(exps)) {
+          // Vendor payments are direct booking fulfillment COGS, not corporate OPEX
+          setExpenses(exps.filter(e => !e.title?.startsWith('Vendor Payment') && !e.notes?.includes('Vendor:')));
+        }
         if (bulkRes.accounts) setAccounts((bulkRes.accounts as any[]).map(api.mapAccount));
         if (bulkRes.campaigns) setCampaigns(bulkRes.campaigns);
         if (bulkRes.tasks) setTasks(bulkRes.tasks.map(api.mapTask));
@@ -1413,18 +1416,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setVendors(prev => prev.map(v => v.id === vendor.id ? { ...v, balanceDue: newBalance, transactions: updatedTransactions } : v));
       }
 
-      // 4. Record Operational Expense in MySQL
-      api.createExpense({
-        id: `EXP-${Date.now()}`,
-        title: `Vendor Payment - ${vendor?.name || 'Supplier'} (${booking?.title || 'Tour'})`,
-        amount: Number(payment.amount),
-        category: 'Other',
-        date: payment.paymentDate || new Date().toISOString().split('T')[0],
-        paymentMethod: (['Cash', 'Bank Transfer', 'UPI', 'Credit Card'].includes(payment.paymentMethod) ? payment.paymentMethod : 'Bank Transfer') as any,
-        status: 'Paid',
-        notes: `Vendor: ${vendor?.name || 'Supplier'} | Booking ID: ${bookingId} | Service: ${targetSb.serviceType} | Ref: ${payment.reference || 'N/A'}${payment.notes ? ` | Notes: ${payment.notes}` : ''}`,
-        receiptUrl: payment.receiptUrl || undefined
-      }).catch(console.error);
+      // 4. Note: Vendor payments are direct booking fulfillment COGS (Cost of Goods Sold),
+      // tracked on supplierBookings and vendor balance/ledger. They must NOT be recorded as
+      // corporate operating expenses (OPEX), which would cause double deduction of costs.
 
       // 5. Dispatch global sync events
       window.dispatchEvent(new CustomEvent('supplier-bookings-changed', {

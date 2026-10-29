@@ -733,7 +733,10 @@ export const Analytics: React.FC = () => {
       );
    }, [effectiveScope, globalCustomers, bookings, leads]);
 
-   const expenses = useMemo(() => globalExpenses || [], [globalExpenses]);
+   // Vendor payments are direct booking fulfillment COGS, not corporate OPEX
+   const expenses = useMemo(() => {
+      return (globalExpenses || []).filter(e => !e.title?.startsWith('Vendor Payment') && !e.notes?.includes('Vendor:'));
+   }, [globalExpenses]);
 
    // --- Time Filtering Helper ---
    const isWithinRange = useCallback((dateStr: string) => {
