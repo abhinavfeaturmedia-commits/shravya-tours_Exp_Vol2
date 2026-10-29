@@ -20,6 +20,7 @@ import {
   exportToJSON
 } from '../../utils/reportExporter';
 import { ReportEntityKey, ReportHistoryItem } from '../../types';
+import { exportConsolidatedGstWorkbook } from '../../src/lib/gstExportEngine';
 
 export const Reports: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -185,7 +186,12 @@ export const Reports: React.FC = () => {
       if (format === 'csv') {
         sizeKb = exportToCSV(`${filename}.csv`, headers, rows);
       } else if (format === 'xlsx') {
-        sizeKb = exportToXLSX(`${filename}.xlsx`, currentMeta.label, headers, rows);
+        if (selectedEntity === 'invoices') {
+          exportConsolidatedGstWorkbook(filtered, { filename: `${filename}.xlsx` });
+          sizeKb = 25;
+        } else {
+          sizeKb = exportToXLSX(`${filename}.xlsx`, currentMeta.label, headers, rows);
+        }
       } else if (format === 'json') {
         sizeKb = exportToJSON(`${filename}.json`, filtered);
       }
@@ -265,7 +271,11 @@ export const Reports: React.FC = () => {
       if (format === 'csv') {
         exportToCSV(item.file_name, headers, rows);
       } else if (format === 'xlsx') {
-        exportToXLSX(item.file_name, matchingEntity.label, headers, rows);
+        if (matchingEntity.key === 'invoices') {
+          exportConsolidatedGstWorkbook(filtered, { filename: item.file_name });
+        } else {
+          exportToXLSX(item.file_name, matchingEntity.label, headers, rows);
+        }
       } else {
         exportToJSON(item.file_name, filtered);
       }

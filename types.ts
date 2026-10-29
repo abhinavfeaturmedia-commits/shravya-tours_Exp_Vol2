@@ -114,6 +114,8 @@ export interface Booking {
   couponDiscountAmount?: number;
   originalPrice?: number;
   checklist?: TourChecklistItem[]; // 10-Point Pre-Tour Checklist items
+  tripFormToken?: string;
+  tripFormStatus?: 'Not Sent' | 'Sent' | 'Submitted' | 'Reviewed';
 }
 
 export interface BookingNote {
@@ -461,6 +463,10 @@ export interface Lead {
   matchedCustomerName?: string;         // Name of the matched customer
   matchedCustomerType?: string;         // 'New' | 'Returning' | 'VIP'
   matchedCustomerBookingsCount?: number; // How many past bookings they have
+
+  // Customer Self-Service Trip Details Form Link
+  tripFormToken?: string;
+  tripFormStatus?: 'Not Sent' | 'Sent' | 'Submitted' | 'Reviewed';
 
   // Lead → Booking conversion lock (stored in DB, read back on getLeads)
   convertedBookingId?: string;          // UUID of the booking this lead was converted into; set on conversion, cleared when booking is deleted
@@ -1872,4 +1878,79 @@ export interface PublicAvailabilityRfq {
     expiresAt?: string | null;
     closed: boolean;
     expired: boolean;
+}
+
+
+// ─── Customer Self-Service Trip Details Form ───
+export interface TripPassenger {
+  name: string;
+  dob?: string;
+  age?: number | string;
+  gender?: 'Male' | 'Female' | 'Other' | string;
+  aadhar_no?: string;
+  mobile?: string;
+  relation?: string;
+  passport_no?: string;
+}
+
+export interface TripDetailForm {
+  id: string;
+  token: string;
+  leadId?: string | null;
+  bookingId?: string | null;
+  customerId?: string | null;
+  customerName?: string;
+  salutation?: string;
+  customerPhone?: string;
+  whatsappNumber?: string;
+  isWhatsappSame?: boolean;
+  customerEmail?: string;
+  dob?: string;
+  residentialAddress?: string;
+  officeAddress?: string;
+  destination?: string;
+  startDate?: string;
+  endDate?: string;
+  paxAdult: number;
+  paxChild: number;
+  paxInfant: number;
+  childrenAges?: string;
+  roomsCount: number;
+  roomTypePreference?: string;
+  pickupDropLocation?: string;
+  travelBudget?: string;
+  vehiclePreference?: string;
+  hotelPreference?: string;
+  mealPlanPreference?: string;
+  foodPreference?: string;
+  specialRequirements?: string;
+  sightseeingPace?: 'Leisure' | 'Moderate' | 'Fast' | string;
+  transportationMode?: string;
+  flightTrainDetails?: string;
+  additionalNotes?: string;
+  passengers: TripPassenger[];
+  appliedCouponCode?: string | null;
+  couponDiscountAmount?: number;
+  status: 'Pending' | 'Submitted' | 'Reviewed';
+  submittedAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface PublicTripDetailResponse {
+  form: TripDetailForm;
+  coupons: Array<{
+    code: string;
+    discount_type: 'Fixed' | 'Percentage' | string;
+    discount_value: number;
+    min_booking_amount?: number;
+    valid_to?: string;
+  }>;
+  agency: {
+    name: string;
+    tagline: string;
+    phone: string;
+    email: string;
+    supportWhatsapp: string;
+  };
 }

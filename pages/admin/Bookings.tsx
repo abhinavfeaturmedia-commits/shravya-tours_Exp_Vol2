@@ -28,6 +28,8 @@ import { parsePaxString, formatPaxString } from '../../utils/paxUtils';
 import { StaffMultiSelect } from '../../components/admin/StaffMultiSelect';
 import { EntityAuditTimeline } from '../../components/admin/EntityAuditTimeline';
 import { ThinkingOrb } from 'thinking-orbs';
+import { TripFormShareButton } from '../../components/admin/TripFormShareButton';
+import { TripDetailsRequirementsCard } from '../../components/admin/TripDetailsRequirementsCard';
 
 export const Bookings: React.FC = () => {
     const { packages, customers, leads, refreshData, coupons, applyCoupon, detachCoupon, tasks, updateTask, addTask, deleteTask } = useData();
@@ -125,7 +127,7 @@ export const Bookings: React.FC = () => {
     const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
     const [editNoteText, setEditNoteText] = useState('');
 
-    const [bookingModalTab, setBookingModalTab] = useState<'info' | 'checklist' | 'deliverables' | 'chat' | 'audit'>('info');
+    const [bookingModalTab, setBookingModalTab] = useState<'info' | 'tripForm' | 'checklist' | 'deliverables' | 'chat' | 'audit'>('info');
     const [deliverables, setDeliverables] = useState<BookingDailyDeliverable[]>([]);
     const [loadingDeliverables, setLoadingDeliverables] = useState(false);
     const [selectedDay, setSelectedDay] = useState<number>(1);
@@ -1133,6 +1135,13 @@ export const Bookings: React.FC = () => {
                                 </div>
                             </div>
                             <div className="flex items-center gap-2 shrink-0">
+                                <TripFormShareButton
+                                    bookingId={viewingBooking.id}
+                                    clientName={viewingBooking.customer}
+                                    clientPhone={viewingBooking.phone}
+                                    status={viewingBooking.tripFormStatus}
+                                    variant="button"
+                                />
                                 <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${getStatusColor(viewingBooking.status)}`}>
                                     <span className="size-1.5 rounded-full bg-current"></span>
                                     {viewingBooking.status}
@@ -1153,6 +1162,26 @@ export const Bookings: React.FC = () => {
                                 }`}
                             >
                                 Details & Logs
+                            </button>
+                            <button
+                                onClick={() => setBookingModalTab('tripForm')}
+                                className={`text-xs font-bold pb-1 transition-all shrink-0 whitespace-nowrap flex items-center gap-1.5 ${
+                                    bookingModalTab === 'tripForm'
+                                        ? 'text-amber-600 dark:text-amber-400 border-b-2 border-amber-500 font-black'
+                                        : 'text-slate-400 hover:text-slate-600'
+                                }`}
+                            >
+                                <span className="material-symbols-outlined text-[16px] text-amber-500">assignment</span>
+                                <span>Trip Form & Specs</span>
+                                {viewingBooking.tripFormStatus === 'Submitted' ? (
+                                    <span className="px-1.5 py-0.5 rounded-full text-[9px] font-black bg-emerald-500 text-white leading-none">
+                                        ✓ Filled
+                                    </span>
+                                ) : (
+                                    <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 leading-none">
+                                        Form
+                                    </span>
+                                )}
                             </button>
                             <button
                                 onClick={() => setBookingModalTab('checklist')}
@@ -1306,6 +1335,15 @@ export const Bookings: React.FC = () => {
                                         </div>
                                     );
                                 })()
+                            ) : bookingModalTab === 'tripForm' ? (
+                                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 pb-6">
+                                    <TripDetailsRequirementsCard
+                                        entityType="booking"
+                                        entityId={viewingBooking.id}
+                                        clientName={viewingBooking.customer}
+                                        clientPhone={viewingBooking.phone}
+                                    />
+                                </div>
                             ) : bookingModalTab === 'deliverables' ? (
                                 <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 pb-6">
                                     <div className="p-5 rounded-2xl bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900/60 dark:to-slate-800/40 border border-slate-200/60 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4 font-sans">
@@ -3145,11 +3183,20 @@ export const Bookings: React.FC = () => {
                                                             })()}
                                                         </div>
                                                     </td>
-                                                    <td className="px-6 py-4 text-center">
-                                                        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${getStatusColor(booking.status)}`}>
-                                                            <span className="size-1.5 rounded-full bg-current"></span>
-                                                            {booking.status}
-                                                        </span>
+                                                    <td className="px-6 py-4 text-center" onClick={e => e.stopPropagation()}>
+                                                        <div className="flex flex-col items-center gap-1.5">
+                                                            <TripFormShareButton
+                                                                bookingId={booking.id}
+                                                                clientName={booking.customer}
+                                                                clientPhone={booking.phone}
+                                                                status={booking.tripFormStatus}
+                                                                variant="badge-button"
+                                                            />
+                                                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${getStatusColor(booking.status)}`}>
+                                                                <span className="size-1.5 rounded-full bg-current"></span>
+                                                                {booking.status}
+                                                            </span>
+                                                        </div>
                                                     </td>
                                                     <td className="px-6 py-4 text-right" onClick={e => e.stopPropagation()}>
                                                         <ActionMenu>
@@ -3548,6 +3595,13 @@ export const Bookings: React.FC = () => {
                                                         )}
                                                     </div>
                                                     <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
+                                                        <TripFormShareButton
+                                                            bookingId={booking.id}
+                                                            clientName={booking.customer}
+                                                            clientPhone={booking.phone}
+                                                            status={booking.tripFormStatus}
+                                                            variant="badge-button"
+                                                        />
                                                         <button 
                                                             type="button"
                                                             onClick={() => setBookingForChecklistId(booking.id)}

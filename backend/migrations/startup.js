@@ -137,6 +137,86 @@ export async function runStartupMigrations(pool) {
         `);
         console.log('[Migration] otp_tokens table verified/created');
 
+        // ─── Customer Self-Service Trip Details Forms ───
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS trip_detail_forms (
+                id VARCHAR(64) PRIMARY KEY,
+                token VARCHAR(64) UNIQUE NOT NULL,
+                lead_id VARCHAR(64) DEFAULT NULL,
+                booking_id VARCHAR(64) DEFAULT NULL,
+                customer_id VARCHAR(64) DEFAULT NULL,
+                customer_name VARCHAR(255) DEFAULT NULL,
+                salutation VARCHAR(20) DEFAULT 'Mr.',
+                customer_phone VARCHAR(50) DEFAULT NULL,
+                whatsapp_number VARCHAR(50) DEFAULT NULL,
+                is_whatsapp_same TINYINT(1) DEFAULT 1,
+                customer_email VARCHAR(255) DEFAULT NULL,
+                dob VARCHAR(50) DEFAULT NULL,
+                residential_address TEXT DEFAULT NULL,
+                office_address TEXT DEFAULT NULL,
+                destination VARCHAR(255) DEFAULT NULL,
+                start_date DATE DEFAULT NULL,
+                end_date DATE DEFAULT NULL,
+                pax_adult INT DEFAULT 1,
+                pax_child INT DEFAULT 0,
+                pax_infant INT DEFAULT 0,
+                children_ages VARCHAR(255) DEFAULT NULL,
+                rooms_count INT DEFAULT 1,
+                room_type_preference VARCHAR(100) DEFAULT NULL,
+                pickup_drop_location TEXT DEFAULT NULL,
+                travel_budget VARCHAR(100) DEFAULT NULL,
+                vehicle_preference VARCHAR(100) DEFAULT NULL,
+                hotel_preference VARCHAR(100) DEFAULT NULL,
+                meal_plan_preference VARCHAR(100) DEFAULT NULL,
+                food_preference VARCHAR(100) DEFAULT NULL,
+                special_requirements TEXT DEFAULT NULL,
+                sightseeing_pace VARCHAR(50) DEFAULT 'Moderate',
+                transportation_mode VARCHAR(100) DEFAULT NULL,
+                flight_train_details TEXT DEFAULT NULL,
+                additional_notes TEXT DEFAULT NULL,
+                passengers_data LONGTEXT DEFAULT NULL,
+                applied_coupon_code VARCHAR(100) DEFAULT NULL,
+                coupon_discount_amount DECIMAL(10,2) DEFAULT 0.00,
+                status ENUM('Pending', 'Submitted', 'Reviewed') DEFAULT 'Pending',
+                submitted_at DATETIME DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_tf_token (token),
+                INDEX idx_tf_lead (lead_id),
+                INDEX idx_tf_booking (booking_id),
+                INDEX idx_tf_customer (customer_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+        console.log('[Migration] trip_detail_forms table verified/created');
+
+        // Alter customer_co_travelers for Aadhaar, gender, age if not present
+        try {
+            await pool.query(`ALTER TABLE customer_co_travelers ADD COLUMN IF NOT EXISTS aadhar_no VARCHAR(50) DEFAULT NULL`);
+            await pool.query(`ALTER TABLE customer_co_travelers ADD COLUMN IF NOT EXISTS gender VARCHAR(20) DEFAULT NULL`);
+            await pool.query(`ALTER TABLE customer_co_travelers ADD COLUMN IF NOT EXISTS age INT DEFAULT NULL`);
+        } catch (_) {
+            try { await pool.query(`ALTER TABLE customer_co_travelers ADD COLUMN aadhar_no VARCHAR(50) DEFAULT NULL`); } catch (_) {}
+            try { await pool.query(`ALTER TABLE customer_co_travelers ADD COLUMN gender VARCHAR(20) DEFAULT NULL`); } catch (_) {}
+            try { await pool.query(`ALTER TABLE customer_co_travelers ADD COLUMN age INT DEFAULT NULL`); } catch (_) {}
+        }
+
+        // Alter leads & bookings for trip form status tracking
+        try {
+            await pool.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS trip_form_token VARCHAR(64) DEFAULT NULL`);
+            await pool.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS trip_form_status VARCHAR(50) DEFAULT 'Not Sent'`);
+        } catch (_) {
+            try { await pool.query(`ALTER TABLE leads ADD COLUMN trip_form_token VARCHAR(64) DEFAULT NULL`); } catch (_) {}
+            try { await pool.query(`ALTER TABLE leads ADD COLUMN trip_form_status VARCHAR(50) DEFAULT 'Not Sent'`); } catch (_) {}
+        }
+        try {
+            await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS trip_form_token VARCHAR(64) DEFAULT NULL`);
+            await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS trip_form_status VARCHAR(50) DEFAULT 'Not Sent'`);
+        } catch (_) {
+            try { await pool.query(`ALTER TABLE bookings ADD COLUMN trip_form_token VARCHAR(64) DEFAULT NULL`); } catch (_) {}
+            try { await pool.query(`ALTER TABLE bookings ADD COLUMN trip_form_status VARCHAR(50) DEFAULT 'Not Sent'`); } catch (_) {}
+        }
+
+
         // ─── Car Rental Master Tables ───
         await pool.query(`
             CREATE TABLE IF NOT EXISTS vehicle_categories (

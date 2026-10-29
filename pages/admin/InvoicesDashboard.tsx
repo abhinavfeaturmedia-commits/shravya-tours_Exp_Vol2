@@ -11,7 +11,9 @@ import { useSettings } from '../../context/SettingsContext';
 import { generateTrueInvoicePDF } from '../../utils/pdfGenerator';
 import { ActionMenu } from '../../components/ui/ActionMenu';
 import { SendEmailModal } from '../../components/admin/SendEmailModal';
+import { GstExportModal } from '../../components/admin/GstExportModal';
 import { getIndianFinancialYear } from '../../utils/gstUtils';
+import { exportConsolidatedGstWorkbook } from '../../src/lib/gstExportEngine';
 
 const ConfirmModal: React.FC<{
     open: boolean; title: string; message: string;
@@ -73,6 +75,7 @@ export const InvoicesDashboard: React.FC = () => {
 
     // GSTR-1 CA Summary modal
     const [showGstr1Modal, setShowGstr1Modal] = useState(false);
+    const [showExportModal, setShowExportModal] = useState(false);
     const [gstr1Fy, setGstr1Fy] = useState(getIndianFinancialYear());
     const [gstr1Loading, setGstr1Loading] = useState(false);
     const [gstr1Data, setGstr1Data] = useState<any>(null);
@@ -219,8 +222,8 @@ export const InvoicesDashboard: React.FC = () => {
         finally { setStatusChangingId(null); }
     };
 
-    const handleExport = async () => {
-        const tid = toast.loading('Preparing export…');
+    const handleExport = async (format: 'xlsx' | 'csv' = 'xlsx') => {
+        const tid = toast.loading('Preparing GST export…');
         try {
             let url = `/api/crud/invoices?order=created_at&asc=false&limit=2000`;
             if (filterStatus !== 'All') url += `&eq_status=${encodeURIComponent(filterStatus)}`;
@@ -229,6 +232,15 @@ export const InvoicesDashboard: React.FC = () => {
             const res = await fetch(url, { headers: { 'Authorization': `Bearer ${getToken()}` } });
             const rows: any[] = (await res.json()).data || [];
             if (!rows.length) { toast.info('Nothing to export', { id: tid }); return; }
+
+            if (format === 'xlsx') {
+                exportConsolidatedGstWorkbook(rows, {
+                    filename: 'Consolidated GST Details for SHRAWELLO Travel Hub Invoices.xlsx'
+                });
+                toast.success(`Exported ${rows.length} invoices to Consolidated GST Excel`, { id: tid });
+                return;
+            }
+
             const headers = ['Official Invoice No','Doc Type','Client Name','Client GSTIN','Place of Supply','Status','Issue Date','Taxable Value','Tax Total','Total Amount','Amount Paid','Balance Due','Payment Status'];
             const lines = [headers.join(','), ...rows.map(r => [
                 `"${r.invoice_no || r.id}"`,
@@ -298,8 +310,8 @@ export const InvoicesDashboard: React.FC = () => {
                     >
                         <FileSpreadsheet size={16} /> GSTR-1 CA Summary
                     </button>
-                    <button onClick={handleExport} className="flex items-center gap-2 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold border border-slate-200 dark:border-slate-700 rounded-xl text-sm px-4 py-2.5 shadow-sm hover:bg-slate-50 transition-all">
-                        <Download size={16} /> Export CSV
+                    <button onClick={() => setShowExportModal(true)} className="flex items-center gap-2 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold border border-slate-200 dark:border-slate-700 rounded-xl text-sm px-4 py-2.5 shadow-sm hover:bg-slate-50 hover:border-emerald-400 dark:hover:border-emerald-600 transition-all cursor-pointer">
+                        <FileSpreadsheet size={16} className="text-emerald-600 dark:text-emerald-400" /> Export GST Reports
                     </button>
                     <button onClick={() => navigate('/admin/invoices/new')} className="flex items-center gap-2 bg-[#F59E0B] hover:bg-[#D97706] text-white font-bold rounded-xl text-sm px-5 py-2.5 shadow-lg shadow-[#F59E0B]/20 active:scale-95 transition-all">
                         <Plus size={18} /> New Document
@@ -566,6 +578,19 @@ export const InvoicesDashboard: React.FC = () => {
                                 <div className="flex gap-2">
                                     <button
                                         onClick={() => {
+                                            if (!gstr1Data?.invoices) return;
+                                            exportConsolidatedGstWorkbook(gstr1Data.invoices, {
+                                                filename: `Consolidated GST Details for SHRAWELLO Travel Hub Invoices - FY ${gstr1Fy}.xlsx`,
+                                                financialYear: gstr1Fy
+                                            });
+                                            toast.success('Consolidated GST Excel exported');
+                                        }}
+                                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm shadow-emerald-600/20"
+                                    >
+                                        <FileSpreadsheet size={13} /> Consolidated GST Excel
+                                    </button>
+                                    <button
+                                        onClick={() => {
                                             if (!gstr1Data?.table13_document_summary) return;
                                             const headers = ['Nature of Document', 'Sr. No. From', 'Sr. No. To', 'Total Issued', 'Cancelled', 'Net Issued'];
                                             const lines = [
@@ -776,6 +801,11 @@ export const InvoicesDashboard: React.FC = () => {
                     }}
                 />
             )}
+
+            <GstExportModal
+                isOpen={showExportModal}
+                onClose={() => setShowExportModal(false)}
+            />
         </div>
     );
 };

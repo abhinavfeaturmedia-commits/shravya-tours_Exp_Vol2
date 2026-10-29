@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { X, Send, Search, Mail, MessageCircle, Copy, RefreshCw, Trophy, CheckCircle2, XCircle, Clock, Eye, AlertTriangle, Hotel, Car, Map, Ticket, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { copyToClipboard } from '../../utils/clipboard';
 import { Booking, AvailabilityRfq, AvailabilityInvite, RfqServiceType } from '../../types';
 import { useData } from '../../context/DataContext';
 import { api } from '../../src/lib/api';
@@ -171,7 +172,7 @@ export const BookingAvailabilityModal: React.FC<Props> = ({ booking, isOpen, onC
 
     const copyLink = async (link: string | null) => {
         if (!link) return;
-        try { await navigator.clipboard.writeText(link); toast.success('Link copied'); } catch { toast.error('Copy failed'); }
+        const ok = await copyToClipboard(link); if (ok) { toast.success('Link copied'); } else { toast.error('Copy failed'); }
     };
 
     const whatsapp = (inv: AvailabilityInvite, rfq: AvailabilityRfq) => {

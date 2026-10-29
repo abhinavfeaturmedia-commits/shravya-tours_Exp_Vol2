@@ -1007,7 +1007,7 @@ export const Customers: React.FC = () => {
 
                                                 {/* Row Actions & Quick Action Bar */}
                                                 <td className="p-4 text-right" onClick={(e) => e.stopPropagation()}>
-                                                    <div className="flex items-center justify-end gap-1">
+                                                    <div className="flex items-center justify-end gap-1.5">
                                                         {/* Quick WhatsApp Action */}
                                                         {customer.phone && (
                                                             <button
@@ -1842,6 +1842,7 @@ const CustomerDetailsDrawer: React.FC<{
                             </div>
                         </div>
                     )}
+
 
                     {/* TAB 2: PREFERENCES */}
                     {drawerTab === 'preferences' && (

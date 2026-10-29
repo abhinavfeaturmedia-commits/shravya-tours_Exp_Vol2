@@ -29,6 +29,7 @@ import { createTrainingRoutes } from './routes/training.js';
 import { createAttendanceRoutes, autoCloseOrphanSessions } from './routes/attendance.js';
 import { createIncentiveRoutes } from './routes/incentives.js';
 import { createAvailabilityRfqRoutes } from './routes/availabilityRfq.js';
+import { createTripFormRoutes } from './routes/tripForms.js';
 import { createHierarchyRoutes } from './routes/hierarchy.js';
 import { getStaffDownline, isStaffInDownline } from './utils/hierarchyResolver.js';
 import { runStartupMigrations } from './migrations/startup.js';
@@ -170,6 +171,7 @@ createTrainingRoutes(app, pool);
 createAttendanceRoutes(app, pool);
 createIncentiveRoutes(app, pool, authMiddleware);
 createAvailabilityRfqRoutes(app, pool, authMiddleware);
+createTripFormRoutes(app, pool, authMiddleware);
 createHierarchyRoutes(app, pool, authMiddleware);
 runStartupMigrations(pool).catch(e => console.error('[Startup Migrations Error]:', e.message));
 
@@ -7290,6 +7292,175 @@ app.get('/api/invoices/gstr1-summary', authMiddleware, async (req, res) => {
     } catch (err) {
         console.error('[GSTR1 Summary Error]', err);
         res.status(500).json({ error: 'Failed to generate GSTR1 summary', details: err.message });
+    }
+});
+
+// 4b. Flexible Invoices GST Export Query (Period ranges, custom dates, full filters & SAC items)
+app.get('/api/invoices/export-query', authMiddleware, async (req, res) => {
+    try {
+        const {
+            start_date,
+            end_date,
+            financial_year,
+            doc_type = 'All',
+            status = 'Active',
+            gst_type = 'All',
+            summary_only = 'false',
+            include_items = 'false'
+        } = req.query;
+
+        let whereClauses = ['1=1'];
+        let params = [];
+
+        // 1. Date Range or Financial Year Filtering
+        if (start_date && end_date) {
+            whereClauses.push(`((issue_date >= ? AND issue_date <= ?) OR (issue_date IS NULL AND created_at >= ? AND created_at <= ?))`);
+            params.push(start_date, end_date, `${start_date} 00:00:00`, `${end_date} 23:59:59`);
+        } else if (financial_year) {
+            const { startDate, endDate } = getFyDateRange(financial_year);
+            whereClauses.push(`(financial_year = ? OR (issue_date >= ? AND issue_date <= ?))`);
+            params.push(financial_year, startDate, endDate);
+        }
+
+        // 2. Document Type Filtering
+        if (doc_type && doc_type !== 'All') {
+            whereClauses.push(`document_type = ?`);
+            params.push(doc_type);
+        }
+
+        // 3. Status Filtering
+        if (status === 'Active') {
+            whereClauses.push(`status != 'Void'`);
+        } else if (status === 'Paid') {
+            whereClauses.push(`(status = 'Paid' OR payment_status = 'Paid')`);
+        } else if (status && status !== 'All') {
+            whereClauses.push(`status = ?`);
+            params.push(status);
+        }
+
+        // 4. GST / Supply Type Filtering
+        if (gst_type === 'CGST_SGST') {
+            whereClauses.push(`(gst_type = 'CGST_SGST' OR place_of_supply_code = '27' OR LOWER(place_of_supply) LIKE '%maharashtra%')`);
+        } else if (gst_type === 'IGST') {
+            whereClauses.push(`(gst_type = 'IGST' OR (place_of_supply_code != '27' AND place_of_supply_code IS NOT NULL AND place_of_supply_code != ''))`);
+        } else if (gst_type === 'B2B') {
+            whereClauses.push(`client_gst IS NOT NULL AND CHAR_LENGTH(TRIM(client_gst)) >= 15`);
+        } else if (gst_type === 'B2C') {
+            whereClauses.push(`(client_gst IS NULL OR CHAR_LENGTH(TRIM(client_gst)) < 15)`);
+        }
+
+        const whereSql = whereClauses.join(' AND ');
+
+        // If only summary is requested for quick preview:
+        if (summary_only === 'true') {
+            const [summaryRows] = await pool.query(`
+                SELECT 
+                    COUNT(*) as total_count,
+                    COALESCE(SUM(subtotal), 0) as total_taxable,
+                    COALESCE(SUM(tax_total), 0) as total_tax,
+                    COALESCE(SUM(total_amount), 0) as total_amount,
+                    COALESCE(SUM(CASE WHEN client_gst IS NOT NULL AND CHAR_LENGTH(TRIM(client_gst)) >= 15 THEN 1 ELSE 0 END), 0) as b2b_count,
+                    COALESCE(SUM(CASE WHEN client_gst IS NULL OR CHAR_LENGTH(TRIM(client_gst)) < 15 THEN 1 ELSE 0 END), 0) as b2c_count
+                FROM invoices
+                WHERE ${whereSql}
+            `, params);
+
+            return res.json({
+                success: true,
+                summary: summaryRows[0] || { total_count: 0, total_taxable: 0, total_tax: 0, total_amount: 0, b2b_count: 0, b2c_count: 0 }
+            });
+        }
+
+        // Fetch full matching invoices
+        const [invoices] = await pool.query(`
+            SELECT 
+                id, document_type, invoice_no, sequence_number, status, is_gst,
+                client_name, email, phone, address, client_gst, place_of_supply, place_of_supply_code,
+                reverse_charge, issue_date, due_date, subtotal, discount, tax_total, total_amount,
+                amount_paid, balance_due, payment_status, gst_type, original_invoice_no, credit_reason,
+                financial_year, created_at
+            FROM invoices
+            WHERE ${whereSql}
+            ORDER BY issue_date ASC, sequence_number ASC, created_at ASC
+        `, params);
+
+        let itemsMap = {};
+        if (include_items === 'true' && invoices.length > 0) {
+            const invoiceIds = invoices.map(i => i.id);
+            const chunkSize = 500;
+            for (let i = 0; i < invoiceIds.length; i += chunkSize) {
+                const chunk = invoiceIds.slice(i, i + chunkSize);
+                const [itemRows] = await pool.query(
+                    `SELECT id, invoice_id, description, quantity, unit_price, tax_rate, tax_amount, total, hsn_sac
+                     FROM invoice_items
+                     WHERE invoice_id IN (?)`,
+                    [chunk]
+                );
+                itemRows.forEach(it => {
+                    if (!itemsMap[it.invoice_id]) itemsMap[it.invoice_id] = [];
+                    itemsMap[it.invoice_id].push(it);
+                });
+            }
+        }
+
+        // Attach items to each invoice
+        const invoicesWithItems = invoices.map(inv => ({
+            ...inv,
+            items: itemsMap[inv.id] || []
+        }));
+
+        // Compute summary metrics
+        let totalTaxable = 0;
+        let totalTax = 0;
+        let totalAmount = 0;
+        let totalIgst = 0;
+        let totalCgst = 0;
+        let totalSgst = 0;
+        let b2bCount = 0;
+        let b2cCount = 0;
+
+        invoices.forEach(inv => {
+            const taxable = Number(inv.subtotal || 0);
+            const tax = Number(inv.tax_total || 0);
+            const total = Number(inv.total_amount || 0);
+            totalTaxable += taxable;
+            totalTax += tax;
+            totalAmount += total;
+
+            const isInterState = inv.gst_type === 'IGST' || (inv.place_of_supply_code && inv.place_of_supply_code !== '27');
+            if (isInterState) {
+                totalIgst += tax;
+            } else {
+                totalCgst += tax / 2;
+                totalSgst += tax / 2;
+            }
+
+            if (inv.client_gst && inv.client_gst.trim().length >= 15) {
+                b2bCount++;
+            } else {
+                b2cCount++;
+            }
+        });
+
+        res.json({
+            success: true,
+            count: invoices.length,
+            summary: {
+                total_count: invoices.length,
+                total_taxable: totalTaxable,
+                total_tax: totalTax,
+                total_amount: totalAmount,
+                total_igst: totalIgst,
+                total_cgst: totalCgst,
+                total_sgst: totalSgst,
+                b2b_count: b2bCount,
+                b2c_count: b2cCount
+            },
+            invoices: invoicesWithItems
+        });
+    } catch (err) {
+        console.error('[Invoices Export Query Error]', err);
+        res.status(500).json({ error: 'Failed to query invoices for export', details: err.message });
     }
 });
 

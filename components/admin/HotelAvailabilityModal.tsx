@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { api } from '../../src/lib/api';
+import { copyToClipboard } from '../../utils/clipboard';
 import { HotelAvailabilityRequest, HotelAvailabilityStatus } from '../../types';
 import { useData } from '../../context/DataContext';
 import { toast } from 'sonner';
@@ -225,7 +226,7 @@ export const HotelAvailabilityModal: React.FC<HotelAvailabilityModalProps> = ({
 
     const handleCopyLink = (req: HotelAvailabilityRequest) => {
         const url = getVerificationUrl(req.token);
-        navigator.clipboard.writeText(url);
+        copyToClipboard(url);
         toast.success('Direct verification link copied to clipboard!');
     };
 

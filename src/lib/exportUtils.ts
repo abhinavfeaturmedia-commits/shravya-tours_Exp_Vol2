@@ -82,3 +82,7 @@ export const exportToExcel = <T,>(
   // Save the file
   XLSX.writeFile(workbook, `${options.filename}.xlsx`);
 };
+
+export { exportConsolidatedGstWorkbook } from './gstExportEngine';
+export type { GstInvoiceRecord, GstExportOptions } from './gstExportEngine';
+

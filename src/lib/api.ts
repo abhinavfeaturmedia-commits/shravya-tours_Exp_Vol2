@@ -4141,6 +4141,32 @@ export const api = {
         return fetchApi(`/api/hierarchy/grievances/${encodeURIComponent(id)}/status`, { method: 'PATCH', body: JSON.stringify(payload) });
     },
 
+    // ─── Customer Self-Service Trip Details Forms ───
+    generateTripFormLink: async (params: { leadId?: string; bookingId?: string; customerId?: string }): Promise<{ success: boolean; token: string; shareableUrl: string; whatsappShareText: string; form?: any }> => {
+        return fetchApi('/api/trip-forms/generate', {
+            method: 'POST',
+            body: JSON.stringify({
+                ...params,
+                baseUrl: window.location.origin
+            })
+        });
+    },
+
+    getTripFormByEntity: async (entityType: 'lead' | 'booking' | 'customer', entityId: string): Promise<{ success: boolean; form: any }> => {
+        return fetchApi(`/api/trip-forms/by-entity/${encodeURIComponent(entityType)}/${encodeURIComponent(entityId)}`);
+    },
+
+    getPublicTripDetailsForm: async (token: string): Promise<{ success: boolean; form: any; agency: any; coupons: any[] }> => {
+        return fetchApi(`/api/public/trip-details/${encodeURIComponent(token)}`);
+    },
+
+    submitPublicTripDetailsForm: async (token: string, payload: any): Promise<{ success: boolean; message: string }> => {
+        return fetchApi(`/api/public/trip-details/${encodeURIComponent(token)}/submit`, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+    },
+
     crud
 };
 

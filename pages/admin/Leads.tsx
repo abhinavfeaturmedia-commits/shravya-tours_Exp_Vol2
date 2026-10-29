@@ -27,6 +27,8 @@ import { normalisePhone } from '../../utils/phoneUtils';
 import { parsePaxString, formatPaxString } from '../../utils/paxUtils';
 import { BorderBeam } from 'border-beam';
 import { VoiceBeam, useMicrophone } from 'voice-glow';
+import { TripFormShareButton } from '../../components/admin/TripFormShareButton';
+import { TripDetailsRequirementsCard } from '../../components/admin/TripDetailsRequirementsCard';
 // import { BulkImportLeadsModal } from '../../components/admin/BulkImportLeadsModal'; // Commented out unused
 
 // Status Badge Component
@@ -245,7 +247,7 @@ export const Leads: React.FC = () => {
         (leadForm.status === 'Converted' || Boolean((leadForm as any).convertedBookingId))
     );
 
-    const [leadModalTab, setLeadModalTab] = useState<'info' | 'tasks' | 'chat'>('info');
+    const [leadModalTab, setLeadModalTab] = useState<'info' | 'tripForm' | 'tasks' | 'chat'>('info');
     const [chatInput, setChatInput] = useState('');
 
     const [manualTaskTitle, setManualTaskTitle] = useState('');
@@ -1675,7 +1677,16 @@ export const Leads: React.FC = () => {
                                             </div>
 
                                             <div className="col-span-2 flex flex-col items-end gap-1">
-                                                <StatusBadge status={lead.status} />
+                                                <div className="flex items-center gap-1.5">
+                                                    <TripFormShareButton
+                                                        leadId={lead.id}
+                                                        clientName={lead.name}
+                                                        clientPhone={lead.whatsapp || lead.phone}
+                                                        status={lead.tripFormStatus}
+                                                        variant="badge-button"
+                                                    />
+                                                    <StatusBadge status={lead.status} />
+                                                </div>
                                                 {/* Quick Action Hover Buttons */}
                                                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                                     <a 
@@ -1729,7 +1740,14 @@ export const Leads: React.FC = () => {
                                             </div>
                                             <div className="text-right shrink-0">
                                                 <p className="text-xs font-bold text-slate-900 dark:text-white">{formatPriceCompact(lead.potentialValue || 0)}</p>
-                                                <div className="mt-1">
+                                                <div className="mt-1 flex items-center justify-end gap-1">
+                                                    <TripFormShareButton
+                                                        leadId={lead.id}
+                                                        clientName={lead.name}
+                                                        clientPhone={lead.whatsapp || lead.phone}
+                                                        status={lead.tripFormStatus}
+                                                        variant="icon"
+                                                    />
                                                     <StatusBadge status={lead.status} />
                                                 </div>
                                             </div>
@@ -1862,6 +1880,13 @@ export const Leads: React.FC = () => {
                         <div className="flex items-center justify-between mt-2">
                             <div className="flex gap-2">
                                 <StatusBadge status={selectedLead.status} />
+                                <TripFormShareButton
+                                    leadId={selectedLead.id}
+                                    clientName={selectedLead.name}
+                                    clientPhone={selectedLead.whatsapp || selectedLead.phone}
+                                    status={selectedLead.tripFormStatus}
+                                    variant="button"
+                                />
                                 {selectedLead.status === 'Offer Sent' && (
                                     <span className="px-2 py-1 bg-purple-50 text-purple-700 text-[10px] font-bold uppercase rounded-md tracking-wide">Quote Sent</span>
                                 )}
@@ -1961,6 +1986,26 @@ export const Leads: React.FC = () => {
                                 Details & Timeline
                             </button>
                             <button
+                                onClick={() => setLeadModalTab('tripForm')}
+                                className={`text-xs font-bold pb-1 transition-all shrink-0 whitespace-nowrap flex items-center gap-1.5 ${
+                                    leadModalTab === 'tripForm'
+                                        ? 'text-amber-600 dark:text-amber-400 border-b-2 border-amber-500 font-black'
+                                        : 'text-slate-400 hover:text-slate-600'
+                                }`}
+                            >
+                                <span className="material-symbols-outlined text-[16px] text-amber-500">assignment</span>
+                                <span>Trip Form & Specs</span>
+                                {selectedLead.tripFormStatus === 'Submitted' ? (
+                                    <span className="px-1.5 py-0.5 rounded-full text-[9px] font-black bg-emerald-500 text-white leading-none">
+                                        ✓ Filled
+                                    </span>
+                                ) : (
+                                    <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 leading-none">
+                                        Form
+                                    </span>
+                                )}
+                            </button>
+                            <button
                                 onClick={() => setLeadModalTab('tasks')}
                                 className={`text-xs font-bold pb-1 transition-all flex items-center gap-1.5 ${
                                     leadModalTab === 'tasks'
@@ -2034,7 +2079,16 @@ export const Leads: React.FC = () => {
                         )}
                         {/* ── End Returning Customer Banner ── */}
 
-                        {leadModalTab === 'chat' ? (
+                        {leadModalTab === 'tripForm' ? (
+                            <div className="space-y-6 animate-in fade-in pb-6">
+                                <TripDetailsRequirementsCard
+                                    entityType="lead"
+                                    entityId={selectedLead.id}
+                                    clientName={selectedLead.name}
+                                    clientPhone={selectedLead.whatsapp || selectedLead.phone}
+                                />
+                            </div>
+                        ) : leadModalTab === 'chat' ? (
                             <div className="flex flex-col h-[55vh] justify-between">
                                 {/* Chat Messages */}
                                 <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50 dark:bg-slate-900/40 rounded-2xl border border-slate-100 dark:border-slate-800">
