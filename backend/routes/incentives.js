@@ -79,7 +79,8 @@ export function createIncentiveRoutes(app, pool, authMiddleware) {
             // Fetch overall aggregate metrics
             let runFilter = '';
             const runParams = [];
-            if (monthYear) {
+            const isSpecificMonth = monthYear && monthYear !== 'all';
+            if (isSpecificMonth) {
                 runFilter += ' AND r.month_year = ?';
                 runParams.push(monthYear);
             }
@@ -98,7 +99,7 @@ export function createIncentiveRoutes(app, pool, authMiddleware) {
             // Fetch status-wise amounts from summaries
             let summaryFilter = '';
             const summaryParams = [];
-            if (monthYear) {
+            if (isSpecificMonth) {
                 summaryFilter += ' AND s.month_year = ?';
                 summaryParams.push(monthYear);
             }
@@ -145,9 +146,65 @@ export function createIncentiveRoutes(app, pool, authMiddleware) {
                 WHERE status = 'APPROVED'
             `);
 
-            const eligibleValue = parseFloat(runs[0]?.eligibleBookingValue || 0);
-            const grossProfit = parseFloat(runs[0]?.grossProfit || 0);
-            const totalIncentive = parseFloat(runs[0]?.totalIncentiveCalculated || 0);
+            let eligibleValue = parseFloat(runs[0]?.eligibleBookingValue || 0);
+            let grossProfit = parseFloat(runs[0]?.grossProfit || 0);
+            let totalIncentive = parseFloat(runs[0]?.totalIncentiveCalculated || 0);
+            let maximumCapacity = parseFloat(runs[0]?.maximumCapacity || 0);
+            let isLiveProjection = false;
+            let liveBookingCount = 0;
+
+            // ─── Live Projection Fallback: If no official run has been created for the period ───
+            if (isSpecificMonth && eligibleValue === 0) {
+                const [liveBookings] = await pool.query(`
+                    SELECT id, total_price, status, payment_status, assigned_to, assigned_staff_ids 
+                    FROM bookings 
+                    WHERE DATE_FORMAT(booking_date, '%Y-%m') = ?
+                `, [monthYear]);
+
+                if (liveBookings.length > 0) {
+                    let liveEligibleVal = 0;
+                    let liveTotalCost = 0;
+                    let liveCount = 0;
+
+                    for (const b of liveBookings) {
+                        const bStatus = (b.status || '').toLowerCase().trim();
+                        const pStatus = (b.payment_status || '').toLowerCase().trim();
+                        if ((bStatus !== 'completed' && bStatus !== 'confirmed') || pStatus !== 'paid') continue;
+
+                        const [suppliers] = await pool.query(`
+                            SELECT cost, paid_amount FROM supplier_bookings WHERE booking_id = ?
+                        `, [b.id]);
+
+                        let cost = 0;
+                        let unsettled = false;
+                        for (const s of suppliers) {
+                            const sc = parseFloat(s.cost || 0);
+                            const sp = parseFloat(s.paid_amount || 0);
+                            cost += sc;
+                            if (sc > 0 && sc > sp) unsettled = true;
+                        }
+                        if (unsettled) continue;
+
+                        liveCount++;
+                        const price = parseFloat(b.total_price || 0);
+                        liveEligibleVal += price;
+                        liveTotalCost += cost;
+                    }
+
+                    if (liveCount > 0) {
+                        eligibleValue = liveEligibleVal;
+                        grossProfit = Math.max(0, liveEligibleVal - liveTotalCost);
+                        // Estimated incentive at standard 2% base rate
+                        totalIncentive = (eligibleValue * 2.0) / 100;
+                        pendingApproval = totalIncentive;
+                        const maxCapBooking = (eligibleValue * 7.0) / 100;
+                        const gpLimit = (grossProfit * 40.0) / 100;
+                        maximumCapacity = Math.min(maxCapBooking, gpLimit);
+                        isLiveProjection = true;
+                        liveBookingCount = liveCount;
+                    }
+                }
+            }
 
             const incentivePctBooking = eligibleValue > 0 ? ((totalIncentive / eligibleValue) * 100).toFixed(2) : '0.00';
             const incentivePctGP = grossProfit > 0 ? ((totalIncentive / grossProfit) * 100).toFixed(2) : '0.00';
@@ -181,9 +238,12 @@ export function createIncentiveRoutes(app, pool, authMiddleware) {
                     paid,
                     onHold,
                     totalAdjustments: parseFloat(adjustments[0]?.totalAdjustments || 0),
-                    maximumCapacity: parseFloat(runs[0]?.maximumCapacity || 0),
+                    maximumCapacity,
                     recentRuns,
-                    departmentBreakdown: deptBreakdown
+                    departmentBreakdown: deptBreakdown,
+                    isLiveProjection,
+                    liveBookingCount,
+                    selectedMonth: monthYear || 'all'
                 }
             });
         } catch (err) {
@@ -373,8 +433,8 @@ export function createIncentiveRoutes(app, pool, authMiddleware) {
                 role: s.role,
                 department: s.department,
                 targetId: s.target_id,
-                targetAmount: s.target_amount !== null && s.target_amount !== undefined ? parseFloat(s.target_amount) : 500000,
-                targetBookings: s.target_bookings !== null && s.target_bookings !== undefined ? parseInt(s.target_bookings) : 5,
+                targetAmount: s.target_amount !== null && s.target_amount !== undefined ? parseFloat(s.target_amount) : 0,
+                targetBookings: s.target_bookings !== null && s.target_bookings !== undefined ? parseInt(s.target_bookings) : 0,
                 isSet: s.target_id !== null,
                 notes: s.notes || '',
                 updatedAt: s.updated_at,
@@ -513,10 +573,10 @@ export function createIncentiveRoutes(app, pool, authMiddleware) {
     async function checkBookingEligibility(conn, booking) {
         const issues = [];
 
-        // 1. Trip/booking status = completed
+        // 1. Trip/booking status = completed or confirmed (with 100% customer payment settled)
         const bStatus = (booking.status || '').toLowerCase().trim();
-        if (bStatus !== 'completed') {
-            issues.push(`Booking status is '${booking.status}', must be 'completed'`);
+        if (bStatus !== 'completed' && bStatus !== 'confirmed') {
+            issues.push(`Booking status is '${booking.status}', must be 'completed' or 'confirmed'`);
         }
 
         // 2. Customer payment = fully settled
@@ -597,6 +657,55 @@ export function createIncentiveRoutes(app, pool, authMiddleware) {
         };
     }
 
+    // ─── Rule Matcher Helper (Fuzzy department & hierarchical role matching) ───
+    function findMatchingRule(rules, staffDept = '', staffRole = '') {
+        const sDept = (staffDept || '').toLowerCase().trim();
+        const sRole = (staffRole || '').toLowerCase().trim();
+
+        // 1. Direct match
+        let rule = rules.find(r => 
+            (r.department || '').toLowerCase().trim() === sDept &&
+            (r.role || '').toLowerCase().trim() === sRole
+        );
+        if (rule) return rule;
+
+        const isSales = sDept.includes('sales') || sDept.includes('business development') || sRole.includes('sales');
+        const isOps = sDept.includes('operation') || sRole.includes('ticketing') || sRole.includes('operation');
+        const isCustomerCare = sDept.includes('customer') || sDept.includes('support') || sRole.includes('customer');
+        const isMarketing = sDept.includes('market');
+        const isTech = sDept.includes('tech') || sDept.includes('it') || sRole.includes('admin');
+        const isManagement = sDept.includes('management') || sDept.includes('executive') || sRole.includes('director') || sRole.includes('founder');
+
+        if (isSales) {
+            if (sRole.includes('lead') || sRole.includes('manager')) {
+                rule = rules.find(r => (r.department || '').toLowerCase().includes('sales') && (r.role || '').toLowerCase().includes('lead'));
+            } else if (sRole.includes('senior')) {
+                rule = rules.find(r => (r.department || '').toLowerCase().includes('sales') && (r.role || '').toLowerCase().includes('senior'));
+            }
+            if (!rule) rule = rules.find(r => (r.department || '').toLowerCase().includes('sales') && (r.role || '').toLowerCase().includes('executive'));
+            if (!rule) rule = rules.find(r => (r.department || '').toLowerCase().includes('sales'));
+        } else if (isOps) {
+            rule = rules.find(r => (r.department || '').toLowerCase().includes('operation'));
+        } else if (isCustomerCare) {
+            rule = rules.find(r => (r.department || '').toLowerCase().includes('customer'));
+        } else if (isMarketing) {
+            rule = rules.find(r => (r.department || '').toLowerCase().includes('marketing'));
+        } else if (isTech) {
+            rule = rules.find(r => (r.department || '').toLowerCase().includes('technology'));
+        } else if (isManagement) {
+            rule = rules.find(r => (r.department || '').toLowerCase().includes('management'));
+        }
+
+        if (rule) return rule;
+
+        // Department match fallback
+        rule = rules.find(r => (r.department || '').toLowerCase().trim() === sDept);
+        if (rule) return rule;
+
+        // Default to sales executive if nothing else
+        return rules.find(r => (r.department || '').toLowerCase().includes('sales')) || rules[0];
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // 4. INCENTIVE CALCULATION ENGINE (MONTHLY RUNS)
     // ═══════════════════════════════════════════════════════════════════════════
@@ -663,12 +772,25 @@ export function createIncentiveRoutes(app, pool, authMiddleware) {
             await conn.query(`DELETE FROM incentive_employee_summaries WHERE incentive_run_id = ?`, [runId]);
 
             // Cache staff members
-            const [staffList] = await conn.query(`SELECT id, name, role, department FROM staff_members`);
+            const [staffList] = await conn.query(`SELECT id, name, role, department, status FROM staff_members`);
             const staffMap = new Map();
             staffList.forEach(s => staffMap.set(String(s.id), s));
 
-            // Structure to collect per-employee calculations
+            // Structure to collect per-employee calculations (Pre-seed all active staff members)
             const employeeAggregates = new Map();
+            for (const s of staffList) {
+                if (s.status && s.status.toLowerCase() === 'inactive') continue;
+                const matchingRule = findMatchingRule(rules, s.department, s.role);
+                employeeAggregates.set(String(s.id), {
+                    staff: s,
+                    rule: matchingRule,
+                    eligibleBusiness: 0,
+                    bookingCount: 0,
+                    baseIncentive: 0,
+                    kpiScore: 100,
+                    targetAmount: null
+                });
+            }
 
             // Structure to collect per-booking ledger rows
             const ledgerRows = [];
@@ -843,17 +965,8 @@ export function createIncentiveRoutes(app, pool, authMiddleware) {
                     const staffDept = staffMember.department || 'Sales';
                     const staffRole = staffMember.role || 'Sales Executive';
 
-                    // Find matching rule for this staff's department or role
-                    let matchingRule = rules.find(r => 
-                        r.department.toLowerCase() === staffDept.toLowerCase() && 
-                        (r.role.toLowerCase() === staffRole.toLowerCase() || r.role.toLowerCase().includes('executive'))
-                    );
-                    if (!matchingRule) {
-                        matchingRule = rules.find(r => r.department.toLowerCase() === staffDept.toLowerCase());
-                    }
-                    if (!matchingRule) {
-                        matchingRule = rules[0];
-                    }
+                    // Find matching rule for this staff's department or role (intelligent hierarchy)
+                    const matchingRule = findMatchingRule(rules, staffDept, staffRole);
 
                     // Base rate
                     const applicableRate = parseFloat(matchingRule.percentage || 0);
@@ -910,19 +1023,20 @@ export function createIncentiveRoutes(app, pool, authMiddleware) {
                     });
 
                     // Aggregate for employee summary
-                    if (!employeeAggregates.has(staffMember.id)) {
-                        employeeAggregates.set(staffMember.id, {
+                    const empKey = String(staffMember.id);
+                    if (!employeeAggregates.has(empKey)) {
+                        employeeAggregates.set(empKey, {
                             staff: staffMember,
                             rule: matchingRule,
                             eligibleBusiness: 0,
                             bookingCount: 0,
                             baseIncentive: 0,
                             kpiScore: 100,
-                            targetAmount: 500000 // default target per employee if not found
+                            targetAmount: null
                         });
                     }
 
-                    const empAgg = employeeAggregates.get(staffMember.id);
+                    const empAgg = employeeAggregates.get(empKey);
                     empAgg.eligibleBusiness += splitEligibleValue;
                     empAgg.bookingCount += (split.isSplit ? split.ratio : 1);
                     empAgg.baseIncentive += splitGrossIncentive;
@@ -944,7 +1058,7 @@ export function createIncentiveRoutes(app, pool, authMiddleware) {
                     WHERE staff_id = ? AND month_year = ?
                 `, [empId, monthYear]);
 
-                let employeeTarget = agg.targetAmount;
+                let employeeTarget = null;
                 if (storedTargets.length > 0 && parseFloat(storedTargets[0].target_amount) > 0) {
                     employeeTarget = parseFloat(storedTargets[0].target_amount);
                 } else {
@@ -959,22 +1073,36 @@ export function createIncentiveRoutes(app, pool, authMiddleware) {
                         if (sumTargetBookings > 0) employeeTarget = sumTargetBookings * 50000;
                     }
                 }
-                agg.targetAmount = employeeTarget;
+                agg.targetAmount = employeeTarget || 0;
 
                 // Check if target dependency applies (Sales target slabs)
                 if (agg.rule.target_dependency && agg.rule.slabs_json) {
                     try {
                         const slabs = typeof agg.rule.slabs_json === 'string' ? JSON.parse(agg.rule.slabs_json) : agg.rule.slabs_json;
-                        targetAchievementPct = employeeTarget > 0 ? (agg.eligibleBusiness / employeeTarget) * 100 : 100;
-
-                        // Find applicable slab
-                        if (Array.isArray(slabs)) {
-                            const matchedSlab = slabs.find(s => targetAchievementPct >= s.min_pct && targetAchievementPct <= s.max_pct);
-                            if (matchedSlab) {
-                                applicableSlabRate = parseFloat(matchedSlab.rate_pct);
+                        if (employeeTarget && employeeTarget > 0) {
+                            targetAchievementPct = (agg.eligibleBusiness / employeeTarget) * 100;
+                            // Find applicable slab
+                            if (Array.isArray(slabs)) {
+                                const matchedSlab = slabs.find(s => targetAchievementPct >= s.min_pct && targetAchievementPct <= s.max_pct);
+                                if (matchedSlab) {
+                                    applicableSlabRate = parseFloat(matchedSlab.rate_pct);
+                                }
                             }
+                        } else {
+                            // If no target was set by management for this staff: reward baseline 100% on-target rate
+                            targetAchievementPct = agg.eligibleBusiness > 0 ? 100.00 : 0.00;
+                            applicableSlabRate = parseFloat(agg.rule.percentage || 2.0);
                         }
                     } catch (_) {}
+                } else {
+                    // No target dependency: use base rule percentage directly
+                    targetAchievementPct = agg.eligibleBusiness > 0 ? 100.00 : 0.00;
+                    applicableSlabRate = parseFloat(agg.rule.percentage || 2.0);
+                }
+
+                // Fair commission floor: valid eligible business always earns at least 1.00%
+                if (applicableSlabRate <= 0 && agg.eligibleBusiness > 0) {
+                    applicableSlabRate = 1.00;
                 }
 
                 // Check KPI dependency (Operations / Customer Care)
@@ -1552,14 +1680,14 @@ export function createIncentiveRoutes(app, pool, authMiddleware) {
             const targetsInfo = {
                 currentMonth: {
                     monthYear: currentMonthStr,
-                    targetAmount: currentTgt ? parseFloat(currentTgt.target_amount) : 500000,
-                    targetBookings: currentTgt ? parseInt(currentTgt.target_bookings) : 5,
+                    targetAmount: currentTgt ? parseFloat(currentTgt.target_amount) : 0,
+                    targetBookings: currentTgt ? parseInt(currentTgt.target_bookings) : 0,
                     isSet: Boolean(currentTgt)
                 },
                 nextMonth: {
                     monthYear: nextMonthStr,
-                    targetAmount: nextTgt ? parseFloat(nextTgt.target_amount) : 500000,
-                    targetBookings: nextTgt ? parseInt(nextTgt.target_bookings) : 5,
+                    targetAmount: nextTgt ? parseFloat(nextTgt.target_amount) : 0,
+                    targetBookings: nextTgt ? parseInt(nextTgt.target_bookings) : 0,
                     isSet: Boolean(nextTgt),
                     isBeforeDeadline25th: isBeforeDeadline,
                     deadlineDate: deadlineDateStr,

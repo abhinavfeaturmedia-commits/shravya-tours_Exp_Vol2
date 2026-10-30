@@ -4,7 +4,8 @@ import {
     FileText, Plus, Search,
     Edit, Trash2, Download, CheckCircle2,
     AlertCircle, Clock, Wallet, ChevronLeft, ChevronRight, Loader2, X, Mail,
-    FileSpreadsheet, ArrowRight, Copy, Check
+    FileSpreadsheet, ArrowRight, Copy, Check,
+    Archive, FolderArchive, CheckSquare, CalendarRange
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSettings } from '../../context/SettingsContext';
@@ -14,6 +15,8 @@ import { SendEmailModal } from '../../components/admin/SendEmailModal';
 import { GstExportModal } from '../../components/admin/GstExportModal';
 import { getIndianFinancialYear } from '../../utils/gstUtils';
 import { exportConsolidatedGstWorkbook } from '../../src/lib/gstExportEngine';
+import { downloadInvoicesAsZip, InvoiceCopyType, BatchProgress } from '../../utils/batchInvoiceDownloader';
+import { BatchInvoicesDownloadModal } from '../../components/admin/BatchInvoicesDownloadModal';
 
 const ConfirmModal: React.FC<{
     open: boolean; title: string; message: string;
@@ -72,6 +75,13 @@ export const InvoicesDashboard: React.FC = () => {
     const [statusChangingId, setStatusChangingId] = useState<string | null>(null);
     const [emailModalInvoice, setEmailModalInvoice] = useState<any | null>(null);
     const [copiedId, setCopiedId] = useState<string | null>(null);
+
+    // Multi-Select & Batch ZIP Download state
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [isBatchDownloading, setIsBatchDownloading] = useState(false);
+    const [batchProgress, setBatchProgress] = useState<BatchProgress | null>(null);
+    const [showBatchModal, setShowBatchModal] = useState(false);
+    const [batchCopyType, setBatchCopyType] = useState<InvoiceCopyType>('ORIGINAL');
 
     // GSTR-1 CA Summary modal
     const [showGstr1Modal, setShowGstr1Modal] = useState(false);
@@ -273,10 +283,107 @@ export const InvoicesDashboard: React.FC = () => {
         setTimeout(() => setCopiedId(null), 2000);
     };
 
+    const handleToggleSelect = (id: string) => {
+        setSelectedIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    };
+
+    const handleSelectAllVisible = (checked: boolean) => {
+        setSelectedIds(prev => {
+            const next = new Set(prev);
+            if (checked) {
+                invoices.forEach(inv => next.add(inv.id));
+            } else {
+                invoices.forEach(inv => next.delete(inv.id));
+            }
+            return next;
+        });
+    };
+
+    const handleClearSelection = () => {
+        setSelectedIds(new Set());
+    };
+
+    const executeBatchDownload = async (copyType: InvoiceCopyType = batchCopyType) => {
+        if (selectedIds.size === 0) {
+            toast.info('Please select at least one document to download');
+            return;
+        }
+
+        const selectedInvoices = invoices.filter(inv => selectedIds.has(inv.id));
+        let targetsToDownload = selectedInvoices;
+
+        if (selectedInvoices.length < selectedIds.size) {
+            const missingIds = Array.from(selectedIds).filter(id => !selectedInvoices.some(inv => inv.id === id));
+            if (missingIds.length > 0) {
+                try {
+                    const fetched = await Promise.all(
+                        missingIds.map(async id => {
+                            const res = await fetch(`/api/crud/invoices/${id}`, {
+                                headers: { 'Authorization': `Bearer ${getToken()}` }
+                            });
+                            return res.ok ? (await res.json()).data : null;
+                        })
+                    );
+                    targetsToDownload = [...selectedInvoices, ...fetched.filter(Boolean)];
+                } catch (err) {
+                    console.error('Error fetching missing invoice data', err);
+                }
+            }
+        }
+
+        if (targetsToDownload.length === 0) {
+            toast.error('Could not locate documents for download');
+            return;
+        }
+
+        setIsBatchDownloading(true);
+        setBatchProgress({
+            current: 0,
+            total: targetsToDownload.length,
+            message: 'Initializing ZIP packaging...',
+            percent: 0
+        });
+
+        try {
+            const result = await downloadInvoicesAsZip({
+                invoices: targetsToDownload,
+                companySettings: settings.company,
+                financeSettings: settings.finance,
+                copyType,
+                onProgress: (prog) => {
+                    setBatchProgress(prog);
+                },
+                getToken
+            });
+
+            if (result.success) {
+                if (result.failedCount > 0) {
+                    toast.warning(`Downloaded ${result.count} documents. ${result.failedCount} had errors (see report in ZIP).`);
+                } else {
+                    toast.success(`Successfully downloaded ${result.count} documents in ZIP!`);
+                }
+                setSelectedIds(new Set());
+                setShowBatchModal(false);
+            }
+        } catch (err: any) {
+            console.error('Batch download error:', err);
+            toast.error(err?.message || 'Failed to download batch ZIP');
+        } finally {
+            setIsBatchDownloading(false);
+            setBatchProgress(null);
+        }
+    };
+
     const hasMore = invoices.length === limit;
 
     const SkeletonRow = () => (
         <tr className="border-b border-slate-50 dark:border-slate-700/50 animate-pulse">
+            <td className="py-4 px-4 text-center"><div className="h-4 w-4 bg-slate-100 dark:bg-slate-700/40 rounded mx-auto" /></td>
             {[48,96,56,72,72,64,56,40].map((w, i) => (
                 <td key={i} className="py-4 px-6"><div className="h-4 bg-slate-100 dark:bg-slate-700/40 rounded" style={{width:`${w}px`}} /></td>
             ))}
@@ -312,6 +419,19 @@ export const InvoicesDashboard: React.FC = () => {
                     </button>
                     <button onClick={() => setShowExportModal(true)} className="flex items-center gap-2 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold border border-slate-200 dark:border-slate-700 rounded-xl text-sm px-4 py-2.5 shadow-sm hover:bg-slate-50 hover:border-emerald-400 dark:hover:border-emerald-600 transition-all cursor-pointer">
                         <FileSpreadsheet size={16} className="text-emerald-600 dark:text-emerald-400" /> Export GST Reports
+                    </button>
+                    <button
+                        onClick={() => setShowBatchModal(true)}
+                        className="flex items-center gap-2 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold border border-slate-200 dark:border-slate-700 rounded-xl text-sm px-4 py-2.5 shadow-sm hover:bg-slate-50 hover:border-amber-400 dark:hover:border-amber-600 transition-all cursor-pointer"
+                        title="Download multiple invoices packaged in a ZIP archive"
+                    >
+                        <Archive size={16} className="text-amber-500" />
+                        <span>Download Multiple (ZIP)</span>
+                        {selectedIds.size > 0 && (
+                            <span className="bg-amber-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full">
+                                {selectedIds.size}
+                            </span>
+                        )}
                     </button>
                     <button onClick={() => navigate('/admin/invoices/new')} className="flex items-center gap-2 bg-[#F59E0B] hover:bg-[#D97706] text-white font-bold rounded-xl text-sm px-5 py-2.5 shadow-lg shadow-[#F59E0B]/20 active:scale-95 transition-all">
                         <Plus size={18} /> New Document
@@ -392,10 +512,84 @@ export const InvoicesDashboard: React.FC = () => {
                         </div>
                     </div>
 
+                    {/* Bulk Selection Action Bar */}
+                    {selectedIds.size > 0 && (
+                        <div className="px-6 py-3 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/20 dark:to-orange-950/20 border-b border-amber-200 dark:border-amber-900/40 flex flex-wrap items-center justify-between gap-3 animate-in fade-in duration-200">
+                            <div className="flex items-center gap-3">
+                                <span className="text-xs font-bold text-amber-900 dark:text-amber-300 flex items-center gap-2">
+                                    <CheckSquare size={16} className="text-amber-600 dark:text-amber-400" />
+                                    <span className="font-extrabold">{selectedIds.size}</span> {selectedIds.size === 1 ? 'document' : 'documents'} selected
+                                </span>
+                                <span className="text-slate-300 dark:text-slate-600">•</span>
+                                <button
+                                    onClick={handleClearSelection}
+                                    className="text-xs font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition-colors underline cursor-pointer"
+                                >
+                                    Deselect all
+                                </button>
+                                {invoices.length > selectedIds.size && (
+                                    <button
+                                        onClick={() => handleSelectAllVisible(true)}
+                                        className="text-xs font-semibold text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300 transition-colors underline cursor-pointer"
+                                    >
+                                        Select all {invoices.length} on this page
+                                    </button>
+                                )}
+                            </div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider hidden sm:inline-block">Download ZIP:</span>
+                                <button
+                                    disabled={isBatchDownloading}
+                                    onClick={() => executeBatchDownload('ORIGINAL')}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-[#F59E0B] hover:bg-[#D97706] text-white shadow-sm transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+                                    title="Download original invoice copies packaged in ZIP"
+                                >
+                                    <Archive size={14} />
+                                    <span>Original Copy (ZIP)</span>
+                                </button>
+                                <button
+                                    disabled={isBatchDownloading}
+                                    onClick={() => executeBatchDownload('DUPLICATE')}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 shadow-sm transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+                                    title="Download duplicate copies packaged in ZIP"
+                                >
+                                    <Download size={14} className="text-slate-400" />
+                                    <span>Duplicate Copy (ZIP)</span>
+                                </button>
+                                <button
+                                    disabled={isBatchDownloading}
+                                    onClick={() => executeBatchDownload('BOTH')}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-900 hover:bg-black text-amber-400 border border-slate-800 shadow-sm transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+                                    title="Download both original and duplicate copies organized in folders"
+                                >
+                                    <FolderArchive size={14} />
+                                    <span>Both Copies (ZIP)</span>
+                                </button>
+                                <button
+                                    onClick={() => setShowBatchModal(true)}
+                                    className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold text-amber-800 dark:text-amber-300 hover:bg-amber-100/60 dark:hover:bg-amber-950/40 border border-amber-300 dark:border-amber-800/60 transition-colors cursor-pointer"
+                                    title="Open advanced download options (Date Range, Months, Subfolders)"
+                                >
+                                    <CalendarRange size={13} />
+                                    <span>By Month / Date Range…</span>
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
                     <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse">
                             <thead>
                                 <tr className="border-b border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50">
+                                    <th className="py-4 px-4 w-12 text-center">
+                                        <input
+                                            type="checkbox"
+                                            checked={invoices.length > 0 && invoices.every(inv => selectedIds.has(inv.id))}
+                                            onChange={e => handleSelectAllVisible(e.target.checked)}
+                                            className="rounded border-slate-300 dark:border-slate-600 text-amber-500 focus:ring-amber-500/20 cursor-pointer size-4"
+                                            title="Select / Deselect all visible on this page"
+                                        />
+                                    </th>
                                     {['Document #','Client','Type','Date','Due Date','Amount','Status','Actions'].map((h,i) => (
                                         <th key={h} className={`py-4 px-6 text-xs font-bold text-slate-500 uppercase tracking-wider ${i===7?'text-right':''}`}>{h}</th>
                                     ))}
@@ -404,7 +598,7 @@ export const InvoicesDashboard: React.FC = () => {
                             <tbody>
                                 {loading ? Array.from({length:5}).map((_,i) => <SkeletonRow key={i}/>) :
                                 invoices.length === 0 ? (
-                                    <tr><td colSpan={8} className="py-16 text-center">
+                                    <tr><td colSpan={9} className="py-16 text-center">
                                         <div className="flex flex-col items-center gap-3 text-slate-400">
                                             <FileText size={36} strokeWidth={1.5}/>
                                             <p className="font-semibold text-sm">No documents found</p>
@@ -412,7 +606,15 @@ export const InvoicesDashboard: React.FC = () => {
                                         </div>
                                     </td></tr>
                                 ) : invoices.map(inv => (
-                                    <tr key={inv.id} className="border-b border-slate-50 dark:border-slate-700/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/30 transition-colors group">
+                                    <tr key={inv.id} className={`border-b border-slate-50 dark:border-slate-700/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/30 transition-colors group ${selectedIds.has(inv.id) ? 'bg-amber-50/50 dark:bg-amber-950/20' : ''}`}>
+                                        <td className="py-4 px-4 text-center" onClick={e => e.stopPropagation()}>
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedIds.has(inv.id)}
+                                                onChange={() => handleToggleSelect(inv.id)}
+                                                className="rounded border-slate-300 dark:border-slate-600 text-amber-500 focus:ring-amber-500/20 cursor-pointer size-4"
+                                            />
+                                        </td>
                                         <td className="py-4 px-6 font-mono text-xs font-bold">
                                             {inv.invoice_no ? (
                                                 <div className="flex items-center gap-1.5">
@@ -806,6 +1008,62 @@ export const InvoicesDashboard: React.FC = () => {
                 isOpen={showExportModal}
                 onClose={() => setShowExportModal(false)}
             />
+
+            {/* Comprehensive Batch Invoices Download Modal (Date Range, Month, Multi-Month, Selection) */}
+            <BatchInvoicesDownloadModal
+                isOpen={showBatchModal}
+                onClose={() => setShowBatchModal(false)}
+                selectedInvoices={invoices.filter(inv => selectedIds.has(inv.id))}
+                onClearSelection={handleClearSelection}
+                companySettings={settings.company}
+                financeSettings={settings.finance}
+                getToken={getToken}
+                onStartDownload={(prog) => {
+                    setIsBatchDownloading(true);
+                    setBatchProgress(prog);
+                }}
+                onFinishDownload={() => {
+                    setIsBatchDownloading(false);
+                    setBatchProgress(null);
+                }}
+            />
+
+            {/* Batch Progress Modal */}
+            {batchProgress && (
+                <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl p-6 sm:p-8 w-full max-w-md text-center space-y-5 animate-in zoom-in-95 duration-200">
+                        <div className="w-16 h-16 rounded-2xl bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 mx-auto flex items-center justify-center shadow-inner">
+                            <Archive size={32} className="animate-bounce" />
+                        </div>
+                        
+                        <div>
+                            <h3 className="text-lg font-black text-slate-900 dark:text-white">Compiling Invoices ZIP</h3>
+                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Generating official Rule 46 PDFs and compressing into a single ZIP archive.</p>
+                        </div>
+
+                        <div className="space-y-2">
+                            <div className="flex justify-between text-xs font-bold text-slate-600 dark:text-slate-300">
+                                <span className="truncate max-w-[240px] text-left">{batchProgress.message}</span>
+                                <span className="font-mono text-amber-600 dark:text-amber-400">{batchProgress.percent}%</span>
+                            </div>
+                            <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2.5 overflow-hidden border border-slate-200/50 dark:border-slate-700/50">
+                                <div
+                                    className="bg-gradient-to-r from-amber-500 to-orange-500 h-2.5 rounded-full transition-all duration-300 ease-out"
+                                    style={{ width: `${batchProgress.percent}%` }}
+                                />
+                            </div>
+                            <p className="text-[11px] text-slate-400 font-mono">
+                                Processed {batchProgress.current} of {batchProgress.total} documents
+                            </p>
+                        </div>
+
+                        <div className="p-3 bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/40 rounded-xl text-[11px] text-amber-800 dark:text-amber-300 flex items-center gap-2 text-left">
+                            <AlertCircle size={15} className="flex-shrink-0 text-amber-600" />
+                            <span>Please keep this window open while PDFs are being generated and compressed.</span>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

@@ -6681,12 +6681,43 @@ app.post('/api/bulk-fetch', async (req, res) => {
 
                         if (targetStaffIds.length > 0) {
                             const myDataTables = ['leads', 'bookings', 'follow_ups', 'tasks'];
-                            if (table === 'leads' || table === 'bookings') {
+                            if (table === 'leads') {
                                 const placeholders = targetStaffIds.map(() => '?').join(',');
                                 const jsonChecks = targetStaffIds.map(() => 
                                     `(JSON_CONTAINS(COALESCE(\`assigned_staff_ids\`, '[]'), ?) OR JSON_CONTAINS(COALESCE(\`assigned_staff_ids\`, '[]'), ?))`
                                 ).join(' OR ');
-                                whereClauses.push(`(\`assigned_to\` IN (${placeholders}) OR ${jsonChecks})`);
+                                const bChecks1 = targetStaffIds.map(() => 
+                                    `(JSON_CONTAINS(COALESCE(b_sub1.assigned_staff_ids, '[]'), ?) OR JSON_CONTAINS(COALESCE(b_sub1.assigned_staff_ids, '[]'), ?))`
+                                ).join(' OR ');
+                                const bChecks2 = targetStaffIds.map(() => 
+                                    `(JSON_CONTAINS(COALESCE(b_sub2.assigned_staff_ids, '[]'), ?) OR JSON_CONTAINS(COALESCE(b_sub2.assigned_staff_ids, '[]'), ?))`
+                                ).join(' OR ');
+                                whereClauses.push(`(
+                                    (\`assigned_to\` IN (${placeholders}) OR ${jsonChecks})
+                                    OR \`id\` IN (SELECT b_sub1.lead_id FROM bookings b_sub1 WHERE b_sub1.lead_id IS NOT NULL AND (b_sub1.assigned_to IN (${placeholders}) OR ${bChecks1}))
+                                    OR \`converted_booking_id\` IN (SELECT b_sub2.id FROM bookings b_sub2 WHERE (b_sub2.assigned_to IN (${placeholders}) OR ${bChecks2}))
+                                )`);
+                                params.push(...targetStaffIds, ...targetStaffIds.flatMap(id => [JSON.stringify(Number(id)), JSON.stringify(String(id))]));
+                                params.push(...targetStaffIds, ...targetStaffIds.flatMap(id => [JSON.stringify(Number(id)), JSON.stringify(String(id))]));
+                                params.push(...targetStaffIds, ...targetStaffIds.flatMap(id => [JSON.stringify(Number(id)), JSON.stringify(String(id))]));
+                            } else if (table === 'bookings') {
+                                const placeholders = targetStaffIds.map(() => '?').join(',');
+                                const jsonChecks = targetStaffIds.map(() => 
+                                    `(JSON_CONTAINS(COALESCE(\`assigned_staff_ids\`, '[]'), ?) OR JSON_CONTAINS(COALESCE(\`assigned_staff_ids\`, '[]'), ?))`
+                                ).join(' OR ');
+                                const lChecks1 = targetStaffIds.map(() => 
+                                    `(JSON_CONTAINS(COALESCE(l_sub1.assigned_staff_ids, '[]'), ?) OR JSON_CONTAINS(COALESCE(l_sub1.assigned_staff_ids, '[]'), ?))`
+                                ).join(' OR ');
+                                const lChecks2 = targetStaffIds.map(() => 
+                                    `(JSON_CONTAINS(COALESCE(l_sub2.assigned_staff_ids, '[]'), ?) OR JSON_CONTAINS(COALESCE(l_sub2.assigned_staff_ids, '[]'), ?))`
+                                ).join(' OR ');
+                                whereClauses.push(`(
+                                    (\`assigned_to\` IN (${placeholders}) OR ${jsonChecks})
+                                    OR \`lead_id\` IN (SELECT l_sub1.id FROM leads l_sub1 WHERE (l_sub1.assigned_to IN (${placeholders}) OR ${lChecks1}))
+                                    OR \`id\` IN (SELECT l_sub2.converted_booking_id FROM leads l_sub2 WHERE l_sub2.converted_booking_id IS NOT NULL AND (l_sub2.assigned_to IN (${placeholders}) OR ${lChecks2}))
+                                )`);
+                                params.push(...targetStaffIds, ...targetStaffIds.flatMap(id => [JSON.stringify(Number(id)), JSON.stringify(String(id))]));
+                                params.push(...targetStaffIds, ...targetStaffIds.flatMap(id => [JSON.stringify(Number(id)), JSON.stringify(String(id))]));
                                 params.push(...targetStaffIds, ...targetStaffIds.flatMap(id => [JSON.stringify(Number(id)), JSON.stringify(String(id))]));
                             } else if (myDataTables.includes(table)) {
                                 whereClauses.push(`\`assigned_to\` IN (${targetStaffIds.map(() => '?').join(',')})`);
@@ -7826,12 +7857,43 @@ app.get('/api/crud/:table', optionalAuthMiddleware, injectPackageStatusFilter, v
 
             if (staffIds.length > 0) {
                 const myDataTables = ['leads', 'bookings', 'follow_ups', 'tasks'];
-                if (table === 'leads' || table === 'bookings') {
+                if (table === 'leads') {
                     const placeholders = staffIds.map(() => '?').join(',');
                     const jsonChecks = staffIds.map(() => 
                         `(JSON_CONTAINS(COALESCE(\`assigned_staff_ids\`, '[]'), ?) OR JSON_CONTAINS(COALESCE(\`assigned_staff_ids\`, '[]'), ?))`
                     ).join(' OR ');
-                    whereClauses.push(`(\`assigned_to\` IN (${placeholders}) OR ${jsonChecks})`);
+                    const bChecks1 = staffIds.map(() => 
+                        `(JSON_CONTAINS(COALESCE(b_sub1.assigned_staff_ids, '[]'), ?) OR JSON_CONTAINS(COALESCE(b_sub1.assigned_staff_ids, '[]'), ?))`
+                    ).join(' OR ');
+                    const bChecks2 = staffIds.map(() => 
+                        `(JSON_CONTAINS(COALESCE(b_sub2.assigned_staff_ids, '[]'), ?) OR JSON_CONTAINS(COALESCE(b_sub2.assigned_staff_ids, '[]'), ?))`
+                    ).join(' OR ');
+                    whereClauses.push(`(
+                        (\`assigned_to\` IN (${placeholders}) OR ${jsonChecks})
+                        OR \`id\` IN (SELECT b_sub1.lead_id FROM bookings b_sub1 WHERE b_sub1.lead_id IS NOT NULL AND (b_sub1.assigned_to IN (${placeholders}) OR ${bChecks1}))
+                        OR \`converted_booking_id\` IN (SELECT b_sub2.id FROM bookings b_sub2 WHERE (b_sub2.assigned_to IN (${placeholders}) OR ${bChecks2}))
+                    )`);
+                    params.push(...staffIds, ...staffIds.flatMap(id => [JSON.stringify(Number(id)), JSON.stringify(String(id))]));
+                    params.push(...staffIds, ...staffIds.flatMap(id => [JSON.stringify(Number(id)), JSON.stringify(String(id))]));
+                    params.push(...staffIds, ...staffIds.flatMap(id => [JSON.stringify(Number(id)), JSON.stringify(String(id))]));
+                } else if (table === 'bookings') {
+                    const placeholders = staffIds.map(() => '?').join(',');
+                    const jsonChecks = staffIds.map(() => 
+                        `(JSON_CONTAINS(COALESCE(\`assigned_staff_ids\`, '[]'), ?) OR JSON_CONTAINS(COALESCE(\`assigned_staff_ids\`, '[]'), ?))`
+                    ).join(' OR ');
+                    const lChecks1 = staffIds.map(() => 
+                        `(JSON_CONTAINS(COALESCE(l_sub1.assigned_staff_ids, '[]'), ?) OR JSON_CONTAINS(COALESCE(l_sub1.assigned_staff_ids, '[]'), ?))`
+                    ).join(' OR ');
+                    const lChecks2 = staffIds.map(() => 
+                        `(JSON_CONTAINS(COALESCE(l_sub2.assigned_staff_ids, '[]'), ?) OR JSON_CONTAINS(COALESCE(l_sub2.assigned_staff_ids, '[]'), ?))`
+                    ).join(' OR ');
+                    whereClauses.push(`(
+                        (\`assigned_to\` IN (${placeholders}) OR ${jsonChecks})
+                        OR \`lead_id\` IN (SELECT l_sub1.id FROM leads l_sub1 WHERE (l_sub1.assigned_to IN (${placeholders}) OR ${lChecks1}))
+                        OR \`id\` IN (SELECT l_sub2.converted_booking_id FROM leads l_sub2 WHERE l_sub2.converted_booking_id IS NOT NULL AND (l_sub2.assigned_to IN (${placeholders}) OR ${lChecks2}))
+                    )`);
+                    params.push(...staffIds, ...staffIds.flatMap(id => [JSON.stringify(Number(id)), JSON.stringify(String(id))]));
+                    params.push(...staffIds, ...staffIds.flatMap(id => [JSON.stringify(Number(id)), JSON.stringify(String(id))]));
                     params.push(...staffIds, ...staffIds.flatMap(id => [JSON.stringify(Number(id)), JSON.stringify(String(id))]));
                 } else if (myDataTables.includes(table)) {
                     whereClauses.push(`\`assigned_to\` IN (${staffIds.map(() => '?').join(',')})`);
@@ -8446,35 +8508,74 @@ app.post('/api/crud/:table', authMiddleware, validateTable, writeGuard, permissi
 });
 
 // Helper: Cascade lead assignment changes to all converted/linked bookings
-async function cascadeLeadAssigneeToBookings(leadId, newAssignee) {
-    if (!leadId || !newAssignee) return;
+async function cascadeLeadAssigneeToBookings(leadId, newAssignee, newStaffIds = null) {
+    if (!leadId) return;
     try {
+        let staffIdsJson = null;
+        if (newStaffIds) {
+            staffIdsJson = typeof newStaffIds === 'string' ? newStaffIds : JSON.stringify(newStaffIds);
+        } else if (newAssignee) {
+            staffIdsJson = JSON.stringify([Number(newAssignee)]);
+        } else {
+            staffIdsJson = JSON.stringify([]);
+        }
+        const primary = newAssignee ? Number(newAssignee) : (newStaffIds && Array.isArray(newStaffIds) && newStaffIds.length > 0 ? Number(newStaffIds[0]) : null);
+
         // 1. Update bookings linked by lead_id or by leads.converted_booking_id
         await pool.query(`
             UPDATE bookings 
-            SET assigned_to = ? 
+            SET assigned_to = ?, assigned_staff_ids = ? 
             WHERE lead_id = ? 
                OR id = (SELECT converted_booking_id FROM leads WHERE id = ? AND converted_booking_id IS NOT NULL AND converted_booking_id != '')
-        `, [newAssignee, leadId, leadId]);
+        `, [primary, staffIdsJson, leadId, leadId]);
 
-        // 2. Fallback for legacy unlinked bookings: match by email/phone
-        const [[lead]] = await pool.query("SELECT email, phone FROM leads WHERE id = ?", [leadId]);
-        if (lead && (lead.email || lead.phone)) {
-            const cleanEmail = (lead.email || '').trim().toLowerCase();
-            const cleanPhone = (lead.phone || '').replace(/\D/g, '');
-            if (cleanEmail || cleanPhone) {
-                await pool.query(`
-                    UPDATE bookings 
-                    SET assigned_to = ? 
-                    WHERE (customer_email = ? AND customer_email != '') 
-                       OR (customer_phone = ? AND customer_phone != '')
-                       OR (REPLACE(customer_phone, ' ', '') LIKE CONCAT('%', ?, '%') AND customer_phone != '')
-                `, [newAssignee, cleanEmail || null, cleanPhone || null, cleanPhone ? cleanPhone.slice(-10) : 'NOMATCH']);
-            }
-        }
-        console.log(`[CascadeAssignee] Successfully propagated lead ${leadId} assignment to staff ID ${newAssignee}`);
+        // 2. Also update checklist tasks for linked bookings
+        await pool.query(`
+            UPDATE tasks
+            SET assigned_to = ?
+            WHERE (related_booking_id IN (SELECT id FROM bookings WHERE lead_id = ?) OR related_lead_id = ?)
+              AND category = 'checklist' AND status = 'Pending'
+        `, [primary, leadId, leadId]);
+
+        console.log(`[CascadeAssignee] Successfully propagated lead ${leadId} assignment to bookings (staff: ${primary}, ids: ${staffIdsJson})`);
     } catch (err) {
         console.warn(`[CascadeAssignee] Failed to propagate lead ${leadId} assignment to bookings:`, err.message);
+    }
+}
+
+// Helper: Cascade booking assignment changes to the linked lead
+async function cascadeBookingAssigneeToLead(bookingId, newAssignee, newStaffIds = null) {
+    if (!bookingId) return;
+    try {
+        let staffIdsJson = null;
+        if (newStaffIds) {
+            staffIdsJson = typeof newStaffIds === 'string' ? newStaffIds : JSON.stringify(newStaffIds);
+        } else if (newAssignee) {
+            staffIdsJson = JSON.stringify([Number(newAssignee)]);
+        } else {
+            staffIdsJson = JSON.stringify([]);
+        }
+        const primary = newAssignee ? Number(newAssignee) : (newStaffIds && Array.isArray(newStaffIds) && newStaffIds.length > 0 ? Number(newStaffIds[0]) : null);
+
+        // Find linked lead by lead_id or by converted_booking_id
+        await pool.query(`
+            UPDATE leads
+            SET assigned_to = ?, assigned_staff_ids = ? 
+            WHERE id = (SELECT lead_id FROM bookings WHERE id = ? AND lead_id IS NOT NULL AND lead_id != '')
+               OR converted_booking_id = ?
+        `, [primary, staffIdsJson, bookingId, bookingId]);
+
+        // Also update checklist tasks for this booking and its linked lead
+        await pool.query(`
+            UPDATE tasks
+            SET assigned_to = ?
+            WHERE (related_booking_id = ? OR related_lead_id = (SELECT lead_id FROM bookings WHERE id = ?))
+              AND category = 'checklist' AND status = 'Pending'
+        `, [primary, bookingId, bookingId]);
+
+        console.log(`[CascadeAssignee] Successfully propagated booking ${bookingId} assignment to linked lead (staff: ${primary}, ids: ${staffIdsJson})`);
+    } catch (err) {
+        console.warn(`[CascadeAssignee] Failed to propagate booking ${bookingId} assignment to lead:`, err.message);
     }
 }
 
@@ -8511,24 +8612,20 @@ app.put('/api/crud/:table/:id', authMiddleware, validateTable, writeGuard, permi
                     body.assigned_staff_ids = JSON.stringify(cleanIds);
                     if (body.assigned_to === undefined) {
                         body.assigned_to = cleanIds.length > 0 ? cleanIds[0] : null;
+                    } else if (body.assigned_to) {
+                        const pri = Number(body.assigned_to);
+                        if (!cleanIds.includes(pri) && cleanIds.length > 0) {
+                            body.assigned_to = cleanIds[0];
+                        }
                     }
                 }
             } else if (body.assigned_to !== undefined) {
                 if (body.assigned_to) {
                     const primaryId = Number(body.assigned_to);
-                    let existingIds = [];
-                    const rawOld = table === 'leads' ? oldLead?.assigned_staff_ids : oldBooking?.assigned_staff_ids;
-                    if (rawOld) {
-                        try {
-                            const p = typeof rawOld === 'string' ? JSON.parse(rawOld) : rawOld;
-                            if (Array.isArray(p)) existingIds = p.map(Number);
-                        } catch (_) {}
-                    }
-                    if (!existingIds.includes(primaryId)) {
-                        existingIds = [primaryId, ...existingIds];
-                    }
-                    body.assigned_staff_ids = JSON.stringify(existingIds);
+                    // Explicitly set assigned_staff_ids to the single primary ID to avoid accumulating obsolete staff IDs
+                    body.assigned_staff_ids = JSON.stringify([primaryId]);
                 } else {
+                    body.assigned_to = null;
                     body.assigned_staff_ids = JSON.stringify([]);
                 }
             }
@@ -8621,14 +8718,14 @@ app.put('/api/crud/:table/:id', authMiddleware, validateTable, writeGuard, permi
                 await generateLeadPlaybook(id, newStatus, newAssignee, req.user?.email);
             }
             
-            if (assigneeChanged) {
+            if (assigneeChanged || body.assigned_staff_ids !== undefined) {
                 sendAgentIntroductionEmail(id);
                 await pool.query(
                     "UPDATE tasks SET assigned_to = ? WHERE related_lead_id = ? AND category = 'checklist' AND status = 'Pending'",
                     [newAssignee, id]
                 );
                 // Propagate assignment to all associated converted bookings
-                await cascadeLeadAssigneeToBookings(id, newAssignee);
+                await cascadeLeadAssigneeToBookings(id, newAssignee, body.assigned_staff_ids);
             }
             
             // Fallback: if no checklist tasks exist, generate them
@@ -8651,11 +8748,14 @@ app.put('/api/crud/:table/:id', authMiddleware, validateTable, writeGuard, permi
             
             if (typeChanged) {
                 await generateBookingPlaybook(id, newType, newAssignee, req.user?.email);
-            } else if (assigneeChanged) {
+            }
+            if (assigneeChanged || body.assigned_staff_ids !== undefined) {
                 await pool.query(
                     "UPDATE tasks SET assigned_to = ? WHERE related_booking_id = ? AND category = 'checklist' AND status = 'Pending'",
                     [newAssignee, id]
                 );
+                // Propagate booking assignment to linked lead
+                await cascadeBookingAssigneeToLead(id, newAssignee, body.assigned_staff_ids);
             }
             
             // Fallback: if no checklist tasks exist, generate them
@@ -10106,7 +10206,19 @@ app.get('/api/bookings-with-package', authMiddleware, async (req, res) => {
                 const jsonChecks = staffIds.map(() => 
                     `(JSON_CONTAINS(COALESCE(b.assigned_staff_ids, '[]'), ?) OR JSON_CONTAINS(COALESCE(b.assigned_staff_ids, '[]'), ?))`
                 ).join(' OR ');
-                bookingsQuery += ` WHERE (b.assigned_to IN (${placeholders}) OR ${jsonChecks})`;
+                const lChecks1 = staffIds.map(() => 
+                    `(JSON_CONTAINS(COALESCE(l_sub1.assigned_staff_ids, '[]'), ?) OR JSON_CONTAINS(COALESCE(l_sub1.assigned_staff_ids, '[]'), ?))`
+                ).join(' OR ');
+                const lChecks2 = staffIds.map(() => 
+                    `(JSON_CONTAINS(COALESCE(l_sub2.assigned_staff_ids, '[]'), ?) OR JSON_CONTAINS(COALESCE(l_sub2.assigned_staff_ids, '[]'), ?))`
+                ).join(' OR ');
+                bookingsQuery += ` WHERE (
+                    (b.assigned_to IN (${placeholders}) OR ${jsonChecks})
+                    OR b.lead_id IN (SELECT l_sub1.id FROM leads l_sub1 WHERE (l_sub1.assigned_to IN (${placeholders}) OR ${lChecks1}))
+                    OR b.id IN (SELECT l_sub2.converted_booking_id FROM leads l_sub2 WHERE l_sub2.converted_booking_id IS NOT NULL AND (l_sub2.assigned_to IN (${placeholders}) OR ${lChecks2}))
+                )`;
+                params.push(...staffIds, ...staffIds.flatMap(id => [JSON.stringify(Number(id)), JSON.stringify(String(id))]));
+                params.push(...staffIds, ...staffIds.flatMap(id => [JSON.stringify(Number(id)), JSON.stringify(String(id))]));
                 params.push(...staffIds, ...staffIds.flatMap(id => [JSON.stringify(Number(id)), JSON.stringify(String(id))]));
             }
         }
@@ -10237,7 +10349,19 @@ app.get('/api/leads-with-logs', authMiddleware, async (req, res) => {
                 const jsonChecks = staffIds.map(() => 
                     `(JSON_CONTAINS(COALESCE(l.assigned_staff_ids, '[]'), ?) OR JSON_CONTAINS(COALESCE(l.assigned_staff_ids, '[]'), ?))`
                 ).join(' OR ');
-                leadsQuery += ` WHERE (l.assigned_to IN (${placeholders}) OR ${jsonChecks})`;
+                const bChecks1 = staffIds.map(() => 
+                    `(JSON_CONTAINS(COALESCE(b_sub1.assigned_staff_ids, '[]'), ?) OR JSON_CONTAINS(COALESCE(b_sub1.assigned_staff_ids, '[]'), ?))`
+                ).join(' OR ');
+                const bChecks2 = staffIds.map(() => 
+                    `(JSON_CONTAINS(COALESCE(b_sub2.assigned_staff_ids, '[]'), ?) OR JSON_CONTAINS(COALESCE(b_sub2.assigned_staff_ids, '[]'), ?))`
+                ).join(' OR ');
+                leadsQuery += ` WHERE (
+                    (l.assigned_to IN (${placeholders}) OR ${jsonChecks})
+                    OR l.id IN (SELECT b_sub1.lead_id FROM bookings b_sub1 WHERE b_sub1.lead_id IS NOT NULL AND (b_sub1.assigned_to IN (${placeholders}) OR ${bChecks1}))
+                    OR l.converted_booking_id IN (SELECT b_sub2.id FROM bookings b_sub2 WHERE (b_sub2.assigned_to IN (${placeholders}) OR ${bChecks2}))
+                )`;
+                params.push(...staffIds, ...staffIds.flatMap(id => [JSON.stringify(Number(id)), JSON.stringify(String(id))]));
+                params.push(...staffIds, ...staffIds.flatMap(id => [JSON.stringify(Number(id)), JSON.stringify(String(id))]));
                 params.push(...staffIds, ...staffIds.flatMap(id => [JSON.stringify(Number(id)), JSON.stringify(String(id))]));
             }
         }

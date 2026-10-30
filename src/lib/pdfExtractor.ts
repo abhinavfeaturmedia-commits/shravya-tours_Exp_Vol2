@@ -165,3 +165,43 @@ export async function fileToBase64(file: File): Promise<string> {
     reader.readAsDataURL(file);
   });
 }
+
+/**
+ * Renders the first N pages of a PDF to high-resolution JPEG Data URLs using HTML5 Canvas.
+ * Acts as a crucial fallback for scanned, image-only, or graphical DMC flyers where text extraction yields empty content.
+ */
+export async function renderPdfPagesToImages(file: File, maxPages = 4): Promise<string[]> {
+  try {
+    const pdfjs = await loadPdfJs();
+    const arrayBuffer = await file.arrayBuffer();
+
+    const loadingTask = pdfjs.getDocument({
+      data: new Uint8Array(arrayBuffer),
+      cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
+      cMapPacked: true,
+    });
+
+    const pdfDoc = await loadingTask.promise;
+    const pageCount = Math.min(pdfDoc.numPages, maxPages);
+    const images: string[] = [];
+
+    for (let i = 1; i <= pageCount; i++) {
+      const page = await pdfDoc.getPage(i);
+      // Scale 1.5 provides high OCR clarity while keeping JPEG payload light
+      const viewport = page.getViewport({ scale: 1.5 });
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        images.push(canvas.toDataURL('image/jpeg', 0.82));
+      }
+    }
+
+    return images;
+  } catch (err) {
+    console.warn('[PDF Extractor] Could not render PDF pages to images:', err);
+    return [];
+  }
+}

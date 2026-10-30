@@ -924,14 +924,24 @@ export const Bookings: React.FC = () => {
         );
         const myId = String(currentUser?.id || (currentUser as any)?.staffId || '');
         let matchesAssignment = true;
+        const linkedLead = (leads || []).find(l => 
+            (b.leadId && String(l.id) === String(b.leadId)) ||
+            (l.convertedBookingId && String(l.convertedBookingId) === String(b.id))
+        );
+        const leadAssigned = linkedLead?.assignedTo ? String(linkedLead.assignedTo) : null;
+        const leadStaffList = (linkedLead?.assignedStaffIds || []).map(String);
+
         if (effectiveScope === 'department') {
             const deptStaffIds = staff?.filter(s => s.department === currentUser?.department).map(s => String(s.id)) || [myId];
             const assigned = b.assignedTo ? String(b.assignedTo) : null;
             const staffList = (b.assignedStaffIds || []).map(String);
-            matchesAssignment = (assigned ? deptStaffIds.includes(assigned) : false) || staffList.some(id => deptStaffIds.includes(id)) || (assigned === myId);
+            const bookingMatch = (assigned ? deptStaffIds.includes(assigned) : false) || staffList.some(id => deptStaffIds.includes(id)) || (assigned === myId);
+            const leadMatch = (leadAssigned ? deptStaffIds.includes(leadAssigned) : false) || leadStaffList.some(id => deptStaffIds.includes(id)) || (leadAssigned === myId);
+            matchesAssignment = bookingMatch || leadMatch;
         } else if (effectiveScope === 'assigned') {
-            const isAssigned = String(b.assignedTo) === myId || (b.assignedStaffIds && b.assignedStaffIds.map(String).includes(myId));
-            matchesAssignment = isAssigned;
+            const isBookingAssigned = String(b.assignedTo) === myId || (b.assignedStaffIds && b.assignedStaffIds.map(String).includes(myId));
+            const isLeadAssigned = String(leadAssigned || '') === myId || leadStaffList.includes(myId);
+            matchesAssignment = isBookingAssigned || isLeadAssigned;
         }
 
         return matchesTab && matchesSearch && matchesAssignment;

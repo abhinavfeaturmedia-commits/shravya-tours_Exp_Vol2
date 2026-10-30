@@ -1,252 +1,524 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useData } from '../../context/DataContext';
 import { useAuth } from '../../context/AuthContext';
-import { Task, TaskStatus, TaskPriority, DailyTarget, UserActivity, TimeSession, AssignmentRule, AssignmentStrategy } from '../../types';
+import { Task, TaskStatus, TaskPriority, StaffMember, Lead, Booking } from '../../types';
 import { toast } from 'sonner';
 import {
-    Users, Target, BarChart3, Activity, Plus, Calendar, Clock, CheckCircle2,
-    AlertCircle, TrendingUp, Filter, Search, MoreHorizontal, Edit2, Trash2, X,
-    Trophy, Crown, Medal, Zap, RefreshCw, UserCheck, Flame, Award,
-    Timer, Play, Pause, Square, Settings, Shuffle, GitBranch
+    CheckCircle2, Clock, AlertTriangle, AlertCircle, TrendingUp,
+    Users, Plus, Calendar, Search, Filter, MoreHorizontal, Edit2,
+    Trash2, X, ChevronDown, Download, ArrowRight, UserCheck, Flame,
+    Award, Crown, Check, Sparkles, Kanban, List, BarChart3,
+    ArrowUpDown, ChevronRight, Layers, Briefcase, Eye, ShieldAlert,
+    Repeat, RefreshCw, CalendarDays
 } from 'lucide-react';
 
-// Tab Component
-const TabButton: React.FC<{ active: boolean; onClick: () => void; icon: React.ReactNode; label: string }> = ({ active, onClick, icon, label }) => (
-    <button
-        onClick={onClick}
-        className={`flex items-center gap-2 px-5 py-3 rounded-xl font-semibold text-sm transition-all ${active
-            ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-500/25'
-            : 'text-slate-600 hover:bg-slate-100'
-            }`}
-    >
-        {icon}
-        {label}
-    </button>
-);
+// ── Types ───────────────────────────────────────────────────────────────────
 
-// Status Badge
-const StatusBadge: React.FC<{ status: TaskStatus }> = ({ status }) => {
-    const colors: Record<TaskStatus, string> = {
-        'Pending': 'bg-amber-100 text-amber-700',
-        'In Progress': 'bg-blue-100 text-blue-700',
-        'Completed': 'bg-emerald-100 text-emerald-700',
-        'Overdue': 'bg-red-100 text-red-700'
-    };
-    return <span className={`px-2.5 py-1 rounded-lg text-xs font-bold ${colors[status]}`}>{status}</span>;
+type TimeRange = 'all' | 'today' | 'week' | 'month';
+type ActiveView = 'list' | 'board' | 'reports';
+type RepeatFrequency = 'daily' | 'weekly' | 'custom_days' | 'monthly';
+
+const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+interface EmployeeProductivity {
+    staff: StaffMember;
+    totalAssigned: number;
+    completed: number;
+    inProgress: number;
+    pending: number;
+    overdue: number;
+    completionRate: number;
+    performanceTier: 'Top Performer' | 'On Track' | 'Needs Attention' | 'No Tasks';
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+const isTaskOverdue = (task: Task): boolean => {
+    if (task.status === 'Completed') return false;
+    if (task.status === 'Overdue') return true;
+    if (!task.dueDate) return false;
+
+    const due = new Date(task.dueDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    due.setHours(23, 59, 59, 999);
+    return due.getTime() < today.getTime();
 };
 
-// Priority Badge
-const PriorityBadge: React.FC<{ priority: TaskPriority }> = ({ priority }) => {
-    const colors: Record<TaskPriority, string> = {
-        'Low': 'bg-slate-100 text-slate-600',
-        'Medium': 'bg-blue-100 text-blue-600',
-        'High': 'bg-orange-100 text-orange-600',
-        'Urgent': 'bg-red-100 text-red-600'
-    };
-    return <span className={`px-2 py-0.5 rounded text-xs font-bold ${colors[priority]}`}>{priority}</span>;
+const getDaysDifference = (dateStr: string): number => {
+    if (!dateStr) return 0;
+    const date = new Date(dateStr);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    date.setHours(0, 0, 0, 0);
+    const diffTime = date.getTime() - today.getTime();
+    return Math.round(diffTime / (1000 * 60 * 60 * 24));
+};
+
+const formatDueDateBadge = (dateStr: string, isCompleted: boolean) => {
+    if (!dateStr) return null;
+    const diffDays = getDaysDifference(dateStr);
+
+    if (isCompleted) {
+        return { text: dateStr, color: 'text-slate-400 bg-slate-50 border-slate-200' };
+    }
+    if (diffDays < 0) {
+        return {
+            text: `${Math.abs(diffDays)}d Overdue`,
+            color: 'text-rose-700 bg-rose-50 border-rose-200 font-semibold'
+        };
+    }
+    if (diffDays === 0) {
+        return { text: 'Due Today', color: 'text-amber-700 bg-amber-50 border-amber-200 font-semibold' };
+    }
+    if (diffDays === 1) {
+        return { text: 'Due Tomorrow', color: 'text-sky-700 bg-sky-50 border-sky-200' };
+    }
+    return { text: dateStr, color: 'text-slate-600 bg-slate-50 border-slate-200' };
+};
+
+// Calculate next recurrence date
+const calculateNextDueDate = (currentDueDate: string, freq: RepeatFrequency, days: string[] = [], interval: number = 1): string => {
+    const base = new Date(currentDueDate || new Date());
+    const today = new Date();
+    const start = base.getTime() > today.getTime() ? base : today;
+    const next = new Date(start);
+
+    if (freq === 'daily') {
+        next.setDate(next.getDate() + 1);
+    } else if (freq === 'custom_days') {
+        next.setDate(next.getDate() + (interval > 0 ? interval : 1));
+    } else if (freq === 'monthly') {
+        next.setMonth(next.getMonth() + 1);
+    } else if (freq === 'weekly') {
+        if (!days.length) {
+            next.setDate(next.getDate() + 7);
+        } else {
+            // Find next matching weekday
+            const dayMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+            const targetDayIndices = days.map(d => dayMap[d]).sort();
+            let found = false;
+            for (let i = 1; i <= 7; i++) {
+                const check = new Date(start);
+                check.setDate(check.getDate() + i);
+                if (targetDayIndices.includes(check.getDay())) {
+                    next.setTime(check.getTime());
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) next.setDate(next.getDate() + 7);
+        }
+    }
+
+    return next.toISOString().split('T')[0];
 };
 
 export const Productivity: React.FC = () => {
-    const {
-        tasks, addTask, updateTask, deleteTask, dailyTargets, addDailyTarget, updateDailyTarget,
-        userActivities, logUserActivity, leads, bookings,
-        timeSessions, startTimeSession, updateTimeSession, endTimeSession, getActiveSession,
-        assignmentRules, addAssignmentRule, updateAssignmentRule, deleteAssignmentRule
-    } = useData();
+    const { tasks, addTask, updateTask, deleteTask, leads, bookings } = useData();
     const { staff, currentUser } = useAuth();
-    const [activeTab, setActiveTab] = useState<'activity' | 'tasks' | 'targets' | 'reports' | 'settings'>('activity');
-    const [showTaskModal, setShowTaskModal] = useState(false);
-    const [showTargetModal, setShowTargetModal] = useState(false);
-    const [editingTask, setEditingTask] = useState<Task | null>(null);
-    const [taskFilter, setTaskFilter] = useState<'all' | TaskStatus>('all');
+
+    // ── Primary View & Filter State ──────────────────────────────────────────
+    const [activeView, setActiveView] = useState<ActiveView>('list');
+    const [timeRange, setTimeRange] = useState<TimeRange>('all');
+    const [selectedStaffId, setSelectedStaffId] = useState<string>('all');
+    const [statusFilter, setStatusFilter] = useState<'all' | 'Pending' | 'In Progress' | 'Completed' | 'Overdue'>('all');
+    const [priorityFilter, setPriorityFilter] = useState<'all' | TaskPriority>('all');
     const [searchQuery, setSearchQuery] = useState('');
 
-    // Phase 2 State
+    // ── Bulk & Modal State ───────────────────────────────────────────────────
     const [selectedTasks, setSelectedTasks] = useState<string[]>([]);
-    const [leaderboardPeriod, setLeaderboardPeriod] = useState<'week' | 'month'>('week');
+    const [showTaskModal, setShowTaskModal] = useState(false);
+    const [editingTask, setEditingTask] = useState<Task | null>(null);
 
-    // Phase 3 State - Time Tracking
-    const [timerElapsed, setTimerElapsed] = useState(0);
-    const [isTimerRunning, setIsTimerRunning] = useState(false);
-    const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-    const timerRef = useRef<NodeJS.Timeout | null>(null);
-    const [showRuleModal, setShowRuleModal] = useState(false);
-    const [ruleForm, setRuleForm] = useState({
-        name: '',
-        strategy: 'round-robin' as AssignmentStrategy,
-        triggerOn: 'new-lead' as 'new-lead' | 'new-booking' | 'new-task',
-        eligibleStaffIds: [] as number[],
-        isActive: true
-    });
-
-    // Timer Effect
-    useEffect(() => {
-        if (isTimerRunning) {
-            timerRef.current = setInterval(() => {
-                setTimerElapsed(prev => prev + 1000);
-            }, 1000);
-        } else if (timerRef.current) {
-            clearInterval(timerRef.current);
-        }
-        return () => {
-            if (timerRef.current) clearInterval(timerRef.current);
-        };
-    }, [isTimerRunning]);
-
-    // Timer Handlers
-    const handleStartTimer = () => {
-        if (currentUser) {
-            const sessionId = startTimeSession(currentUser.id);
-            setActiveSessionId(sessionId);
-            setIsTimerRunning(true);
-            setTimerElapsed(0);
-            toast.success('Timer started');
-        }
-    };
-
-    const handlePauseTimer = () => {
-        setIsTimerRunning(false);
-        if (activeSessionId) {
-            updateTimeSession(activeSessionId, { status: 'Paused' });
-        }
-        toast.info('Timer paused');
-    };
-
-    const handleResumeTimer = () => {
-        setIsTimerRunning(true);
-        if (activeSessionId) {
-            updateTimeSession(activeSessionId, { status: 'Active' });
-        }
-    };
-
-    const handleStopTimer = () => {
-        setIsTimerRunning(false);
-        if (activeSessionId) {
-            endTimeSession(activeSessionId);
-            setActiveSessionId(null);
-            setTimerElapsed(0);
-            toast.success('Time session saved');
-        }
-    };
-
-    const formatTime = (ms: number) => {
-        const seconds = Math.floor(ms / 1000) % 60;
-        const minutes = Math.floor(ms / 60000) % 60;
-        const hours = Math.floor(ms / 3600000);
-        return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-    };
-
-    // Rule Handlers
-    const handleAddRule = () => {
-        if (!ruleForm.name) {
-            toast.error('Rule name is required');
-            return;
-        }
-        const rule: AssignmentRule = {
-            id: `RULE-${Date.now()}`,
-            ...ruleForm,
-            priority: assignmentRules.length + 1,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-        };
-        addAssignmentRule(rule);
-        setShowRuleModal(false);
-        setRuleForm({ name: '', strategy: 'round-robin', triggerOn: 'new-lead', eligibleStaffIds: [], isActive: true });
-        toast.success('Assignment rule created');
-    };
-
-
-    // Task Form State
+    // ── Task Form State (with Recurring) ─────────────────────────────────────
     const [taskForm, setTaskForm] = useState({
         title: '',
         description: '',
         assignedTo: 0,
         priority: 'Medium' as TaskPriority,
-        dueDate: '',
+        dueDate: new Date().toISOString().split('T')[0],
+        category: 'General',
         relatedLeadId: '',
-        relatedBookingId: ''
+        relatedBookingId: '',
+        isRecurring: false,
+        repeatFrequency: 'weekly' as RepeatFrequency,
+        repeatDays: ['Mon', 'Wed', 'Fri'] as string[],
+        repeatInterval: 3
     });
 
-    // Target Form State
-    const [targetForm, setTargetForm] = useState({
-        staffId: 0,
-        date: new Date().toISOString().split('T')[0],
-        targetLeads: 5,
-        targetCalls: 10,
-        targetConversions: 2,
-        targetBookings: 1
-    });
+    const getStaffMember = (id: number | string | undefined): StaffMember | undefined => {
+        if (!id) return undefined;
+        return staff.find(s => String(s.id) === String(id));
+    };
 
-    // Filtered & Sorted Tasks
-    const filteredTasks = useMemo(() => {
-        let result = tasks.filter(t => t.source === 'manual');
-        if (taskFilter !== 'all') {
-            result = result.filter(t => t.status === taskFilter);
-        }
-        if (searchQuery) {
-            result = result.filter(t =>
-                t.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                t.description?.toLowerCase().includes(searchQuery.toLowerCase())
-            );
-        }
-        return result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    }, [tasks, taskFilter, searchQuery]);
+    const getStaffName = (id: number | string | undefined): string => {
+        const member = getStaffMember(id);
+        return member?.name || 'Unassigned';
+    };
 
-    // Recent Activities (last 50)
-    const recentActivities = useMemo(() => userActivities.slice(0, 50), [userActivities]);
+    // Clean display resolution for Lead & Booking without UUIDs
+    const getLeadDisplay = (leadId?: string) => {
+        if (!leadId) return null;
+        const l = leads.find(item => item.id === leadId);
+        if (!l) return null;
+        return {
+            name: l.name,
+            code: l.leadNumber ? `LD-${l.leadNumber}` : 'Lead',
+            destination: l.destination
+        };
+    };
 
-    // Online Staff (mock - in real app, this would come from presence tracking)
-    const onlineStaff = useMemo(() => staff.filter(s => s.status === 'Active').slice(0, 5), [staff]);
+    const getBookingDisplay = (bookingId?: string) => {
+        if (!bookingId) return null;
+        const b = bookings.find(item => item.id === bookingId);
+        if (!b) return null;
+        return {
+            customer: b.customer || 'Guest',
+            title: b.title || 'Tour Booking',
+            code: b.bookingNumber ? `BK-${b.bookingNumber}` : 'Booking'
+        };
+    };
 
-    // Leaderboard Data
-    const leaderboardData = useMemo(() => {
+    // ── Scope Isolation: Only Tasks Specifically Created In This Page ────────
+    const productivityTasks = useMemo(() => {
+        return tasks.filter(t => {
+            const isManual = t.source === 'manual';
+            const isExternalChecklist = t.category === 'checklist';
+            return isManual && !isExternalChecklist;
+        });
+    }, [tasks]);
+
+    // ── Time Range Filtering ─────────────────────────────────────────────────
+    const isWithinTimeRange = (dateStr?: string): boolean => {
+        if (timeRange === 'all' || !dateStr) return true;
+        const targetDate = new Date(dateStr);
         const now = new Date();
-        const periodStart = new Date();
-        if (leaderboardPeriod === 'week') {
-            periodStart.setDate(now.getDate() - 7);
-        } else {
-            periodStart.setMonth(now.getMonth() - 1);
+
+        if (timeRange === 'today') {
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            return targetDate >= today;
         }
+        if (timeRange === 'week') {
+            const weekAgo = new Date();
+            weekAgo.setDate(now.getDate() - 7);
+            return targetDate >= weekAgo;
+        }
+        if (timeRange === 'month') {
+            const monthAgo = new Date();
+            monthAgo.setDate(now.getDate() - 30);
+            return targetDate >= monthAgo;
+        }
+        return true;
+    };
 
+    // ── Normalized Tasks (Dynamic Overdue Detection) ─────────────────────────
+    const normalizedTasks = useMemo(() => {
+        return productivityTasks.map(t => {
+            const overdue = isTaskOverdue(t);
+            return {
+                ...t,
+                isOverdue: overdue,
+                effectiveStatus: overdue && t.status !== 'Completed' ? ('Overdue' as TaskStatus) : t.status
+            };
+        });
+    }, [productivityTasks]);
+
+    // ── Tasks Filtered by Staff & Time Range (Scope for Metrics) ──────────────
+    const scopedTasks = useMemo(() => {
+        return normalizedTasks.filter(t => {
+            if (selectedStaffId !== 'all' && String(t.assignedTo) !== String(selectedStaffId)) return false;
+            return isWithinTimeRange(t.createdAt || t.dueDate);
+        });
+    }, [normalizedTasks, selectedStaffId, timeRange]);
+
+    // ── Filtered Tasks for Active Display ────────────────────────────────────
+    const filteredTasks = useMemo(() => {
+        return scopedTasks.filter(t => {
+            // Status Filter
+            if (statusFilter !== 'all') {
+                if (statusFilter === 'Overdue') {
+                    if (!t.isOverdue || t.status === 'Completed') return false;
+                } else if (t.status !== statusFilter) {
+                    return false;
+                }
+            }
+
+            // Priority Filter
+            if (priorityFilter !== 'all' && t.priority !== priorityFilter) {
+                return false;
+            }
+
+            // Search Filter
+            if (searchQuery.trim()) {
+                const q = searchQuery.toLowerCase();
+                const titleMatch = t.title.toLowerCase().includes(q);
+                const descMatch = t.description?.toLowerCase().includes(q);
+                const staffMatch = getStaffName(t.assignedTo).toLowerCase().includes(q);
+                const categoryMatch = t.category?.toLowerCase().includes(q);
+                const leadMatch = getLeadDisplay(t.relatedLeadId)?.name.toLowerCase().includes(q);
+                const bookingMatch = getBookingDisplay(t.relatedBookingId)?.customer.toLowerCase().includes(q);
+                if (!titleMatch && !descMatch && !staffMatch && !categoryMatch && !leadMatch && !bookingMatch) {
+                    return false;
+                }
+            }
+
+            return true;
+        }).sort((a, b) => {
+            if (a.isOverdue && !b.isOverdue && a.status !== 'Completed') return -1;
+            if (!a.isOverdue && b.isOverdue && b.status !== 'Completed') return 1;
+            return new Date(b.createdAt || '').getTime() - new Date(a.createdAt || '').getTime();
+        });
+    }, [scopedTasks, statusFilter, priorityFilter, searchQuery, staff, leads, bookings]);
+
+    // ── Accurate Productivity Metrics ────────────────────────────────────────
+    const metrics = useMemo(() => {
+        const total = scopedTasks.length;
+        const completed = scopedTasks.filter(t => t.status === 'Completed').length;
+        const inProgress = scopedTasks.filter(t => t.status === 'In Progress').length;
+        const pending = scopedTasks.filter(t => t.status === 'Pending').length;
+        const overdue = scopedTasks.filter(t => t.isOverdue && t.status !== 'Completed').length;
+        const activeWorkload = inProgress + pending;
+        const rate = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+        return {
+            total,
+            completed,
+            inProgress,
+            pending,
+            activeWorkload,
+            overdue,
+            rate
+        };
+    }, [scopedTasks]);
+
+    // ── Employee-Wise Productivity Aggregation ───────────────────────────────
+    const employeeReports = useMemo<EmployeeProductivity[]>(() => {
         return staff.map(member => {
-            const memberTasks = tasks.filter(t =>
-                t.assignedTo === member.id &&
-                t.status === 'Completed' &&
-                new Date(t.completedAt || t.createdAt) >= periodStart
-            );
-            const memberTargets = dailyTargets.filter(t =>
-                t.staffId === member.id &&
-                new Date(t.date) >= periodStart
+            const memberTasks = normalizedTasks.filter(t =>
+                String(t.assignedTo) === String(member.id) &&
+                isWithinTimeRange(t.createdAt || t.dueDate)
             );
 
-            const tasksCompleted = memberTasks.length;
-            const targetsAchieved = memberTargets.filter(t =>
-                t.actualLeads >= t.targetLeads &&
-                t.actualCalls >= t.targetCalls
-            ).length;
-            const score = tasksCompleted * 10 + targetsAchieved * 25;
+            const totalAssigned = memberTasks.length;
+            const completed = memberTasks.filter(t => t.status === 'Completed').length;
+            const inProgress = memberTasks.filter(t => t.status === 'In Progress').length;
+            const pending = memberTasks.filter(t => t.status === 'Pending').length;
+            const overdue = memberTasks.filter(t => t.isOverdue && t.status !== 'Completed').length;
+            const completionRate = totalAssigned > 0 ? Math.round((completed / totalAssigned) * 100) : 0;
+
+            let performanceTier: EmployeeProductivity['performanceTier'] = 'No Tasks';
+            if (totalAssigned > 0) {
+                if (completionRate >= 75 && overdue === 0) {
+                    performanceTier = 'Top Performer';
+                } else if (completionRate >= 40 && overdue <= 1) {
+                    performanceTier = 'On Track';
+                } else {
+                    performanceTier = 'Needs Attention';
+                }
+            }
 
             return {
-                ...member,
-                tasksCompleted,
-                targetsAchieved,
-                score
+                staff: member,
+                totalAssigned,
+                completed,
+                inProgress,
+                pending,
+                overdue,
+                completionRate,
+                performanceTier
             };
-        }).sort((a, b) => b.score - a.score).slice(0, 10);
-    }, [staff, tasks, dailyTargets, leaderboardPeriod]);
+        }).sort((a, b) => {
+            if (a.totalAssigned === 0 && b.totalAssigned > 0) return 1;
+            if (a.totalAssigned > 0 && b.totalAssigned === 0) return -1;
+            if (b.completionRate !== a.completionRate) return b.completionRate - a.completionRate;
+            return b.totalAssigned - a.totalAssigned;
+        });
+    }, [staff, normalizedTasks, timeRange]);
 
-    // Quick Stats
-    const quickStats = useMemo(() => {
-        const manualTasks = tasks.filter(t => t.source === 'manual');
-        const pendingTasks = manualTasks.filter(t => t.status === 'Pending').length;
-        const overdueTasks = manualTasks.filter(t => t.status === 'Overdue' || (t.status !== 'Completed' && new Date(t.dueDate) < new Date())).length;
-        const todayTargets = dailyTargets.filter(t => t.date === new Date().toISOString().split('T')[0]).length;
-        const recentLeads = leads.filter(l => new Date(l.createdAt || '').getTime() > Date.now() - 86400000).length;
-        return { pendingTasks, overdueTasks, todayTargets, recentLeads };
-    }, [tasks, dailyTargets, leads]);
+    // ── Task Actions & Recurrence Handlers ────────────────────────────────────
 
-    // Bulk Task Handlers
-    const handleSelectAllTasks = () => {
+    const handleToggleComplete = (task: Task) => {
+        const newStatus: TaskStatus = task.status === 'Completed' ? 'Pending' : 'Completed';
+        const completedAt = newStatus === 'Completed' ? new Date().toISOString() : undefined;
+        const completedBy = newStatus === 'Completed' ? (currentUser?.name || 'Admin') : undefined;
+
+        updateTask(task.id, {
+            status: newStatus,
+            completedAt,
+            completedBy
+        });
+
+        // If completing a recurring task, schedule the next recurrence!
+        if (newStatus === 'Completed' && task.isRecurring && task.repeatFrequency) {
+            const nextDueDate = calculateNextDueDate(
+                task.dueDate,
+                task.repeatFrequency as RepeatFrequency,
+                task.repeatDays,
+                task.repeatInterval
+            );
+
+            const nextTask: Task = {
+                id: `TASK-${Date.now()}`,
+                title: task.title,
+                description: task.description,
+                assignedTo: task.assignedTo,
+                assignedBy: currentUser?.id || task.assignedBy,
+                status: 'Pending',
+                priority: task.priority,
+                dueDate: nextDueDate,
+                createdAt: new Date().toISOString(),
+                category: task.category,
+                relatedLeadId: task.relatedLeadId,
+                relatedBookingId: task.relatedBookingId,
+                source: 'manual',
+                isRecurring: true,
+                repeatFrequency: task.repeatFrequency,
+                repeatDays: task.repeatDays,
+                repeatInterval: task.repeatInterval,
+                repeatRule: task.repeatRule
+            };
+
+            addTask(nextTask);
+            toast.success(`Completed! Next recurrence automatically scheduled for ${nextDueDate}`);
+        } else if (newStatus === 'Completed') {
+            toast.success(`Completed: "${task.title}"`);
+        } else {
+            toast.info(`Reopened: "${task.title}"`);
+        }
+    };
+
+    const handleUpdateStatus = (taskId: string, status: TaskStatus) => {
+        const completedAt = status === 'Completed' ? new Date().toISOString() : undefined;
+        const completedBy = status === 'Completed' ? (currentUser?.name || 'Admin') : undefined;
+
+        updateTask(taskId, {
+            status,
+            completedAt,
+            completedBy
+        });
+        toast.success(`Task status: ${status}`);
+    };
+
+    const handleDeleteTask = (taskId: string) => {
+        if (window.confirm('Delete this task?')) {
+            deleteTask(taskId);
+            toast.success('Task removed');
+        }
+    };
+
+    const handleOpenCreateModal = (presetAssigneeId?: number) => {
+        setEditingTask(null);
+        setTaskForm({
+            title: '',
+            description: '',
+            assignedTo: presetAssigneeId || (currentUser?.id ? Number(currentUser.id) : (staff[0]?.id || 0)),
+            priority: 'Medium',
+            dueDate: new Date().toISOString().split('T')[0],
+            category: 'General',
+            relatedLeadId: '',
+            relatedBookingId: '',
+            isRecurring: false,
+            repeatFrequency: 'weekly',
+            repeatDays: ['Mon', 'Wed', 'Fri'],
+            repeatInterval: 3
+        });
+        setShowTaskModal(true);
+    };
+
+    const handleOpenEditModal = (task: Task) => {
+        setEditingTask(task);
+        setTaskForm({
+            title: task.title,
+            description: task.description || '',
+            assignedTo: Number(task.assignedTo) || 0,
+            priority: task.priority || 'Medium',
+            dueDate: task.dueDate || new Date().toISOString().split('T')[0],
+            category: task.category || 'General',
+            relatedLeadId: task.relatedLeadId || '',
+            relatedBookingId: task.relatedBookingId || '',
+            isRecurring: !!task.isRecurring,
+            repeatFrequency: (task.repeatFrequency as RepeatFrequency) || 'weekly',
+            repeatDays: task.repeatDays || ['Mon', 'Wed', 'Fri'],
+            repeatInterval: task.repeatInterval || 3
+        });
+        setShowTaskModal(true);
+    };
+
+    const handleTaskFormSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!taskForm.title.trim()) {
+            toast.error('Task title is required');
+            return;
+        }
+
+        let repeatRule = '';
+        if (taskForm.isRecurring) {
+            if (taskForm.repeatFrequency === 'daily') {
+                repeatRule = 'Daily';
+            } else if (taskForm.repeatFrequency === 'weekly') {
+                repeatRule = `Weekly: ${taskForm.repeatDays.join(', ') || 'Mon'}`;
+            } else if (taskForm.repeatFrequency === 'custom_days') {
+                repeatRule = `Every ${taskForm.repeatInterval} Days`;
+            } else if (taskForm.repeatFrequency === 'monthly') {
+                repeatRule = 'Monthly';
+            }
+        }
+
+        const taskData: Partial<Task> = {
+            title: taskForm.title.trim(),
+            description: taskForm.description.trim(),
+            assignedTo: taskForm.assignedTo,
+            assignedBy: currentUser?.id || 1,
+            priority: taskForm.priority,
+            dueDate: taskForm.dueDate,
+            category: taskForm.category || 'General',
+            relatedLeadId: taskForm.relatedLeadId || undefined,
+            relatedBookingId: taskForm.relatedBookingId || undefined,
+            source: 'manual',
+            isRecurring: taskForm.isRecurring,
+            repeatFrequency: taskForm.isRecurring ? taskForm.repeatFrequency : undefined,
+            repeatDays: taskForm.isRecurring && taskForm.repeatFrequency === 'weekly' ? taskForm.repeatDays : undefined,
+            repeatInterval: taskForm.isRecurring && taskForm.repeatFrequency === 'custom_days' ? taskForm.repeatInterval : undefined,
+            repeatRule: taskForm.isRecurring ? repeatRule : undefined
+        };
+
+        if (editingTask) {
+            updateTask(editingTask.id, taskData);
+            toast.success('Task updated');
+        } else {
+            const newTask: Task = {
+                id: `TASK-${Date.now()}`,
+                title: taskData.title!,
+                description: taskData.description,
+                assignedTo: taskData.assignedTo!,
+                assignedBy: taskData.assignedBy!,
+                status: 'Pending',
+                priority: taskData.priority!,
+                dueDate: taskData.dueDate!,
+                createdAt: new Date().toISOString(),
+                category: taskData.category,
+                relatedLeadId: taskData.relatedLeadId,
+                relatedBookingId: taskData.relatedBookingId,
+                source: 'manual',
+                isRecurring: taskData.isRecurring,
+                repeatFrequency: taskData.repeatFrequency,
+                repeatDays: taskData.repeatDays,
+                repeatInterval: taskData.repeatInterval,
+                repeatRule: taskData.repeatRule
+            };
+            addTask(newTask);
+            toast.success(taskForm.isRecurring ? 'Recurring task created' : 'New task assigned');
+        }
+
+        setShowTaskModal(false);
+        setEditingTask(null);
+    };
+
+    // ── Bulk Actions ─────────────────────────────────────────────────────────
+
+    const handleSelectAll = () => {
         if (selectedTasks.length === filteredTasks.length) {
             setSelectedTasks([]);
         } else {
@@ -254,948 +526,1667 @@ export const Productivity: React.FC = () => {
         }
     };
 
-    const handleSelectTask = (taskId: string) => {
+    const handleToggleSelectTask = (taskId: string) => {
         setSelectedTasks(prev =>
-            prev.includes(taskId)
-                ? prev.filter(id => id !== taskId)
-                : [...prev, taskId]
+            prev.includes(taskId) ? prev.filter(id => id !== taskId) : [...prev, taskId]
         );
     };
 
-    const handleBulkStatusChange = (status: TaskStatus) => {
+    const handleBulkStatus = (status: TaskStatus) => {
+        if (!selectedTasks.length) return;
         selectedTasks.forEach(id => {
-            updateTask(id, { status, completedAt: status === 'Completed' ? new Date().toISOString() : undefined });
+            updateTask(id, {
+                status,
+                completedAt: status === 'Completed' ? new Date().toISOString() : undefined,
+                completedBy: status === 'Completed' ? (currentUser?.name || 'Admin') : undefined
+            });
         });
-        toast.success(`${selectedTasks.length} tasks marked as ${status}`);
+        toast.success(`Updated ${selectedTasks.length} tasks to ${status}`);
         setSelectedTasks([]);
     };
 
     const handleBulkDelete = () => {
-        if (confirm(`Delete ${selectedTasks.length} selected tasks?`)) {
+        if (!selectedTasks.length) return;
+        if (window.confirm(`Delete ${selectedTasks.length} selected tasks?`)) {
             selectedTasks.forEach(id => deleteTask(id));
-            toast.success(`${selectedTasks.length} tasks deleted`);
+            toast.success(`Deleted ${selectedTasks.length} tasks`);
             setSelectedTasks([]);
         }
     };
 
-    const handleBulkReassign = (newAssignee: number) => {
-        selectedTasks.forEach(id => updateTask(id, { assignedTo: newAssignee }));
-        toast.success(`${selectedTasks.length} tasks reassigned`);
-        setSelectedTasks([]);
-    };
+    // ── Export CSV Report ────────────────────────────────────────────────────
+    const handleExportReport = () => {
+        const rows = employeeReports.map(emp => ({
+            Employee: emp.staff.name,
+            Role: emp.staff.role,
+            TotalAssigned: emp.totalAssigned,
+            Completed: emp.completed,
+            InProgress: emp.inProgress,
+            Pending: emp.pending,
+            Overdue: emp.overdue,
+            CompletionRate: `${emp.completionRate}%`,
+            StatusTier: emp.performanceTier
+        }));
 
-
-    // Handle Task Submit
-    const handleTaskSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!taskForm.title || !taskForm.assignedTo || !taskForm.dueDate) {
-            toast.error('Please fill all required fields');
+        if (!rows.length) {
+            toast.error('No employee report data to export');
             return;
         }
 
-        const newTask: Task = {
-            id: editingTask?.id || `TASK-${Date.now()}`,
-            title: taskForm.title,
-            description: taskForm.description,
-            assignedTo: taskForm.assignedTo,
-            assignedBy: currentUser?.id || 0,
-            status: editingTask?.status || 'Pending',
-            priority: taskForm.priority,
-            dueDate: taskForm.dueDate,
-            createdAt: editingTask?.createdAt || new Date().toISOString(),
-            relatedLeadId: taskForm.relatedLeadId || undefined,
-            relatedBookingId: taskForm.relatedBookingId || undefined,
-            source: editingTask?.source || 'manual'
-        };
+        const headers = Object.keys(rows[0]);
+        const csvContent = [
+            headers.join(','),
+            ...rows.map(r => headers.map(h => JSON.stringify(r[h as keyof typeof r] ?? '')).join(','))
+        ].join('\n');
 
-        if (editingTask) {
-            updateTask(editingTask.id, newTask);
-            toast.success('Task updated');
-        } else {
-            addTask(newTask);
-            toast.success('Task created');
-        }
-
-        setShowTaskModal(false);
-        setEditingTask(null);
-        setTaskForm({ title: '', description: '', assignedTo: 0, priority: 'Medium', dueDate: '', relatedLeadId: '', relatedBookingId: '' });
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', `Team_Productivity_Report_${new Date().toISOString().split('T')[0]}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        toast.success('Productivity report exported');
     };
 
-    // Handle Target Submit
-    const handleTargetSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!targetForm.staffId || !targetForm.date) {
-            toast.error('Please select staff and date');
-            return;
-        }
-
-        const newTarget: DailyTarget = {
-            id: `TGT-${Date.now()}`,
-            staffId: targetForm.staffId,
-            date: targetForm.date,
-            targetLeads: targetForm.targetLeads,
-            targetCalls: targetForm.targetCalls,
-            targetConversions: targetForm.targetConversions,
-            targetBookings: targetForm.targetBookings,
-            actualLeads: 0,
-            actualCalls: 0,
-            actualConversions: 0,
-            actualBookings: 0
-        };
-
-        addDailyTarget(newTarget);
-        toast.success('Target set successfully');
-        setShowTargetModal(false);
-        setTargetForm({ staffId: 0, date: new Date().toISOString().split('T')[0], targetLeads: 5, targetCalls: 10, targetConversions: 2, targetBookings: 1 });
+    const applyDatePreset = (daysFromNow: number) => {
+        const d = new Date();
+        d.setDate(d.getDate() + daysFromNow);
+        setTaskForm(prev => ({ ...prev, dueDate: d.toISOString().split('T')[0] }));
     };
 
-    // Edit Task
-    const handleEditTask = (task: Task) => {
-        setEditingTask(task);
-        setTaskForm({
-            title: task.title,
-            description: task.description || '',
-            assignedTo: task.assignedTo,
-            priority: task.priority,
-            dueDate: task.dueDate,
-            relatedLeadId: task.relatedLeadId || '',
-            relatedBookingId: task.relatedBookingId || ''
+    const toggleWeekday = (day: string) => {
+        setTaskForm(prev => {
+            const exists = prev.repeatDays.includes(day);
+            const newDays = exists ? prev.repeatDays.filter(d => d !== day) : [...prev.repeatDays, day];
+            return { ...prev, repeatDays: newDays.length ? newDays : [day] };
         });
-        setShowTaskModal(true);
-    };
-
-    // Update Task Status
-    const handleStatusChange = (taskId: string, status: TaskStatus) => {
-        updateTask(taskId, {
-            status,
-            completedAt: status === 'Completed' ? new Date().toISOString() : undefined
-        });
-        toast.success(`Task marked as ${status}`);
-    };
-
-    // Delete Task
-    const handleDeleteTask = (id: string) => {
-        if (confirm('Delete this task?')) {
-            deleteTask(id);
-            toast.success('Task deleted');
-        }
-    };
-
-    // Get staff name by ID
-    const getStaffName = (id: number) => staff.find(s => s.id === id)?.name || 'Unknown';
-
-    // Format relative time
-    const formatRelativeTime = (dateStr: string) => {
-        const diff = Date.now() - new Date(dateStr).getTime();
-        const mins = Math.floor(diff / 60000);
-        if (mins < 1) return 'Just now';
-        if (mins < 60) return `${mins}m ago`;
-        const hours = Math.floor(mins / 60);
-        if (hours < 24) return `${hours}h ago`;
-        return `${Math.floor(hours / 24)}d ago`;
     };
 
     return (
-        <div className="p-6 lg:p-8 space-y-6 max-w-[1600px] mx-auto admin-page-bg min-h-screen">
-            {/* Page Header */}
-            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-                <div>
-                    <h1 className="text-2xl lg:text-3xl font-black text-slate-900 dark:text-white font-display text-4xl">Productivity Hub</h1>
-                    <p className="text-slate-500 mt-1">Monitor team activity, assign tasks, and track performance</p>
-                </div>
-                <div className="flex gap-3">
-                    <button
-                        onClick={() => { setEditingTask(null); setTaskForm({ title: '', description: '', assignedTo: 0, priority: 'Medium', dueDate: '', relatedLeadId: '', relatedBookingId: '' }); setShowTaskModal(true); }}
-                        className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl font-semibold text-sm shadow-lg shadow-indigo-500/25 hover:shadow-indigo-500/40 transition-all btn-glow"
-                    >
-                        <Plus className="w-4 h-4" /> Assign Task
-                    </button>
-                    <button
-                        onClick={() => setShowTargetModal(true)}
-                        className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl font-semibold text-sm hover:bg-slate-50 transition-all"
-                    >
-                        <Target className="w-4 h-4" /> Set Target
-                    </button>
-                </div>
-            </div>
+        <div className="min-h-screen bg-slate-50/70 p-3 sm:p-5 lg:p-6 space-y-4 max-w-[1600px] mx-auto text-slate-900">
 
-            {/* Tab Navigation */}
-            <div className="flex flex-wrap gap-2 bg-white p-2 rounded-2xl shadow-sm border border-slate-100">
-                <TabButton active={activeTab === 'activity'} onClick={() => setActiveTab('activity')} icon={<Activity className="w-4 h-4" />} label="Activity" />
-                <TabButton active={activeTab === 'tasks'} onClick={() => setActiveTab('tasks')} icon={<CheckCircle2 className="w-4 h-4" />} label="Tasks" />
-                <TabButton active={activeTab === 'targets'} onClick={() => setActiveTab('targets')} icon={<Target className="w-4 h-4" />} label="Targets" />
-                <TabButton active={activeTab === 'reports'} onClick={() => setActiveTab('reports')} icon={<BarChart3 className="w-4 h-4" />} label="Leaderboard" />
-                <TabButton active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} icon={<Settings className="w-4 h-4" />} label="Settings" />
-
-                {/* Timer Widget */}
-                <div className="ml-auto flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-xl">
-                    <Timer className="w-4 h-4 text-emerald-400" />
-                    <span className="font-mono font-bold text-lg">{formatTime(timerElapsed)}</span>
-                    {!activeSessionId ? (
-                        <button onClick={handleStartTimer} className="p-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600">
-                            <Play className="w-4 h-4" />
-                        </button>
-                    ) : (
-                        <>
-                            {isTimerRunning ? (
-                                <button onClick={handlePauseTimer} className="p-1.5 rounded-lg bg-amber-500 hover:bg-amber-600">
-                                    <Pause className="w-4 h-4" />
-                                </button>
-                            ) : (
-                                <button onClick={handleResumeTimer} className="p-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600">
-                                    <Play className="w-4 h-4" />
-                                </button>
-                            )}
-                            <button onClick={handleStopTimer} className="p-1.5 rounded-lg bg-red-500 hover:bg-red-600">
-                                <Square className="w-4 h-4" />
-                            </button>
-                        </>
-                    )}
-                </div>
-            </div>
-
-            {/* Activity Tab */}
-            {activeTab === 'activity' && (
-                <div className="space-y-6">
-                    {/* Quick Stats Row */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 stagger-cards">
-                        <div className="bg-gradient-to-br from-amber-500 to-orange-600 rounded-2xl p-5 text-white">
-                            <div className="flex items-center justify-between">
-                                <AlertCircle className="w-8 h-8 opacity-80" />
-                                <span className="text-4xl kpi-number">{quickStats.pendingTasks}</span>
-                            </div>
-                            <p className="text-sm font-semibold mt-2 opacity-90">Pending Tasks</p>
-                        </div>
-                        <div className="bg-gradient-to-br from-red-500 to-rose-600 rounded-2xl p-5 text-white">
-                            <div className="flex items-center justify-between">
-                                <Flame className="w-8 h-8 opacity-80" />
-                                <span className="text-4xl kpi-number">{quickStats.overdueTasks}</span>
-                            </div>
-                            <p className="text-sm font-semibold mt-2 opacity-90">Overdue</p>
-                        </div>
-                        <div className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl p-5 text-white">
-                            <div className="flex items-center justify-between">
-                                <Target className="w-8 h-8 opacity-80" />
-                                <span className="text-4xl kpi-number">{quickStats.todayTargets}</span>
-                            </div>
-                            <p className="text-sm font-semibold mt-2 opacity-90">Today's Targets</p>
-                        </div>
-                        <div className="bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl p-5 text-white">
-                            <div className="flex items-center justify-between">
-                                <Zap className="w-8 h-8 opacity-80" />
-                                <span className="text-4xl kpi-number">{quickStats.recentLeads}</span>
-                            </div>
-                            <p className="text-sm font-semibold mt-2 opacity-90">New Leads (24h)</p>
-                        </div>
+            {/* ── 1. Compact Unified Top Bar ───────────────────────────────── */}
+            <header className="bg-white/90 backdrop-blur-xl border border-slate-200/80 px-4 py-3 rounded-2xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center font-bold shadow-sm">
+                        <Sparkles className="w-5 h-5 text-indigo-400" />
                     </div>
-
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                        {/* Online Staff */}
-                        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-                            <div className="flex items-center justify-between mb-4">
-                                <h3 className="font-bold text-slate-900 flex items-center gap-2">
-                                    <Users className="w-5 h-5 text-emerald-500" /> Active Staff
-                                </h3>
-                                <span className="text-xs font-bold text-emerald-600 bg-emerald-100 px-2 py-1 rounded-lg">{onlineStaff.length} Online</span>
-                            </div>
-                            <div className="space-y-3">
-                                {onlineStaff.map(member => (
-                                    <div key={member.id} className="flex items-center gap-3 p-3 rounded-xl bg-slate-50">
-                                        <div className={`size-10 rounded-full bg-indigo-100 flex items-center justify-center font-bold text-indigo-600 text-sm`}>
-                                            {member.initials}
-                                        </div>
-                                        <div className="flex-1">
-                                            <p className="font-semibold text-slate-900 text-sm">{member.name}</p>
-                                            <p className="text-xs text-slate-500">{member.role}</p>
-                                        </div>
-                                        <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                                    </div>
-                                ))}
-                                {onlineStaff.length === 0 && (
-                                    <p className="text-center text-slate-400 text-sm py-4">No staff online</p>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* Quick Actions */}
-                        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-                            <h3 className="font-bold text-slate-900 mb-4 flex items-center gap-2">
-                                <Zap className="w-5 h-5 text-amber-500" /> Quick Actions
-                            </h3>
-                            <div className="grid grid-cols-2 gap-3">
-                                <button
-                                    onClick={() => { setEditingTask(null); setTaskForm({ title: '', description: '', assignedTo: 0, priority: 'Medium', dueDate: '', relatedLeadId: '', relatedBookingId: '' }); setShowTaskModal(true); }}
-                                    className="p-4 rounded-xl bg-indigo-50 hover:bg-indigo-100 transition-colors text-center group"
-                                >
-                                    <Plus className="w-6 h-6 mx-auto text-indigo-600 group-hover:scale-110 transition-transform" />
-                                    <p className="text-xs font-semibold text-indigo-700 mt-2">New Task</p>
-                                </button>
-                                <button
-                                    onClick={() => setShowTargetModal(true)}
-                                    className="p-4 rounded-xl bg-emerald-50 hover:bg-emerald-100 transition-colors text-center group"
-                                >
-                                    <Target className="w-6 h-6 mx-auto text-emerald-600 group-hover:scale-110 transition-transform" />
-                                    <p className="text-xs font-semibold text-emerald-700 mt-2">Set Target</p>
-                                </button>
-                                <button
-                                    onClick={() => setActiveTab('tasks')}
-                                    className="p-4 rounded-xl bg-purple-50 hover:bg-purple-100 transition-colors text-center group"
-                                >
-                                    <CheckCircle2 className="w-6 h-6 mx-auto text-purple-600 group-hover:scale-110 transition-transform" />
-                                    <p className="text-xs font-semibold text-purple-700 mt-2">View Tasks</p>
-                                </button>
-                                <button
-                                    onClick={() => setActiveTab('reports')}
-                                    className="p-4 rounded-xl bg-amber-50 hover:bg-amber-100 transition-colors text-center group"
-                                >
-                                    <Trophy className="w-6 h-6 mx-auto text-amber-600 group-hover:scale-110 transition-transform" />
-                                    <p className="text-xs font-semibold text-amber-700 mt-2">Leaderboard</p>
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* Recent Activity Feed */}
-                        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-                            <h3 className="font-bold text-slate-900 mb-4 flex items-center gap-2">
-                                <Clock className="w-5 h-5 text-indigo-500" /> Recent Activity
-                            </h3>
-                            <div className="space-y-3 max-h-[280px] overflow-y-auto">
-                                {recentActivities.length > 0 ? recentActivities.slice(0, 8).map(activity => (
-                                    <div key={activity.id} className="flex items-start gap-3 p-2 rounded-xl hover:bg-slate-50 transition-colors">
-                                        <div className="size-7 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0">
-                                            <Activity className="w-3.5 h-3.5 text-indigo-600" />
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                            <p className="text-xs text-slate-900">
-                                                <span className="font-semibold">{activity.staffName}</span> {activity.action}
-                                            </p>
-                                            <p className="text-xs text-slate-400">{formatRelativeTime(activity.timestamp)}</p>
-                                        </div>
-                                    </div>
-                                )) : (
-                                    <div className="text-center py-6 text-slate-400">
-                                        <Activity className="w-10 h-10 mx-auto mb-2 opacity-50" />
-                                        <p className="text-sm">No recent activity</p>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Tasks Tab */}
-            {activeTab === 'tasks' && (
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-                    {/* Toolbar */}
-                    <div className="p-4 border-b border-slate-100 flex flex-wrap gap-4 items-center justify-between">
+                    <div>
                         <div className="flex items-center gap-2">
-                            {/* Select All Checkbox */}
-                            <button
-                                onClick={handleSelectAllTasks}
-                                className={`size-5 rounded border-2 flex items-center justify-center transition-all mr-2 ${selectedTasks.length === filteredTasks.length && filteredTasks.length > 0
-                                    ? 'bg-indigo-500 border-indigo-500 text-white'
-                                    : 'border-slate-300 hover:border-indigo-400'
-                                    }`}
-                            >
-                                {selectedTasks.length === filteredTasks.length && filteredTasks.length > 0 && (
-                                    <CheckCircle2 className="w-3 h-3" />
-                                )}
-                            </button>
-                            <div className="relative">
-                                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                <input
-                                    type="text"
-                                    placeholder="Search tasks..."
-                                    value={searchQuery}
-                                    onChange={e => setSearchQuery(e.target.value)}
-                                    className="h-10 pl-10 pr-4 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 outline-none transition-all w-64"
-                                />
-                            </div>
-                            <select
-                                value={taskFilter}
-                                onChange={e => setTaskFilter(e.target.value as any)}
-                                className="h-10 px-3 rounded-xl border border-slate-200 text-sm font-medium"
-                            >
-                                <option value="all">All Status</option>
-                                <option value="Pending">Pending</option>
-                                <option value="In Progress">In Progress</option>
-                                <option value="Completed">Completed</option>
-                                <option value="Overdue">Overdue</option>
-                            </select>
+                            <h1 className="text-lg font-extrabold tracking-tight text-slate-900 font-display">
+                                Productivity Hub
+                            </h1>
+                            <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                                {metrics.total} Tasks
+                            </span>
                         </div>
-                        <span className="text-sm text-slate-500 font-medium">{filteredTasks.length} tasks</span>
+                        <p className="text-xs text-slate-500">
+                            Assign, track deadlines, and monitor team performance
+                        </p>
+                    </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2.5">
+                    {/* Timeframe Selector */}
+                    <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200/60">
+                        {(['all', 'today', 'week', 'month'] as TimeRange[]).map(t => (
+                            <button
+                                key={t}
+                                onClick={() => setTimeRange(t)}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-semibold capitalize transition-all ${
+                                    timeRange === t
+                                        ? 'bg-white text-slate-900 shadow-sm'
+                                        : 'text-slate-600 hover:text-slate-900'
+                                }`}
+                            >
+                                {t === 'all' ? 'All Time' : t === 'today' ? 'Today' : t === 'week' ? '7 Days' : '30 Days'}
+                            </button>
+                        ))}
                     </div>
 
-                    {/* Bulk Actions Toolbar */}
-                    {selectedTasks.length > 0 && (
-                        <div className="p-3 bg-indigo-50 border-b border-indigo-100 flex items-center gap-3 flex-wrap">
-                            <span className="text-sm font-semibold text-indigo-700">{selectedTasks.length} selected</span>
-                            <div className="h-4 w-px bg-indigo-200" />
+                    {/* Quick Search */}
+                    <div className="relative w-44 sm:w-56">
+                        <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                            type="text"
+                            placeholder="Search tasks, leads, bookings..."
+                            value={searchQuery}
+                            onChange={e => setSearchQuery(e.target.value)}
+                            className="w-full h-8 pl-8 pr-7 rounded-xl bg-slate-50 border border-slate-200 text-xs font-medium focus:outline-none focus:bg-white focus:ring-2 focus:ring-indigo-500/20"
+                        />
+                        {searchQuery && (
                             <button
-                                onClick={() => handleBulkStatusChange('Completed')}
-                                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500 text-white rounded-lg text-sm font-medium hover:bg-emerald-600"
+                                onClick={() => setSearchQuery('')}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                             >
-                                <CheckCircle2 className="w-4 h-4" /> Complete
+                                <X className="w-3 h-3" />
                             </button>
-                            <button
-                                onClick={() => handleBulkStatusChange('In Progress')}
-                                className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600"
-                            >
-                                <RefreshCw className="w-4 h-4" /> In Progress
-                            </button>
-                            <select
-                                onChange={e => e.target.value && handleBulkReassign(Number(e.target.value))}
-                                className="h-8 px-2 rounded-lg border border-indigo-200 text-sm bg-white"
-                                defaultValue=""
-                            >
-                                <option value="" disabled>Reassign to...</option>
-                                {staff.map(s => (
-                                    <option key={s.id} value={s.id}>{s.name}</option>
-                                ))}
-                            </select>
-                            <button
-                                onClick={handleBulkDelete}
-                                className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500 text-white rounded-lg text-sm font-medium hover:bg-red-600 ml-auto"
-                            >
-                                <Trash2 className="w-4 h-4" /> Delete
-                            </button>
-                        </div>
-                    )}
-
-                    {/* Task List */}
-                    <div className="divide-y divide-slate-100">
-                        {filteredTasks.length > 0 ? filteredTasks.map(task => (
-                            <div key={task.id} className={`p-4 hover:bg-slate-50 transition-colors ${selectedTasks.includes(task.id) ? 'bg-indigo-50' : ''}`}>
-                                <div className="flex items-center gap-4">
-                                    {/* Selection Checkbox */}
-                                    <button
-                                        onClick={() => handleSelectTask(task.id)}
-                                        className={`size-5 rounded border-2 flex items-center justify-center transition-all flex-shrink-0 ${selectedTasks.includes(task.id)
-                                            ? 'bg-indigo-500 border-indigo-500 text-white'
-                                            : 'border-slate-300 hover:border-indigo-400'
-                                            }`}
-                                    >
-                                        {selectedTasks.includes(task.id) && <CheckCircle2 className="w-3 h-3" />}
-                                    </button>
-                                    {/* Status Toggle */}
-                                    <button
-                                        onClick={() => handleStatusChange(task.id, task.status === 'Completed' ? 'Pending' : 'Completed')}
-                                        className={`size-6 rounded-full border-2 flex items-center justify-center transition-all flex-shrink-0 ${task.status === 'Completed' ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-300 hover:border-indigo-500'
-                                            }`}
-                                    >
-                                        {task.status === 'Completed' && <CheckCircle2 className="w-4 h-4" />}
-                                    </button>
-                                    <div className="flex-1 min-w-0">
-                                        <p className={`font-semibold text-slate-900 ${task.status === 'Completed' ? 'line-through text-slate-400' : ''}`}>{task.title}</p>
-                                        {task.description && <p className="text-sm text-slate-500 truncate">{task.description}</p>}
-                                    </div>
-                                    <div className="flex items-center gap-3">
-                                        <PriorityBadge priority={task.priority} />
-                                        <StatusBadge status={task.status} />
-                                        <span className="text-xs text-slate-500 flex items-center gap-1">
-                                            <Calendar className="w-3 h-3" /> {task.dueDate}
-                                        </span>
-                                        <span className="text-xs text-slate-500">{getStaffName(task.assignedTo)}</span>
-                                        <div className="flex gap-1">
-                                            <button onClick={() => handleEditTask(task)} className="p-1.5 rounded-lg hover:bg-slate-100">
-                                                <Edit2 className="w-4 h-4 text-slate-400" />
-                                            </button>
-                                            <button onClick={() => handleDeleteTask(task.id)} className="p-1.5 rounded-lg hover:bg-red-50">
-                                                <Trash2 className="w-4 h-4 text-red-400" />
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        )) : (
-                            <div className="text-center py-12 text-slate-400">
-                                <CheckCircle2 className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                                <p>No tasks found</p>
-                            </div>
                         )}
                     </div>
+
+                    {/* Primary Action Button */}
+                    <button
+                        onClick={() => handleOpenCreateModal()}
+                        className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs shadow-sm hover:shadow transition-all active:scale-[0.98]"
+                    >
+                        <Plus className="w-4 h-4 text-indigo-300" />
+                        <span>Assign Task</span>
+                    </button>
                 </div>
-            )}
+            </header>
 
-            {/* Targets Tab */}
-            {activeTab === 'targets' && (
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                    {dailyTargets.length > 0 ? dailyTargets.slice(0, 9).map(target => {
-                        const staffMember = staff.find(s => s.id === target.staffId);
-                        const leadsProgress = (target.actualLeads / target.targetLeads) * 100;
-                        const callsProgress = (target.actualCalls / target.targetCalls) * 100;
-                        const conversionsProgress = (target.actualConversions / target.targetConversions) * 100;
-
-                        return (
-                            <div key={target.id} className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-                                <div className="flex items-center justify-between mb-4">
-                                    <div className="flex items-center gap-3">
-                                        <div className={`size-10 rounded-full bg-indigo-100 flex items-center justify-center font-bold text-indigo-600 text-sm`}>
-                                            {staffMember?.initials || '?'}
-                                        </div>
-                                        <div>
-                                            <p className="font-semibold text-slate-900">{staffMember?.name || 'Unknown'}</p>
-                                            <p className="text-xs text-slate-500">{target.date}</p>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="space-y-3">
-                                    <div>
-                                        <div className="flex justify-between text-xs mb-1">
-                                            <span className="text-slate-600">Leads</span>
-                                            <span className="font-bold">{target.actualLeads}/{target.targetLeads}</span>
-                                        </div>
-                                        <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                                            <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${Math.min(100, leadsProgress)}%` }} />
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <div className="flex justify-between text-xs mb-1">
-                                            <span className="text-slate-600">Calls</span>
-                                            <span className="font-bold">{target.actualCalls}/{target.targetCalls}</span>
-                                        </div>
-                                        <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                                            <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${Math.min(100, callsProgress)}%` }} />
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <div className="flex justify-between text-xs mb-1">
-                                            <span className="text-slate-600">Conversions</span>
-                                            <span className="font-bold">{target.actualConversions}/{target.targetConversions}</span>
-                                        </div>
-                                        <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                                            <div className="h-full bg-purple-500 rounded-full" style={{ width: `${Math.min(100, conversionsProgress)}%` }} />
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        );
-                    }) : (
-                        <div className="col-span-full text-center py-12 text-slate-400 bg-white rounded-2xl">
-                            <Target className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                            <p>No targets set yet</p>
-                            <button onClick={() => setShowTargetModal(true)} className="mt-3 text-indigo-600 font-semibold text-sm hover:underline">
-                                Set your first target
-                            </button>
-                        </div>
-                    )}
-                </div>
-            )
-            }
-
-            {/* Reports Tab - Leaderboard */}
-            {activeTab === 'reports' && (
-                <div className="space-y-6">
-                    {/* Period Toggle */}
-                    <div className="flex items-center justify-between">
-                        <h2 className="text-xl font-bold text-slate-900 flex items-center gap-3">
-                            <Trophy className="w-6 h-6 text-amber-500" /> Performance Leaderboard
-                        </h2>
-                        <div className="flex bg-slate-100 rounded-xl p-1">
-                            <button
-                                onClick={() => setLeaderboardPeriod('week')}
-                                className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${leaderboardPeriod === 'week'
-                                    ? 'bg-white text-indigo-600 shadow-sm'
-                                    : 'text-slate-500 hover:text-slate-700'
-                                    }`}
-                            >
-                                This Week
-                            </button>
-                            <button
-                                onClick={() => setLeaderboardPeriod('month')}
-                                className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${leaderboardPeriod === 'month'
-                                    ? 'bg-white text-indigo-600 shadow-sm'
-                                    : 'text-slate-500 hover:text-slate-700'
-                                    }`}
-                            >
-                                This Month
-                            </button>
+            {/* ── 2. Slimline Metric Strip ─────────────────────────────────── */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-3">
+                {/* Completion Rate */}
+                <div className="bg-white/90 border border-slate-200/80 px-4 py-3 rounded-2xl shadow-sm flex items-center justify-between">
+                    <div>
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Completion</span>
+                        <div className="flex items-baseline gap-1.5 mt-0.5">
+                            <span className="text-xl font-extrabold text-slate-900 font-mono">{metrics.rate}%</span>
+                            <span className="text-[11px] text-slate-400">({metrics.completed}/{metrics.total})</span>
                         </div>
                     </div>
+                    <div className="w-10 h-10 rounded-full border-2 border-slate-100 flex items-center justify-center font-bold text-xs">
+                        <TrendingUp className={`w-4 h-4 ${metrics.rate >= 75 ? 'text-emerald-500' : 'text-indigo-500'}`} />
+                    </div>
+                </div>
 
-                    {/* Top 3 Podium */}
-                    <div className="grid grid-cols-3 gap-4">
-                        {leaderboardData.slice(0, 3).map((member, index) => {
-                            const rankColors = [
-                                'from-amber-400 to-yellow-500', // 1st
-                                'from-slate-300 to-slate-400',   // 2nd
-                                'from-amber-600 to-orange-700'   // 3rd
-                            ];
-                            const RankIcon = index === 0 ? Crown : index === 1 ? Medal : Award;
-                            const heights = ['h-36', 'h-28', 'h-24'];
-                            const order = [1, 0, 2]; // Reorder for podium: 2nd, 1st, 3rd
+                {/* Completed Deliverables */}
+                <div className="bg-white/90 border border-slate-200/80 px-4 py-3 rounded-2xl shadow-sm flex items-center justify-between">
+                    <div>
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Completed</span>
+                        <div className="flex items-baseline gap-1.5 mt-0.5">
+                            <span className="text-xl font-extrabold text-emerald-600 font-mono">{metrics.completed}</span>
+                            <span className="text-[11px] text-slate-400">tasks done</span>
+                        </div>
+                    </div>
+                    <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                        <CheckCircle2 className="w-4 h-4" />
+                    </div>
+                </div>
+
+                {/* Active Workload */}
+                <div className="bg-white/90 border border-slate-200/80 px-4 py-3 rounded-2xl shadow-sm flex items-center justify-between">
+                    <div>
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Active Workload</span>
+                        <div className="flex items-baseline gap-1.5 mt-0.5">
+                            <span className="text-xl font-extrabold text-indigo-600 font-mono">{metrics.activeWorkload}</span>
+                            <span className="text-[11px] text-slate-400">({metrics.inProgress} in prog · {metrics.pending} pending)</span>
+                        </div>
+                    </div>
+                    <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                        <Clock className="w-4 h-4" />
+                    </div>
+                </div>
+
+                {/* Overdue / Delayed Tasks */}
+                <div
+                    onClick={() => setStatusFilter(statusFilter === 'Overdue' ? 'all' : 'Overdue')}
+                    className={`border px-4 py-3 rounded-2xl shadow-sm flex items-center justify-between cursor-pointer transition-all ${
+                        metrics.overdue > 0
+                            ? 'bg-rose-50/40 border-rose-200 hover:bg-rose-50/80'
+                            : 'bg-white/90 border-slate-200/80'
+                    }`}
+                >
+                    <div>
+                        <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Overdue</span>
+                            {metrics.overdue > 0 && (
+                                <span className="px-1.5 py-0.2 rounded-full text-[9px] bg-rose-100 text-rose-700 font-bold">
+                                    Needs Action
+                                </span>
+                            )}
+                        </div>
+                        <div className="flex items-baseline gap-1.5 mt-0.5">
+                            <span className={`text-xl font-extrabold font-mono ${metrics.overdue > 0 ? 'text-rose-600' : 'text-slate-900'}`}>
+                                {metrics.overdue}
+                            </span>
+                            <span className="text-[11px] text-slate-400">delayed tasks</span>
+                        </div>
+                    </div>
+                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${metrics.overdue > 0 ? 'bg-rose-100 text-rose-600 animate-pulse' : 'bg-slate-100 text-slate-400'}`}>
+                        <AlertCircle className="w-4 h-4" />
+                    </div>
+                </div>
+            </div>
+
+            {/* ── 3. Unified Dual-Pane Workstation ────────────────────────── */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+
+                {/* ── LEFT PANE: Team Roster & Quick Staff Filter (3 cols) ─── */}
+                <aside className="lg:col-span-4 xl:col-span-3 bg-white/90 border border-slate-200/80 rounded-2xl p-4 shadow-sm space-y-3">
+                    <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                        <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                            <Users className="w-3.5 h-3.5 text-indigo-600" />
+                            Team Roster & Workload
+                        </span>
+                        <span className="text-[10px] font-semibold text-slate-400">
+                            {staff.length} Members
+                        </span>
+                    </div>
+
+                    {/* "All Team" Master Selector */}
+                    <button
+                        onClick={() => setSelectedStaffId('all')}
+                        className={`w-full text-left p-2.5 rounded-xl border transition-all flex items-center justify-between ${
+                            selectedStaffId === 'all'
+                                ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+                                : 'bg-slate-50 hover:bg-slate-100/80 border-slate-200/70 text-slate-700'
+                        }`}
+                    >
+                        <div className="flex items-center gap-2.5">
+                            <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold ${
+                                selectedStaffId === 'all' ? 'bg-white/20 text-white' : 'bg-indigo-100 text-indigo-700'
+                            }`}>
+                                👥
+                            </div>
+                            <div>
+                                <span className="block text-xs font-bold leading-none">All Team Members</span>
+                                <span className={`text-[10px] ${selectedStaffId === 'all' ? 'text-slate-300' : 'text-slate-400'}`}>
+                                    {productivityTasks.length} Total Tasks
+                                </span>
+                            </div>
+                        </div>
+                        <span className={`text-xs font-mono font-bold ${selectedStaffId === 'all' ? 'text-indigo-300' : 'text-slate-600'}`}>
+                            {metrics.rate}%
+                        </span>
+                    </button>
+
+                    {/* Individual Staff List with Live Completion Bars */}
+                    <div className="space-y-1.5 max-h-[500px] overflow-y-auto pr-0.5">
+                        {employeeReports.map(emp => {
+                            const isSelected = String(selectedStaffId) === String(emp.staff.id);
 
                             return (
-                                <div key={member.id} className={`order-${order[index]} flex flex-col items-center`}>
-                                    <div className={`relative size-16 rounded-full bg-gradient-to-br ${rankColors[index]} flex items-center justify-center mb-3 shadow-lg`}>
-                                        <RankIcon className="w-8 h-8 text-white" />
-                                        <span className="absolute -bottom-1 -right-1 size-6 rounded-full bg-white text-xs font-black flex items-center justify-center shadow-md">
-                                            {index + 1}
-                                        </span>
+                                <button
+                                    key={emp.staff.id}
+                                    onClick={() => setSelectedStaffId(String(emp.staff.id))}
+                                    className={`w-full text-left p-2.5 rounded-xl border transition-all flex flex-col gap-1.5 ${
+                                        isSelected
+                                            ? 'bg-indigo-50/90 border-indigo-300 text-indigo-950 shadow-sm'
+                                            : 'bg-white hover:bg-slate-50 border-slate-200/60 text-slate-700'
+                                    }`}
+                                >
+                                    <div className="flex items-center justify-between w-full">
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            <div className="w-6 h-6 rounded-lg bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-[10px] flex-shrink-0">
+                                                {emp.staff.initials || emp.staff.name.substring(0, 2).toUpperCase()}
+                                            </div>
+                                            <div className="min-w-0">
+                                                <p className="text-xs font-bold truncate leading-tight">{emp.staff.name}</p>
+                                                <p className="text-[10px] text-slate-400 truncate">{emp.staff.role}</p>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                                            {emp.overdue > 0 && (
+                                                <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" title={`${emp.overdue} overdue`} />
+                                            )}
+                                            <span className="text-[11px] font-mono font-bold text-slate-700">
+                                                {emp.completionRate}%
+                                            </span>
+                                        </div>
                                     </div>
-                                    <p className="font-bold text-slate-900 text-center">{member.name}</p>
-                                    <p className="text-2xl font-black text-indigo-600">{member.score}</p>
-                                    <p className="text-xs text-slate-500">points</p>
-                                    <div className={`w-full bg-gradient-to-t ${rankColors[index]} ${heights[index]} rounded-t-2xl mt-4 flex flex-col items-center justify-end pb-4`}>
-                                        <p className="text-white text-xs font-bold">{member.tasksCompleted} tasks</p>
-                                        <p className="text-white/80 text-xs">{member.targetsAchieved} targets</p>
+
+                                    {/* Mini Progress Bar */}
+                                    <div className="w-full h-1 bg-slate-100 rounded-full overflow-hidden">
+                                        <div
+                                            className={`h-full rounded-full transition-all duration-500 ${
+                                                emp.completionRate >= 75 ? 'bg-emerald-500' : emp.completionRate >= 40 ? 'bg-indigo-500' : 'bg-amber-500'
+                                            }`}
+                                            style={{ width: `${emp.completionRate}%` }}
+                                        />
                                     </div>
-                                </div>
+
+                                    {/* Sub-counts */}
+                                    <div className="flex items-center justify-between text-[10px] text-slate-400 pt-0.5">
+                                        <span>{emp.completed} Done</span>
+                                        <span>•</span>
+                                        <span>{emp.inProgress + emp.pending} Active</span>
+                                        {emp.overdue > 0 && (
+                                            <>
+                                                <span>•</span>
+                                                <span className="text-rose-600 font-semibold">{emp.overdue} Late</span>
+                                            </>
+                                        )}
+                                    </div>
+                                </button>
                             );
                         })}
                     </div>
 
-                    {/* Full Rankings Table */}
-                    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-                        <div className="p-4 border-b border-slate-100">
-                            <h3 className="font-bold text-slate-900">Full Rankings</h3>
-                        </div>
-                        <div className="divide-y divide-slate-100">
-                            {leaderboardData.map((member, index) => (
-                                <div key={member.id} className="p-4 flex items-center gap-4 hover:bg-slate-50 transition-colors">
-                                    <span className={`w-8 h-8 rounded-full ${index < 3 ? 'bg-gradient-to-br from-amber-400 to-yellow-500 text-white' : 'bg-slate-100 text-slate-600'
-                                        } flex items-center justify-center font-bold text-sm`}>
-                                        {index + 1}
+                    {/* Left Pane Footer Button */}
+                    <button
+                        onClick={() => setActiveView('reports')}
+                        className="w-full py-2 px-3 rounded-xl border border-dashed border-slate-300 hover:border-indigo-400 text-slate-600 hover:text-indigo-600 text-xs font-semibold flex items-center justify-center gap-1.5 transition-all"
+                    >
+                        <BarChart3 className="w-3.5 h-3.5" />
+                        <span>Open Performance Matrix</span>
+                    </button>
+                </aside>
+
+                {/* ── RIGHT PANE: Main Tasks Stage (9 cols) ───────────────── */}
+                <main className="lg:col-span-8 xl:col-span-9 space-y-3">
+
+                    {/* View Switcher & Filter Capsule Row */}
+                    <div className="bg-white/90 border border-slate-200/80 px-3.5 py-2.5 rounded-2xl shadow-sm flex flex-wrap items-center justify-between gap-2.5">
+                        {/* Status Pills */}
+                        <div className="flex items-center gap-1 overflow-x-auto pb-0.5 sm:pb-0">
+                            {[
+                                { key: 'all', label: 'All', count: scopedTasks.length },
+                                { key: 'Pending', label: 'Pending', count: scopedTasks.filter(t => t.status === 'Pending').length },
+                                { key: 'In Progress', label: 'In Progress', count: scopedTasks.filter(t => t.status === 'In Progress').length },
+                                { key: 'Completed', label: 'Completed', count: scopedTasks.filter(t => t.status === 'Completed').length },
+                                { key: 'Overdue', label: 'Overdue', count: scopedTasks.filter(t => t.isOverdue && t.status !== 'Completed').length }
+                            ].map(tab => (
+                                <button
+                                    key={tab.key}
+                                    onClick={() => setStatusFilter(tab.key as any)}
+                                    className={`px-3 py-1 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                        statusFilter === tab.key
+                                            ? tab.key === 'Overdue'
+                                                ? 'bg-rose-500 text-white shadow-sm'
+                                                : 'bg-slate-900 text-white shadow-sm'
+                                            : 'text-slate-600 hover:bg-slate-100'
+                                    }`}
+                                >
+                                    <span>{tab.label}</span>
+                                    <span className={`px-1.5 py-0.2 rounded-md text-[10px] font-mono ${
+                                        statusFilter === tab.key
+                                            ? 'bg-white/20 text-white'
+                                            : tab.key === 'Overdue' && tab.count > 0
+                                            ? 'bg-rose-100 text-rose-700'
+                                            : 'bg-slate-100 text-slate-600'
+                                    }`}>
+                                        {tab.count}
                                     </span>
-                                    <div className="size-10 rounded-full bg-indigo-100 flex items-center justify-center font-bold text-indigo-600 text-sm">
-                                        {member.initials}
-                                    </div>
-                                    <div className="flex-1">
-                                        <p className="font-semibold text-slate-900">{member.name}</p>
-                                        <p className="text-xs text-slate-500">{member.role}</p>
-                                    </div>
-                                    <div className="text-right">
-                                        <p className="font-bold text-lg text-indigo-600">{member.score}</p>
-                                        <p className="text-xs text-slate-400">{member.tasksCompleted} tasks • {member.targetsAchieved} targets</p>
-                                    </div>
-                                </div>
+                                </button>
                             ))}
-                            {leaderboardData.length === 0 && (
-                                <div className="p-8 text-center text-slate-400">
-                                    <Trophy className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                                    <p>No activity data yet</p>
-                                </div>
-                            )}
                         </div>
-                    </div>
-                </div>
-            )}
 
-            {/* Settings Tab */}
-            {activeTab === 'settings' && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {/* Auto-Assignment Rules */}
-                    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-                        <div className="p-4 border-b border-slate-100 flex items-center justify-between">
-                            <h3 className="font-bold text-slate-900 flex items-center gap-2">
-                                <Shuffle className="w-5 h-5 text-indigo-500" /> Auto-Assignment Rules
-                            </h3>
-                            <button
-                                onClick={() => setShowRuleModal(true)}
-                                className="flex items-center gap-1 px-3 py-1.5 bg-indigo-500 text-white rounded-lg text-sm font-medium hover:bg-indigo-600"
+                        {/* View Mode Toggle & Priority */}
+                        <div className="flex items-center gap-2">
+                            <select
+                                value={priorityFilter}
+                                onChange={e => setPriorityFilter(e.target.value as any)}
+                                aria-label="Filter by priority"
+                                className="h-7 px-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-medium text-slate-700 hover:border-slate-300 focus:outline-none cursor-pointer"
                             >
-                                <Plus className="w-4 h-4" /> Add Rule
-                            </button>
-                        </div>
-                        <div className="divide-y divide-slate-100">
-                            {assignmentRules.length > 0 ? assignmentRules.map(rule => (
-                                <div key={rule.id} className="p-4 flex items-center gap-4">
-                                    <div className={`w-3 h-3 rounded-full ${rule.isActive ? 'bg-emerald-500' : 'bg-slate-300'}`} />
-                                    <div className="flex-1">
-                                        <p className="font-semibold text-slate-900">{rule.name}</p>
-                                        <p className="text-xs text-slate-500">
-                                            {rule.strategy} • Triggers on {rule.triggerOn}
-                                        </p>
-                                    </div>
-                                    <button
-                                        onClick={() => updateAssignmentRule(rule.id, { isActive: !rule.isActive })}
-                                        className={`px-3 py-1 rounded-lg text-xs font-bold ${rule.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}
-                                    >
-                                        {rule.isActive ? 'Active' : 'Inactive'}
-                                    </button>
-                                    <button onClick={() => deleteAssignmentRule(rule.id)} className="p-1.5 rounded-lg hover:bg-red-50">
-                                        <Trash2 className="w-4 h-4 text-red-400" />
-                                    </button>
-                                </div>
-                            )) : (
-                                <div className="p-8 text-center text-slate-400">
-                                    <GitBranch className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                                    <p>No assignment rules configured</p>
-                                    <button onClick={() => setShowRuleModal(true)} className="mt-2 text-indigo-600 font-semibold text-sm hover:underline">
-                                        Create your first rule
-                                    </button>
-                                </div>
-                            )}
+                                <option value="all">All Priorities</option>
+                                <option value="Urgent">Urgent</option>
+                                <option value="High">High</option>
+                                <option value="Medium">Medium</option>
+                                <option value="Low">Low</option>
+                            </select>
+
+                            <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200/60">
+                                <button
+                                    onClick={() => setActiveView('list')}
+                                    title="Table List View"
+                                    className={`p-1.5 rounded-lg text-xs font-semibold transition-all ${
+                                        activeView === 'list'
+                                            ? 'bg-white text-slate-900 shadow-sm'
+                                            : 'text-slate-500 hover:text-slate-800'
+                                    }`}
+                                >
+                                    <List className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                    onClick={() => setActiveView('board')}
+                                    title="Kanban Board View"
+                                    className={`p-1.5 rounded-lg text-xs font-semibold transition-all ${
+                                        activeView === 'board'
+                                            ? 'bg-white text-slate-900 shadow-sm'
+                                            : 'text-slate-500 hover:text-slate-800'
+                                    }`}
+                                >
+                                    <Kanban className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                    onClick={() => setActiveView('reports')}
+                                    title="Team Performance Reports"
+                                    className={`p-1.5 rounded-lg text-xs font-semibold transition-all ${
+                                        activeView === 'reports'
+                                            ? 'bg-white text-slate-900 shadow-sm'
+                                            : 'text-slate-500 hover:text-slate-800'
+                                    }`}
+                                >
+                                    <BarChart3 className="w-3.5 h-3.5" />
+                                </button>
+                            </div>
                         </div>
                     </div>
 
-                    {/* Time Session History */}
-                    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-                        <div className="p-4 border-b border-slate-100">
-                            <h3 className="font-bold text-slate-900 flex items-center gap-2">
-                                <Timer className="w-5 h-5 text-emerald-500" /> Time Session History
-                            </h3>
-                        </div>
-                        <div className="divide-y divide-slate-100 max-h-[400px] overflow-y-auto">
-                            {timeSessions.length > 0 ? timeSessions.slice(0, 20).map(session => (
-                                <div key={session.id} className="p-4 flex items-center gap-4">
-                                    <div className={`size-10 rounded-full ${session.status === 'Active' ? 'bg-emerald-100' : 'bg-slate-100'} flex items-center justify-center`}>
-                                        <Clock className={`w-5 h-5 ${session.status === 'Active' ? 'text-emerald-600' : 'text-slate-500'}`} />
-                                    </div>
-                                    <div className="flex-1">
-                                        <p className="font-semibold text-slate-900">{getStaffName(session.staffId)}</p>
-                                        <p className="text-xs text-slate-500">
-                                            {new Date(session.startTime).toLocaleDateString()} • {formatTime(session.duration)}
-                                        </p>
-                                    </div>
-                                    <span className={`px-2.5 py-1 rounded-lg text-xs font-bold ${session.status === 'Active' ? 'bg-emerald-100 text-emerald-700' :
-                                        session.status === 'Paused' ? 'bg-amber-100 text-amber-700' :
-                                            'bg-slate-100 text-slate-600'
-                                        }`}>
-                                        {session.status}
+                    {/* ── SUB-VIEW A: LIST VIEW (High-Density Table) ───────── */}
+                    {activeView === 'list' && (
+                        <div className="bg-white/95 border border-slate-200/80 rounded-2xl shadow-sm overflow-hidden">
+                            {/* Table Actions Header */}
+                            <div className="px-4 py-2.5 bg-slate-50/70 border-b border-slate-100 flex items-center justify-between text-xs text-slate-500 font-semibold">
+                                <div className="flex items-center gap-2.5">
+                                    <input
+                                        type="checkbox"
+                                        checked={selectedTasks.length === filteredTasks.length && filteredTasks.length > 0}
+                                        onChange={handleSelectAll}
+                                        aria-label="Select all tasks"
+                                        className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 cursor-pointer"
+                                    />
+                                    <span>
+                                        {filteredTasks.length} {filteredTasks.length === 1 ? 'Task' : 'Tasks'} Shown
+                                        {selectedStaffId !== 'all' && ` (Assigned to ${getStaffName(selectedStaffId)})`}
                                     </span>
                                 </div>
-                            )) : (
-                                <div className="p-8 text-center text-slate-400">
-                                    <Timer className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                                    <p>No time sessions recorded</p>
-                                </div>
-                            )}
+                                {selectedStaffId !== 'all' && (
+                                    <button
+                                        onClick={() => setSelectedStaffId('all')}
+                                        className="text-xs text-indigo-600 hover:underline font-medium"
+                                    >
+                                        Show All Team Tasks
+                                    </button>
+                                )}
+                            </div>
+
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left text-xs">
+                                    <thead className="bg-slate-50/40 text-slate-500 font-bold border-b border-slate-100">
+                                        <tr>
+                                            <th className="py-2.5 px-3 w-8"></th>
+                                            <th className="py-2.5 px-2 w-8"></th>
+                                            <th className="py-2.5 px-3">Task Details</th>
+                                            <th className="py-2.5 px-3">Assignee</th>
+                                            <th className="py-2.5 px-3">Priority</th>
+                                            <th className="py-2.5 px-3">Status</th>
+                                            <th className="py-2.5 px-3">Deadline</th>
+                                            <th className="py-2.5 px-3 text-right">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 font-medium">
+                                        {filteredTasks.map(task => {
+                                            const staffMember = getStaffMember(task.assignedTo);
+                                            const dueBadge = formatDueDateBadge(task.dueDate, task.status === 'Completed');
+                                            const isSelected = selectedTasks.includes(task.id);
+                                            const leadInfo = getLeadDisplay(task.relatedLeadId);
+                                            const bookingInfo = getBookingDisplay(task.relatedBookingId);
+
+                                            return (
+                                                <tr
+                                                    key={task.id}
+                                                    className={`hover:bg-slate-50/80 transition-colors ${
+                                                        isSelected ? 'bg-indigo-50/30' : ''
+                                                    }`}
+                                                >
+                                                    {/* Row Checkbox */}
+                                                    <td className="py-3 px-3">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={isSelected}
+                                                            onChange={() => handleToggleSelectTask(task.id)}
+                                                            aria-label={`Select ${task.title}`}
+                                                            className="w-4 h-4 rounded text-indigo-600 border-slate-300 cursor-pointer"
+                                                        />
+                                                    </td>
+
+                                                    {/* Quick 1-Click Complete */}
+                                                    <td className="py-3 px-2">
+                                                        <button
+                                                            onClick={() => handleToggleComplete(task)}
+                                                            title={task.status === 'Completed' ? 'Mark Incomplete' : 'Mark Completed'}
+                                                            className={`w-5 h-5 rounded-full border flex items-center justify-center transition-all ${
+                                                                task.status === 'Completed'
+                                                                    ? 'bg-emerald-500 border-emerald-500 text-white'
+                                                                    : 'border-slate-300 hover:border-indigo-500 text-transparent hover:text-slate-300'
+                                                            }`}
+                                                        >
+                                                            <Check className="w-3 h-3 stroke-[3]" />
+                                                        </button>
+                                                    </td>
+
+                                                    {/* Task Title & Details */}
+                                                    <td className="py-3 px-3">
+                                                        <div className="flex flex-col">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className={`font-semibold text-slate-900 text-xs ${
+                                                                    task.status === 'Completed' ? 'line-through text-slate-400' : ''
+                                                                }`}>
+                                                                    {task.title}
+                                                                </span>
+                                                                {task.isRecurring && (
+                                                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-md text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                                                        <Repeat className="w-2.5 h-2.5" />
+                                                                        {task.repeatRule || 'Recurring'}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+
+                                                            {task.description && (
+                                                                <span className="text-[11px] text-slate-400 truncate max-w-md mt-0.5">
+                                                                    {task.description}
+                                                                </span>
+                                                            )}
+
+                                                            <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                                                                {task.category && (
+                                                                    <span className="inline-block px-1.5 py-0.2 rounded text-[10px] bg-slate-100 text-slate-600 font-medium">
+                                                                        {task.category}
+                                                                    </span>
+                                                                )}
+                                                                {leadInfo && (
+                                                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] bg-sky-50 text-sky-700 border border-sky-100">
+                                                                        <Briefcase className="w-2.5 h-2.5 text-sky-500" />
+                                                                        <span>{leadInfo.name}</span>
+                                                                    </span>
+                                                                )}
+                                                                {bookingInfo && (
+                                                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] bg-purple-50 text-purple-700 border border-purple-100">
+                                                                        <Layers className="w-2.5 h-2.5 text-purple-500" />
+                                                                        <span>{bookingInfo.customer} ({bookingInfo.title})</span>
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </td>
+
+                                                    {/* Assignee */}
+                                                    <td className="py-3 px-3">
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-[10px] flex-shrink-0">
+                                                                {staffMember?.initials || staffMember?.name?.substring(0, 2).toUpperCase() || 'UN'}
+                                                            </div>
+                                                            <span className="text-slate-700 text-xs">
+                                                                {staffMember?.name || 'Unassigned'}
+                                                            </span>
+                                                        </div>
+                                                    </td>
+
+                                                    {/* Priority */}
+                                                    <td className="py-3 px-3">
+                                                        <PriorityPill priority={task.priority} />
+                                                    </td>
+
+                                                    {/* Status Dropdown */}
+                                                    <td className="py-3 px-3">
+                                                        <select
+                                                            value={task.status}
+                                                            onChange={e => handleUpdateStatus(task.id, e.target.value as TaskStatus)}
+                                                            aria-label="Update status"
+                                                            className="text-xs font-semibold bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-slate-700 hover:border-slate-300 focus:outline-none cursor-pointer"
+                                                        >
+                                                            <option value="Pending">Pending</option>
+                                                            <option value="In Progress">In Progress</option>
+                                                            <option value="Completed">Completed</option>
+                                                        </select>
+                                                    </td>
+
+                                                    {/* Due Date */}
+                                                    <td className="py-3 px-3">
+                                                        {dueBadge && (
+                                                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border text-[11px] ${dueBadge.color}`}>
+                                                                <Calendar className="w-3 h-3" />
+                                                                {dueBadge.text}
+                                                            </span>
+                                                        )}
+                                                    </td>
+
+                                                    {/* Actions */}
+                                                    <td className="py-3 px-3 text-right">
+                                                        <div className="flex items-center justify-end gap-1">
+                                                            <button
+                                                                onClick={() => handleOpenEditModal(task)}
+                                                                aria-label="Edit task"
+                                                                className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors"
+                                                            >
+                                                                <Edit2 className="w-3.5 h-3.5" />
+                                                            </button>
+                                                            <button
+                                                                onClick={() => handleDeleteTask(task.id)}
+                                                                aria-label="Delete task"
+                                                                className="p-1.5 rounded-lg hover:bg-rose-50 text-slate-400 hover:text-rose-600 transition-colors"
+                                                            >
+                                                                <Trash2 className="w-3.5 h-3.5" />
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+
+                                        {filteredTasks.length === 0 && (
+                                            <tr>
+                                                <td colSpan={8} className="py-12 text-center text-slate-400">
+                                                    <CheckCircle2 className="w-9 h-9 mx-auto mb-2 opacity-30 text-indigo-500" />
+                                                    <p className="font-semibold text-xs">No tasks found for the current filter</p>
+                                                    <button
+                                                        onClick={() => { setStatusFilter('all'); setPriorityFilter('all'); setSearchQuery(''); }}
+                                                        className="mt-2 text-indigo-600 text-xs font-semibold hover:underline"
+                                                    >
+                                                        Reset Filter
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
-                    </div>
+                    )}
+
+                    {/* ── SUB-VIEW B: BOARD VIEW (Kanban) ─────────────────── */}
+                    {activeView === 'board' && (
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 items-start">
+                            {/* Column 1: Pending */}
+                            <div className="bg-slate-100/70 border border-slate-200/70 rounded-2xl p-3 flex flex-col min-h-[420px]">
+                                <div className="flex items-center justify-between pb-2 border-b border-slate-200/70 mb-2.5 px-1">
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+                                        <h3 className="font-bold text-xs text-slate-800">To Do / Pending</h3>
+                                    </div>
+                                    <span className="px-1.5 py-0.2 rounded-md text-[10px] font-mono font-bold bg-white text-slate-600 shadow-sm">
+                                        {filteredTasks.filter(t => t.status === 'Pending').length}
+                                    </span>
+                                </div>
+
+                                <div className="space-y-2.5 flex-1 overflow-y-auto max-h-[60vh]">
+                                    {filteredTasks
+                                        .filter(t => t.status === 'Pending')
+                                        .map(task => (
+                                            <TaskCard
+                                                key={task.id}
+                                                task={task}
+                                                staffMember={getStaffMember(task.assignedTo)}
+                                                leadInfo={getLeadDisplay(task.relatedLeadId)}
+                                                bookingInfo={getBookingDisplay(task.relatedBookingId)}
+                                                onToggleComplete={() => handleToggleComplete(task)}
+                                                onUpdateStatus={status => handleUpdateStatus(task.id, status)}
+                                                onEdit={() => handleOpenEditModal(task)}
+                                                onDelete={() => handleDeleteTask(task.id)}
+                                            />
+                                        ))}
+
+                                    {filteredTasks.filter(t => t.status === 'Pending').length === 0 && (
+                                        <div className="text-center py-10 px-3 border border-dashed border-slate-200 rounded-xl text-slate-400">
+                                            <Clock className="w-6 h-6 mx-auto mb-1 opacity-30 text-amber-500" />
+                                            <p className="text-[11px]">No pending tasks</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Column 2: In Progress */}
+                            <div className="bg-slate-100/70 border border-slate-200/70 rounded-2xl p-3 flex flex-col min-h-[420px]">
+                                <div className="flex items-center justify-between pb-2 border-b border-slate-200/70 mb-2.5 px-1">
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="w-2.5 h-2.5 rounded-full bg-indigo-500" />
+                                        <h3 className="font-bold text-xs text-slate-800">In Progress</h3>
+                                    </div>
+                                    <span className="px-1.5 py-0.2 rounded-md text-[10px] font-mono font-bold bg-white text-slate-600 shadow-sm">
+                                        {filteredTasks.filter(t => t.status === 'In Progress').length}
+                                    </span>
+                                </div>
+
+                                <div className="space-y-2.5 flex-1 overflow-y-auto max-h-[60vh]">
+                                    {filteredTasks
+                                        .filter(t => t.status === 'In Progress')
+                                        .map(task => (
+                                            <TaskCard
+                                                key={task.id}
+                                                task={task}
+                                                staffMember={getStaffMember(task.assignedTo)}
+                                                leadInfo={getLeadDisplay(task.relatedLeadId)}
+                                                bookingInfo={getBookingDisplay(task.relatedBookingId)}
+                                                onToggleComplete={() => handleToggleComplete(task)}
+                                                onUpdateStatus={status => handleUpdateStatus(task.id, status)}
+                                                onEdit={() => handleOpenEditModal(task)}
+                                                onDelete={() => handleDeleteTask(task.id)}
+                                            />
+                                        ))}
+
+                                    {filteredTasks.filter(t => t.status === 'In Progress').length === 0 && (
+                                        <div className="text-center py-10 px-3 border border-dashed border-slate-200 rounded-xl text-slate-400">
+                                            <Layers className="w-6 h-6 mx-auto mb-1 opacity-30 text-indigo-500" />
+                                            <p className="text-[11px]">No active tasks in progress</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Column 3: Completed */}
+                            <div className="bg-slate-100/70 border border-slate-200/70 rounded-2xl p-3 flex flex-col min-h-[420px]">
+                                <div className="flex items-center justify-between pb-2 border-b border-slate-200/70 mb-2.5 px-1">
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                                        <h3 className="font-bold text-xs text-slate-800">Completed</h3>
+                                    </div>
+                                    <span className="px-1.5 py-0.2 rounded-md text-[10px] font-mono font-bold bg-white text-slate-600 shadow-sm">
+                                        {filteredTasks.filter(t => t.status === 'Completed').length}
+                                    </span>
+                                </div>
+
+                                <div className="space-y-2.5 flex-1 overflow-y-auto max-h-[60vh]">
+                                    {filteredTasks
+                                        .filter(t => t.status === 'Completed')
+                                        .map(task => (
+                                            <TaskCard
+                                                key={task.id}
+                                                task={task}
+                                                staffMember={getStaffMember(task.assignedTo)}
+                                                leadInfo={getLeadDisplay(task.relatedLeadId)}
+                                                bookingInfo={getBookingDisplay(task.relatedBookingId)}
+                                                onToggleComplete={() => handleToggleComplete(task)}
+                                                onUpdateStatus={status => handleUpdateStatus(task.id, status)}
+                                                onEdit={() => handleOpenEditModal(task)}
+                                                onDelete={() => handleDeleteTask(task.id)}
+                                            />
+                                        ))}
+
+                                    {filteredTasks.filter(t => t.status === 'Completed').length === 0 && (
+                                        <div className="text-center py-10 px-3 border border-dashed border-slate-200 rounded-xl text-slate-400">
+                                            <CheckCircle2 className="w-6 h-6 mx-auto mb-1 opacity-30 text-emerald-500" />
+                                            <p className="text-[11px]">No completed tasks yet</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ── SUB-VIEW C: EMPLOYEE PERFORMANCE MATRIX ─────────── */}
+                    {activeView === 'reports' && (
+                        <div className="bg-white/95 border border-slate-200/80 rounded-2xl shadow-sm p-4 space-y-4">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h3 className="text-sm font-bold text-slate-900">
+                                        Team Performance Matrix & Delivery Scorecard
+                                    </h3>
+                                    <p className="text-xs text-slate-400">
+                                        Completion rates, workload distribution, and delay diagnostics
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={handleExportReport}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 text-slate-700 text-xs font-semibold hover:bg-slate-50 transition-all"
+                                >
+                                    <Download className="w-3.5 h-3.5 text-slate-500" />
+                                    <span>Export CSV</span>
+                                </button>
+                            </div>
+
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left text-xs">
+                                    <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-100">
+                                        <tr>
+                                            <th className="py-2.5 px-3">Employee</th>
+                                            <th className="py-2.5 px-3">Assigned</th>
+                                            <th className="py-2.5 px-3">Completed</th>
+                                            <th className="py-2.5 px-3">In Progress</th>
+                                            <th className="py-2.5 px-3">Pending</th>
+                                            <th className="py-2.5 px-3">Overdue</th>
+                                            <th className="py-2.5 px-3">Completion Rate</th>
+                                            <th className="py-2.5 px-3">Status Tier</th>
+                                            <th className="py-2.5 px-3 text-right">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 font-medium">
+                                        {employeeReports.map(emp => (
+                                            <tr key={emp.staff.id} className="hover:bg-slate-50">
+                                                <td className="py-3 px-3">
+                                                    <div className="flex items-center gap-2">
+                                                        <div className="w-7 h-7 rounded-lg bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-xs">
+                                                            {emp.staff.initials || emp.staff.name.substring(0, 2).toUpperCase()}
+                                                        </div>
+                                                        <div>
+                                                            <p className="font-bold text-slate-900 text-xs">{emp.staff.name}</p>
+                                                            <p className="text-[10px] text-slate-400">{emp.staff.role}</p>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td className="py-3 px-3 font-mono font-bold">{emp.totalAssigned}</td>
+                                                <td className="py-3 px-3 font-mono text-emerald-600 font-bold">{emp.completed}</td>
+                                                <td className="py-3 px-3 font-mono text-indigo-600">{emp.inProgress}</td>
+                                                <td className="py-3 px-3 font-mono text-slate-600">{emp.pending}</td>
+                                                <td className="py-3 px-3 font-mono text-rose-600 font-bold">
+                                                    {emp.overdue > 0 ? `${emp.overdue} Late` : '0'}
+                                                </td>
+                                                <td className="py-3 px-3">
+                                                    <div className="flex items-center gap-2">
+                                                        <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                                            <div
+                                                                className={`h-full rounded-full ${
+                                                                    emp.completionRate >= 75 ? 'bg-emerald-500' : emp.completionRate >= 40 ? 'bg-indigo-500' : 'bg-amber-500'
+                                                                }`}
+                                                                style={{ width: `${emp.completionRate}%` }}
+                                                            />
+                                                        </div>
+                                                        <span className="font-mono font-bold text-xs">{emp.completionRate}%</span>
+                                                    </div>
+                                                </td>
+                                                <td className="py-3 px-3">
+                                                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                                                        emp.performanceTier === 'Top Performer'
+                                                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                            : emp.performanceTier === 'On Track'
+                                                            ? 'bg-sky-50 text-sky-700 border-sky-200'
+                                                            : emp.performanceTier === 'Needs Attention'
+                                                            ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                                            : 'bg-slate-50 text-slate-400 border-slate-200'
+                                                    }`}>
+                                                        {emp.performanceTier}
+                                                    </span>
+                                                </td>
+                                                <td className="py-3 px-3 text-right">
+                                                    <button
+                                                        onClick={() => {
+                                                            setSelectedStaffId(String(emp.staff.id));
+                                                            setActiveView('list');
+                                                        }}
+                                                        className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 text-slate-700 text-xs font-semibold transition-all"
+                                                    >
+                                                        Filter Tasks
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+                </main>
+            </div>
+
+            {/* ── Bulk Actions Floating Capsule ───────────────────────────── */}
+            {selectedTasks.length > 0 && (
+                <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 backdrop-blur-xl text-white px-4 py-2.5 rounded-2xl shadow-2xl border border-slate-700 flex items-center gap-3 animate-in fade-in slide-in-from-bottom-3">
+                    <span className="text-xs font-semibold text-slate-300 font-mono">
+                        {selectedTasks.length} selected
+                    </span>
+                    <div className="h-4 w-px bg-slate-700" />
+                    <button
+                        onClick={() => handleBulkStatus('Completed')}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold transition-all"
+                    >
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>Complete</span>
+                    </button>
+                    <button
+                        onClick={() => handleBulkStatus('In Progress')}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-semibold transition-all"
+                    >
+                        <Clock className="w-3.5 h-3.5" />
+                        <span>In Progress</span>
+                    </button>
+                    <button
+                        onClick={handleBulkDelete}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-rose-600/90 hover:bg-rose-600 text-xs font-semibold transition-all"
+                    >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Delete</span>
+                    </button>
+                    <button
+                        onClick={() => setSelectedTasks([])}
+                        className="text-xs text-slate-400 hover:text-white ml-1"
+                    >
+                        Cancel
+                    </button>
                 </div>
             )}
 
-            {/* Rule Modal */}
-            {showRuleModal && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-                    <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
-                        <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-                            <h2 className="text-lg font-bold text-slate-900">Create Assignment Rule</h2>
-                            <button onClick={() => setShowRuleModal(false)} className="p-2 rounded-xl hover:bg-slate-100">
-                                <X className="w-5 h-5" />
+            {/* ── Apple-Inspired Task Modal (Z-[9999] High-Priority Overlay) ─ */}
+            {showTaskModal && (
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-6 bg-slate-950/75 backdrop-blur-md overflow-y-auto animate-in fade-in duration-150">
+                    <div
+                        className="bg-white rounded-3xl w-full max-w-xl shadow-2xl border border-slate-100 flex flex-col max-h-[92vh] my-auto overflow-hidden animate-in zoom-in-95 duration-200"
+                        onClick={e => e.stopPropagation()}
+                    >
+                        {/* Sticky Header */}
+                        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-white/95 backdrop-blur-md sticky top-0 z-10">
+                            <div>
+                                <h2 className="text-base font-extrabold text-slate-900 tracking-tight">
+                                    {editingTask ? 'Edit Task' : 'Assign New Task'}
+                                </h2>
+                                <p className="text-xs text-slate-400">
+                                    Specify responsibility, deadline, recurrence, and priority
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => {
+                                    setShowTaskModal(false);
+                                    setEditingTask(null);
+                                }}
+                                className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+                            >
+                                <X className="w-4 h-4" />
                             </button>
                         </div>
-                        <div className="p-6 space-y-4">
+
+                        {/* Scrollable Form Body */}
+                        <form onSubmit={handleTaskFormSubmit} className="p-5 space-y-4 overflow-y-auto flex-1 text-xs">
+                            {/* Title */}
                             <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-1">Rule Name *</label>
+                                <label className="block font-semibold text-slate-700 mb-1">
+                                    Task Title *
+                                </label>
                                 <input
                                     type="text"
-                                    value={ruleForm.name}
-                                    onChange={e => setRuleForm({ ...ruleForm, name: e.target.value })}
-                                    className="w-full h-11 px-4 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 outline-none"
-                                    placeholder="e.g., Round Robin Leads"
+                                    required
+                                    placeholder="e.g., Finalize custom quote or follow up on client visa"
+                                    value={taskForm.title}
+                                    onChange={e => setTaskForm({ ...taskForm, title: e.target.value })}
+                                    className="w-full h-10 px-3.5 rounded-xl border border-slate-200 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                                 />
                             </div>
+
+                            {/* Description */}
                             <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-1">Strategy</label>
-                                <select
-                                    value={ruleForm.strategy}
-                                    onChange={e => setRuleForm({ ...ruleForm, strategy: e.target.value as AssignmentStrategy })}
-                                    className="w-full h-11 px-4 rounded-xl border border-slate-200"
-                                >
-                                    <option value="round-robin">Round Robin</option>
-                                    <option value="workload">Workload Based</option>
-                                    <option value="specialty">Specialty Based</option>
-                                    <option value="manual">Manual Only</option>
-                                </select>
+                                <label className="block font-semibold text-slate-700 mb-1">
+                                    Instructions & Deliverable Notes
+                                </label>
+                                <textarea
+                                    rows={2}
+                                    placeholder="Add context, instructions, or specific constraints..."
+                                    value={taskForm.description}
+                                    onChange={e => setTaskForm({ ...taskForm, description: e.target.value })}
+                                    className="w-full p-3 rounded-xl border border-slate-200 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20 resize-none"
+                                />
                             </div>
+
+                            {/* Assignee & Category */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                    <label className="block font-semibold text-slate-700 mb-1">
+                                        Assign To *
+                                    </label>
+                                    <select
+                                        required
+                                        value={taskForm.assignedTo}
+                                        onChange={e => setTaskForm({ ...taskForm, assignedTo: Number(e.target.value) })}
+                                        className="w-full h-10 px-3 rounded-xl border border-slate-200 text-xs font-medium bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer"
+                                    >
+                                        <option value={0} disabled>Select staff member</option>
+                                        {staff.map(s => (
+                                            <option key={s.id} value={s.id}>
+                                                {s.name} ({s.role})
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="block font-semibold text-slate-700 mb-1">
+                                        Category
+                                    </label>
+                                    <select
+                                        value={taskForm.category}
+                                        onChange={e => setTaskForm({ ...taskForm, category: e.target.value })}
+                                        className="w-full h-10 px-3 rounded-xl border border-slate-200 text-xs font-medium bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer"
+                                    >
+                                        <option value="General">General</option>
+                                        <option value="Lead Follow-up">Lead Follow-up</option>
+                                        <option value="Booking Coordination">Booking Coordination</option>
+                                        <option value="Operations">Operations</option>
+                                        <option value="Finance & Billing">Finance & Billing</option>
+                                        <option value="Ticketing">Ticketing</option>
+                                        <option value="Customer Care">Customer Care</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            {/* Priority Level */}
                             <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-1">Trigger On</label>
-                                <select
-                                    value={ruleForm.triggerOn}
-                                    onChange={e => setRuleForm({ ...ruleForm, triggerOn: e.target.value as any })}
-                                    className="w-full h-11 px-4 rounded-xl border border-slate-200"
+                                <label className="block font-semibold text-slate-700 mb-1.5">
+                                    Priority Level
+                                </label>
+                                <div className="grid grid-cols-4 gap-1.5 bg-slate-100 p-1 rounded-xl">
+                                    {(['Low', 'Medium', 'High', 'Urgent'] as TaskPriority[]).map(p => (
+                                        <button
+                                            key={p}
+                                            type="button"
+                                            onClick={() => setTaskForm({ ...taskForm, priority: p })}
+                                            className={`py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                                                taskForm.priority === p
+                                                    ? p === 'Urgent'
+                                                        ? 'bg-rose-500 text-white shadow-sm'
+                                                        : p === 'High'
+                                                        ? 'bg-amber-500 text-white shadow-sm'
+                                                        : p === 'Medium'
+                                                        ? 'bg-indigo-600 text-white shadow-sm'
+                                                        : 'bg-white text-slate-800 shadow-sm'
+                                                    : 'text-slate-600 hover:text-slate-900'
+                                            }`}
+                                        >
+                                            {p}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Due Date with Quick Presets */}
+                            <div>
+                                <div className="flex items-center justify-between mb-1.5">
+                                    <label className="font-semibold text-slate-700">
+                                        Due Date *
+                                    </label>
+                                    <div className="flex items-center gap-1">
+                                        <button
+                                            type="button"
+                                            onClick={() => applyDatePreset(0)}
+                                            className="px-2 py-0.5 rounded text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-600"
+                                        >
+                                            Today
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => applyDatePreset(1)}
+                                            className="px-2 py-0.5 rounded text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-600"
+                                        >
+                                            Tomorrow
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => applyDatePreset(3)}
+                                            className="px-2 py-0.5 rounded text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-600"
+                                        >
+                                            +3 Days
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => applyDatePreset(7)}
+                                            className="px-2 py-0.5 rounded text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-600"
+                                        >
+                                            Next Week
+                                        </button>
+                                    </div>
+                                </div>
+                                <input
+                                    type="date"
+                                    required
+                                    value={taskForm.dueDate}
+                                    onChange={e => setTaskForm({ ...taskForm, dueDate: e.target.value })}
+                                    className="w-full h-10 px-3.5 rounded-xl border border-slate-200 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                                />
+                            </div>
+
+                            {/* ── REPEAT / RECURRING TASK SECTION ────────────────── */}
+                            <div className="bg-slate-50/80 rounded-2xl p-3.5 border border-slate-200/70 space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <div className={`p-1.5 rounded-lg ${taskForm.isRecurring ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-500'}`}>
+                                            <Repeat className="w-3.5 h-3.5" />
+                                        </div>
+                                        <div>
+                                            <span className="font-bold text-slate-800 text-xs block">Repeat Task</span>
+                                            <span className="text-[10px] text-slate-400">Schedule automatic recurring task cadence</span>
+                                        </div>
+                                    </div>
+
+                                    {/* Apple Toggle Switch */}
+                                    <button
+                                        type="button"
+                                        onClick={() => setTaskForm({ ...taskForm, isRecurring: !taskForm.isRecurring })}
+                                        className={`w-10 h-6 flex items-center rounded-full p-1 transition-colors duration-200 ease-in-out cursor-pointer ${
+                                            taskForm.isRecurring ? 'bg-indigo-600 justify-end' : 'bg-slate-300 justify-start'
+                                        }`}
+                                    >
+                                        <div className="w-4 h-4 bg-white rounded-full shadow-md transform transition-transform" />
+                                    </button>
+                                </div>
+
+                                {taskForm.isRecurring && (
+                                    <div className="pt-2 border-t border-slate-200/60 space-y-3 animate-in fade-in duration-200">
+                                        {/* Frequency Options */}
+                                        <div>
+                                            <label className="block text-[11px] font-semibold text-slate-600 mb-1.5">
+                                                Recurrence Cadence
+                                            </label>
+                                            <div className="grid grid-cols-4 gap-1 bg-white p-1 rounded-xl border border-slate-200">
+                                                {[
+                                                    { key: 'daily', label: 'Daily' },
+                                                    { key: 'weekly', label: 'Days of Week' },
+                                                    { key: 'custom_days', label: 'Interval' },
+                                                    { key: 'monthly', label: 'Monthly' }
+                                                ].map(f => (
+                                                    <button
+                                                        key={f.key}
+                                                        type="button"
+                                                        onClick={() => setTaskForm({ ...taskForm, repeatFrequency: f.key as RepeatFrequency })}
+                                                        className={`py-1 rounded-lg text-[10px] font-bold transition-all ${
+                                                            taskForm.repeatFrequency === f.key
+                                                                ? 'bg-indigo-600 text-white shadow-sm'
+                                                                : 'text-slate-600 hover:bg-slate-100'
+                                                        }`}
+                                                    >
+                                                        {f.label}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        {/* Weekly Specific Days Selector */}
+                                        {taskForm.repeatFrequency === 'weekly' && (
+                                            <div>
+                                                <label className="block text-[11px] font-semibold text-slate-600 mb-1.5">
+                                                    Repeat on Specific Days:
+                                                </label>
+                                                <div className="flex items-center justify-between gap-1">
+                                                    {WEEKDAYS.map(day => {
+                                                        const isSelected = taskForm.repeatDays.includes(day);
+                                                        return (
+                                                            <button
+                                                                key={day}
+                                                                type="button"
+                                                                onClick={() => toggleWeekday(day)}
+                                                                className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
+                                                                    isSelected
+                                                                        ? 'bg-indigo-600 text-white shadow-sm'
+                                                                        : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                                                                }`}
+                                                            >
+                                                                {day}
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Custom Interval (Every X Days) */}
+                                        {taskForm.repeatFrequency === 'custom_days' && (
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-xs text-slate-600">Repeat every</span>
+                                                <input
+                                                    type="number"
+                                                    min={1}
+                                                    max={90}
+                                                    value={taskForm.repeatInterval}
+                                                    onChange={e => setTaskForm({ ...taskForm, repeatInterval: Math.max(1, parseInt(e.target.value) || 1) })}
+                                                    className="w-16 h-8 px-2 rounded-lg border border-slate-200 bg-white text-xs font-bold text-center"
+                                                />
+                                                <span className="text-xs text-slate-600">days</span>
+                                            </div>
+                                        )}
+
+                                        {/* Summary text */}
+                                        <div className="text-[11px] text-indigo-700 bg-indigo-50/70 px-2.5 py-1.5 rounded-xl font-medium border border-indigo-100 flex items-center gap-1.5">
+                                            <RefreshCw className="w-3 h-3 text-indigo-500" />
+                                            <span>
+                                                {taskForm.repeatFrequency === 'daily' && 'Task will recur every single day.'}
+                                                {taskForm.repeatFrequency === 'weekly' && `Task will recur weekly on: ${taskForm.repeatDays.join(', ')}`}
+                                                {taskForm.repeatFrequency === 'custom_days' && `Task will recur every ${taskForm.repeatInterval} days.`}
+                                                {taskForm.repeatFrequency === 'monthly' && 'Task will recur on the same day every month.'}
+                                            </span>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* ── APPLE-STYLE SEARCHABLE LEAD & BOOKING SELECTORS ── */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                                {/* Searchable Lead Selector */}
+                                <SearchableLeadSelect
+                                    leads={leads}
+                                    selectedLeadId={taskForm.relatedLeadId}
+                                    onSelectLead={id => setTaskForm({ ...taskForm, relatedLeadId: id })}
+                                />
+
+                                {/* Searchable Booking Selector */}
+                                <SearchableBookingSelect
+                                    bookings={bookings}
+                                    selectedBookingId={taskForm.relatedBookingId}
+                                    onSelectBooking={id => setTaskForm({ ...taskForm, relatedBookingId: id })}
+                                />
+                            </div>
+
+                            {/* Sticky Footer */}
+                            <div className="flex items-center gap-3 pt-3 border-t border-slate-100 sticky bottom-0 bg-white/95 backdrop-blur-md">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setShowTaskModal(false);
+                                        setEditingTask(null);
+                                    }}
+                                    className="flex-1 h-9 rounded-xl border border-slate-200 font-semibold text-xs text-slate-600 hover:bg-slate-50 transition-all"
                                 >
-                                    <option value="new-lead">New Lead</option>
-                                    <option value="new-booking">New Booking</option>
-                                    <option value="new-task">New Task</option>
-                                </select>
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    className="flex-1 h-9 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs shadow-sm hover:shadow transition-all"
+                                >
+                                    {editingTask ? 'Save Changes' : taskForm.isRecurring ? 'Assign Recurring Task' : 'Assign Task'}
+                                </button>
                             </div>
-                            <div className="flex gap-3 pt-4">
-                                <button type="button" onClick={() => setShowRuleModal(false)} className="flex-1 h-11 rounded-xl border border-slate-200 font-semibold text-slate-600 hover:bg-slate-50">Cancel</button>
-                                <button onClick={handleAddRule} className="flex-1 h-11 rounded-xl bg-indigo-600 text-white font-semibold hover:bg-indigo-700">Create Rule</button>
-                            </div>
-                        </div>
+                        </form>
                     </div>
                 </div>
             )}
 
-            {/* Task Modal */}
-            {
-                showTaskModal && (
-                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-                        <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl">
-                            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-                                <h2 className="text-lg font-bold text-slate-900">{editingTask ? 'Edit Task' : 'Assign New Task'}</h2>
-                                <button onClick={() => { setShowTaskModal(false); setEditingTask(null); }} className="p-2 rounded-xl hover:bg-slate-100">
-                                    <X className="w-5 h-5" />
-                                </button>
-                            </div>
-                            <form onSubmit={handleTaskSubmit} className="p-6 space-y-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">Task Title *</label>
-                                    <input
-                                        type="text"
-                                        required
-                                        value={taskForm.title}
-                                        onChange={e => setTaskForm({ ...taskForm, title: e.target.value })}
-                                        className="w-full h-11 px-4 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 outline-none"
-                                        placeholder="Enter task title"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">Description</label>
-                                    <textarea
-                                        value={taskForm.description}
-                                        onChange={e => setTaskForm({ ...taskForm, description: e.target.value })}
-                                        className="w-full h-20 px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 outline-none resize-none"
-                                        placeholder="Add details..."
-                                    />
-                                </div>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-1">Assign To *</label>
-                                        <select
-                                            required
-                                            value={taskForm.assignedTo}
-                                            onChange={e => setTaskForm({ ...taskForm, assignedTo: Number(e.target.value) })}
-                                            className="w-full h-11 px-4 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 outline-none"
-                                        >
-                                            <option value={0}>Select staff</option>
-                                            {staff.map(s => (
-                                                <option key={s.id} value={s.id}>{s.name}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-1">Priority</label>
-                                        <select
-                                            value={taskForm.priority}
-                                            onChange={e => setTaskForm({ ...taskForm, priority: e.target.value as TaskPriority })}
-                                            className="w-full h-11 px-4 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 outline-none"
-                                        >
-                                            <option value="Low">Low</option>
-                                            <option value="Medium">Medium</option>
-                                            <option value="High">High</option>
-                                            <option value="Urgent">Urgent</option>
-                                        </select>
-                                    </div>
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">Due Date *</label>
-                                    <input
-                                        type="date"
-                                        required
-                                        value={taskForm.dueDate}
-                                        onChange={e => setTaskForm({ ...taskForm, dueDate: e.target.value })}
-                                        className="w-full h-11 px-4 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 outline-none"
-                                    />
-                                </div>
-                                <div className="flex gap-3 pt-4">
-                                    <button type="button" onClick={() => { setShowTaskModal(false); setEditingTask(null); }} className="flex-1 h-11 rounded-xl border border-slate-200 font-semibold text-slate-600 hover:bg-slate-50">Cancel</button>
-                                    <button type="submit" className="flex-1 h-11 rounded-xl bg-indigo-600 text-white font-semibold hover:bg-indigo-700">{editingTask ? 'Update Task' : 'Create Task'}</button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-                )
-            }
+        </div>
+    );
+};
 
-            {/* Target Modal */}
-            {
-                showTargetModal && (
-                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-                        <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl">
-                            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-                                <h2 className="text-lg font-bold text-slate-900">Set Daily Target</h2>
-                                <button onClick={() => setShowTargetModal(false)} className="p-2 rounded-xl hover:bg-slate-100">
-                                    <X className="w-5 h-5" />
-                                </button>
-                            </div>
-                            <form onSubmit={handleTargetSubmit} className="p-6 space-y-4">
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-1">Staff Member *</label>
-                                        <select
-                                            required
-                                            value={targetForm.staffId}
-                                            onChange={e => setTargetForm({ ...targetForm, staffId: Number(e.target.value) })}
-                                            className="w-full h-11 px-4 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 outline-none"
-                                        >
-                                            <option value={0}>Select staff</option>
-                                            {staff.map(s => (
-                                                <option key={s.id} value={s.id}>{s.name}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-1">Date *</label>
-                                        <input
-                                            type="date"
-                                            required
-                                            value={targetForm.date}
-                                            onChange={e => setTargetForm({ ...targetForm, date: e.target.value })}
-                                            className="w-full h-11 px-4 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 outline-none"
-                                        />
-                                    </div>
-                                </div>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-1">Target Leads</label>
-                                        <input
-                                            type="number"
-                                            min="0"
-                                            value={targetForm.targetLeads}
-                                            onChange={e => setTargetForm({ ...targetForm, targetLeads: Number(e.target.value) })}
-                                            className="w-full h-11 px-4 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 outline-none"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-1">Target Calls</label>
-                                        <input
-                                            type="number"
-                                            min="0"
-                                            value={targetForm.targetCalls}
-                                            onChange={e => setTargetForm({ ...targetForm, targetCalls: Number(e.target.value) })}
-                                            className="w-full h-11 px-4 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 outline-none"
-                                        />
-                                    </div>
-                                </div>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-1">Target Conversions</label>
-                                        <input
-                                            type="number"
-                                            min="0"
-                                            value={targetForm.targetConversions}
-                                            onChange={e => setTargetForm({ ...targetForm, targetConversions: Number(e.target.value) })}
-                                            className="w-full h-11 px-4 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 outline-none"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-1">Target Bookings</label>
-                                        <input
-                                            type="number"
-                                            min="0"
-                                            value={targetForm.targetBookings}
-                                            onChange={e => setTargetForm({ ...targetForm, targetBookings: Number(e.target.value) })}
-                                            className="w-full h-11 px-4 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 outline-none"
-                                        />
-                                    </div>
-                                </div>
-                                <div className="flex gap-3 pt-4">
-                                    <button type="button" onClick={() => setShowTargetModal(false)} className="flex-1 h-11 rounded-xl border border-slate-200 font-semibold text-slate-600 hover:bg-slate-50">Cancel</button>
-                                    <button type="submit" className="flex-1 h-11 rounded-xl bg-indigo-600 text-white font-semibold hover:bg-indigo-700">Set Target</button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-                )
+// ── Searchable Combobox for Leads (Zero Raw UUIDs!) ──────────────────────────
+
+interface SearchableLeadSelectProps {
+    leads: Lead[];
+    selectedLeadId: string;
+    onSelectLead: (id: string) => void;
+}
+
+const SearchableLeadSelect: React.FC<SearchableLeadSelectProps> = ({
+    leads,
+    selectedLeadId,
+    onSelectLead
+}) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const [query, setQuery] = useState('');
+    const dropdownRef = useRef<HTMLDivElement>(null);
+
+    const selectedLead = useMemo(() => {
+        return leads.find(l => l.id === selectedLeadId);
+    }, [leads, selectedLeadId]);
+
+    const filteredLeads = useMemo(() => {
+        if (!query.trim()) return leads.slice(0, 30);
+        const q = query.toLowerCase();
+        return leads.filter(l =>
+            l.name?.toLowerCase().includes(q) ||
+            l.destination?.toLowerCase().includes(q) ||
+            l.phone?.includes(q)
+        ).slice(0, 30);
+    }, [leads, query]);
+
+    // Close on click outside
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+                setIsOpen(false);
             }
-        </div >
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    return (
+        <div className="relative" ref={dropdownRef}>
+            <label className="block font-semibold text-slate-700 mb-1 text-xs">
+                Link Lead (Optional)
+            </label>
+
+            {selectedLead ? (
+                <div className="h-10 px-3 rounded-xl border border-sky-200 bg-sky-50/70 flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2 min-w-0">
+                        <Briefcase className="w-3.5 h-3.5 text-sky-600 flex-shrink-0" />
+                        <span className="font-semibold text-sky-950 truncate">{selectedLead.name}</span>
+                        {selectedLead.destination && (
+                            <span className="text-[10px] text-sky-600 truncate">({selectedLead.destination})</span>
+                        )}
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => onSelectLead('')}
+                        className="p-1 rounded-lg hover:bg-sky-200/50 text-sky-600 hover:text-sky-800"
+                        title="Unlink Lead"
+                    >
+                        <X className="w-3.5 h-3.5" />
+                    </button>
+                </div>
+            ) : (
+                <button
+                    type="button"
+                    onClick={() => setIsOpen(!isOpen)}
+                    className="w-full h-10 px-3 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-500 hover:border-slate-300 flex items-center justify-between text-left focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                >
+                    <span>Choose related lead...</span>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                </button>
+            )}
+
+            {/* Floating Dropdown Panel */}
+            {isOpen && (
+                <div className="absolute left-0 top-full mt-1.5 w-full sm:w-[320px] bg-white rounded-2xl shadow-xl border border-slate-200 p-2 z-50 animate-in fade-in zoom-in-95">
+                    <div className="relative mb-2">
+                        <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                            type="text"
+                            placeholder="Type client name, destination..."
+                            value={query}
+                            onChange={e => setQuery(e.target.value)}
+                            autoFocus
+                            className="w-full h-8 pl-8 pr-3 rounded-xl bg-slate-50 border border-slate-200 text-xs focus:outline-none focus:bg-white focus:ring-2 focus:ring-indigo-500/20"
+                        />
+                    </div>
+
+                    <div className="max-h-48 overflow-y-auto space-y-1">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                onSelectLead('');
+                                setIsOpen(false);
+                            }}
+                            className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs text-slate-500 hover:bg-slate-100 flex items-center justify-between"
+                        >
+                            <span>None (No Lead)</span>
+                        </button>
+
+                        {filteredLeads.map(l => (
+                            <button
+                                key={l.id}
+                                type="button"
+                                onClick={() => {
+                                    onSelectLead(l.id);
+                                    setIsOpen(false);
+                                }}
+                                className="w-full text-left px-2.5 py-2 rounded-xl text-xs hover:bg-indigo-50 hover:text-indigo-950 flex flex-col transition-colors group"
+                            >
+                                <span className="font-bold text-slate-900 group-hover:text-indigo-950 truncate">
+                                    {l.name}
+                                </span>
+                                <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mt-0.5">
+                                    {l.leadNumber && <span>LD-{l.leadNumber}</span>}
+                                    {l.destination && <span>• {l.destination}</span>}
+                                    {l.phone && <span>• {l.phone}</span>}
+                                </div>
+                            </button>
+                        ))}
+
+                        {filteredLeads.length === 0 && (
+                            <p className="text-center py-4 text-[11px] text-slate-400">No leads match "{query}"</p>
+                        )}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+// ── Searchable Combobox for Bookings (Zero Raw UUIDs!) ───────────────────────
+
+interface SearchableBookingSelectProps {
+    bookings: Booking[];
+    selectedBookingId: string;
+    onSelectBooking: (id: string) => void;
+}
+
+const SearchableBookingSelect: React.FC<SearchableBookingSelectProps> = ({
+    bookings,
+    selectedBookingId,
+    onSelectBooking
+}) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const [query, setQuery] = useState('');
+    const dropdownRef = useRef<HTMLDivElement>(null);
+
+    const selectedBooking = useMemo(() => {
+        return bookings.find(b => b.id === selectedBookingId);
+    }, [bookings, selectedBookingId]);
+
+    const filteredBookings = useMemo(() => {
+        if (!query.trim()) return bookings.slice(0, 30);
+        const q = query.toLowerCase();
+        return bookings.filter(b =>
+            b.customer?.toLowerCase().includes(q) ||
+            b.title?.toLowerCase().includes(q)
+        ).slice(0, 30);
+    }, [bookings, query]);
+
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+                setIsOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    return (
+        <div className="relative" ref={dropdownRef}>
+            <label className="block font-semibold text-slate-700 mb-1 text-xs">
+                Link Booking (Optional)
+            </label>
+
+            {selectedBooking ? (
+                <div className="h-10 px-3 rounded-xl border border-purple-200 bg-purple-50/70 flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2 min-w-0">
+                        <Layers className="w-3.5 h-3.5 text-purple-600 flex-shrink-0" />
+                        <span className="font-semibold text-purple-950 truncate">
+                            {selectedBooking.customer || 'Customer'}
+                        </span>
+                        {selectedBooking.title && (
+                            <span className="text-[10px] text-purple-600 truncate">({selectedBooking.title})</span>
+                        )}
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => onSelectBooking('')}
+                        className="p-1 rounded-lg hover:bg-purple-200/50 text-purple-600 hover:text-purple-800"
+                        title="Unlink Booking"
+                    >
+                        <X className="w-3.5 h-3.5" />
+                    </button>
+                </div>
+            ) : (
+                <button
+                    type="button"
+                    onClick={() => setIsOpen(!isOpen)}
+                    className="w-full h-10 px-3 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-500 hover:border-slate-300 flex items-center justify-between text-left focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                >
+                    <span>Choose related booking...</span>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                </button>
+            )}
+
+            {/* Floating Dropdown Panel */}
+            {isOpen && (
+                <div className="absolute right-0 top-full mt-1.5 w-full sm:w-[320px] bg-white rounded-2xl shadow-xl border border-slate-200 p-2 z-50 animate-in fade-in zoom-in-95">
+                    <div className="relative mb-2">
+                        <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                            type="text"
+                            placeholder="Type customer or tour name..."
+                            value={query}
+                            onChange={e => setQuery(e.target.value)}
+                            autoFocus
+                            className="w-full h-8 pl-8 pr-3 rounded-xl bg-slate-50 border border-slate-200 text-xs focus:outline-none focus:bg-white focus:ring-2 focus:ring-indigo-500/20"
+                        />
+                    </div>
+
+                    <div className="max-h-48 overflow-y-auto space-y-1">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                onSelectBooking('');
+                                setIsOpen(false);
+                            }}
+                            className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs text-slate-500 hover:bg-slate-100 flex items-center justify-between"
+                        >
+                            <span>None (No Booking)</span>
+                        </button>
+
+                        {filteredBookings.map(b => (
+                            <button
+                                key={b.id}
+                                type="button"
+                                onClick={() => {
+                                    onSelectBooking(b.id);
+                                    setIsOpen(false);
+                                }}
+                                className="w-full text-left px-2.5 py-2 rounded-xl text-xs hover:bg-purple-50 hover:text-purple-950 flex flex-col transition-colors group"
+                            >
+                                <span className="font-bold text-slate-900 group-hover:text-purple-950 truncate">
+                                    {b.customer || 'Guest Booking'}
+                                </span>
+                                <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mt-0.5">
+                                    {b.bookingNumber && <span>BK-{b.bookingNumber}</span>}
+                                    {b.title && <span>• {b.title}</span>}
+                                    {b.date && <span>• {b.date}</span>}
+                                </div>
+                            </button>
+                        ))}
+
+                        {filteredBookings.length === 0 && (
+                            <p className="text-center py-4 text-[11px] text-slate-400">No bookings match "{query}"</p>
+                        )}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+// ── Subcomponents ────────────────────────────────────────────────────────────
+
+interface TaskCardProps {
+    task: Task & { isOverdue?: boolean };
+    staffMember?: StaffMember;
+    leadInfo?: { name: string; code: string; destination: string } | null;
+    bookingInfo?: { customer: string; title: string; code: string } | null;
+    onToggleComplete: () => void;
+    onUpdateStatus: (status: TaskStatus) => void;
+    onEdit: () => void;
+    onDelete: () => void;
+}
+
+const TaskCard: React.FC<TaskCardProps> = ({
+    task,
+    staffMember,
+    leadInfo,
+    bookingInfo,
+    onToggleComplete,
+    onUpdateStatus,
+    onEdit,
+    onDelete
+}) => {
+    const dueBadge = formatDueDateBadge(task.dueDate, task.status === 'Completed');
+
+    return (
+        <div className="bg-white rounded-xl p-3 shadow-sm border border-slate-200/80 hover:shadow-md transition-all group relative flex flex-col justify-between">
+            <div>
+                {/* Header: Priority, Recurring & Quick Options */}
+                <div className="flex items-center justify-between mb-1.5">
+                    <div className="flex items-center gap-1.5">
+                        <PriorityPill priority={task.priority} />
+                        {task.isRecurring && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-md text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                <Repeat className="w-2.5 h-2.5" />
+                                {task.repeatRule || 'Recurring'}
+                            </span>
+                        )}
+                    </div>
+
+                    <div className="flex items-center gap-1 opacity-70 group-hover:opacity-100 transition-opacity">
+                        <button
+                            onClick={onEdit}
+                            title="Edit task"
+                            className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600"
+                        >
+                            <Edit2 className="w-3 h-3" />
+                        </button>
+                        <button
+                            onClick={onDelete}
+                            title="Delete task"
+                            className="p-1 rounded hover:bg-rose-50 text-slate-400 hover:text-rose-600"
+                        >
+                            <Trash2 className="w-3 h-3" />
+                        </button>
+                    </div>
+                </div>
+
+                {/* Title & Checkbox */}
+                <div className="flex items-start gap-2 mb-1.5">
+                    <button
+                        onClick={onToggleComplete}
+                        title={task.status === 'Completed' ? 'Mark Incomplete' : 'Mark Completed'}
+                        className={`mt-0.5 w-4 h-4 rounded-full border flex items-center justify-center transition-all flex-shrink-0 ${
+                            task.status === 'Completed'
+                                ? 'bg-emerald-500 border-emerald-500 text-white'
+                                : 'border-slate-300 hover:border-indigo-500 text-transparent'
+                        }`}
+                    >
+                        <Check className="w-2.5 h-2.5 stroke-[3]" />
+                    </button>
+
+                    <h4 className={`text-xs font-bold text-slate-900 leading-snug ${
+                        task.status === 'Completed' ? 'line-through text-slate-400' : ''
+                    }`}>
+                        {task.title}
+                    </h4>
+                </div>
+
+                {/* Description */}
+                {task.description && (
+                    <p className="text-[11px] text-slate-500 line-clamp-2 mb-2 pl-6">
+                        {task.description}
+                    </p>
+                )}
+
+                {/* Category & Clean Link Tags */}
+                <div className="flex flex-wrap items-center gap-1 pl-6 mb-2">
+                    {task.category && (
+                        <span className="px-1.5 py-0.2 rounded text-[10px] bg-slate-100 text-slate-600 font-medium">
+                            {task.category}
+                        </span>
+                    )}
+                    {leadInfo && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] bg-sky-50 text-sky-700 border border-sky-100">
+                            <Briefcase className="w-2.5 h-2.5 text-sky-500" />
+                            <span>{leadInfo.name}</span>
+                        </span>
+                    )}
+                    {bookingInfo && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] bg-purple-50 text-purple-700 border border-purple-100">
+                            <Layers className="w-2.5 h-2.5 text-purple-500" />
+                            <span>{bookingInfo.customer} ({bookingInfo.title})</span>
+                        </span>
+                    )}
+                </div>
+            </div>
+
+            {/* Footer */}
+            <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] pl-1">
+                {dueBadge && (
+                    <span className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded border text-[10px] ${dueBadge.color}`}>
+                        <Calendar className="w-2.5 h-2.5" />
+                        {dueBadge.text}
+                    </span>
+                )}
+
+                <div className="flex items-center gap-1.5">
+                    <select
+                        value={task.status}
+                        onChange={e => onUpdateStatus(e.target.value as TaskStatus)}
+                        aria-label="Change status"
+                        className="text-[10px] font-semibold bg-slate-50 border border-slate-200 rounded px-1.5 py-0.5 text-slate-700 hover:border-slate-300 focus:outline-none cursor-pointer"
+                    >
+                        <option value="Pending">Pending</option>
+                        <option value="In Progress">In Progress</option>
+                        <option value="Completed">Completed</option>
+                    </select>
+
+                    <div
+                        title={`Assigned to: ${staffMember?.name || 'Unassigned'}`}
+                        className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-[9px] flex-shrink-0"
+                    >
+                        {staffMember?.initials || staffMember?.name?.substring(0, 2).toUpperCase() || 'UN'}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const PriorityPill: React.FC<{ priority?: TaskPriority }> = ({ priority = 'Medium' }) => {
+    const config = {
+        Urgent: 'bg-rose-50 text-rose-700 border-rose-200',
+        High: 'bg-amber-50 text-amber-700 border-amber-200',
+        Medium: 'bg-sky-50 text-sky-700 border-sky-200',
+        Low: 'bg-slate-50 text-slate-600 border-slate-200'
+    }[priority];
+
+    return (
+        <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold border ${config}`}>
+            {priority}
+        </span>
     );
 };
 

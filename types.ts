@@ -1213,6 +1213,11 @@ export interface Task {
   relatedBookingId?: string;
   category?: string;
   source?: 'playbook' | 'manual'; // Fix #1, #25: distinguish auto-generated vs custom tasks
+  isRecurring?: boolean;
+  repeatFrequency?: 'daily' | 'weekly' | 'custom_days' | 'monthly';
+  repeatDays?: string[];
+  repeatInterval?: number;
+  repeatRule?: string;
 }
 
 // Daily Targets

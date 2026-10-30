@@ -52,7 +52,7 @@ export const Leads: React.FC = () => {
     const { addFollowUp, followUps, customers, addCustomer, tasks, updateTask, addTask, deleteTask, updateFollowUp } = useData();
     const { leads, addLead, updateLead, deleteLead, addLeadLog, updateLeadLog, deleteLeadLog, isLoading, refetchLeads } = useLeads();
     const { bookings, addBooking } = useBookings();
-    const { currentUser, staff, hasPermission, canAccess } = useAuth();
+    const { currentUser, staff, hasPermission, canAccess, getModuleScope } = useAuth();
     const { transfers, refetchTransfers } = useTransfers();
     const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
     const navigate = useNavigate();
@@ -367,15 +367,52 @@ export const Leads: React.FC = () => {
         return leadFollowUps[0] || null;
     };
 
+    // Permission & Scope Filter
+    const effectiveScope = (!currentUser || currentUser.userType === 'Admin') ? 'all' : (
+        getModuleScope ? getModuleScope('leads') : (
+            currentUser.queryScope === 'Show All Queries' ? 'all' :
+            currentUser.queryScope === 'Show Department Queries' ? 'department' : 'assigned'
+        )
+    );
+    const myId = String(currentUser?.id || (currentUser as any)?.staffId || '');
+
     // Advanced Filter & Sort Leads
     const sortedLeads = useMemo(() => {
-        const result = leads.filter(l =>
-            (l.name.toLowerCase().includes(search.toLowerCase()) ||
+        const result = leads.filter(l => {
+            const matchesSearchAndTab = (
+                l.name.toLowerCase().includes(search.toLowerCase()) ||
                 l.destination.toLowerCase().includes(search.toLowerCase()) ||
                 (l.email && l.email.toLowerCase().includes(search.toLowerCase())) ||
-                (l.leadNumber && String(l.leadNumber).includes(search))) &&
-            (activeTab === 'All' || l.status === activeTab)
-        );
+                (l.leadNumber && String(l.leadNumber).includes(search))
+            ) && (activeTab === 'All' || l.status === activeTab);
+
+            if (!matchesSearchAndTab) return false;
+
+            // Scope & Assignment Filtering
+            if (effectiveScope === 'all') return true;
+
+            const linkedBooking = getLinkedBooking(l);
+            const bookingAssigned = linkedBooking?.assignedTo ? String(linkedBooking.assignedTo) : null;
+            const bookingStaffList = (linkedBooking?.assignedStaffIds || []).map(String);
+
+            if (effectiveScope === 'department') {
+                const deptStaffIds = staff?.filter(s => s.department === currentUser?.department).map(s => String(s.id)) || [myId];
+                const leadAssigned = l.assignedTo ? String(l.assignedTo) : null;
+                const leadStaffList = (l.assignedStaffIds || []).map(String);
+
+                const leadMatch = (leadAssigned ? deptStaffIds.includes(leadAssigned) : false) || leadStaffList.some(id => deptStaffIds.includes(id)) || (leadAssigned === myId);
+                const bookingMatch = (bookingAssigned ? deptStaffIds.includes(bookingAssigned) : false) || bookingStaffList.some(id => deptStaffIds.includes(id)) || (bookingAssigned === myId);
+
+                return leadMatch || bookingMatch;
+            } else if (effectiveScope === 'assigned') {
+                const isLeadAssigned = String(l.assignedTo || '') === myId || (l.assignedStaffIds && l.assignedStaffIds.map(String).includes(myId));
+                const isBookingAssigned = String(bookingAssigned || '') === myId || bookingStaffList.includes(myId);
+
+                return isLeadAssigned || isBookingAssigned;
+            }
+
+            return true;
+        });
 
         result.sort((a, b) => {
             let valA: any = a[sortField as keyof Lead] ?? '';
@@ -403,7 +440,7 @@ export const Leads: React.FC = () => {
         });
 
         return result;
-    }, [leads, search, activeTab, sortField, sortOrder, followUps]);
+    }, [leads, search, activeTab, sortField, sortOrder, followUps, effectiveScope, myId, staff, currentUser, getLinkedBooking]);
 
     const handleSort = (field: 'name' | 'destination' | 'potentialValue' | 'addedOn' | 'nextFollowUp') => {
         if (sortField === field) {
@@ -885,6 +922,7 @@ export const Leads: React.FC = () => {
                 details: `Converted from Lead. Destination: ${selectedLead.destination}. Budget: ${formatPrice(selectedLead.potentialValue || 0)}.`,
                 notes: inheritedBookingNotes,
                 assignedTo: selectedLead.assignedTo || staff?.id || currentUser?.id,
+                assignedStaffIds: selectedLead.assignedStaffIds || (selectedLead.assignedTo ? [selectedLead.assignedTo] : (currentUser?.id ? [currentUser.id] : [])),
                 partnerId: selectedLead.partnerId,
                 leadId: selectedLead.id,
                 

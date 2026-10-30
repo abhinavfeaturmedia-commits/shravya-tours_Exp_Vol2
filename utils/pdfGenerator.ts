@@ -629,7 +629,15 @@ const formatAmount = (val: number): string => {
         : num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
-export const generateTrueInvoicePDF = async (docData: any, items: any[], company: any, finance: any, customFields?: { label: string; amount: number; is_deduction: boolean }[], fieldLabels?: Record<string, string>) => {
+export const generateTrueInvoicePDF = async (
+    docData: any,
+    items: any[],
+    company: any,
+    finance: any,
+    customFields?: { label: string; amount: number; is_deduction: boolean }[],
+    fieldLabels?: Record<string, string>,
+    options?: { returnBlob?: boolean }
+) => {
     // ── Load UPI QR Code Asynchronously ──
     const loadQrCode = (upiId: string, amount: number, customQr?: string): Promise<HTMLImageElement | null> => {
         return new Promise((resolve) => {
@@ -1541,7 +1549,22 @@ export const generateTrueInvoicePDF = async (docData: any, items: any[], company
 
     const safeDocNum = (invNoStr || String(docData.id || 'draft')).replace(/[\/\\]/g, '-');
     const safeClient = (docData.client_name || 'Client').replace(/[^a-zA-Z0-9_-]/g, '_');
-    doc.save(`${docData.document_type || 'Invoice'}_${safeClient}_${safeDocNum}.pdf`);
+    const fileName = `${docData.document_type || 'Invoice'}_${safeClient}_${safeDocNum}.pdf`;
+
+    if (options?.returnBlob) {
+        return {
+            fileName,
+            blob: doc.output('blob') as Blob,
+            doc
+        };
+    }
+
+    doc.save(fileName);
+    return {
+        fileName,
+        blob: doc.output('blob') as Blob,
+        doc
+    };
 };
 
 export const generateReceiptPDF = async (

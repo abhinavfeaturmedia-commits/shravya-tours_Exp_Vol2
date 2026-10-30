@@ -1,10 +1,11 @@
 /**
- * DMC PDF Itinerary Parser Engine
- * Combines high-speed browser PDF text extraction with OpenRouter Free AI / Gemini parsing,
+ * DMC PDF & WhatsApp Itinerary Parser Engine
+ * Combines high-speed browser PDF text extraction & canvas-based vision OCR fallback
+ * with OpenRouter Frontier AI (NVIDIA Nemotron 3 Ultra 550B, Nemotron 3.5 Super VL, Gemma 4)
  * and a deterministic heuristic regex fallback engine.
  */
 
-import { extractTextFromPdf, ExtractedPdfData, fileToBase64 } from './pdfExtractor';
+import { extractTextFromPdf, ExtractedPdfData, fileToBase64, renderPdfPagesToImages } from './pdfExtractor';
 import { robustParseJson } from './gemini';
 import { api } from './api';
 
@@ -15,6 +16,16 @@ export interface ParsedItineraryItem {
   time?: string;
   duration?: string;
   cost?: number;
+  hotelDetails?: {
+    hotelName?: string;
+    roomType?: string;
+    mealPlan?: string;
+    starRating?: string;
+  };
+  transportDetails?: {
+    vehicleType?: string;
+    serviceMode?: 'Private' | 'SIC' | 'Self-Drive';
+  };
 }
 
 export interface ParsedDayPlan {
@@ -36,10 +47,91 @@ export interface ParsedDmcPackage {
   termsAndConditions?: string;
   faqs?: Array<{ q: string; a: string }>;
   daysPlan: ParsedDayPlan[];
+  pricing?: {
+    totalPackageCost?: number;
+    costPerPerson?: number;
+    currency?: string;
+    pricingBasis?: string;
+    vehicleCost?: number;
+    hotelCostTotal?: number;
+  };
+  paxDetails?: {
+    adults?: number;
+    children?: number;
+  };
   source: 'ai' | 'heuristic';
   modelUsed?: string;
   rawTextPreview?: string;
 }
+
+// ─── Available Models for Dropdown / Execution ───────────────────────────
+
+export interface DmcAiModelOption {
+  id: string;
+  name: string;
+  tag: string;
+  context: string;
+  description: string;
+  icon: string;
+  badgeColor: string;
+}
+
+export const DMC_AI_MODELS: DmcAiModelOption[] = [
+  {
+    id: 'auto',
+    name: 'Auto Smart Router',
+    tag: 'Recommended',
+    context: 'Auto Load-Balance',
+    description: 'Automatically routes to the fastest, healthiest AI engine in the cluster.',
+    icon: '✨',
+    badgeColor: 'bg-amber-100 text-amber-800 border-amber-300'
+  },
+  {
+    id: 'nvidia/nemotron-3-ultra-550b-a55b:free',
+    name: 'NVIDIA Nemotron 3 Ultra 550B',
+    tag: 'Best Reasoning',
+    context: '1M Context',
+    description: 'Massive 550B MoE model. Unmatched comprehension of long supplier contracts & complex tours.',
+    icon: '🧠',
+    badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-300'
+  },
+  {
+    id: 'nvidia/nemotron-3.5-super-vl:free',
+    name: 'NVIDIA Nemotron 3.5 Super VL',
+    tag: 'Vision OCR',
+    context: '1M Context',
+    description: 'Vision-Language model optimized for multi-column tables, scanned quotes & graphic flyers.',
+    icon: '👁️',
+    badgeColor: 'bg-indigo-100 text-indigo-800 border-indigo-300'
+  },
+  {
+    id: 'google/gemma-4-31b-it:free',
+    name: 'Google Gemma 4 31B',
+    tag: 'High Precision',
+    context: '262k Context',
+    description: 'DeepMind dense model. Strict JSON schema with rich Indian & global travel circuit expertise.',
+    icon: '⚡',
+    badgeColor: 'bg-sky-100 text-sky-800 border-sky-300'
+  },
+  {
+    id: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
+    name: 'NVIDIA Nemotron Nano Omni',
+    tag: 'CoT Reasoning',
+    context: '256k Context',
+    description: 'Chain-of-thought reasoning to resolve conflicting supplier notes and night/day count mismatches.',
+    icon: '🎯',
+    badgeColor: 'bg-purple-100 text-purple-800 border-purple-300'
+  },
+  {
+    id: 'openrouter/free',
+    name: 'OpenRouter Dynamic Mesh',
+    tag: 'Dynamic Failover',
+    context: '200k Context',
+    description: 'Dynamic load balancing with instant failover across the entire cloud cluster.',
+    icon: '🌟',
+    badgeColor: 'bg-stone-100 text-stone-800 border-stone-300'
+  }
+];
 
 // ─── OpenRouter / AI Settings Helper ──────────────────────────────────────────
 
@@ -50,7 +142,7 @@ const getOpenRouterConfig = async () => {
     const config = {
       enabled: false,
       apiKey: '',
-      defaultModel: 'openrouter/free'
+      defaultModel: 'nvidia/nemotron-3-ultra-550b-a55b:free'
     };
     if (data && Array.isArray(data)) {
       data.forEach((item: any) => {
@@ -68,60 +160,73 @@ const getOpenRouterConfig = async () => {
     return {
       enabled: false,
       apiKey: '',
-      defaultModel: 'openrouter/free'
+      defaultModel: 'nvidia/nemotron-3-ultra-550b-a55b:free'
     };
   }
 };
 
 // ─── AI Extraction Prompt ─────────────────────────────────────────────────────
 
-const buildPdfPrompt = (pdfText: string) => `
-You are a World-Class Senior Destination Management Company (DMC) Tour Operations Specialist for SHRAWELLO Travel Hub.
-Analyze the following raw text extracted from a DMC / supplier travel itinerary PDF quotation and extract the full structured holiday package blueprint.
+const buildPdfPrompt = (rawContent: string) => `
+You are an Elite Senior Destination Management Company (DMC) Tour Operations Specialist & Travel Pricing Analyst for SHRAWELLO Travel Hub.
+Analyze the following supplier travel quotation / itinerary proposal (PDF content or WhatsApp message) and extract a complete, highly structured holiday package blueprint.
 
 ============================================================
-RAW EXTRACTED PDF TEXT:
+RAW SUPPLIER QUOTATION CONTENT:
 ============================================================
-${pdfText.slice(0, 32000)}
+${rawContent.slice(0, 120000)}
 ============================================================
 
 TASK & EXTRACTION RULES:
 1. PACKAGE OVERVIEW:
    - "title": Extract or craft an evocative, clear package title (e.g. "5N/6D Enchanting Kashmir Holiday" or "7N/8D Dubai Luxury Discovery").
-   - "destination": Identify the primary state/region/country (e.g. "Kashmir", "Himachal", "Dubai", "Kerala", "Bali").
+   - "destination": Primary state/region/country (e.g. "Kashmir", "Himachal", "Dubai", "Kerala", "Bali", "Thailand", "Goa", "Rajasthan", "Sikkim").
    - "days": Total duration in days (integer). If only nights are specified (e.g. 5 Nights), days = nights + 1.
    - "nights": Total overnight stays count (integer).
    - "destinationsList": Array of { "name": string, "nights": number } for all distinct stopover cities.
 
-2. DAY-BY-DAY ITINERARY ("daysPlan"):
+2. SUPPLIER PRICING & QUOTATION DETAILS:
+   - "pricing": Extract exact pricing mentioned by the supplier:
+     * "totalPackageCost": Total package amount (number, or 0 if not mentioned).
+     * "costPerPerson": Net cost per person / per adult (number, or 0 if not stated).
+     * "currency": Currency code (e.g. "INR", "USD", "AED", "EUR", "THB"). Default to "INR" for Indian destinations.
+     * "pricingBasis": Pricing conditions (e.g. "Twin Sharing / 2 Pax", "Per Adult Net", "Total for 4 Pax").
+     * "vehicleCost": Dedicated transport cost if quoted separately (or 0).
+     * "hotelCostTotal": Total hotel accommodation cost if quoted separately (or 0).
+   - "paxDetails": { "adults": number, "children": number } if mentioned.
+
+3. DAY-BY-DAY ITINERARY ("daysPlan"):
    - For every scheduled day (Day 1, Day 2, etc.):
      * "day": Integer (1, 2, 3...)
      * "title": Clear theme/title for the day (e.g. "Arrival in Srinagar & Dal Lake Shikara Ride")
      * "overnightCity": The city where the traveler sleeps tonight (e.g. "Srinagar", "Gulmarg", "Pahalgam")
      * "notes": Essential notes, distance, altitude advice, or timing tips for this day.
      * "items": Break down the day's itinerary into discrete service items. Categorize each item strictly into:
-       - "transport": Airport pickups, inter-city drives, scenic road transfers, railway transfers.
+       - "transport": Airport pickups, inter-city drives, scenic transfers, railway transfers.
        - "hotel": Hotel check-in, resort stay, houseboat stay, overnight rest.
        - "activity": Sightseeing, monuments, shikara ride, gondola ride, safaris, temple visits, adventure sports.
+       - "flight": Flights, domestic air transfers.
        - "guide": Monument escort, local heritage guide, trekking guide.
        - "note": Important tips, weather warnings, dress codes, permit advice.
      * In each item, provide:
        - "title": Clear, concise name of the service (e.g. "Scenic Drive from Srinagar to Gulmarg via Tangmarg")
        - "description": 1-3 sentences describing the experience, route, viewpoints, or hotel details.
-       - "time": Sensible time tag (e.g. "09:30 AM", "02:00 PM", "06:00 PM") matching the sequence.
+       - "time": Sensible time tag (e.g. "09:30 AM", "02:00 PM", "06:00 PM") matching the natural schedule sequence.
        - "duration": Realistic duration (e.g. "2.5 Hours", "45 Mins", "Full Day").
-       - "cost": 0 (pricing will be decided later by the travel agent).
+       - "cost": Item net cost if specified in supplier quotation, or 0.
+       - "hotelDetails": For "hotel" items: { "hotelName": "...", "roomType": "Deluxe Room", "mealPlan": "MAP / CP / AP / EP", "starRating": "3 Star / 4 Star" }.
+       - "transportDetails": For "transport" items: { "vehicleType": "Innova Crysta / Sedan / Tempo Traveller", "serviceMode": "Private" | "SIC" }.
 
-3. INCLUSIONS & EXCLUSIONS:
-   - "included": Extract every inclusion mentioned in the document as clear bullet points (hotels, meal plan, cab type, toll/parking, driver allowance, entry passes).
+4. INCLUSIONS & EXCLUSIONS:
+   - "included": Extract every inclusion mentioned in the document as clear bullet points (hotels, meal plan, cab type, toll/parking, driver allowance, entry passes, shikara ride).
    - "notIncluded": Extract all exclusions (airfare, personal expenses, lunch, optional activities, camera fees, GST).
    - "termsAndConditions": Summary of any cancellation policy, payment terms, or remarks in the PDF.
 
 OUTPUT FORMAT:
 Return ONLY a valid raw JSON object matching this exact schema (no markdown formatting, no code fences, no leading text):
 {
-  "title": "...",
-  "destination": "...",
+  "title": "5N/6D Enchanting Kashmir Holiday",
+  "destination": "Kashmir",
   "days": 6,
   "nights": 5,
   "destinationsList": [
@@ -129,6 +234,18 @@ Return ONLY a valid raw JSON object matching this exact schema (no markdown form
     { "name": "Gulmarg", "nights": 1 },
     { "name": "Pahalgam", "nights": 1 }
   ],
+  "pricing": {
+    "totalPackageCost": 38500,
+    "costPerPerson": 19250,
+    "currency": "INR",
+    "pricingBasis": "Per Person on Twin Sharing Basis",
+    "vehicleCost": 12000,
+    "hotelCostTotal": 24000
+  },
+  "paxDetails": {
+    "adults": 2,
+    "children": 0
+  },
   "included": [
     "05 Nights accommodation in selected hotels",
     "Daily breakfast and dinner (MAP)",
@@ -139,7 +256,7 @@ Return ONLY a valid raw JSON object matching this exact schema (no markdown form
     "Gondola tickets in Gulmarg",
     "Personal expenses"
   ],
-  "termsAndConditions": "...",
+  "termsAndConditions": "Standard DMC cancellation policy applies.",
   "daysPlan": [
     {
       "day": 1,
@@ -153,15 +270,25 @@ Return ONLY a valid raw JSON object matching this exact schema (no markdown form
           "description": "Meet representative at Srinagar Airport and transfer ~14 km to hotel.",
           "time": "11:00 AM",
           "duration": "45 Mins",
-          "cost": 0
+          "cost": 0,
+          "transportDetails": {
+            "vehicleType": "Innova Crysta",
+            "serviceMode": "Private"
+          }
         },
         {
           "type": "hotel",
-          "title": "Hotel Check-In & Freshen Up (Srinagar)",
-          "description": "Check in to deluxe room. Rest and unwind.",
+          "title": "Check-in at Hotel Heevan Srinagar",
+          "description": "Check in to Deluxe Room with breakfast & dinner included.",
           "time": "01:00 PM",
-          "duration": "2 Hours",
-          "cost": 0
+          "duration": "Overnight",
+          "cost": 0,
+          "hotelDetails": {
+            "hotelName": "Hotel Heevan",
+            "roomType": "Deluxe Room",
+            "mealPlan": "MAP",
+            "starRating": "4 Star"
+          }
         },
         {
           "type": "activity",
@@ -179,26 +306,62 @@ Return ONLY a valid raw JSON object matching this exact schema (no markdown form
 
 // ─── AI Call Executor with Multi-Model Fallbacks ──────────────────────────────
 
-async function callAiWithPrompt(prompt: string, pdfBase64?: string): Promise<{ text: string; modelUsed: string }> {
+async function callAiWithPrompt(
+  prompt: string,
+  options?: {
+    pdfBase64?: string;
+    pdfImages?: string[];
+    forcedModel?: string;
+  }
+): Promise<{ text: string; modelUsed: string }> {
   const config = await getOpenRouterConfig();
+  const hasImages = !!(options?.pdfImages && options.pdfImages.length > 0);
 
   if (config.enabled && config.apiKey) {
-    const candidateModels = [
-      (config.defaultModel || 'openrouter/free').replace(/^["']|["']$/g, '').trim(),
-      'openrouter/free',
-      'nvidia/nemotron-3.5-super-vl:free',
+    const candidateModels: string[] = [];
+
+    // 1. If user picked a model explicitly
+    if (options?.forcedModel && options.forcedModel !== 'auto') {
+      candidateModels.push(options.forcedModel.replace(/^["']|["']$/g, '').trim());
+    }
+
+    // 2. If images are provided (scanned brochure), prioritize vision model
+    if (hasImages) {
+      candidateModels.push('nvidia/nemotron-3.5-super-vl:free');
+    }
+
+    // 3. User configured default model
+    if (config.defaultModel && (!options?.forcedModel || options.forcedModel === 'auto')) {
+      candidateModels.push(config.defaultModel.replace(/^["']|["']$/g, '').trim());
+    }
+
+    // 4. Default frontier reasoning queue
+    candidateModels.push(
       'nvidia/nemotron-3-ultra-550b-a55b:free',
-      'google/gemma-4-26b-a4b-it:free',
       'google/gemma-4-31b-it:free',
-      'dots-studio/dots-3-note-preview:free',
-      'recursive/flint-v1.0:free',
-      'nvidia/nemotron-3.5-lightning:free'
-    ];
+      'nvidia/nemotron-3.5-super-vl:free',
+      'google/gemma-4-26b-a4b-it:free',
+      'openrouter/free',
+      'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free'
+    );
+
     const uniqueModels = Array.from(new Set(candidateModels.filter(Boolean)));
 
     for (const model of uniqueModels) {
       try {
         console.log(`[DMC PDF Parser] Trying OpenRouter model: ${model}`);
+
+        let messagesContent: any = prompt;
+        if (hasImages) {
+          messagesContent = [
+            { type: 'text', text: prompt },
+            ...options!.pdfImages!.slice(0, 4).map(img => ({
+              type: 'image_url',
+              image_url: { url: img }
+            }))
+          ];
+        }
+
         const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
           method: 'POST',
           headers: {
@@ -209,7 +372,7 @@ async function callAiWithPrompt(prompt: string, pdfBase64?: string): Promise<{ t
           },
           body: JSON.stringify({
             model,
-            messages: [{ role: 'user', content: prompt }]
+            messages: [{ role: 'user', content: messagesContent }]
           })
         });
 
@@ -240,8 +403,20 @@ async function callAiWithPrompt(prompt: string, pdfBase64?: string): Promise<{ t
       const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
       let result;
-      if (pdfBase64) {
-        const base64Data = pdfBase64.split(',')[1] || pdfBase64;
+      if (hasImages && options?.pdfImages) {
+        const parts: any[] = [prompt];
+        options.pdfImages.slice(0, 4).forEach(img => {
+          const base64Data = img.split(',')[1] || img;
+          parts.push({
+            inlineData: {
+              data: base64Data,
+              mimeType: 'image/jpeg'
+            }
+          });
+        });
+        result = await model.generateContent(parts);
+      } else if (options?.pdfBase64) {
+        const base64Data = options.pdfBase64.split(',')[1] || options.pdfBase64;
         result = await model.generateContent([
           prompt,
           {
@@ -261,7 +436,7 @@ async function callAiWithPrompt(prompt: string, pdfBase64?: string): Promise<{ t
     }
   }
 
-  throw new Error('AI parsing service unavailable. No working OpenRouter or Gemini credentials found.');
+  throw new Error('AI parsing service unavailable. Please check your OpenRouter API key in Settings.');
 }
 
 // ─── Deterministic Heuristic Regex Parser (Offline Fallback) ──────────────────
@@ -311,7 +486,39 @@ export function parseDmcItineraryFallback(rawText: string, fileName?: string): P
     }
   }
 
-  // 4. Extract Day-by-Day blocks
+  // 4. Detect Vehicle
+  let detectedVehicle = 'Private AC Vehicle';
+  const vehicleMatches = ['Innova Crysta', 'Innova', 'Ertiga', 'Swift Dzire', 'Etios', 'Tempo Traveller', 'Coach', 'Scorpio', 'Thar', 'Sedan'];
+  for (const v of vehicleMatches) {
+    if (new RegExp(`\\b${v}\\b`, 'i').test(rawText)) {
+      detectedVehicle = v;
+      break;
+    }
+  }
+
+  // 5. Detect Meal Plan
+  let detectedMealPlan = 'MAP (Breakfast & Dinner)';
+  if (/MAPAI|MAP|Breakfast\s*&\s*Dinner/i.test(rawText)) detectedMealPlan = 'MAP';
+  else if (/CPAI|CP|Breakfast\s*only/i.test(rawText)) detectedMealPlan = 'CP';
+  else if (/APAI|AP|All\s*Meals/i.test(rawText)) detectedMealPlan = 'AP';
+  else if (/EPAI|EP|Room\s*Only/i.test(rawText)) detectedMealPlan = 'EP';
+
+  // 6. Pricing regex extraction
+  let totalCost = 0;
+  let costPerPerson = 0;
+  const inrMatch = rawText.match(/(?:INR|Rs\.?|₹)\s*([\d,]{4,})/i);
+  if (inrMatch) {
+    const parsedAmt = parseInt(inrMatch[1].replace(/,/g, ''), 10);
+    if (!isNaN(parsedAmt) && parsedAmt > 1000) {
+      if (/per\s*person|per\s*pax|per\s*adult|twin\s*sharing/i.test(rawText)) {
+        costPerPerson = parsedAmt;
+      } else {
+        totalCost = parsedAmt;
+      }
+    }
+  }
+
+  // 7. Extract Day-by-Day blocks
   const dayRegex = /(?:^|\n)(?:Day|DAY|D)\s*([0-9]{1,2})[:\s\-\|]+(.*)/g;
   const daysFound: Array<{ dayNum: number; title: string; startIndex: number }> = [];
 
@@ -351,7 +558,6 @@ export function parseDmcItineraryFallback(rawText: string, fileName?: string): P
           type = 'note';
         }
 
-        // Only add substantial lines
         if (line.length > 15 && items.length < 5) {
           items.push({
             type,
@@ -359,7 +565,9 @@ export function parseDmcItineraryFallback(rawText: string, fileName?: string): P
             description: line,
             time: lineIdx === 0 ? '10:00 AM' : lineIdx === 1 ? '02:00 PM' : '05:30 PM',
             duration: type === 'transport' ? '1.5 Hours' : '2 Hours',
-            cost: 0
+            cost: 0,
+            hotelDetails: type === 'hotel' ? { roomType: 'Standard Room', mealPlan: detectedMealPlan } : undefined,
+            transportDetails: type === 'transport' ? { vehicleType: detectedVehicle, serviceMode: 'Private' } : undefined
           });
         }
       });
@@ -403,7 +611,7 @@ export function parseDmcItineraryFallback(rawText: string, fileName?: string): P
     }
   }
 
-  // 5. Inclusions / Exclusions parsing
+  // 8. Inclusions / Exclusions parsing
   const included: string[] = [];
   const notIncluded: string[] = [];
 
@@ -427,8 +635,8 @@ export function parseDmcItineraryFallback(rawText: string, fileName?: string): P
   if (included.length === 0) {
     included.push(
       `0${nightsCount} Nights accommodation as per itinerary`,
-      'Daily breakfast & dinner at hotels',
-      'Private AC vehicle for transfers and sightseeing',
+      `Daily meal plan: ${detectedMealPlan}`,
+      `Private ${detectedVehicle} for transfers and sightseeing`,
       'Toll tax, parking, driver allowance and fuel'
     );
   }
@@ -450,6 +658,12 @@ export function parseDmcItineraryFallback(rawText: string, fileName?: string): P
     included,
     notIncluded,
     termsAndConditions: 'Standard supplier terms and conditions apply.',
+    pricing: (totalCost > 0 || costPerPerson > 0) ? {
+      totalPackageCost: totalCost,
+      costPerPerson: costPerPerson,
+      currency: 'INR',
+      pricingBasis: costPerPerson > 0 ? 'Per Person on Twin Sharing' : 'Total Package Cost'
+    } : undefined,
     daysPlan,
     source: 'heuristic',
     modelUsed: 'Deterministic Heuristic Fallback Engine',
@@ -460,41 +674,67 @@ export function parseDmcItineraryFallback(rawText: string, fileName?: string): P
 // ─── Main Public Ingestion Function ───────────────────────────────────────────
 
 export async function parseDmcItinerary(
-  file: File,
-  onProgress?: (status: string) => void
+  input: File | string,
+  onProgress?: (status: string) => void,
+  forcedModel?: string
 ): Promise<ParsedDmcPackage> {
-  onProgress?.('Extracting text and structure from PDF document...');
+  let rawText = '';
+  let fileName = typeof input === 'string' ? 'Supplier WhatsApp Quotation' : input.name;
+  let pdfBase64: string | undefined;
+  let pdfImages: string[] | undefined;
 
-  // 1. Extract plain text directly in the browser
-  const extractedData = await extractTextFromPdf(file);
-  console.log(`[DMC PDF Parser] Extracted ${extractedData.pageCount} pages, total chars: ${extractedData.text.length}`);
+  if (typeof input === 'string') {
+    onProgress?.('Reading supplier quote text...');
+    rawText = input.trim();
+  } else {
+    onProgress?.('Extracting text and structure from PDF document...');
+    try {
+      const extractedData = await extractTextFromPdf(input);
+      rawText = extractedData.text || '';
+      console.log(`[DMC PDF Parser] Extracted ${extractedData.pageCount} pages, total chars: ${rawText.length}`);
+    } catch (extractErr) {
+      console.warn('[DMC PDF Parser] Text extraction error:', extractErr);
+    }
 
-  if (!extractedData.text || extractedData.text.trim().length < 30) {
-    throw new Error('Could not extract readable text from this PDF. It may be a scanned image-only PDF.');
+    // If PDF is scanned or graphical brochure (< 50 characters extracted), render canvas images for OCR Vision AI
+    if (!rawText || rawText.trim().length < 50) {
+      onProgress?.('Scanned/graphical brochure detected. Rendering visual pages for Vision AI...');
+      try {
+        pdfImages = await renderPdfPagesToImages(input, 4);
+        console.log(`[DMC PDF Parser] Rendered ${pdfImages.length} visual page images for OCR.`);
+      } catch (renderErr) {
+        console.warn('[DMC PDF Parser] Could not render page images:', renderErr);
+      }
+    }
+
+    if (input.size < 4 * 1024 * 1024) {
+      try {
+        pdfBase64 = await fileToBase64(input);
+      } catch {}
+    }
   }
 
-  onProgress?.('Analyzing itinerary structure with AI...');
+  if ((!rawText || rawText.trim().length < 20) && (!pdfImages || pdfImages.length === 0)) {
+    throw new Error('Could not extract text or images from this document. Please verify the file.');
+  }
+
+  onProgress?.('Analyzing itinerary with Frontier AI...');
 
   // 2. Try AI parsing with multi-model fallback queue
   try {
-    const prompt = buildPdfPrompt(extractedData.text);
-    let pdfBase64: string | undefined;
+    const prompt = buildPdfPrompt(rawText || 'Please read the attached DMC supplier PDF page images.');
+    const { text: aiResponseText, modelUsed } = await callAiWithPrompt(prompt, {
+      pdfBase64,
+      pdfImages,
+      forcedModel
+    });
 
-    // Optional base64 for small files (under 4MB) for Gemini multimodal fallback
-    if (file.size < 4 * 1024 * 1024) {
-      try {
-        pdfBase64 = await fileToBase64(file);
-      } catch {}
-    }
-
-    const { text: aiResponseText, modelUsed } = await callAiWithPrompt(prompt, pdfBase64);
-    onProgress?.('Structuring days, hotels, activities & inclusions...');
-
+    onProgress?.('Structuring days, hotels, activities & pricing...');
     const parsedJson = robustParseJson(aiResponseText);
 
     if (parsedJson && parsedJson.daysPlan && Array.isArray(parsedJson.daysPlan) && parsedJson.daysPlan.length > 0) {
       return {
-        title: parsedJson.title || file.name.replace(/\.pdf$/i, ''),
+        title: parsedJson.title || fileName.replace(/\.pdf$/i, ''),
         destination: parsedJson.destination || 'Custom Tour',
         days: Number(parsedJson.days) || parsedJson.daysPlan.length,
         nights: Number(parsedJson.nights) || Math.max(1, (Number(parsedJson.days) || parsedJson.daysPlan.length) - 1),
@@ -504,9 +744,11 @@ export async function parseDmcItinerary(
         termsAndConditions: parsedJson.termsAndConditions || '',
         faqs: Array.isArray(parsedJson.faqs) ? parsedJson.faqs : undefined,
         daysPlan: parsedJson.daysPlan,
+        pricing: parsedJson.pricing,
+        paxDetails: parsedJson.paxDetails,
         source: 'ai',
         modelUsed,
-        rawTextPreview: extractedData.text.slice(0, 1500)
+        rawTextPreview: (rawText || '').slice(0, 1500)
       };
     }
 
@@ -517,5 +759,5 @@ export async function parseDmcItinerary(
 
   // 3. Fallback to deterministic heuristic parser if AI fails or returned invalid structure
   onProgress?.('Applying smart deterministic heuristic extractor...');
-  return parseDmcItineraryFallback(extractedData.text, file.name);
+  return parseDmcItineraryFallback(rawText, fileName);
 }

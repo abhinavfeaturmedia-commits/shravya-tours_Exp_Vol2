@@ -36,6 +36,15 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     }, []);
 
+    const formatMonthLabel = useCallback((ym: string) => {
+        if (!ym || ym === 'all') return 'All Months';
+        const [year, month] = ym.split('-');
+        const date = new Date(parseInt(year), parseInt(month) - 1, 1);
+        const monthName = date.toLocaleString('default', { month: 'long' });
+        const isCur = ym === currentMonthStr;
+        return `${monthName} ${year}${isCur ? ' (Current)' : ''}`;
+    }, [currentMonthStr]);
+
     const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthStr);
     const [selectedDepartment, setSelectedDepartment] = useState<string>('all');
     const [selectedEmployee, setSelectedEmployee] = useState<string>('all');
@@ -51,6 +60,29 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
     const [adjustments, setAdjustments] = useState<IncentiveAdjustment[]>([]);
     const [payouts, setPayouts] = useState<IncentivePayout[]>([]);
     const [mySummary, setMySummary] = useState<any>(null);
+
+    // ─── Dynamic Month Options ───
+    const monthOptions = useMemo(() => {
+        const set = new Set<string>();
+        set.add(currentMonthStr);
+
+        // Include months from runs
+        if (Array.isArray(runs)) {
+            runs.forEach(r => {
+                if (r.month_year) set.add(r.month_year);
+            });
+        }
+
+        // Include past 12 months and future 3 months
+        const d = new Date();
+        for (let i = -12; i <= 3; i++) {
+            const cur = new Date(d.getFullYear(), d.getMonth() + i, 1);
+            const ym = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}`;
+            set.add(ym);
+        }
+
+        return Array.from(set).sort().reverse();
+    }, [runs, currentMonthStr]);
 
     // ─── Modals State ───
     const [showCreateRunModal, setShowCreateRunModal] = useState<boolean>(false);
@@ -125,7 +157,7 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
         baseRate: 2.0
     });
     const [editingSlabs, setEditingSlabs] = useState<any[]>([
-        { min_pct: 0, max_pct: 69.99, rate_pct: 0.0, label: 'Below 70%' },
+        { min_pct: 0, max_pct: 69.99, rate_pct: 1.0, label: 'Below 70% (Floor)' },
         { min_pct: 70, max_pct: 89.99, rate_pct: 1.0, label: '70% – 89%' },
         { min_pct: 90, max_pct: 99.99, rate_pct: 1.5, label: '90% – 99%' },
         { min_pct: 100, max_pct: 119.99, rate_pct: 2.0, label: '100% – 119%' },
@@ -592,12 +624,11 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                             className="bg-transparent text-sm font-medium text-slate-800 dark:text-slate-200 border-none outline-none focus:ring-0 cursor-pointer"
                         >
                             <option value="all">All Months</option>
-                            <option value="2026-09">September 2026</option>
-                            <option value="2026-08">August 2026</option>
-                            <option value="2026-07">July 2026</option>
-                            <option value="2026-06">June 2026</option>
-                            <option value="2026-05">May 2026</option>
-                            <option value="2026-04">April 2026</option>
+                            {monthOptions.map(m => (
+                                <option key={m} value={m}>
+                                    {formatMonthLabel(m)}
+                                </option>
+                            ))}
                         </select>
                     </div>
 
@@ -657,6 +688,36 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                ═══════════════════════════════════════════════════════════════════════ */}
             {activeTab === 'overview' && (
                 <div className="space-y-6">
+                    {/* Live Performance Projection Indicator (when applicable) */}
+                    {overviewData?.isLiveProjection && (
+                        <div className="bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/40 dark:to-orange-950/20 border border-amber-200 dark:border-amber-800/60 p-4 rounded-3xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-sm">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2.5 bg-amber-500/20 text-amber-600 dark:text-amber-400 rounded-2xl">
+                                    <Clock className="size-5" />
+                                </div>
+                                <div>
+                                    <h4 className="text-sm font-bold text-amber-900 dark:text-amber-200 flex items-center gap-2">
+                                        <span>Live Performance Projection ({formatMonthLabel(selectedMonth)})</span>
+                                        <span className="px-2 py-0.5 text-[10px] bg-amber-200 dark:bg-amber-800 text-amber-800 dark:text-amber-100 rounded-full font-semibold">Active Period</span>
+                                    </h4>
+                                    <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                                        Displaying {overviewData.liveBookingCount || 0} completed & fully settled bookings. Official monthly incentive run has not yet been locked.
+                                    </p>
+                                </div>
+                            </div>
+                            {isAdmin && (
+                                <button
+                                    onClick={() => {
+                                        handleRunMonthChange(selectedMonth);
+                                        setShowCreateRunModal(true);
+                                    }}
+                                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-2xl shadow-md transition whitespace-nowrap active:scale-95"
+                                >
+                                    Create Official Run
+                                </button>
+                            )}
+                        </div>
+                    )}
                     {/* 10 Dashboard Metric Cards */}
                     <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                         <div className="bg-white dark:bg-[#1A2633] p-4 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm space-y-1">
