@@ -70,6 +70,29 @@ export const PdfItineraryImportModal: React.FC<PdfItineraryImportModalProps> = (
   // Inline Editing State
   const [isEditingTitle, setIsEditingTitle] = useState(false);
 
+  // Dynamic milestone status rotator for engaging Shrawello AI video loader
+  const [loadingStepIdx, setLoadingStepIdx] = useState(0);
+  const LOADING_MILESTONES = [
+    'Scanning quotation document & layout structure...',
+    'Detecting trip duration, destination & travel party...',
+    'Extracting 4-star/5-star accommodations, categories & meal plans...',
+    'Structuring dedicated chauffeur mobility, vehicles & airport transfers...',
+    'Parsing sightseeing excursions, entrance passes & scenic cableways...',
+    'Synthesizing day-by-day luxury itinerary blueprint...',
+    'Finalizing pricing, inclusions & booking policies...'
+  ];
+
+  useEffect(() => {
+    if (!isProcessing) {
+      setLoadingStepIdx(0);
+      return;
+    }
+    const interval = setInterval(() => {
+      setLoadingStepIdx((prev) => (prev + 1) % LOADING_MILESTONES.length);
+    }, 2200);
+    return () => clearInterval(interval);
+  }, [isProcessing]);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
 
@@ -206,12 +229,36 @@ export const PdfItineraryImportModal: React.FC<PdfItineraryImportModalProps> = (
     const baseDayOffset = isAppend ? (tripDetails?.days || 0) : 0;
     const baseNightsOffset = isAppend ? (tripDetails?.nights || 0) : 0;
 
-    // 1. Update Trip Details
+    // 1. Build destination legs from parsed DMC data
+    const constructedLegs = (parsedData.destinationsList && parsedData.destinationsList.length > 0)
+      ? parsedData.destinationsList.map((d, idx) => ({
+          locationId: d.name,
+          nights: d.nights || Math.max(1, Math.floor(parsedData.nights / (parsedData.destinationsList?.length || 1))),
+          order: idx
+        }))
+      : [{
+          locationId: parsedData.destination || 'Almaty',
+          nights: parsedData.nights || 5,
+          order: 0
+        }];
+
+    // 2. Update Trip Details (Route Legs, Start Date, Room Sharing & Dining Plan)
     updateTripDetails({
       title: isAppend ? (tripDetails?.title || parsedData.title) : parsedData.title,
       destination: isAppend ? (tripDetails?.destination || parsedData.destination) : parsedData.destination,
+      destinations: isAppend ? [...(tripDetails?.destinations || []), ...constructedLegs] : constructedLegs,
+      startDate: parsedData.startDate || tripDetails?.startDate || new Date().toISOString().split('T')[0],
       days: isAppend ? baseDayOffset + parsedData.days : parsedData.days,
       nights: isAppend ? baseNightsOffset + parsedData.nights : parsedData.nights,
+      adults: parsedData.paxDetails?.adults || tripDetails?.adults || 2,
+      children: parsedData.paxDetails?.children ?? tripDetails?.children ?? 0,
+      roomSharing: (parsedData.roomSharing as any) || tripDetails?.roomSharing || 'Double',
+      mealPlanCode: (parsedData.mealPlanCode as any) || tripDetails?.mealPlanCode || 'CP',
+      extraBedNotes: parsedData.roomSharing === 'Triple'
+        ? 'Triple sharing basis with extra bed / rollaway mattress setup'
+        : parsedData.roomSharing === 'Quad'
+          ? 'Quad sharing basis with 4-guest family setup'
+          : tripDetails?.extraBedNotes,
       included: isAppend ? Array.from(new Set([...(tripDetails?.included || []), ...parsedData.included])) : parsedData.included,
       notIncluded: isAppend ? Array.from(new Set([...(tripDetails?.notIncluded || []), ...parsedData.notIncluded])) : parsedData.notIncluded,
       termsAndConditions: parsedData.termsAndConditions || tripDetails?.termsAndConditions || '',
@@ -222,10 +269,24 @@ export const PdfItineraryImportModal: React.FC<PdfItineraryImportModalProps> = (
     const newItems: Omit<ItineraryItem, 'sellPrice'>[] = [];
     const totalDaysCount = parsedData.daysPlan.length;
 
-    // Supplier pricing distribution helper
-    const costPerPerson = parsedData.pricing?.costPerPerson || 0;
-    const totalPackageCost = parsedData.pricing?.totalPackageCost || 0;
-    const targetNetBase = costPerPerson > 0 ? costPerPerson : (totalPackageCost > 0 ? Math.round(totalPackageCost / 2) : 0);
+    // Supplier pricing distribution helper (supports multi-currency conversion to INR)
+    let costPerPerson = parsedData.pricing?.costPerPerson || 0;
+    let totalPackageCost = parsedData.pricing?.totalPackageCost || 0;
+    const dmcCurrency = (parsedData.pricing?.currency || 'INR').toUpperCase();
+
+    if (dmcCurrency === 'USD') {
+      costPerPerson = Math.round(costPerPerson * 85);
+      totalPackageCost = Math.round(totalPackageCost * 85);
+    } else if (dmcCurrency === 'EUR') {
+      costPerPerson = Math.round(costPerPerson * 92);
+      totalPackageCost = Math.round(totalPackageCost * 92);
+    } else if (dmcCurrency === 'AED') {
+      costPerPerson = Math.round(costPerPerson * 23);
+      totalPackageCost = Math.round(totalPackageCost * 23);
+    }
+
+    const paxCount = parsedData.paxDetails?.adults || 2;
+    const targetNetBase = costPerPerson > 0 ? costPerPerson : (totalPackageCost > 0 ? Math.round(totalPackageCost / paxCount) : 0);
 
     parsedData.daysPlan.forEach((day, dIdx) => {
       const targetDayNum = baseDayOffset + day.day;
@@ -263,7 +324,7 @@ export const PdfItineraryImportModal: React.FC<PdfItineraryImportModalProps> = (
           extraMarkupFlat: 0,
           quantity: 1,
           time: act.time || (actIdx === 0 ? '10:00 AM' : actIdx === 1 ? '02:00 PM' : '05:30 PM'),
-          duration: act.duration || '2 Hours'
+          duration: act.duration || (sType === 'hotel' ? 'Overnight' : '2 Hours')
         });
       });
     });
@@ -574,26 +635,70 @@ export const PdfItineraryImportModal: React.FC<PdfItineraryImportModalProps> = (
             </div>
           )}
 
-          {/* ── Processing Indicator ─────────────────────────────────── */}
+          {/* ── Processing Indicator (Shrawello Branded Video Experience) ── */}
           {isProcessing && (
-            <div className="py-20 text-center space-y-4">
-              <div className="relative size-18 mx-auto">
-                <div className="absolute inset-0 rounded-full border-4 border-amber-200 border-t-amber-600 animate-spin" />
-                <div className="absolute inset-2.5 rounded-full bg-amber-50 flex items-center justify-center text-amber-600">
-                  <Sparkles size={24} className="animate-pulse" />
+            <div className="py-6 sm:py-8 flex flex-col items-center justify-center text-center space-y-4 animate-in fade-in zoom-in-95 duration-300">
+              
+              {/* Shrawello Brand Intelligence Badge */}
+              <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-gradient-to-r from-amber-500/10 via-amber-500/20 to-amber-500/10 border border-amber-500/30 text-amber-700 shadow-xs">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                </span>
+                <span className="text-[10px] font-black tracking-widest uppercase">
+                  Shrawello Neural Travel Intelligence
+                </span>
+              </div>
+
+              {/* Cinematic Video Container */}
+              <div className="relative w-full max-w-md sm:max-w-lg aspect-video rounded-2xl overflow-hidden border border-amber-500/30 shadow-2xl bg-stone-950 group">
+                <video
+                  src="/shrawello_loading.mp4"
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  className="w-full h-full object-cover"
+                />
+                
+                {/* Subtle vignette & ambient gradient overlay */}
+                <div className="absolute inset-0 bg-gradient-to-t from-stone-950/70 via-transparent to-stone-950/20 pointer-events-none" />
+                
+                {/* Active scan indicator overlay at bottom of video */}
+                <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between text-[11px] text-white/95 bg-stone-950/80 backdrop-blur-md px-3.5 py-2 rounded-xl border border-white/10 shadow-lg pointer-events-none">
+                  <div className="flex items-center gap-2 truncate">
+                    <Sparkles size={13} className="text-amber-400 animate-spin shrink-0" />
+                    <span className="font-semibold text-[11px] tracking-wide truncate">
+                      {progressStatus || LOADING_MILESTONES[loadingStepIdx]}
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-mono text-amber-300 font-bold shrink-0 ml-2">
+                    STEP {loadingStepIdx + 1}/{LOADING_MILESTONES.length}
+                  </span>
                 </div>
               </div>
 
-              <div className="space-y-1">
-                <h3 className="text-base font-black text-stone-900">Analyzing Supplier Itinerary</h3>
-                <p className="text-xs text-stone-500 max-w-sm mx-auto animate-pulse">
-                  {progressStatus || 'Extracting structured travel plan, pricing & hotels...'}
+              {/* Status Headings & Progress Details */}
+              <div className="space-y-1 max-w-md px-4">
+                <h3 className="text-base sm:text-lg font-black text-stone-900 tracking-tight">
+                  Analyzing Supplier Itinerary & Blueprint
+                </h3>
+                <p className="text-xs text-stone-500 font-medium">
+                  {progressStatus || LOADING_MILESTONES[loadingStepIdx]}
                 </p>
               </div>
 
-              <div className="max-w-xs mx-auto bg-stone-100 rounded-full h-1.5 overflow-hidden">
-                <div className="bg-amber-500 h-full w-2/3 animate-[pulse_1.5s_infinite]" />
+              {/* Animated Milestone Progress Bar */}
+              <div className="w-full max-w-xs bg-stone-100 rounded-full h-2 overflow-hidden border border-stone-200/80 p-0.5 shadow-inner">
+                <div 
+                  className="bg-gradient-to-r from-amber-500 via-amber-400 to-amber-600 h-full rounded-full transition-all duration-500 animate-[pulse_1.5s_infinite]" 
+                  style={{ width: `${Math.min(95, 20 + ((loadingStepIdx + 1) * 11))}%` }}
+                />
               </div>
+
+              <p className="text-[10px] text-stone-400 font-bold uppercase tracking-wider">
+                Extracting flights, hotels, transfers, sightseeing & net costing
+              </p>
             </div>
           )}
 

@@ -210,23 +210,68 @@ export const generateLuxuryItineraryPDF = async ({
 
     const routeString = destinationNames.length > 0
         ? destinationNames.map(cleanText).join(' - ')
-        : cleanTitle(tripDetails.title || 'Maharashtra Sacred Circuit');
+        : cleanTitle(tripDetails.title || 'Curated Holiday Circuit');
 
     const roomsCount = tripDetails.roomsCount || Math.max(1, Math.ceil((tripDetails.adults || 2) / 2));
 
-    // Detect circuit category
-    const isMaharashtra = destinationNames.some(d => /shirdi|bhimashankar|trimbak|grishneshwar|ellora|ajanta|mumbai|pune|nashik|aurangabad/i.test(d))
-        || /maharashtra|jyotirlinga/i.test(tripDetails.title || '');
-    const isVaranasi = destinationNames.some(d => /varanasi|kashi|prayagraj|chitrakoot|ayodhya/i.test(d))
-        || /varanasi|kashi|ayodhya/i.test(tripDetails.title || '');
+    // Comprehensive contextual circuit category detection
+    const fullSearchText = `${tripDetails.title || ''} ${destinationName || ''} ${destinationNames.join(' ')} ${tripDetails.destination || ''}`.toLowerCase();
 
-    // Resolve transportation fleet
+    const isInternational = /kazakhstan|almaty|astana|dubai|uae|thailand|bangkok|phuket|bali|indonesia|singapore|malaysia|vietnam|baku|azerbaijan|georgia|tbilisi|turkey|istanbul|europe|paris|switzerland|london|maldives|sri lanka|mauritius/i.test(fullSearchText);
+
+    const isPilgrimage = !isInternational && (
+        destinationNames.some(d => /shirdi|bhimashankar|trimbak|grishneshwar|ellora|varanasi|kashi|prayagraj|chitrakoot|ayodhya|tirupati|rameshwaram|madurai|puri|jagannath|haridwar|rishikesh|kedarnath|badrinath|char dham|dwarka|somnath|amritsar|golden temple|vaishno devi|ujjain|mahakaleshwar|omkareshwar/i.test(d))
+        || /jyotirlinga|darshan|temple|pilgrimage|sacred|divine|dham|yatra/i.test(tripDetails.title || '')
+    );
+
+    const isMaharashtra = isPilgrimage && (
+        destinationNames.some(d => /shirdi|bhimashankar|trimbak|grishneshwar|ellora|ajanta|mumbai|pune|nashik|aurangabad/i.test(d))
+        || /maharashtra|jyotirlinga/i.test(tripDetails.title || '')
+    );
+
+    const isVaranasi = isPilgrimage && (
+        destinationNames.some(d => /varanasi|kashi|prayagraj|chitrakoot|ayodhya/i.test(d))
+        || /varanasi|kashi|ayodhya/i.test(tripDetails.title || '')
+    );
+
+    // Resolve transportation fleet intelligently (separate true vehicles from transfer activities)
     const transportList = items.filter(i => i.type === 'transport' || i.type === 'flight');
-    const firstTrans = transportList[0] || null;
-    const uniqueVehicleTitles = Array.from(new Set(transportList.map(t => cleanText(t.title)).filter(Boolean)));
-    const vehicleSummary = uniqueVehicleTitles.length > 0
-        ? uniqueVehicleTitles.join(' / ')
-        : (firstTrans ? cleanText(firstTrans.title) : 'Dedicated Private AC Vehicle');
+    const isTransferActivity = (str: string) => /transfer|pickup|drop|drive to|return drive|lunch break|lunch stop|excursion to|walking tour/i.test(str);
+    
+    // Check if any item specifies vehicle in transportDetails
+    const explicitVehicles = transportList
+        .map(t => t.transportDetails?.vehicleType)
+        .filter(Boolean)
+        .map(cleanText);
+
+    // Or search titles for actual vehicle brand / category names
+    const vehicleMatches = transportList
+        .map(t => {
+            const m = (t.title || '').match(/\b(sedan|suv|innova\s*crysta|innova|ertiga|tempo\s*traveller|coach|mini\s*bus|swift\s*dzire|etios|hycross|luxury\s*van|private\s*ac\s*vehicle)\b/i);
+            return m ? cleanText(m[0]) : null;
+        })
+        .filter(Boolean) as string[];
+
+    let primaryFleetTitle = 'Dedicated Private AC Vehicle';
+    if (explicitVehicles.length > 0) {
+        primaryFleetTitle = explicitVehicles[0];
+    } else if (vehicleMatches.length > 0) {
+        const vName = vehicleMatches[0].toLowerCase();
+        primaryFleetTitle = `Dedicated Private AC ${vName.charAt(0).toUpperCase() + vName.slice(1)}`;
+    } else {
+        const nonTransferVehicles = Array.from(new Set(transportList.map(t => cleanText(t.title)).filter(t => !isTransferActivity(t))));
+        if (nonTransferVehicles.length > 0) {
+            primaryFleetTitle = nonTransferVehicles[0];
+        } else if (guestCount <= 3) {
+            primaryFleetTitle = 'Dedicated Private AC Sedan (Comfort 4-Seater)';
+        } else if (guestCount <= 6) {
+            primaryFleetTitle = 'Dedicated Private AC SUV / Innova Crysta (6-7 Seater)';
+        } else {
+            primaryFleetTitle = 'Dedicated Private AC Tempo Traveller / Luxury Coach';
+        }
+    }
+
+    const vehicleSummary = primaryFleetTitle;
 
     // ─────────────────────────────────────────────────────────────────────────
     // EXECUTIVE LUXURY HEADER & FOOTER DECORATOR
@@ -333,7 +378,12 @@ export const generateLuxuryItineraryPDF = async ({
     doc.setFont(activeFont, 'bold');
     doc.setFontSize(6.8);
     doc.setTextColor(...THEME.gold);
-    doc.text("✦ A JOURNEY OF FAITH, CULTURE & TIMELESS MEMORIES", margin + 6, y + 5.2);
+    const heroTagline = isPilgrimage
+        ? "✦ SACRED PILGRIMAGE, HERITAGE & SPIRITUAL AWAKENING"
+        : isInternational
+            ? "✦ BESPOKE INTERNATIONAL EXPEDITION & SIGNATURE DISCOVERY"
+            : "✦ CURATED LUXURY ESCAPE & BESPOKE TRAVEL STORYBOOK";
+    doc.text(heroTagline, margin + 6, y + 5.2);
 
     doc.setFont(activeFont, 'bold');
     doc.setFontSize(9.6);
@@ -395,16 +445,21 @@ export const generateLuxuryItineraryPDF = async ({
     doc.text("Curated Accommodation Plan:", margin, y);
     y += 2.8;
 
+    const validHotels = accommodations.filter(a => {
+        const title = (a.title || '').toLowerCase();
+        return !/^(breakfast|lunch|dinner|meal|check-out|early breakfast)/i.test(title) && !title.includes('drop-off');
+    });
+
     const hotelRows: string[][] = [];
     if (tripDetails.destinations && tripDetails.destinations.length > 0) {
         let currentDayCounter = 1;
         tripDetails.destinations.forEach((leg: any, legIdx: number) => {
             const locName = masterLocations?.find(l => String(l.id) === String(leg.locationId))?.name || leg.locationId;
-            const legHotel = accommodations.find(i => i.day === currentDayCounter)
-                || accommodations.find(i => cleanText(i.title).toLowerCase().includes(cleanText(locName).toLowerCase()))
-                || accommodations[legIdx]
+            const legHotel = validHotels.find(i => i.day === currentDayCounter)
+                || validHotels.find(i => cleanText(i.title).toLowerCase().includes(cleanText(locName).toLowerCase()))
+                || validHotels[legIdx]
                 || null;
-            const hotelTitle = legHotel ? `${cleanText(legHotel.title)} / Similar` : `3/4-Star Deluxe Hotel / Similar`;
+            const hotelTitle = legHotel ? `${cleanText(legHotel.title).replace(/^Check-in\s*(?:at|to)\s*/i, '')} / Similar` : `3/4-Star Deluxe Hotel / Similar`;
             const roomTypeDesc = legHotel?.roomTypeId ? getRoomTypeName(legHotel.roomTypeId) : 'Deluxe Rooms';
             hotelRows.push([
                 cleanText(locName),
@@ -414,12 +469,13 @@ export const generateLuxuryItineraryPDF = async ({
             ]);
             currentDayCounter += leg.nights || 1;
         });
-    } else if (accommodations.length > 0) {
-        accommodations.forEach(acc => {
+    } else if (validHotels.length > 0) {
+        const uniqueHotels = Array.from(new Set(validHotels.map(h => cleanText(h.title).replace(/^Check-in\s*(?:at|to)\s*/i, ''))));
+        uniqueHotels.forEach(hTitle => {
             hotelRows.push([
                 cleanText(destinationName),
                 `${tripDetails.nights} Nights`,
-                `${cleanText(acc.title)} / Similar`,
+                `${hTitle} / Similar`,
                 `${roomsCount} Deluxe Rooms (${tripDetails.roomSharing || 'Double'} Sharing)`
             ]);
         });
@@ -427,7 +483,7 @@ export const generateLuxuryItineraryPDF = async ({
         hotelRows.push([
             cleanText(destinationName),
             `${tripDetails.nights} Nights`,
-            `Standard Premium Hotel / Similar`,
+            `Handpicked 3/4-Star Hotel / Similar`,
             `${roomsCount} Deluxe Rooms (${tripDetails.roomSharing || 'Double'} Sharing)`
         ]);
     }
@@ -437,7 +493,7 @@ export const generateLuxuryItineraryPDF = async ({
         margin: { left: margin, right: margin },
         theme: 'grid',
         pageBreak: 'avoid',
-        head: [['Sacred Destination / City', 'Duration', 'Hotel & Category', 'Rooms Allocated']],
+        head: [['Destination / City', 'Duration', 'Curated Hotel / Property', 'Rooms Allocated']],
         body: hotelRows,
         styles: { fontSize: 6.8, font: activeFont, textColor: [30, 41, 59], cellPadding: 2.8, lineColor: [226, 232, 240], lineWidth: 0.2 },
         headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], font: activeFont, fontStyle: 'bold', fontSize: 7.0, cellPadding: 2.8 },
@@ -451,36 +507,38 @@ export const generateLuxuryItineraryPDF = async ({
 
     y = (doc as any).lastAutoTable.finalY + 5;
 
-    // ── TABLE 2: DEDICATED PRIVATE FLEET & MOBILITY ──
+    // ── TABLE 2: DEDICATED PRIVATE FLEET & MOBILITY (ATOMIC BUDGET CHECK PREVENTS ORPHAN HEADERS) ──
+    const vehicleRows: string[][] = [
+        [
+            '1',
+            `${primaryFleetTitle} (${guestCount <= 3 ? 'Max 3-4 Pax + Luggage' : guestCount <= 6 ? 'Max 6 Pax + Luggage' : 'Group Coach'})`,
+            `${tripDetails.days} Days`,
+            `${cleanTitle(routeString)} - Complete airport pickups, drops, excursion transfers, highway tolls, parking & chauffeur allowance included.`
+        ]
+    ];
+
+    const hasLuggageVan = transportList.some(t => /luggage/i.test(t.title || ''));
+    if (hasLuggageVan) {
+        vehicleRows.push([
+            '2',
+            'Dedicated Luggage Support Vehicle',
+            'As Scheduled',
+            'Baggage transfer between airport, hotel & sightseeing points for unencumbered cabin transit.'
+        ]);
+    }
+
+    const estimatedFleetH = 12 + (vehicleRows.length * 8);
+    if (y + estimatedFleetH > pageH - 42) {
+        doc.addPage();
+        drawPageDecorations(doc);
+        y = 19;
+    }
+
     doc.setFont(activeFont, 'bold');
     doc.setFontSize(8.2);
     doc.setTextColor(...THEME.obsidian);
     doc.text("Dedicated Private Fleet & Mobility:", margin, y);
     y += 2.8;
-
-    const vehicleRows: string[][] = [];
-    if (uniqueVehicleTitles.length > 0) {
-        uniqueVehicleTitles.forEach((vTitle, idx) => {
-            const daysUsed = transportList.filter(t => cleanText(t.title) === vTitle).length;
-            const daysStr = daysUsed > 1 ? `${daysUsed} Days` : `${tripDetails.days} Days`;
-            const matchItem = transportList.find(t => cleanText(t.title) === vTitle);
-            const descExtra = matchItem?.description ? ` (${cleanText(matchItem.description)})` : '';
-            const cleanedTitle = cleanText(vTitle + descExtra);
-            vehicleRows.push([
-                String(idx + 1),
-                cleanedTitle,
-                daysStr,
-                `${cleanTitle(routeString)} - Complete transfers, sightseeing, tolls, parking & chauffeur allowance included.`
-            ]);
-        });
-    } else {
-        vehicleRows.push([
-            '1',
-            'Dedicated Private AC Commercial Vehicle',
-            `${tripDetails.days} Days`,
-            `${cleanTitle(routeString)} - Complete transfers, sightseeing, tolls, parking & chauffeur allowance included.`
-        ]);
-    }
 
     autoTable(doc, {
         startY: y,
@@ -510,7 +568,7 @@ export const generateLuxuryItineraryPDF = async ({
         y += 4.5;
     }
 
-    // ── EXECUTIVE TOUR HIGHLIGHTS & QUALITY ASSURANCE PILLARS (EXPANDED TO BALANCE PAGE 1) ──
+    // ── EXECUTIVE TOUR HIGHLIGHTS & QUALITY ASSURANCE PILLARS ──
     const highlightBoxH = 32;
     doc.setFillColor(...THEME.cardBg);
     doc.setDrawColor(...THEME.borderLight);
@@ -529,7 +587,12 @@ export const generateLuxuryItineraryPDF = async ({
     const pillars = [
         { title: "Handpicked 3/4-Star Stays", desc: `Verified properties with hygienic sanitization & daily ${getMealPlanShortName(tripDetails.mealPlanCode)}.` },
         { title: "Private Dedicated Fleet", desc: "Commercial permit AC vehicle, seasoned circuit chauffeur, 100% tolls, parking & fuel included." },
-        { title: "Optimized Circuit Flow", desc: "Paced for spiritual relaxation, minimizing highway fatigue with strategic refreshment & temple stops." },
+        {
+            title: "Optimized Circuit Flow",
+            desc: isPilgrimage
+                ? "Paced for spiritual comfort, minimizing highway fatigue with strategic refreshment & queue buffers."
+                : "Paced for relaxed discovery, scenic photo stops, comfortable refreshment halts & smooth transitions."
+        },
         { title: "24x7 Dedicated Concierge", desc: "Real-time on-ground coordination and direct phone support from your personal Shrawello specialist." }
     ];
 
@@ -574,57 +637,15 @@ export const generateLuxuryItineraryPDF = async ({
     // DAY-WISE RENDERING HELPER (Clean Typography, Collision-Free Heights)
     // =========================================================================
     function renderDayCard(dayObj: { day: number; title: string; desc: string; items: any[] }) {
-        // Filter out transports from activity items
-        const activityItems = (dayObj.items || []).filter(i =>
-            i.type !== 'transport' &&
-            i.type !== 'flight' &&
-            !uniqueVehicleTitles.some(vt => cleanText(i.title || '').toLowerCase().includes(vt.toLowerCase()))
-        );
-
-        const dayHotel = (dayObj.items || []).find(i => i.type === 'hotel');
-        const stayCity = dayHotel ? cleanText(dayHotel.title) : cleanText(destinationNames[Math.min(dayObj.day - 1, destinationNames.length - 1)] || destinationName);
+        // Resolve verified hotel stay for this day (strictly ignoring breakfasts / dining / checkout)
+        const dayHotel = (dayObj.items || []).find(i => i.type === 'hotel' && !/breakfast|lunch|dinner|meal|check-out/i.test(i.title || ''));
+        const stayCity = dayHotel
+            ? cleanText(dayHotel.title).replace(/^Check-in\s*(?:at|to)\s*/i, '').replace(/\s*\/\s*Similar$/i, '')
+            : cleanText(destinationNames[Math.min(dayObj.day - 1, destinationNames.length - 1)] || destinationName);
 
         // Clean day title (strip redundant "DAY 1 - Sunday... : DAY 1...")
         let cleanDayTitle = cleanText(dayObj.title);
         cleanDayTitle = cleanDayTitle.replace(/^DAY\s*0?\d+\s*[-–:]*\s*/i, '').trim();
-
-        // Title without leading date prefix for surgical deduplication
-        const cleanTitleNoDate = cleanDayTitle.replace(/^(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|[0-9,\s–-])+/i, '').trim();
-
-        // Collect full text to extract insider tips and timeline items
-        const fullText = (dayObj.desc || '') + '\n' + activityItems.map(a => `${a.title || ''}\n${a.description || ''}`).join('\n');
-
-        // Bounded Insider Tip Extraction with smart sentence healing
-        let insiderTip = '';
-        const tipMatch = fullText.match(/(?:SHRAWELLO\s*View|Why\s*this\s*works\s*as\s*per\s*SHRAWELLO|Why\s*this\s*works|Important\s*plan\s*by\s*SHRAWELLO|Curator(?:'s)?\s*Note)[:\s]+([^\r\n]+(?:\r?\n(?![0-9]{1,2}:[0-9]{2}|DAY\s*\d|Overnight|Places\s*Covered|Hotel|[-•*])[^\r\n]+)*)/i);
-        if (tipMatch) {
-            let rawTip = tipMatch[1].trim();
-            rawTip = rawTip.split(/(?:\bOvernight\b|\bPlaces covered\b|\bDAY\s*\d\b|\bHotel\b)/i)[0].trim();
-            insiderTip = cleanText(rawTip).replace(/\s+/g, ' ');
-
-            // Truncate cleanly at sentence boundary if too long
-            if (insiderTip.length > 340) {
-                const lastPeriod = insiderTip.lastIndexOf('.', 340);
-                if (lastPeriod > 160) {
-                    insiderTip = insiderTip.substring(0, lastPeriod + 1);
-                } else {
-                    const lastSpace = insiderTip.lastIndexOf(' ', 320);
-                    insiderTip = insiderTip.substring(0, lastSpace > 0 ? lastSpace : 320) + '...';
-                }
-            }
-
-            // HEAL DANGLING CUTOFF PREPOSITIONS (e.g. "...take fresh early-morning darshan on")
-            if (insiderTip) {
-                insiderTip = insiderTip.trim();
-                if (/\b(?:on|at|to|the|and|with|for|in|from)$/i.test(insiderTip)) {
-                    insiderTip = insiderTip.replace(/\b(?:on|at|to|the|and|with|for|in|from)$/i, '').trim();
-                    insiderTip += ' the following morning.';
-                }
-                if (!/[.!?]$/.test(insiderTip)) {
-                    insiderTip += '.';
-                }
-            }
-        }
 
         // 1. Day Header Banner Pill (Obsidian Slate with Gold Accent)
         doc.setFillColor(...THEME.obsidian);
@@ -639,72 +660,65 @@ export const generateLuxuryItineraryPDF = async ({
         doc.text(`DAY ${String(dayObj.day).padStart(2, '0')}  |  ${cleanDayTitle.toUpperCase()}`, margin + 6, y + 4.7);
         y += 8.8;
 
-        // 2. Parse Timeline Entries (Strictly filtering out duplicates & redundant headers)
-        const lines = fullText
-            .split(/\r?\n/)
-            .map(l => l.trim())
-            .filter(l => l.length > 0);
-
+        // 2. Parse Timeline Entries directly from structured items (ZERO DUPLICATION)
         const timelineEntries: { time: string; text: string }[] = [];
         const seenTexts = new Set<string>();
 
-        // AIRTIGHT DEDUPLICATION CHECKER (Stops repetitive day titles & leg headers)
         const isRedundantLine = (str: string): boolean => {
             const s = str.toLowerCase().replace(/[-–•*|\s]/g, ' ').trim();
             if (!s || s.length < 3) return true;
             if (/^day\s*0?\d+/i.test(s) || /\bday\s*0?\d+\s*[-–:]+/i.test(s)) return true;
-
-            // Check if line is contained within day title or cleanTitleNoDate
             if (cleanDayTitle && cleanDayTitle.toLowerCase().includes(s)) return true;
-            if (cleanTitleNoDate && cleanTitleNoDate.length > 5 && (cleanTitleNoDate.toLowerCase().includes(s) || s.includes(cleanTitleNoDate.toLowerCase()))) return true;
-
-            // Check if line matches route string or leg destinations
-            if (routeString && s.includes(routeString.toLowerCase())) return true;
-
-            // Skip generic category headings
-            if (/^(overnight\s*stay|places\s*covered|shrawello\s*view|why\s*this\s*works|important\s*plan|maharashtra\s*is\s*blessed|return\s*home|early\s*morning\s*darshan$)/i.test(s)) return true;
-
-            // Skip transport/vehicle mentions in daily schedule
-            if (uniqueVehicleTitles.some(vt => s.includes(vt.toLowerCase())) ||
-                /kia\s*carens|innova|ertiga|tempo\s*traveller|sedan|suv\s*\(capacity/i.test(s)) {
-                return true;
-            }
-
+            if (/^(overnight\s*stay|places\s*covered|shrawello\s*view|why\s*this\s*works|important\s*plan)/i.test(s)) return true;
             return false;
         };
 
-        lines.forEach(rawLine => {
-            let line = cleanText(rawLine);
-            if (!line) return;
+        if (dayObj.items && dayObj.items.length > 0) {
+            dayObj.items.forEach(item => {
+                const rawTitle = cleanText(item.title);
+                const rawDesc = cleanText(item.description);
+                // Skip overnight stays from timeline nodes as they are anchored by the dedicated badge below
+                if (item.type === 'hotel' && /overnight|restful night|check-in to/i.test(rawTitle)) return;
 
-            if (insiderTip && line.length > 20 && insiderTip.includes(line)) return;
+                const time = item.time ? cleanText(item.time) : '';
+                let displayText = rawTitle;
+                if (rawDesc && rawDesc !== rawTitle && !rawDesc.toLowerCase().includes(rawTitle.toLowerCase())) {
+                    displayText = `${rawTitle} — ${rawDesc}`;
+                } else if (rawDesc && rawDesc.length > rawTitle.length) {
+                    displayText = rawDesc;
+                }
 
-            // Match time like "07:00 AM - Arrive..." or "07:00 AM - 08:30 AM: ..."
-            const timeMatch = line.match(/^(\d{1,2}:\d{2}\s*(?:AM|PM)?(?:\s*[-–]\s*\d{1,2}:\d{2}\s*(?:AM|PM)?)?)\s*[-–:]*\s*(.*)$/i);
-            let time = '';
-            let text = line;
-            if (timeMatch) {
-                time = timeMatch[1].trim();
-                text = timeMatch[2].trim();
-            }
+                if (isRedundantLine(displayText)) return;
+                const key = displayText.toLowerCase().replace(/[^a-z0-9]/g, '');
+                if (seenTexts.has(key)) return;
+                seenTexts.add(key);
 
-            // Remove leading hyphens or bullets
-            text = text.replace(/^[-•*–\s]+/, '').trim();
-            if (!text || text.length < 3) return;
+                timelineEntries.push({ time, text: displayText });
+            });
+        }
 
-            // Apply surgical redundancy filter to both raw line and parsed text
-            if (isRedundantLine(line) || isRedundantLine(text)) return;
-
-            // Skip duplicate entries
-            const key = (time + text).toLowerCase().replace(/\s+/g, '');
-            if (seenTexts.has(key)) return;
-            seenTexts.add(key);
-
-            timelineEntries.push({ time, text });
-        });
+        // Fallback: If no structured items exist, parse legacy raw description lines
+        if (timelineEntries.length === 0 && dayObj.desc) {
+            const lines = cleanText(dayObj.desc).split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+            lines.forEach(rawLine => {
+                let line = rawLine.replace(/^[-•*–\s]+/, '').trim();
+                const timeMatch = line.match(/^(\d{1,2}:\d{2}\s*(?:AM|PM)?(?:\s*[-–]\s*\d{1,2}:\d{2}\s*(?:AM|PM)?)?)\s*[-–:]*\s*(.*)$/i);
+                let time = '';
+                let text = line;
+                if (timeMatch) {
+                    time = timeMatch[1].trim();
+                    text = timeMatch[2].trim();
+                }
+                if (!text || isRedundantLine(text)) return;
+                const key = text.toLowerCase().replace(/[^a-z0-9]/g, '');
+                if (seenTexts.has(key)) return;
+                seenTexts.add(key);
+                timelineEntries.push({ time, text });
+            });
+        }
 
         // Render Timeline Nodes
-        const maxEntriesToRender = Math.min(timelineEntries.length, 7);
+        const maxEntriesToRender = Math.min(timelineEntries.length, 6);
         for (let eIdx = 0; eIdx < maxEntriesToRender; eIdx++) {
             const entry = timelineEntries[eIdx];
 
@@ -738,37 +752,11 @@ export const generateLuxuryItineraryPDF = async ({
             doc.setFont(activeFont, 'normal');
             doc.setFontSize(6.3);
             doc.setTextColor(...THEME.slateDark);
-            doc.text("Arrival, check-in at hotel, freshen up and relax. Later proceed for confirmed temple darshan and local sightseeing.", margin + 8, y);
+            doc.text("Arrival, check-in, freshen up and relax. Later proceed for confirmed sightseeing & scheduled activities.", margin + 8, y);
             y += 3.5;
         }
 
-        // 3. Render Curator's Note Card (Ivory Champagne & Gold Accent)
-        if (insiderTip) {
-            const wrappedTip = doc.splitTextToSize(insiderTip, contentW - 18);
-            const dynamicTipH = Math.max(9, (wrappedTip.length * 2.7) + 6.4);
-
-            doc.setFillColor(...THEME.goldBg);
-            doc.setDrawColor(...THEME.goldBorder);
-            doc.setLineWidth(0.2);
-            doc.roundedRect(margin + 4, y, contentW - 8, dynamicTipH, 1, 1, 'FD');
-
-            doc.setFillColor(...THEME.gold);
-            doc.rect(margin + 4, y, 1.5, dynamicTipH, 'F');
-
-            doc.setFont(activeFont, 'bold');
-            doc.setFontSize(5.8);
-            doc.setTextColor(...THEME.goldDark);
-            doc.text("✦ CURATOR'S INSIDER ADVISORY", margin + 8, y + 3.4);
-
-            doc.setFont(activeFont, 'italic');
-            doc.setFontSize(5.8);
-            doc.setTextColor(...THEME.slateDark);
-            doc.text(wrappedTip, margin + 8, y + 6.8);
-
-            y += dynamicTipH + 2.5;
-        }
-
-        // 4. Overnight Stay Pill
+        // 3. Overnight Stay Pill
         doc.setFillColor(...THEME.cardBg);
         doc.setDrawColor(...THEME.borderLight);
         doc.roundedRect(margin + 4, y, contentW - 8, 4.8, 0.8, 0.8, 'FD');
@@ -787,7 +775,7 @@ export const generateLuxuryItineraryPDF = async ({
     const page3Days = itineraryList.slice(splitDay);
 
     // =========================================================================
-    // PAGE 2: DAY-WISE ITINERARY (FIRST HALF) & SACRED HERITAGE HIGHLIGHTS
+    // PAGE 2: DAY-WISE ITINERARY (FIRST HALF) & DESTINATION HIGHLIGHTS
     // =========================================================================
     doc.addPage();
     drawPageDecorations(doc);
@@ -803,7 +791,7 @@ export const generateLuxuryItineraryPDF = async ({
         renderDayCard(dayObj);
     });
 
-    // ── SACRED HERITAGE HIGHLIGHTS CARD (BALANCED POSITIONING ELIMINATES GAP) ──
+    // ── DESTINATION HIGHLIGHTS CARD (DYNAMICALLY ADAPTED) ──
     const heritageH = 32;
     const heritageY = Math.max(y + 3, pageH - 46);
 
@@ -819,7 +807,13 @@ export const generateLuxuryItineraryPDF = async ({
     doc.setFont(activeFont, 'bold');
     doc.setFontSize(7.0);
     doc.setTextColor(...THEME.goldDark);
-    doc.text("✦ SACRED CIRCUIT HIGHLIGHTS & ARCHITECTURAL EXPERIENCES (DAYS 1 - 3):", margin + 6, heritageY + 5.2);
+
+    const highlightsTag = isPilgrimage
+        ? "✦ SACRED PILGRIMAGE HIGHLIGHTS & ARCHITECTURAL EXPERIENCES (DAYS 1 - 3):"
+        : isInternational
+            ? "✦ INTERNATIONAL EXPEDITION HIGHLIGHTS & SIGNATURE EXPERIENCES (DAYS 1 - 3):"
+            : "✦ EXECUTIVE LEISURE HIGHLIGHTS & REGIONAL EXPLORATION (DAYS 1 - 3):";
+    doc.text(highlightsTag, margin + 6, heritageY + 5.2);
 
     const heritageHighlights = isMaharashtra ? [
         {
@@ -834,18 +828,31 @@ export const generateLuxuryItineraryPDF = async ({
             title: "Grishneshwar Jyotirlinga",
             note: "Revered 12th Jyotirlinga restored by Queen Ahilyabai Holkar in red stone with 5-tier Shikhara and intricate temple carvings."
         }
+    ] : isInternational ? [
+        {
+            title: "Alpine & Canyon Landscapes",
+            note: "Scenic mountain passes, dramatic river canyons, alpine cable car ascents, and authentic regional cultural bazaars."
+        },
+        {
+            title: "Dedicated Chauffeur & English Guide",
+            note: "Sanitized private transport with licensed bilingual driver cum guide ensuring smooth navigation and hassle-free transit."
+        },
+        {
+            title: "Curated Activity Access",
+            note: "Pre-arranged cable car / activity entry ticketing and structured scheduling to maximize discovery without queues."
+        }
     ] : [
         {
-            title: "Curated Cultural Heritage",
-            note: "Immersive exploration of consecrated pilgrimage sites, architectural landmarks, and verified local cultural experiences."
+            title: "Curated Regional Heritage",
+            note: "Immersive exploration of celebrated landmarks, architectural marvels, and authentic local cultural experiences."
         },
         {
-            title: "Dedicated Local Guidance",
-            note: "Certified authorized destination guides available for deep historical insights, VIP queues, and hassle-free darshan passes."
+            title: "Dedicated Local Mobility",
+            note: "Private sanitized vehicle with seasoned circuit chauffeur for comfortable transit and scenic road journeys."
         },
         {
-            title: "Seamless Mobility Buffers",
-            note: "All highway routes scheduled with scenic refreshment stops and buffer timings to guarantee comfortable, fatigue-free travel."
+            title: "Seamless Sightseeing Buffers",
+            note: "Relaxed itinerary pacing with built-in refreshment halts and photo stops for a restorative holiday experience."
         }
     ];
 
@@ -919,20 +926,20 @@ export const generateLuxuryItineraryPDF = async ({
             ['Total', 'Complete Tour including all local transfers & sightseeing', '~875-970 Km', `${tripDetails.days} Days / ${tripDetails.nights} Nights`]
         ];
     } else {
-        travelGuideRows = itineraryList.slice(0, 5).map((d, i) => {
-            const fromCity = destinationNames[i] || destinationNames[0] || 'Origin';
-            const toCity = destinationNames[i + 1] || destinationNames[i] || 'Destination';
+        // Map all days comprehensively (no artificial cutoff)
+        travelGuideRows = itineraryList.map(d => {
+            const dayTitle = cleanTitle(d.title || `${destinationName} Sightseeing`);
             return [
                 `Day ${d.day}`,
-                `${fromCity}  ->  ${toCity} Sightseeing & Local Transfers`,
-                '~60-120 Km',
-                'Driving & Sightseeing'
+                `${cleanText(destinationName)}: ${dayTitle}`,
+                '~45-90 Km',
+                'Excursion & Dedicated Mobility'
             ];
         });
         travelGuideRows.push([
             'Total',
-            'Complete Circuit including all transfers & sightseeing',
-            '~600-850 Km',
+            `Complete ${cleanTitle(routeString)} Circuit Transfers & Sightseeing`,
+            `~${tripDetails.days * 60}-${tripDetails.days * 110} Km`,
             `${tripDetails.days} Days / ${tripDetails.nights} Nights`
         ]);
     }
@@ -942,7 +949,7 @@ export const generateLuxuryItineraryPDF = async ({
         margin: { left: margin, right: margin },
         theme: 'grid',
         pageBreak: 'avoid',
-        head: [['Day', 'Route / Sacred Circuit', 'Approx. Distance', 'Estimated Travel Time']],
+        head: [['Day', isPilgrimage ? 'Route / Sacred Circuit' : 'Route / Excursion Schedule', 'Approx. Distance', 'Estimated Travel Time']],
         body: travelGuideRows,
         styles: { fontSize: 6.4, font: activeFont, textColor: [30, 41, 59], cellPadding: 2.2, lineColor: [226, 232, 240], lineWidth: 0.2 },
         headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], font: activeFont, fontStyle: 'bold', fontSize: 6.8, cellPadding: 2.2 },
@@ -969,12 +976,26 @@ export const generateLuxuryItineraryPDF = async ({
     doc.setFont(activeFont, 'bold');
     doc.setFontSize(6.8);
     doc.setTextColor(...THEME.obsidian);
-    doc.text("CIRCUIT DRIVING PROTOCOL & RECOMMENDED TIMING BUFFERS:", margin + 5, guideEndY + 4.5);
 
-    const driveTips = [
+    const protocolTitle = isPilgrimage
+        ? "CIRCUIT DRIVING PROTOCOL & RECOMMENDED TIMING BUFFERS:"
+        : isInternational
+            ? "INTERNATIONAL CHAUFFEUR PROTOCOL & TIMING GUIDELINES:"
+            : "CIRCUIT DRIVING PROTOCOL & RECOMMENDED TRAVEL BUFFERS:";
+    doc.text(protocolTitle, margin + 5, guideEndY + 4.5);
+
+    const driveTips = isPilgrimage ? [
         "• Early Morning Temple Hours: We strongly recommend 05:30 AM - 07:00 AM starts to minimize queue waiting times.",
         "• Highway & Ghat Safety: Driving times account for ghat hairpin speed limits and recommended refreshment stops.",
-        "• Return Departure Punctuality: Departure transfer to Mumbai/Pune includes an essential 2-hour peak-traffic safety buffer."
+        "• Return Departure Punctuality: Departure transfer to station/airport includes an essential 2-hour peak-traffic safety buffer."
+    ] : isInternational ? [
+        "• Chauffeur Meeting Point: Driver cum guide meets party at airport arrival hall / hotel lobby 15 mins prior to schedule.",
+        "• Mountain & Excursion Safety: Travel times account for scenic photo stops, weather conditions & comfort breaks.",
+        "• International Flight Punctuality: Airport return transfer scheduled 3 hours prior to international flight departure."
+    ] : [
+        "• Scenic Highway Pacing: Driving times include scenic viewpoint stops, comfort refreshments & photography breaks.",
+        "• Punctual Sightseeing Starts: Recommended 09:00 AM departure to maximize daylight hours at key attractions.",
+        "• Departure Transit Buffer: Drop transfer to airport/station includes a 2-hour traffic safety buffer."
     ];
 
     driveTips.forEach((dt, dtIdx) => {
@@ -986,7 +1007,6 @@ export const generateLuxuryItineraryPDF = async ({
 
     // =========================================================================
     // PAGE 4: PACKAGE DELIVERABLES, DESTINATION ADVISORY & ESSENTIAL GUIDELINES
-    // Reintroducing Essential Tour Guidelines completely fills the previous 70mm void!
     // =========================================================================
     doc.addPage();
     drawPageDecorations(doc);
@@ -995,7 +1015,12 @@ export const generateLuxuryItineraryPDF = async ({
     doc.setFont(activeFont, 'bold');
     doc.setFontSize(8.5);
     doc.setTextColor(...THEME.obsidian);
-    doc.text("Package Deliverables & Sacred Destination Advisory", margin, y);
+    const deliverablesHeading = isPilgrimage
+        ? "Package Deliverables & Sacred Destination Advisory"
+        : isInternational
+            ? "Package Deliverables & International Travel Advisory"
+            : "Package Deliverables & Regional Travel Advisory";
+    doc.text(deliverablesHeading, margin, y);
     y += 4.5;
 
     // ── DUAL-COLUMN BENTO: BESPOKE INCLUSIONS VS EXCLUSIONS ──
@@ -1020,13 +1045,13 @@ export const generateLuxuryItineraryPDF = async ({
     let incY = y + 9.8;
     const baseInclusions = [
         `${String(tripDetails.nights).padStart(2, '0')} Nights stay in verified 3/4-Star category hotels.`,
-        `${String(roomsCount).padStart(2, '0')} Deluxe Rooms on ${tripDetails.roomSharing || 'Quad'} Sharing for ${guestCount} guests.`,
+        `${String(roomsCount).padStart(2, '0')} Deluxe Rooms on ${tripDetails.roomSharing || 'Double'} Sharing for ${guestCount} guests.`,
         `Daily ${getMealPlanShortName(tripDetails.mealPlanCode)} (${tripDetails.mealPlanCode || 'CP'}) as per hotel plan.`,
         `Dedicated Private ${cleanText(vehicleSummary)} for all confirmed days.`,
         `Station / Airport pickup and return departure transfers included.`,
-        `Intercity highway transfers and all confirmed temple sightseeing.`,
+        `Intercity highway transfers and all scheduled sightseeing as per itinerary.`,
         `Driver allowance, vehicle fuel, intercity tolls & commercial parking.`,
-        `All interstate commercial road taxes and hotel service taxes included.`
+        `All applicable commercial transport permits and hotel taxes included.`
     ];
 
     const activeInclusions = (tripDetails.included && tripDetails.included.length > 0)
@@ -1065,12 +1090,12 @@ export const generateLuxuryItineraryPDF = async ({
 
     let excY = y + 9.8;
     const baseExclusions = [
-        `5% GST as per Government of India statutory regulations.`,
-        `Temple VIP Sugam Darshan tickets & special Pooja fees.`,
+        `5% GST / statutory taxes as per prevailing government regulations.`,
+        isPilgrimage ? `Temple VIP Sugam Darshan tickets & special Pooja fees.` : `Entry tickets to monuments, activities & cable cars unless explicitly listed.`,
         `Flight tickets and train reservations unless explicitly requested.`,
-        `Camera / videography fees and monument entry ticketing.`,
+        `Camera / videography fees and personal guide tips.`,
         `Personal expenses (laundry, room service, telephone, minibar).`,
-        `Any adventure activities or excursions not listed in itinerary.`,
+        `Any adventure activities or optional excursions not listed in itinerary.`,
         `Extra vehicle running outside confirmed route circuit.`,
         `Personal travel / medical insurance or unforeseen emergency expenses.`
     ];
@@ -1095,17 +1120,23 @@ export const generateLuxuryItineraryPDF = async ({
 
     y += incExcH + 5.5;
 
-    // ── SACRED DESTINATION TIMINGS & TEMPLE DECORUM (2x2 GRID) ──
+    // ── DESTINATION ADVISORY & ESSENTIAL GUIDELINES (2x2 GRID) ──
     doc.setFont(activeFont, 'bold');
     doc.setFontSize(8.0);
     doc.setTextColor(...THEME.obsidian);
-    doc.text("Sacred Destination Timings & Temple Decorum:", margin, y);
+    
+    const advisoryTitle = isPilgrimage
+        ? "Sacred Destination Timings & Temple Decorum:"
+        : isInternational
+            ? "International Travel Essentials & Guest Advisory:"
+            : "Regional Destination Advisory & Travel Essentials:";
+    doc.text(advisoryTitle, margin, y);
     y += 3.0;
 
     const templeCardW = (contentW - 3) / 2;
     const templeCardH = 22;
 
-    const templeCards = [
+    const templeCards = isPilgrimage ? [
         {
             title: 'Shri Saibaba Sansthan (Shirdi)',
             timings: 'Darshan: 06:00 AM - 10:00 PM | Kakad Aarti: 04:30 AM',
@@ -1125,6 +1156,48 @@ export const generateLuxuryItineraryPDF = async ({
             title: 'Grishneshwar & Ellora Caves',
             timings: 'Grishneshwar: 05:30 AM - 09:30 PM | Ellora: 06:00 AM - 06:00 PM',
             note: 'Men enter inner sanctum bare-chested/dhoti. Note: Ellora Caves are closed on Tuesdays.'
+        }
+    ] : isInternational ? [
+        {
+            title: 'Visa & Passport Regulations',
+            timings: '14-Day Visa-Free Entry for Indian Citizens',
+            note: 'Passport must have min. 6 months validity & 2 blank pages. Keep return flight tickets handy.'
+        },
+        {
+            title: 'Currency & Forex Guidelines',
+            timings: 'Local Currency (KZT / Tenge) & USD Accepted',
+            note: 'International Visa/Mastercard active for overseas POS. Currency exchange available at airport/city.'
+        },
+        {
+            title: 'Alpine Climate & Packing Advisory',
+            timings: 'Mountain Temperatures Vary (Shymbulak 3,200m)',
+            note: 'Layered thermal innerwear, windbreaker jacket, sunscreen, and sturdy walking shoes recommended.'
+        },
+        {
+            title: '24x7 Dedicated Overseas Support',
+            timings: 'Helpline: +91 94234 15764 (Direct Call / WhatsApp)',
+            note: 'On-ground English-speaking liaison active throughout. Indian Embassy consular coordination available.'
+        }
+    ] : [
+        {
+            title: 'Government Identity Protocol',
+            timings: 'Original Photo IDs Mandatory at Check-in',
+            note: 'Original Aadhaar card or Passport required for all adult guests as per hotelier hospitality regulations.'
+        },
+        {
+            title: 'Luggage Boot Management',
+            timings: 'Comfortable Cabin & Trunk Space Distribution',
+            note: 'Guests are kindly advised to travel with standard suitcases to ensure comfortable vehicle legroom.'
+        },
+        {
+            title: 'Scenic Hill & Mountain Driving',
+            timings: 'Chauffeur Regulates AC on Steep Ghat Incline',
+            note: 'AC switched off momentarily on steep uphill bends to prioritize engine torque and mountain road safety.'
+        },
+        {
+            title: 'Hotel Dining & Meal Schedules',
+            timings: 'Fixed Buffet Hours as per Property Policy',
+            note: 'Buffet breakfast served 07:30 AM - 10:00 AM. Early packed breakfast available upon front-desk notice.'
         }
     ];
 
@@ -1302,19 +1375,36 @@ export const generateLuxuryItineraryPDF = async ({
 
     y += investH + 4.5;
 
-    // 2. Curated Optional Concierge & Upgrades Table (MOVED TO PAGE 5 TO PERFECTLY BALANCE SPACE)
+    // 2. Curated Optional Concierge & Upgrades Table (DYNAMICALLY ADAPTED)
     doc.setFont(activeFont, 'bold');
     doc.setFontSize(7.8);
     doc.setTextColor(...THEME.obsidian);
     doc.text("Curated Optional Concierge & Destination Services:", margin, y);
     y += 2.5;
 
-    const optServices = [
-        ['Shirdi Sai Baba VIP / Sugam Darshan Assistance', 'Rs. 500 / Person'],
-        ['Trimbakeshwar Special Pooja / Abhishek Assistance', 'Rs. 1,500 / Person'],
-        ['Government Authorized Guide for Ellora Caves & Kailasa Temple (Half Day)', 'Rs. 1,800 / Group'],
-        ['Mumbai Gateway of India Harbour Boat Ride (Private Boat)', 'Rs. 2,500 / Boat']
-    ];
+    let optServices: string[][] = [];
+    if (isPilgrimage) {
+        optServices = [
+            ['Sacred Shrine VIP / Sugam Darshan Fast-Track Pass', 'Rs. 500 / Person'],
+            ['Special Vedic Pooja & Abhishek Priest Assistance', 'Rs. 1,500 / Family'],
+            ['Authorized Heritage Guide for Monument / Cave Complex', 'Rs. 1,800 / Group'],
+            ['Chauffeur Waiting & Night Halts Assistance', 'Included in Package']
+        ];
+    } else if (isInternational) {
+        optServices = [
+            ['Alpine Cable Car / Gondola Fast-Track VIP Upgrade', 'Rs. 1,800 / Person'],
+            ['Scenic Canyon / Mountain 4x4 Off-Road Guided Excursion', 'Rs. 3,500 / Group'],
+            ['Traditional Cultural Dining Experience & Folk Performance', 'Rs. 2,200 / Person'],
+            ['Dedicated English-Speaking Licensed Destination Guide', 'Rs. 2,800 / Day']
+        ];
+    } else {
+        optServices = [
+            ['Private Professional Vacation Photographer (Half Day)', 'Rs. 4,500 / Session'],
+            ['Special Candlelight Dinner & Gourmet Culinary Setup', 'Rs. 3,500 / Couple'],
+            ['Local Certified Heritage Guide for Full Day Sightseeing', 'Rs. 2,500 / Day'],
+            ['Vehicle Segment Upgrade (Sedan to Innova Crysta / SUV)', 'On Request']
+        ];
+    }
 
     autoTable(doc, {
         startY: y,

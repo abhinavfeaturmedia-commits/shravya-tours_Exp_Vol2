@@ -480,7 +480,7 @@ export const InteractiveItinerary: React.FC = () => {
                             </h2>
                             <div className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-xs">
                                 <div className="divide-y divide-stone-100">
-                                    {items.filter((i: any) => i.type === 'hotel').sort((a: any, b: any) => a.day - b.day).map((hotel: any) => {
+                                    {items.filter((i: any) => i.type === 'hotel' && !/breakfast|lunch|dinner|meal|check-out/i.test(i.title || '')).sort((a: any, b: any) => a.day - b.day).map((hotel: any) => {
                                         const sharing = hotel.roomSharing || tripDetails?.roomSharing || 'Double';
                                         const isTriple = sharing === 'Triple';
                                         const mealCode = hotel.mealPlanCode || tripDetails?.mealPlanCode || 'CP';

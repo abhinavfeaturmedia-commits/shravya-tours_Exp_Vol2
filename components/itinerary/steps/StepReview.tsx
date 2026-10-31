@@ -247,7 +247,7 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
     const itineraryList = generatePackageItinerary();
 
     return (
-        <div className="min-h-full flex flex-col md:flex-row">
+        <div className="min-h-full flex flex-col lg:flex-row pb-20 lg:pb-0">
 
             {/* ── LEFT: Document Preview ───────────────────────────────── */}
             <div className="flex-1 overflow-y-auto p-6 md:p-12 print:p-0">
@@ -411,7 +411,7 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
                             {accommodations.length > 0 && (
                                 <div className="mb-6">
                                     <h4 className="text-xs font-bold text-stone-500 mb-3 flex items-center gap-2"><Hotel size={14}/> Hotels / Villas</h4>
-                                    <div className="overflow-hidden rounded-xl border border-stone-200 bg-white shadow-xs">
+                                    <div className="overflow-x-auto rounded-xl border border-stone-200 bg-white shadow-xs">
                                         <table className="w-full text-left text-xs">
                                             <thead className="bg-stone-50 text-stone-600 border-b border-stone-200 font-bold">
                                                 <tr>
@@ -526,7 +526,7 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
             </div>
 
             {/* ── RIGHT: Action Panel ──────────────────────────────────── */}
-            <div className="w-full md:w-80 bg-white border-l border-stone-200 flex flex-col shadow-2xl z-20 print:hidden shrink-0">
+            <div className="w-full lg:w-80 bg-white border-t lg:border-t-0 lg:border-l border-stone-200 flex flex-col shadow-2xl z-20 print:hidden shrink-0">
                 <div className="p-5 border-b border-stone-100">
                     <h3 className="font-black text-base text-stone-900 flex items-center gap-2">
                         <DollarSign size={18} className="text-emerald-500" /> Costing & Margins
@@ -686,6 +686,35 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
                         title={!editPackageId ? 'Save package first' : 'Copy Interactive Web Link'}
                     >
                         <span className="material-symbols-outlined text-sm">link</span> Copy Web Link
+                    </button>
+                </div>
+            </div>
+
+            {/* Mobile Fixed Quick Actions Bar */}
+            <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-stone-200 p-3 px-4 flex items-center justify-between gap-3 z-50 print:hidden shadow-xl">
+                <div>
+                    <div className="text-[10px] font-bold text-stone-500 uppercase tracking-wider">Total Investment</div>
+                    <div className="text-base font-black text-stone-900">{formatCurrency(finalPrice)}</div>
+                </div>
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={handleDownloadPDF}
+                        className="px-3.5 py-2 bg-stone-900 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-sm active:scale-95"
+                    >
+                        <Download size={14} /> PDF
+                    </button>
+                    <button
+                        onClick={handleShareWhatsApp}
+                        className="px-3.5 py-2 bg-[#25D366] text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-sm active:scale-95"
+                    >
+                        <Share2 size={14} /> Share
+                    </button>
+                    <button
+                        onClick={handleSave}
+                        disabled={isSaving}
+                        className="px-4 py-2 bg-emerald-600 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-sm active:scale-95 disabled:opacity-60"
+                    >
+                        {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Save
                     </button>
                 </div>
             </div>
